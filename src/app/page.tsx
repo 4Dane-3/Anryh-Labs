@@ -1,65 +1,144 @@
-import Image from "next/image";
+"use client";
+
+import { motion } from "framer-motion";
+import { RotatingGlobe } from "@/components/RotatingGlobe";
+import { BackgroundPaths } from "@/components/ui/background-paths";
 
 export default function Home() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
+    <div className="min-h-screen flex flex-col bg-black overflow-hidden">
+      {/* Header */}
+      <header className="relative z-20 w-full border-b border-white/10">
+        <div className="mx-auto flex h-[75px] max-w-[1336px] items-center justify-between px-6">
+          <a
+            href="/"
+            className="text-[28px] font-manifold font-bold tracking-tight text-white"
+          >
+            Anryh Labs
+          </a>
+
+          <nav className="flex items-center gap-6">
             <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+              href="#"
+              className="text-sm text-white/70 hover:text-white transition-colors hidden sm:block"
             >
-              Templates
-            </a>{" "}
-            or the{" "}
+              Our story
+            </a>
             <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+              href="#"
+              className="text-sm text-white/70 hover:text-white transition-colors hidden sm:block"
             >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+              Membership
+            </a>
+            <a
+              href="#"
+              className="text-sm text-white/70 hover:text-white transition-colors hidden md:block"
+            >
+              Write
+            </a>
+            <a
+              href="#"
+              className="text-sm text-white/70 hover:text-white transition-colors"
+            >
+              Sign in
+            </a>
+            <button className="h-[38px] px-4 bg-white text-black text-sm font-normal rounded-full hover:bg-white/90 transition-colors">
+              Get started
+            </button>
+          </nav>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+      </header>
+
+      {/* Hero Section */}
+      <main className="relative flex-1 flex items-center">
+        {/* Background Paths - lowest layer */}
+        <div className="absolute inset-0 z-0">
+          <BackgroundPaths />
+        </div>
+
+        {/* Globe - positioned to the right, partially off-screen */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 1, delay: 0.3 }}
+          className="absolute right-[-150px] top-1/2 -translate-y-1/2 w-[700px] h-[700px] z-5 hidden lg:block"
+        >
+          {/* Circular black background matching globe sphere */}
+          <div
+            className="absolute inset-0"
+            style={{
+              background:
+                "radial-gradient(circle at 50% 50%, black 0%, black 39.5%, transparent 40%)",
+            }}
+          />
+          <div className="relative w-full h-full">
+            <RotatingGlobe />
+          </div>
+        </motion.div>
+
+        <div className="relative z-10 mx-auto max-w-[1336px] w-full px-6">
+          <div className="flex items-center justify-between gap-8">
+            {/* Left - Text Content */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6 }}
+              className="max-w-[650px]"
+            >
+              <h1 className="font-manifold text-[60px] md:text-[80px] leading-[0.95] tracking-[-0.02em] text-white mb-8">
+                Human-first
+                <br />
+                Technologies
+              </h1>
+              <p className="text-[21px] text-white/70 mb-8 font-normal">
+                Thoughtfully engineered tools built to serve people, not extract
+                from them.
+              </p>
+              <button className="h-[46px] px-6 bg-white text-black text-[20px] font-normal rounded-full hover:bg-white/90 transition-colors">
+                Apps
+              </button>
+            </motion.div>
+          </div>
         </div>
       </main>
+
+      {/* Footer */}
+      <footer className="relative z-20 border-t border-white/10 py-6">
+        <div className="mx-auto max-w-[1336px] px-6">
+          <nav className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[13px] text-white/40">
+            <a href="#" className="hover:text-white transition-colors">
+              Help
+            </a>
+            <a href="#" className="hover:text-white transition-colors">
+              Status
+            </a>
+            <a href="#" className="hover:text-white transition-colors">
+              About
+            </a>
+            <a href="#" className="hover:text-white transition-colors">
+              Careers
+            </a>
+            <a href="#" className="hover:text-white transition-colors">
+              Press
+            </a>
+            <a href="#" className="hover:text-white transition-colors">
+              Blog
+            </a>
+            <a href="#" className="hover:text-white transition-colors">
+              Privacy
+            </a>
+            <a href="#" className="hover:text-white transition-colors">
+              Rules
+            </a>
+            <a href="#" className="hover:text-white transition-colors">
+              Terms
+            </a>
+            <a href="#" className="hover:text-white transition-colors">
+              Text to speech
+            </a>
+          </nav>
+        </div>
+      </footer>
     </div>
   );
 }
