@@ -17,6 +17,15 @@ const companies = [
     logo: "/clync-logo.png",
     external: true,
   },
+  {
+    id: "dexrolo",
+    name: "Dexrolo",
+    description:
+      "The pure networking app. Snap a selfie to establish a connection and be able to communicate directly. Ping an interest in meeting to 2nd connections and select meeting locations from the app.",
+    status: "Pending",
+    logo: "/favicon.svg",
+    external: false,
+  },
   // More companies will be added here
 ];
 
@@ -76,12 +85,41 @@ export default function CompaniesPage() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.5, delay: index * 0.1 }}
               >
-                <a 
-                  href={company.href}
-                  target={company.external ? "_blank" : undefined}
-                  rel={company.external ? "noopener noreferrer" : undefined}
-                >
-                  <Card className="p-6 bg-white/5 border-white/10 hover:bg-white/10 transition-all cursor-pointer group h-full">
+                {company.href ? (
+                  <a
+                    href={company.href}
+                    target={company.external ? "_blank" : undefined}
+                    rel={company.external ? "noopener noreferrer" : undefined}
+                  >
+                    <Card className="p-6 bg-white/5 border-white/10 hover:bg-white/10 transition-all cursor-pointer group h-full">
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="p-2 bg-white/10 rounded-xl overflow-hidden">
+                          <Image
+                            src={company.logo}
+                            alt={`${company.name} logo`}
+                            width={32}
+                            height={32}
+                            className="w-8 h-8 object-contain"
+                          />
+                        </div>
+                        <span className="text-xs px-2 py-1 bg-green-500/10 text-green-400 rounded-full">
+                          {company.status}
+                        </span>
+                      </div>
+                      <h3 className="font-manifold text-2xl font-semibold text-white mb-2 group-hover:text-white transition-colors">
+                        {company.name}
+                      </h3>
+                      <p className="text-white/60 text-sm leading-relaxed mb-4 whitespace-pre-line">
+                        {company.description}
+                      </p>
+                      <div className="flex items-center text-orange-400 text-sm font-medium group-hover:gap-2 transition-all">
+                        <span>Visit Website</span>
+                        <ExternalLink className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" />
+                      </div>
+                    </Card>
+                  </a>
+                ) : (
+                  <Card className="p-6 bg-white/5 border-white/10 transition-all h-full">
                     <div className="flex items-start justify-between mb-4">
                       <div className="p-2 bg-white/10 rounded-xl overflow-hidden">
                         <Image 
@@ -92,7 +130,7 @@ export default function CompaniesPage() {
                           className="w-8 h-8 object-contain"
                         />
                       </div>
-                      <span className="text-xs px-2 py-1 bg-green-500/10 text-green-400 rounded-full">
+                      <span className="text-xs px-2 py-1 bg-white/10 text-white/60 rounded-full">
                         {company.status}
                       </span>
                     </div>
@@ -102,12 +140,11 @@ export default function CompaniesPage() {
                     <p className="text-white/60 text-sm leading-relaxed mb-4 whitespace-pre-line">
                       {company.description}
                     </p>
-                    <div className="flex items-center text-orange-400 text-sm font-medium group-hover:gap-2 transition-all">
-                      <span>Visit Website</span>
-                      <ExternalLink className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" />
+                    <div className="text-white/40 text-sm font-medium">
+                      Coming soon
                     </div>
                   </Card>
-                </a>
+                )}
               </motion.div>
             ))}
           </div>
