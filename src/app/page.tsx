@@ -1,6 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
+import Link from "next/link";
 import { RotatingGlobe } from "@/components/RotatingGlobe";
 import { BackgroundPaths } from "@/components/ui/background-paths";
 
@@ -14,23 +15,23 @@ export default function Home() {
             Anryh Labs
           </a>
           
-          <nav className="flex items-center gap-6">
-            <a href="#" className="text-sm text-white/70 hover:text-white transition-colors hidden sm:block">
-              Our story
-            </a>
-            <a href="#" className="text-sm text-white/70 hover:text-white transition-colors hidden sm:block">
-              Membership
-            </a>
-            <a href="#" className="text-sm text-white/70 hover:text-white transition-colors hidden md:block">
-              Write
-            </a>
-            <a href="#" className="text-sm text-white/70 hover:text-white transition-colors">
-              Sign in
-            </a>
-            <button className="h-[38px] px-4 bg-white text-black text-sm font-normal rounded-full hover:bg-white/90 transition-colors">
-              Get started
-            </button>
-          </nav>
+            <nav className="flex items-center gap-6">
+              <Link href="/our-story" className="text-sm text-white/70 hover:text-white transition-colors hidden sm:block">
+                Our story
+              </Link>
+              <Link href="/open-source-apps" className="text-sm text-white/70 hover:text-white transition-colors hidden sm:block">
+                Open-Sourced Apps
+              </Link>
+              <Link href="/companies" className="text-sm text-white/70 hover:text-white transition-colors hidden md:block">
+                Companies
+              </Link>
+              <Link href="/write" className="text-sm text-white/70 hover:text-white transition-colors hidden md:block">
+                Write
+              </Link>
+              <button className="h-[38px] px-4 bg-white text-black text-sm font-normal rounded-full hover:bg-white/90 transition-colors">
+                Get started
+              </button>
+            </nav>
         </div>
       </header>
       
@@ -76,9 +77,12 @@ export default function Home() {
               <p className="text-[21px] text-white/70 mb-8 font-normal">
                 Thoughtfully engineered tools built to serve people, not extract from them.
               </p>
-              <button className="h-[46px] px-6 bg-white text-black text-[20px] font-normal rounded-full hover:bg-white/90 transition-colors">
-                Apps
-              </button>
+              <Link 
+                href="/companies"
+                className="inline-flex items-center justify-center h-[46px] px-6 bg-white text-black text-[20px] font-normal rounded-full hover:bg-white/90 transition-colors"
+              >
+                Companies
+              </Link>
             </motion.div>
           </div>
         </div>
@@ -88,16 +92,11 @@ export default function Home() {
       <footer className="relative z-20 border-t border-white/10 py-6">
         <div className="mx-auto max-w-[1336px] px-6">
           <nav className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[13px] text-white/40">
-            <a href="#" className="hover:text-white transition-colors">Help</a>
-            <a href="#" className="hover:text-white transition-colors">Status</a>
-            <a href="#" className="hover:text-white transition-colors">About</a>
-            <a href="#" className="hover:text-white transition-colors">Careers</a>
-            <a href="#" className="hover:text-white transition-colors">Press</a>
-            <a href="#" className="hover:text-white transition-colors">Blog</a>
-            <a href="#" className="hover:text-white transition-colors">Privacy</a>
-            <a href="#" className="hover:text-white transition-colors">Rules</a>
-            <a href="#" className="hover:text-white transition-colors">Terms</a>
-            <a href="#" className="hover:text-white transition-colors">Text to speech</a>
+            <Link href="/write" className="hover:text-white transition-colors">Help</Link>
+            <Link href="/status" className="hover:text-white transition-colors">Status</Link>
+            <Link href="/careers" className="hover:text-white transition-colors">Careers</Link>
+            <Link href="/privacy" className="hover:text-white transition-colors">Privacy</Link>
+            <Link href="/terms" className="hover:text-white transition-colors">Terms</Link>
           </nav>
         </div>
       </footer>
