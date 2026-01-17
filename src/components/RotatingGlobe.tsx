@@ -21,7 +21,7 @@ export function RotatingGlobe() {
   const svgRef = useRef<SVGSVGElement>(null)
   const [worldData, setWorldData] = useState<GeoFeature[]>([])
   const rotationRef = useRef(0)
-  const animationRef = useRef<number>()
+  const animationRef = useRef<number | undefined>(undefined)
 
   const width = 500
   const height = 500
@@ -32,7 +32,7 @@ export function RotatingGlobe() {
       try {
         const response = await fetch("https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json")
         const world: any = await response.json()
-        const countries = feature(world, world.objects.countries).features
+        const countries = (feature(world, world.objects.countries) as any).features
         setWorldData(countries)
       } catch (error) {
         console.log("Error loading world data:", error)
