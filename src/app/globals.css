@@ -123,3 +123,21 @@
     @apply bg-background text-foreground;
   }
 }
+
+@layer utilities {
+  @keyframes pending-pulse {
+    0%,
+    100% {
+      transform: scale(1);
+      opacity: 1;
+    }
+    50% {
+      transform: scale(1.0125);
+      opacity: 0.95;
+    }
+  }
+
+  .pending-pulse {
+    animation: pending-pulse 2.2s ease-in-out infinite;
+  }
+}

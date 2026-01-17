@@ -119,7 +119,7 @@ export default function CompaniesPage() {
                     </Card>
                   </a>
                 ) : (
-                  <Card className="p-6 bg-white/5 border-white/10 transition-all h-full">
+                  <Card className="p-6 bg-white/5 border-white/10 transition-all h-full pending-pulse">
                     <div className="flex items-start justify-between mb-4">
                       <div className="p-2 bg-white/10 rounded-xl overflow-hidden">
                         <Image 
@@ -140,8 +140,9 @@ export default function CompaniesPage() {
                     <p className="text-white/60 text-sm leading-relaxed mb-4 whitespace-pre-line">
                       {company.description}
                     </p>
-                    <div className="text-white/40 text-sm font-medium">
-                      Coming soon
+                    <div className="flex items-center text-orange-400 text-sm font-medium">
+                      <span>Coming soon...</span>
+                      <ExternalLink className="w-4 h-4 ml-1 opacity-0" />
                     </div>
                   </Card>
                 )}
