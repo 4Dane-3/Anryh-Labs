@@ -1,6 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Ensure Turbopack resolves from this project root (avoids picking /Users/dane)
+  turbopack: {
+    root: __dirname,
+  },
   // Required headers for FFmpeg WASM (SharedArrayBuffer support)
   async headers() {
     return [

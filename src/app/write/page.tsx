@@ -13,7 +13,9 @@ export default function WritePage() {
     subject: "",
     message: "",
   });
-  const [status, setStatus] = useState<"idle" | "sending" | "success" | "error">("idle");
+  const [status, setStatus] = useState<
+    "idle" | "sending" | "success" | "error"
+  >("idle");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -26,7 +28,7 @@ export default function WritePage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          access_key: "596495f4-4571-4a20-8f4e-696c1cef154b", 
+          access_key: "596495f4-4571-4a20-8f4e-696c1cef154b",
           to: "dane@clync.me",
           from_name: formData.name,
           email: formData.email,
@@ -36,7 +38,7 @@ export default function WritePage() {
       });
 
       const result = await response.json();
-      
+
       if (result.success) {
         setStatus("success");
         setFormData({ name: "", email: "", subject: "", message: "" });
@@ -48,8 +50,10 @@ export default function WritePage() {
     }
   };
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    setFormData(prev => ({
+  const handleChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) => {
+    setFormData((prev) => ({
       ...prev,
       [e.target.name]: e.target.value,
     }));
@@ -60,21 +64,36 @@ export default function WritePage() {
       {/* Header */}
       <header className="relative z-20 w-full border-b border-white/10">
         <div className="mx-auto flex h-[75px] max-w-[1336px] items-center justify-between px-6">
-          <Link href="/" className="text-[28px] font-manifold font-bold tracking-tight text-white">
+          <Link
+            href="/"
+            className="text-[28px] font-manifold font-bold tracking-tight text-white"
+          >
             Anryh Labs
           </Link>
-          
+
           <nav className="flex items-center gap-6">
-            <Link href="/our-story" className="text-sm text-white/70 hover:text-white transition-colors hidden sm:block">
+            <Link
+              href="/our-story"
+              className="text-sm text-white/70 hover:text-white transition-colors hidden sm:block"
+            >
               Our story
             </Link>
-            <Link href="/open-source-apps" className="text-sm text-white/70 hover:text-white transition-colors hidden sm:block">
+            <Link
+              href="/open-source-apps"
+              className="text-sm text-white/70 hover:text-white transition-colors hidden sm:block"
+            >
               Open-Sourced Apps
             </Link>
-            <Link href="/companies" className="text-sm text-white/70 hover:text-white transition-colors hidden md:block">
+            <Link
+              href="/companies"
+              className="text-sm text-white/70 hover:text-white transition-colors hidden md:block"
+            >
               Companies
             </Link>
-            <Link href="/write" className="text-sm text-white hover:text-white transition-colors hidden md:block">
+            <Link
+              href="/write"
+              className="text-sm text-white hover:text-white transition-colors hidden md:block"
+            >
               Write
             </Link>
             <Button className="h-[38px] px-4 bg-white text-black text-sm font-normal rounded-full hover:bg-white/90 transition-colors">
@@ -83,7 +102,7 @@ export default function WritePage() {
           </nav>
         </div>
       </header>
-      
+
       {/* Main Content */}
       <main className="flex-1 flex items-center justify-center px-6 py-16">
         <div className="w-full max-w-[600px]">
@@ -97,7 +116,8 @@ export default function WritePage() {
               Write to Us
             </h1>
             <p className="text-[18px] text-white/60">
-              Have a question, idea, or just want to say hello? We'd love to hear from you.
+              Have a question, idea, or just want to say hello? We'd love to
+              hear from you.
             </p>
           </motion.div>
 
@@ -110,7 +130,10 @@ export default function WritePage() {
           >
             {/* Name */}
             <div>
-              <label htmlFor="name" className="block text-sm text-white/60 mb-2">
+              <label
+                htmlFor="name"
+                className="block text-sm text-white/60 mb-2"
+              >
                 Your Name
               </label>
               <input
@@ -127,7 +150,10 @@ export default function WritePage() {
 
             {/* Email */}
             <div>
-              <label htmlFor="email" className="block text-sm text-white/60 mb-2">
+              <label
+                htmlFor="email"
+                className="block text-sm text-white/60 mb-2"
+              >
                 Your Email
               </label>
               <input
@@ -144,7 +170,10 @@ export default function WritePage() {
 
             {/* Subject */}
             <div>
-              <label htmlFor="subject" className="block text-sm text-white/60 mb-2">
+              <label
+                htmlFor="subject"
+                className="block text-sm text-white/60 mb-2"
+              >
                 Subject
               </label>
               <input
@@ -160,7 +189,10 @@ export default function WritePage() {
 
             {/* Message */}
             <div>
-              <label htmlFor="message" className="block text-sm text-white/60 mb-2">
+              <label
+                htmlFor="message"
+                className="block text-sm text-white/60 mb-2"
+              >
                 Message
               </label>
               <textarea
@@ -202,7 +234,9 @@ export default function WritePage() {
                 className="flex items-center gap-2 text-green-400 justify-center"
               >
                 <CheckCircle className="w-5 h-5" />
-                <span>Message sent successfully! We'll get back to you soon.</span>
+                <span>
+                  Message sent successfully! We'll get back to you soon.
+                </span>
               </motion.div>
             )}
 
@@ -213,7 +247,9 @@ export default function WritePage() {
                 className="flex items-center gap-2 text-red-400 justify-center"
               >
                 <AlertCircle className="w-5 h-5" />
-                <span>Something went wrong. Please try again or email us directly.</span>
+                <span>
+                  Something went wrong. Please try again or email us directly.
+                </span>
               </motion.div>
             )}
           </motion.form>
@@ -226,22 +262,38 @@ export default function WritePage() {
             className="text-center text-white/40 text-sm mt-8"
           >
             Or email us directly at{" "}
-            <a href="mailto:dane@clync.me" className="text-white/60 hover:text-white transition-colors underline">
+            <a
+              href="mailto:dane@clync.me"
+              className="text-white/60 hover:text-white transition-colors underline"
+            >
               dane@clync.me
             </a>
           </motion.p>
         </div>
       </main>
-      
+
       {/* Footer */}
       <footer className="relative z-20 border-t border-white/10 py-6">
         <div className="mx-auto max-w-[1336px] px-6">
           <nav className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[13px] text-white/40">
-            <Link href="/write" className="hover:text-white transition-colors">Help</Link>
-            <Link href="/status" className="hover:text-white transition-colors">Status</Link>
-            <Link href="/careers" className="hover:text-white transition-colors">Careers</Link>
-            <Link href="/privacy" className="hover:text-white transition-colors">Privacy</Link>
-            <Link href="/terms" className="hover:text-white transition-colors">Terms</Link>
+            <Link href="/write" className="hover:text-white transition-colors">
+              Help
+            </Link>
+            <Link href="/status" className="hover:text-white transition-colors">
+              Status
+            </Link>
+            <Link
+              href="/careers"
+              className="hover:text-white transition-colors"
+            >
+              Careers
+            </Link>
+            <Link
+              href="/privacy"
+              className="hover:text-white transition-colors"
+            >
+              Privacy
+            </Link>
           </nav>
         </div>
       </footer>
