@@ -76,11 +76,6 @@ export default function OurStoryPage() {
             className="space-y-8 text-center"
           >
             <p className="text-[21px] text-white/80 leading-relaxed">
-              While most tech begins in a boardroom, Anryhlabs found its start
-              in the leasing offices of Seattle.
-            </p>
-
-            <p className="text-[21px] text-white/80 leading-relaxed">
               Our founders started under the Seattle fog: navigating the
               high-pressure world of Seattle real estate as leasing agents. We
               spent our days managing tours, chasing signatures, and balancing
