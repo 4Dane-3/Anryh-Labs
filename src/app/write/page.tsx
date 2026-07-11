@@ -73,24 +73,6 @@ export default function WritePage() {
 
           <nav className="flex items-center gap-6">
             <Link
-              href="/our-story"
-              className="text-sm text-white/70 hover:text-white transition-colors hidden sm:block"
-            >
-              Our story
-            </Link>
-            <Link
-              href="/open-source-apps"
-              className="text-sm text-white/70 hover:text-white transition-colors hidden sm:block"
-            >
-              Open-Sourced Apps
-            </Link>
-            <Link
-              href="/companies"
-              className="text-sm text-white/70 hover:text-white transition-colors hidden md:block"
-            >
-              Companies
-            </Link>
-            <Link
               href="/write"
               className="text-sm text-white hover:text-white transition-colors hidden md:block"
             >

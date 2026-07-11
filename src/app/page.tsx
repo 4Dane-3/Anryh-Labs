@@ -20,24 +20,6 @@ export default function Home() {
 
           <nav className="flex items-center gap-6">
             <Link
-              href="/our-story"
-              className="text-sm text-white/70 hover:text-white transition-colors hidden sm:block"
-            >
-              Our story
-            </Link>
-            <Link
-              href="/open-source-apps"
-              className="text-sm text-white/70 hover:text-white transition-colors hidden sm:block"
-            >
-              Open-Sourced Apps
-            </Link>
-            <Link
-              href="/companies"
-              className="text-sm text-white/70 hover:text-white transition-colors hidden md:block"
-            >
-              Companies
-            </Link>
-            <Link
               href="/write"
               className="text-sm text-white/70 hover:text-white transition-colors hidden md:block"
             >
@@ -87,19 +69,18 @@ export default function Home() {
               className="max-w-[650px]"
             >
               <h1 className="font-manifold text-[60px] md:text-[80px] leading-[0.95] tracking-[-0.02em] text-white mb-8">
-                Tech built for
+                tech built for
                 <br />
-                Property Management.
+                cool people
               </h1>
               <p className="text-[21px] text-white/70 mb-8 font-normal">
-                Thoughtfully engineered technology built to move Property
-                Management forward.
+                building cool sh*t
               </p>
               <Link
-                href="/companies"
+                href="/pairo"
                 className="inline-flex items-center justify-center h-[46px] px-6 bg-white text-black text-[20px] font-normal rounded-full hover:bg-white/90 transition-colors"
               >
-                Companies
+                Pairo
               </Link>
             </motion.div>
           </div>
