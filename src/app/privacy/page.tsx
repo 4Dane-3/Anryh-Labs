@@ -7,14 +7,13 @@ import { Button } from "@/components/ui/button";
 export default function PrivacyPage() {
   return (
     <div className="min-h-screen flex flex-col bg-black">
-      {/* Header */}
       <header className="relative z-20 w-full border-b border-white/10">
         <div className="mx-auto flex h-[75px] max-w-[1336px] items-center justify-between px-6">
           <Link
             href="/"
             className="text-[28px] font-manifold font-bold tracking-tight text-white"
           >
-            Anryh Labs
+            anryh labs
           </Link>
 
           <nav className="flex items-center gap-6">
@@ -22,16 +21,15 @@ export default function PrivacyPage() {
               href="/write"
               className="text-sm text-white/70 hover:text-white transition-colors hidden md:block"
             >
-              Write
+              write
             </Link>
             <Button className="h-[38px] px-4 bg-white text-black text-sm font-normal rounded-full hover:bg-white/90 transition-colors">
-              Get started
+              get started
             </Button>
           </nav>
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="flex-1">
         <div className="mx-auto max-w-[800px] px-6 py-16">
           <motion.div
@@ -40,174 +38,172 @@ export default function PrivacyPage() {
             transition={{ duration: 0.6 }}
           >
             <h1 className="font-manifold text-[48px] md:text-[56px] leading-[1.1] tracking-[-0.02em] text-white mb-4">
-              Privacy Policy
+              privacy policy
             </h1>
-            <p className="text-white/40 mb-12">Effective Date: 01/01/2026</p>
+            <p className="text-white/40 mb-12">effective date: 07/11/2026</p>
 
             <div className="space-y-10 text-white/80 leading-relaxed">
-              {/* Section 1 */}
               <section>
                 <h2 className="text-2xl font-semibold text-white mb-4">
-                  1. Our Core Philosophy: You Are Not the Product
+                  1. our core philosophy: you are not the product
                 </h2>
                 <p>
-                  This policy explains how Anryh Labs handles your data. Our
-                  work began in the leasing offices of Seattle, where we learned
-                  firsthand that property management teams need flow—not
-                  friction—and certainly not surveillance. Unlike most tech
+                  this policy explains how anryh labs handles your data. we
+                  build products we&apos;d actually use ourselves — starting
+                  with pairo, our head-to-head mini-games app. unlike most tech
                   companies, our business model does not rely on advertising,
-                  tracking, or data retention. Our aim is not just to comply
-                  with privacy laws, but to set a higher standard for digital
-                  dignity. We do not want your data. We do not store your data.
-                  We exist to serve you, not to study you.
+                  tracking, or selling your information. our aim is not just to
+                  comply with privacy laws, but to collect as little as
+                  possible and be clear about what we do keep.
                 </p>
               </section>
 
-              {/* Section 2 */}
               <section>
                 <h2 className="text-2xl font-semibold text-white mb-4">
-                  2. Information We Do Not Collect
+                  2. information we do not collect
                 </h2>
-                <p className="mb-4">To be explicitly clear:</p>
+                <p className="mb-4">to be explicitly clear:</p>
                 <ul className="list-disc list-inside space-y-2 ml-4">
-                  <li>We do not collect your personal browsing history.</li>
+                  <li>we do not collect your personal browsing history.</li>
                   <li>
-                    We do not collect your IP address for tracking or analytics.
+                    we do not collect your IP address for tracking or analytics.
                   </li>
                   <li>
-                    We do not sell, trade, or mine your data for marketing.
+                    we do not sell, trade, or mine your data for marketing.
                   </li>
                   <li>
-                    We do not use cookies to follow you across the internet.
+                    we do not use cookies to follow you across the internet.
                   </li>
                 </ul>
               </section>
 
-              {/* Section 3 */}
               <section>
                 <h2 className="text-2xl font-semibold text-white mb-4">
-                  3. Ephemeral Data Processing (The "Use and Destroy" Policy)
+                  3. information we do collect
                 </h2>
                 <p className="mb-4">
-                  When you use our open-source applications or tools, you may
-                  provide data (such as a file to be converted, text to be
-                  edited, or content to be processed). Whenever possible, our
-                  tools run locally in your browser or on your device—so your
-                  files never leave your computer.
+                  this website is intentionally minimal. we only collect data
+                  when you choose to give it to us:
                 </p>
                 <ul className="list-disc list-inside space-y-2 ml-4">
                   <li>
-                    <strong className="text-white">Processing:</strong> Your
-                    data is processed solely for the purpose of performing the
-                    specific task you requested.
+                    <strong className="text-white">pairo waitlist:</strong> if
+                    you sign up for early access, we store your email address so
+                    we can notify you when pairo launches. that&apos;s it — no
+                    account, no profile, no behavioral tracking.
                   </li>
                   <li>
-                    <strong className="text-white">Immediate Deletion:</strong>{" "}
-                    If any processing must touch our infrastructure, it is
-                    treated as ephemeral: once the task is complete, the data is
-                    immediately and permanently deleted from active memory.
-                  </li>
-                  <li>
-                    <strong className="text-white">No Logs:</strong> We do not
-                    maintain logs of the content of your submissions.
+                    <strong className="text-white">contact form:</strong> if
+                    you write to us, we receive your name, email, subject, and
+                    message so we can respond. this is delivered to us by email
+                    and used only to handle your inquiry.
                   </li>
                 </ul>
               </section>
 
-              {/* Section 4 */}
               <section>
                 <h2 className="text-2xl font-semibold text-white mb-4">
-                  4. Open Source Transparency
+                  4. how we use your information
                 </h2>
-                <p>
-                  Trust is earned through verification, not promises. Many of
-                  our core tools are Open Source. We invite the technical
-                  community to audit our code repositories to verify that our
-                  data deletion protocols function exactly as described. We have
-                  nothing to hide because we hold nothing back.
-                </p>
+                <ul className="list-disc list-inside space-y-2 ml-4">
+                  <li>
+                    waitlist emails are used only to send launch updates about
+                    pairo.
+                  </li>
+                  <li>
+                    contact form submissions are used only to read and reply to
+                    your message.
+                  </li>
+                  <li>
+                    we do not use your information for advertising, profiling,
+                    or resale.
+                  </li>
+                </ul>
               </section>
 
-              {/* Section 5 */}
               <section>
                 <h2 className="text-2xl font-semibold text-white mb-4">
-                  5. Third-Party Embeds & Services
+                  5. third-party services
                 </h2>
                 <p className="mb-4">
-                  Anryh Labs operates with minimal third-party dependencies.
-                  However, some strictly necessary infrastructure (like hosting
-                  providers) is required to keep the lights on.
+                  anryh labs operates with minimal third-party dependencies.
+                  however, some infrastructure is required to keep the site and
+                  waitlist running:
                 </p>
                 <ul className="list-disc list-inside space-y-2 ml-4">
                   <li>
-                    <strong className="text-white">Hosting:</strong> We use
-                    Vercel to host this website. While traffic passes through
-                    their servers, we configure our applications to avoid
-                    persistent logging of user activity.
+                    <strong className="text-white">hosting:</strong> we use
+                    vercel to host this website.
+                  </li>
+                  <li>
+                    <strong className="text-white">waitlist storage:</strong>{" "}
+                    pairo waitlist signups are stored in supabase.
+                  </li>
+                  <li>
+                    <strong className="text-white">waitlist email:</strong> if
+                    you join the pairo waitlist, a confirmation email may be
+                    sent via resend.
+                  </li>
+                  <li>
+                    <strong className="text-white">contact delivery:</strong>{" "}
+                    messages from our contact form are delivered via web3forms.
                   </li>
                   <li>
                     <strong className="text-white">
-                      No External Analytics:
+                      no external analytics:
                     </strong>{" "}
-                    We do not use Google Analytics, Facebook Pixels, or
+                    we do not use google analytics, facebook pixels, or
                     third-party trackers.
                   </li>
                 </ul>
               </section>
 
-              {/* Section 6 */}
               <section>
                 <h2 className="text-2xl font-semibold text-white mb-4">
-                  6. Cookies & Local Storage
+                  6. cookies & local storage
                 </h2>
-                <p className="mb-4">We do not use tracking cookies.</p>
+                <p className="mb-4">we do not use tracking cookies.</p>
                 <p>
-                  <strong className="text-white">Functional Only:</strong> We
-                  may use "Local Storage" on your specific device to save your
-                  preferences (like "Dark Mode"). This data never leaves your
-                  device and is never sent to Anryh Labs. If you clear your
-                  browser cache, this setting is reset.
+                  <strong className="text-white">functional only:</strong> we
+                  may use local storage on your device to save preferences. this
+                  data never leaves your device and is never sent to anryh labs.
+                  if you clear your browser cache, any local settings are reset.
                 </p>
               </section>
 
-              {/* Section 7 */}
               <section>
                 <h2 className="text-2xl font-semibold text-white mb-4">
-                  7. Data Security
+                  7. data security
                 </h2>
                 <p>
-                  We use industry-standard encryption (HTTPS/TLS) to protect
-                  data while it is in transit between your device and our
-                  services. However, our strongest security feature is our
-                  retention policy: The safest data is data that does not exist.
-                  By minimizing collection and deleting data immediately after
-                  any necessary processing, we reduce the risk of leaks, hacks,
-                  or subpoenas exposing your information.
+                  we use industry-standard encryption (https/tls) to protect
+                  data in transit between your device and our services. we keep
+                  collection narrow and retention purposeful: waitlist emails
+                  exist only to notify you about pairo, and contact messages
+                  exist only to support conversation with you.
                 </p>
               </section>
 
-              {/* Section 8 */}
               <section>
                 <h2 className="text-2xl font-semibold text-white mb-4">
-                  8. Government Requests
+                  8. government requests
                 </h2>
                 <p>
-                  Because we do not store user data, logs, or files, we cannot
-                  produce them. If Anryh Labs receives a legal request or
-                  subpoena for user data, our response will be truthful and
-                  consistent: We have no data to provide.
+                  if anryh labs receives a legal request for user data, we will
+                  review it and respond truthfully based on what we actually
+                  hold. today that is limited to waitlist email addresses and
+                  contact form correspondence — nothing more.
                 </p>
               </section>
 
-              {/* Section 9 */}
               <section>
                 <h2 className="text-2xl font-semibold text-white mb-4">
-                  9. Changes to this Policy
+                  9. changes to this policy
                 </h2>
                 <p>
-                  We may update this policy to clarify our practices or comply
-                  with new regulations. If we make significant changes, we will
-                  notify users through our website. The most current version
+                  we may update this policy to clarify our practices or comply
+                  with new regulations. if we make significant changes, we will
+                  notify users through our website. the most current version
                   will always be available here.
                 </p>
               </section>
@@ -216,27 +212,26 @@ export default function PrivacyPage() {
         </div>
       </main>
 
-      {/* Footer */}
       <footer className="relative z-20 border-t border-white/10 py-6">
         <div className="mx-auto max-w-[1336px] px-6">
           <nav className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[13px] text-white/40">
             <Link href="/write" className="hover:text-white transition-colors">
-              Help
+              help
             </Link>
             <Link href="/status" className="hover:text-white transition-colors">
-              Status
+              status
             </Link>
             <Link
               href="/careers"
               className="hover:text-white transition-colors"
             >
-              Careers
+              careers
             </Link>
             <Link
               href="/privacy"
               className="hover:text-white transition-colors"
             >
-              Privacy
+              privacy
             </Link>
           </nav>
         </div>

@@ -15,7 +15,7 @@ export default function Home() {
             href="/"
             className="text-[28px] font-manifold font-bold tracking-tight text-white"
           >
-            Anryh Labs
+            anryh labs
           </a>
 
           <nav className="flex items-center gap-6">
@@ -23,10 +23,10 @@ export default function Home() {
               href="/write"
               className="text-sm text-white/70 hover:text-white transition-colors hidden md:block"
             >
-              Write
+              write
             </Link>
             <button className="h-[38px] px-4 bg-white text-black text-sm font-normal rounded-full hover:bg-white/90 transition-colors">
-              Get started
+              get started
             </button>
           </nav>
         </div>
@@ -80,7 +80,7 @@ export default function Home() {
                 href="/pairo"
                 className="inline-flex items-center justify-center h-[46px] px-6 bg-white text-black text-[20px] font-normal rounded-full hover:bg-white/90 transition-colors"
               >
-                Pairo
+                pairo
               </Link>
             </motion.div>
           </div>
@@ -92,22 +92,22 @@ export default function Home() {
         <div className="mx-auto max-w-[1336px] px-6">
           <nav className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[13px] text-white/40">
             <Link href="/write" className="hover:text-white transition-colors">
-              Help
+              help
             </Link>
             <Link href="/status" className="hover:text-white transition-colors">
-              Status
+              status
             </Link>
             <Link
               href="/careers"
               className="hover:text-white transition-colors"
             >
-              Careers
+              careers
             </Link>
             <Link
               href="/privacy"
               className="hover:text-white transition-colors"
             >
-              Privacy
+              privacy
             </Link>
           </nav>
         </div>

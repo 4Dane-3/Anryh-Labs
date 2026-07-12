@@ -17,10 +17,10 @@ Deno.serve(async (req: Request) => {
       Authorization: `Bearer ${RESEND_API_KEY}`,
     },
     body: JSON.stringify({
-      from: "Pairo <onboarding@resend.dev>", // swap to hello@anryhlabs.com once that domain is verified with Resend
+      from: "pairo <onboarding@resend.dev>", // swap to hello@anryhlabs.com once that domain is verified with Resend
       to: [email],
-      subject: "You're on the Pairo waitlist",
-      html: "<p>Thanks for joining — we'll email you the moment Pairo is ready to play.</p>",
+      subject: "you're on the pairo waitlist",
+      html: "<p>thanks for joining — we'll email you the moment pairo is ready to play.</p>",
     }),
   });
 

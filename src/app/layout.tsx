@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Anryh Labs",
-  description: "Human-first technologies and open-sourced apps by Anryh Labs.",
+  title: "anryh labs",
+  description: "building cool sh*t by anryh labs.",
 };
 
 export default function RootLayout({

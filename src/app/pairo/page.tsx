@@ -19,28 +19,28 @@ import {
 const features = [
   {
     icon: Calculator,
-    title: "Math Duel",
-    tagline: "Race to the answer.",
+    title: "math duel",
+    tagline: "race to the answer.",
     description:
-      "Same problem, same clock. Whoever solves it first takes the round.",
+      "same problem, same clock. whoever solves it first takes the round.",
     accent: "text-orange-400",
     iconBg: "bg-orange-500/10",
   },
   {
     icon: Type,
-    title: "Alphabet",
-    tagline: "Race to the word.",
+    title: "alphabet",
+    tagline: "race to the word.",
     description:
-      "Two letters. One valid word. First to type it wins — dictionary doesn't lie.",
+      "two letters. one valid word. first to type it wins — dictionary doesn't lie.",
     accent: "text-orange-400",
     iconBg: "bg-orange-500/10",
   },
   {
     icon: Coins,
-    title: "Stake Every Match",
-    tagline: "Put coins on the line.",
+    title: "stake every match",
+    tagline: "put coins on the line.",
     description:
-      "Bet before you play. Win the duel, take the pot. Lose, and feel it.",
+      "bet before you play. win the duel, take the pot. lose, and feel it.",
     accent: "text-orange-400",
     iconBg: "bg-orange-500/10",
   },
@@ -73,10 +73,10 @@ export default function PairoPage() {
             href="/"
             className="text-[28px] font-manifold font-bold tracking-tight text-white"
           >
-            Anryh Labs
+            anryh labs
           </Link>
           <span className="text-sm text-white/40 hidden sm:block">
-            A game from Anryh Labs
+            a game from anryh labs
           </span>
         </div>
       </header>
@@ -94,22 +94,22 @@ export default function PairoPage() {
             transition={{ duration: 0.6 }}
             className="max-w-[800px]"
           >
-            <p className="text-sm font-medium text-orange-400 mb-4 tracking-wide uppercase">
-              Coming soon
+            <p className="text-sm font-medium text-orange-400 mb-4 tracking-wide">
+              coming soon
             </p>
             <h1 className="font-manifold text-[56px] md:text-[80px] leading-[0.95] tracking-[-0.02em] text-white mb-6">
-              Mini-games.
+              mini-games.
               <br />
-              Real stakes.
+              real stakes.
               <br />
-              <span className="text-white/50">Your friends.</span>
+              <span className="text-white/50">your friends.</span>
             </h1>
             <p className="text-[21px] text-white/70 max-w-[560px] mb-2">
-              Pairo is head-to-head duels with friends — fast, real-time, and
+              pairo is head-to-head duels with friends — fast, real-time, and
               worth betting on.
             </p>
             <p className="text-[18px] text-white/50 max-w-[520px]">
-              Stake coins before every match. Win the round, take the pot.
+              stake coins before every match. win the round, take the pot.
             </p>
           </motion.div>
         </section>
@@ -123,7 +123,7 @@ export default function PairoPage() {
             className="mb-10"
           >
             <h2 className="font-manifold text-[36px] md:text-[48px] leading-[1.05] tracking-[-0.02em] text-white">
-              What is Pairo?
+              what is pairo?
             </h2>
           </motion.div>
 
@@ -166,10 +166,10 @@ export default function PairoPage() {
           >
             <div className="text-center mb-8">
               <h2 className="font-manifold text-[36px] md:text-[48px] leading-[1.05] tracking-[-0.02em] text-white mb-3">
-                Get early access
+                get early access
               </h2>
               <p className="text-[18px] text-white/60">
-                Be first in line when Pairo drops. No spam, just the launch.
+                be first in line when pairo drops. no spam, just the launch.
               </p>
             </div>
 
@@ -198,11 +198,11 @@ export default function PairoPage() {
                 {status === "submitting" ? (
                   <>
                     <Loader2 className="w-5 h-5 animate-spin" />
-                    Joining...
+                    joining...
                   </>
                 ) : (
                   <>
-                    Join the waitlist
+                    join the waitlist
                     <ArrowRight className="w-5 h-5" />
                   </>
                 )}
@@ -215,7 +215,7 @@ export default function PairoPage() {
                   className="flex items-center gap-2 text-green-400 justify-center text-sm"
                 >
                   <CheckCircle className="w-5 h-5 shrink-0" />
-                  <span>You&apos;re on the list. We&apos;ll be in touch.</span>
+                  <span>you&apos;re on the list. we&apos;ll be in touch.</span>
                 </motion.div>
               )}
 
@@ -227,19 +227,19 @@ export default function PairoPage() {
                 >
                   <AlertCircle className="w-5 h-5 shrink-0" />
                   <span>
-                    Something went wrong. Try again in a moment.
+                    something went wrong. try again in a moment.
                   </span>
                 </motion.div>
               )}
             </form>
 
             <p className="text-center text-white/40 text-sm mt-8">
-              Pairo is built by{" "}
+              pairo is built by{" "}
               <Link
                 href="/"
                 className="text-white/60 hover:text-white transition-colors underline"
               >
-                Anryh Labs
+                anryh labs
               </Link>
             </p>
           </motion.div>
@@ -250,22 +250,22 @@ export default function PairoPage() {
         <div className="mx-auto max-w-[1336px] px-6">
           <nav className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[13px] text-white/40">
             <Link href="/write" className="hover:text-white transition-colors">
-              Help
+              help
             </Link>
             <Link href="/status" className="hover:text-white transition-colors">
-              Status
+              status
             </Link>
             <Link
               href="/careers"
               className="hover:text-white transition-colors"
             >
-              Careers
+              careers
             </Link>
             <Link
               href="/privacy"
               className="hover:text-white transition-colors"
             >
-              Privacy
+              privacy
             </Link>
           </nav>
         </div>

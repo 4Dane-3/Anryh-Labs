@@ -7,14 +7,13 @@ import { Button } from "@/components/ui/button";
 export default function CareersPage() {
   return (
     <div className="min-h-screen flex flex-col bg-black">
-      {/* Header */}
       <header className="relative z-20 w-full border-b border-white/10">
         <div className="mx-auto flex h-[75px] max-w-[1336px] items-center justify-between px-6">
           <Link
             href="/"
             className="text-[28px] font-manifold font-bold tracking-tight text-white"
           >
-            Anryh Labs
+            anryh labs
           </Link>
 
           <nav className="flex items-center gap-6">
@@ -22,16 +21,15 @@ export default function CareersPage() {
               href="/write"
               className="text-sm text-white/70 hover:text-white transition-colors hidden md:block"
             >
-              Write
+              write
             </Link>
             <Button className="h-[38px] px-4 bg-white text-black text-sm font-normal rounded-full hover:bg-white/90 transition-colors">
-              Get started
+              get started
             </Button>
           </nav>
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="flex-1 flex items-center justify-center px-6 py-16">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -40,15 +38,15 @@ export default function CareersPage() {
           className="text-center max-w-2xl"
         >
           <h1 className="font-manifold text-[64px] md:text-[80px] leading-[1] tracking-[-0.02em] text-white mb-8">
-            Careers
+            careers
           </h1>
 
           <p className="text-[32px] md:text-[40px] text-white/80 font-light mb-8">
-            Not hiring.
+            not hiring.
           </p>
 
           <p className="text-white/50 text-lg">
-            But send our founder an email just in case{" "}
+            but send our founder an email just in case{" "}
             <a
               href="mailto:dane@clync.me"
               className="text-orange-400 hover:text-orange-300 underline transition-colors"
@@ -59,27 +57,26 @@ export default function CareersPage() {
         </motion.div>
       </main>
 
-      {/* Footer */}
       <footer className="relative z-20 border-t border-white/10 py-6">
         <div className="mx-auto max-w-[1336px] px-6">
           <nav className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[13px] text-white/40">
             <Link href="/write" className="hover:text-white transition-colors">
-              Help
+              help
             </Link>
             <Link href="/status" className="hover:text-white transition-colors">
-              Status
+              status
             </Link>
             <Link
               href="/careers"
               className="hover:text-white transition-colors"
             >
-              Careers
+              careers
             </Link>
             <Link
               href="/privacy"
               className="hover:text-white transition-colors"
             >
-              Privacy
+              privacy
             </Link>
           </nav>
         </div>
