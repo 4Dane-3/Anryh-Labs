@@ -74,14 +74,35 @@ export async function getDailyMetrics(agent: Agent, days = 30): Promise<DailyMet
   });
 }
 
-export async function getAdActions(agentId: string, limit = 8) {
+export type MigzAction = {
+  id: string;
+  kind: string;
+  title: string;
+  detail: string | null;
+  status: "proposed" | "applied" | "rejected" | "failed" | "expired";
+  created_at: string;
+  result: { error?: string } | null;
+};
+
+export async function getAdActions(agentId: string, limit = 8): Promise<MigzAction[]> {
   const { data } = await supabaseAdmin
     .from("ad_actions")
-    .select("id, kind, title, detail, created_at")
+    .select("id, kind, title, detail, status, created_at, result")
     .eq("agent_id", agentId)
+    .neq("status", "proposed")
     .order("created_at", { ascending: false })
     .limit(limit);
-  return data ?? [];
+  return (data ?? []) as MigzAction[];
+}
+
+export async function getProposedActions(agentId: string): Promise<MigzAction[]> {
+  const { data } = await supabaseAdmin
+    .from("ad_actions")
+    .select("id, kind, title, detail, status, created_at, result")
+    .eq("agent_id", agentId)
+    .eq("status", "proposed")
+    .order("created_at", { ascending: false });
+  return (data ?? []) as MigzAction[];
 }
 
 type BookingRow = Omit<ClientBooking, "answers" | "intake_completed"> & {

@@ -1,15 +1,17 @@
+import { DateTime } from "luxon";
 import { requireAgent } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { integrations } from "@/lib/integrations";
+import { briefLabel, isImageBrief, type AnyBrief } from "@/lib/migz/brief";
 import { NotConnected, PageHeader } from "@/components/dashboard/ui";
-import { CreativesManager, type Creative } from "@/components/dashboard/CreativesManager";
+import { CreativesManager, type Creative, type GeneratingJob } from "@/components/dashboard/CreativesManager";
 
 export default async function CreativesPage() {
   const agent = await requireAgent();
 
   const { data } = await supabaseAdmin
     .from("creatives")
-    .select("id, kind, storage_path, file_name, mime_type, size_bytes, status, review_note, created_at")
+    .select("id, kind, storage_path, file_name, mime_type, size_bytes, status, review_note, created_at, source, hook")
     .eq("agent_id", agent.id)
     .order("created_at", { ascending: false });
 
@@ -20,7 +22,52 @@ export default async function CreativesPage() {
     : { data: [] };
   const urlByPath = new Map((signed ?? []).map((s) => [s.path, s.signedUrl]));
 
-  const creatives: Creative[] = rows.map((r) => ({ ...r, url: urlByPath.get(r.storage_path) ?? null }));
+  // 14-day results per creative: Meta spend from insights, booked calls from our bookings (utm_content = ad id)
+  const since = DateTime.now().setZone(agent.timezone).minus({ days: 13 }).startOf("day");
+  const [{ data: ads }, { data: insights }, { data: bookings }, { data: jobs }] = await Promise.all([
+    supabaseAdmin.from("ads").select("meta_ad_id, creative_id").eq("agent_id", agent.id).not("creative_id", "is", null),
+    supabaseAdmin
+      .from("ad_insights_daily")
+      .select("meta_ad_id, spend_cents")
+      .eq("agent_id", agent.id)
+      .gte("date", since.toISODate()!),
+    supabaseAdmin
+      .from("bookings")
+      .select("attribution")
+      .eq("agent_id", agent.id)
+      .gte("created_at", since.toUTC().toISO()!),
+    supabaseAdmin
+      .from("creative_jobs")
+      .select("id, stage, brief, created_at")
+      .eq("agent_id", agent.id)
+      .in("stage", ["generating", "meta_processing"])
+      .order("created_at", { ascending: false }),
+  ]);
+
+  const creativeByAd = new Map((ads ?? []).map((a) => [a.meta_ad_id, a.creative_id as string]));
+  const stats = new Map<string, { spend_cents: number; booked: number }>();
+  const bump = (creativeId: string | undefined, spend: number, booked: number) => {
+    if (!creativeId) return;
+    const s = stats.get(creativeId) ?? { spend_cents: 0, booked: 0 };
+    s.spend_cents += spend;
+    s.booked += booked;
+    stats.set(creativeId, s);
+  };
+  for (const row of insights ?? []) bump(creativeByAd.get(row.meta_ad_id), row.spend_cents, 0);
+  for (const b of bookings ?? []) bump(creativeByAd.get((b.attribution as Record<string, string>)?.utm_content), 0, 1);
+
+  const creatives: Creative[] = rows.map((r) => ({
+    ...r,
+    url: urlByPath.get(r.storage_path) ?? null,
+    stats: stats.get(r.id) ?? null,
+  }));
+
+  const generating: GeneratingJob[] = (jobs ?? []).map((j) => ({
+    id: j.id,
+    stage: j.stage,
+    format: isImageBrief(j.brief as AnyBrief) ? "image" : "video",
+    hook: briefLabel(j.brief as AnyBrief),
+  }));
 
   return (
     <>
@@ -33,7 +80,7 @@ export default async function CreativesPage() {
           <NotConnected service="Meta">Upload now. Migz adds your files to your campaigns once your ad account is linked.</NotConnected>
         </div>
       )}
-      <CreativesManager creatives={creatives} />
+      <CreativesManager creatives={creatives} generating={generating} />
     </>
   );
 }

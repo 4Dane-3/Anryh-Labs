@@ -28,6 +28,11 @@ export type Agent = {
   user_id: string | null;
   daily_budget_cents: number;
   ads_paused: boolean;
+  meta_ad_account_id: string | null;
+  meta_page_id: string | null;
+  meta_instagram_id: string | null;
+  migz_mode: "off" | "approve" | "auto";
+  migz_last_run_at: string | null;
 };
 
 export type Booking = {

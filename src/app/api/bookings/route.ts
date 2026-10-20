@@ -5,6 +5,7 @@ import { parseBooking } from "@/lib/booking/validate";
 import { CONSENT_TEXT } from "@/lib/booking/constants";
 import { newBookingMessage } from "@/lib/booking/format";
 import { sendSlackMessage } from "@/lib/slack";
+import { sendScheduleEvent } from "@/lib/meta/capi";
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
@@ -44,7 +45,7 @@ export async function POST(req: Request) {
       consent_text: CONSENT_TEXT,
       attribution: input.attribution,
     })
-    .select("token")
+    .select("id, token")
     .single();
 
   if (error || !booking) {
@@ -76,6 +77,24 @@ export async function POST(req: Request) {
       }
     });
   }
+
+  // Tell Meta a call was booked so ad sets optimizing for SCHEDULE learn from it (no-op until configured)
+  const origin = new URL(req.url).origin;
+  after(async () => {
+    try {
+      await sendScheduleEvent({
+        bookingId: booking.id,
+        email: input.email,
+        phone: input.phone,
+        pageUrl: `${origin}/${agent.slug}`,
+        attribution: input.attribution,
+        ip: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
+        userAgent: req.headers.get("user-agent"),
+      });
+    } catch (e) {
+      console.error("conversions api failed", e);
+    }
+  });
 
   return Response.json({ token: booking.token });
 }

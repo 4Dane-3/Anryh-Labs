@@ -6,7 +6,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Film, ImageIcon, Trash2, UploadCloud } from "lucide-react";
 import { confirmCreativeUpload, createCreativeUpload, deleteCreative } from "@/app/dashboard/actions";
 import { uploadToSignedUrl } from "@/lib/dashboard/upload";
-import { fileSize } from "@/lib/dashboard/format";
+import { fileSize, usd } from "@/lib/dashboard/format";
 import { Badge, Button, Panel, PanelHeader } from "@/components/dashboard/ui";
 import { MigzMark } from "@/components/dashboard/Migz";
 import { cn } from "@/lib/utils";
@@ -22,7 +22,12 @@ export type Creative = {
   review_note: string | null;
   created_at: string;
   url: string | null;
+  source: "upload" | "migz";
+  hook: string | null;
+  stats: { spend_cents: number; booked: number } | null; // last 14 days, live creatives only
 };
+
+export type GeneratingJob = { id: string; stage: string; format: "image" | "video"; hook: string };
 
 type Upload = { id: string; name: string; progress: number; error?: string };
 
@@ -34,6 +39,15 @@ const STATUS: Record<string, { label: string; tone: "neutral" | "accent" | "good
 };
 
 const ACCEPT = "image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm";
+
+/** "2 videos", "1 image", "2 videos and 1 image" */
+function makingLabel(jobs: GeneratingJob[]) {
+  const count = (format: GeneratingJob["format"], word: string) => {
+    const n = jobs.filter((j) => j.format === format).length;
+    return n ? `${n} ${word}${n === 1 ? "" : "s"}` : null;
+  };
+  return [count("video", "video"), count("image", "image")].filter(Boolean).join(" and ");
+}
 
 const TIPS = [
   "Vertical (9:16) video, 15–30 seconds",
@@ -76,8 +90,11 @@ function CreativeCard({ creative, onDelete }: { creative: Creative; onDelete: ()
         ) : (
           <div className="flex size-full items-center justify-center text-fg-faint">Preview unavailable</div>
         )}
-        <div className="pointer-events-none absolute left-2 top-2">
+        <div className="pointer-events-none absolute inset-x-2 top-2 flex justify-between gap-2">
           <Badge tone={status.tone} className="bg-black/60 backdrop-blur">{status.label}</Badge>
+          {creative.source === "migz" && (
+            <Badge tone="accent" className="bg-black/60 backdrop-blur">Made by Migz</Badge>
+          )}
         </div>
       </div>
       <div className="flex items-start gap-2 px-3 py-2.5">
@@ -88,7 +105,15 @@ function CreativeCard({ creative, onDelete }: { creative: Creative; onDelete: ()
         )}
         <div className="min-w-0 flex-1">
           <p className="truncate text-[13px]">{creative.file_name}</p>
-          <p className="text-[11px] text-fg-faint">{fileSize(creative.size_bytes)}</p>
+          {creative.hook && <p className="truncate text-[12px] text-fg-muted">“{creative.hook}”</p>}
+          {creative.stats ? (
+            <p className="text-[11px] text-fg-faint">
+              {creative.stats.booked} booked · {usd(creative.stats.spend_cents)} spent
+              {creative.stats.booked > 0 && ` · ${usd(Math.round(creative.stats.spend_cents / creative.stats.booked))}/call`}
+            </p>
+          ) : (
+            <p className="text-[11px] text-fg-faint">{fileSize(creative.size_bytes)}</p>
+          )}
           {creative.review_note && <p className="mt-1 text-[12px] text-fg-muted">{creative.review_note}</p>}
         </div>
         {confirming ? (
@@ -114,7 +139,7 @@ function CreativeCard({ creative, onDelete }: { creative: Creative; onDelete: ()
   );
 }
 
-export function CreativesManager({ creatives }: { creatives: Creative[] }) {
+export function CreativesManager({ creatives, generating }: { creatives: Creative[]; generating: GeneratingJob[] }) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
@@ -240,6 +265,26 @@ export function CreativesManager({ creatives }: { creatives: Creative[] }) {
           ))}
         </AnimatePresence>
 
+        {generating.length > 0 && (
+          <div className="rounded-xl border border-line bg-ink-raised px-4 py-3">
+            <p className="mb-2 text-[13px] font-medium">Migz is making {makingLabel(generating)}</p>
+            <ul className="space-y-2">
+              {generating.map((j) => (
+                <li key={j.id} className="flex items-center gap-3 text-[13px]">
+                  <span className="relative flex size-2">
+                    <span className="absolute inline-flex size-full animate-ping rounded-full bg-brand opacity-60 motion-reduce:hidden" />
+                    <span className="relative inline-flex size-2 rounded-full bg-brand" />
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-fg-muted">“{j.hook}”</span>
+                  <span className="shrink-0 text-[12px] text-fg-faint">
+                    {j.format === "image" ? "Image" : "Video"} · {j.stage === "generating" ? "Generating" : "Preparing for Meta"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {creatives.length ? (
           <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
             <AnimatePresence initial={false}>
@@ -249,7 +294,7 @@ export function CreativesManager({ creatives }: { creatives: Creative[] }) {
             </AnimatePresence>
           </ul>
         ) : (
-          !uploads.length && (
+          !uploads.length && !generating.length && (
             <Panel>
               <div className="flex flex-col items-center px-6 py-12 text-center">
                 <MigzMark active={false} />
