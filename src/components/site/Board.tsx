@@ -82,9 +82,10 @@ function bezier(t: number, p0: Pt, c1: Pt, c2: Pt, p1: Pt): Pt {
 
 function controls(sx: number, sy: number, ex: number, ey: number, sag: number): [Pt, Pt] {
   const dx = ex - sx;
+  // leave the terminal gently, enter the jack dead level so the plug always sits straight
   return [
-    { x: sx + dx * 0.42, y: sy + sag },
-    { x: ex - dx * 0.3, y: ey + sag },
+    { x: sx + dx * 0.5, y: sy + sag * 0.35 },
+    { x: ex - Math.max(dx * 0.5, 24), y: ey },
   ];
 }
 
@@ -126,12 +127,11 @@ function Cord({ start, end, slack, plugged, spend, pulse }: { start: Pt; end: Pt
   }, [pulse, progress]);
 
   const d = useTransform([sx, sy, ex, ey, sag], ([x0, y0, x1, y1, s]: number[]) => {
-    const [c1, c2] = controls(x0, y0, x1, y1, s);
+    const [c1, c2] = controls(x0, y0, x1 - 20, y1, s);
     return `M ${x0} ${y0} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${x1 - 20} ${y1}`;
   });
-  const hiWidth = useTransform(width, (w) => Math.max(1, w * 0.3));
   const dot = useTransform([progress, sx, sy, ex, ey, sag], ([p, x0, y0, x1, y1, s]: number[]) => {
-    const [c1, c2] = controls(x0, y0, x1, y1, s);
+    const [c1, c2] = controls(x0, y0, x1 - 20, y1, s);
     return bezier(p, { x: x0, y: y0 }, c1, c2, { x: x1 - 20, y: y1 });
   });
   const dotX = useTransform(dot, (p) => p.x);
@@ -141,16 +141,9 @@ function Cord({ start, end, slack, plugged, spend, pulse }: { start: Pt; end: Pt
   return (
     <g>
       <motion.path d={d} fill="none" stroke="var(--sb-ink)" strokeLinecap="round" style={{ strokeWidth: width }} />
-      <motion.path
-        d={d}
-        fill="none"
-        stroke="var(--sb-cord-hi)"
-        strokeLinecap="round"
-        style={{ strokeWidth: hiWidth, y: -0.9 }}
-      />
       <motion.g style={{ x: ex, y: ey }}>
-        <rect x={-22} y={-7} width={7} height={14} rx={2} fill="var(--sb-ink)" />
-        <rect x={-17} y={-6} width={19} height={12} rx={5} fill="var(--sb-metal)" />
+        <rect x={-20} y={-6} width={6} height={12} rx={2} fill="var(--sb-ink)" />
+        <rect x={-15} y={-5} width={15} height={10} rx={4} fill="var(--sb-metal)" />
       </motion.g>
       <motion.circle r={5} fill="var(--sb-accent)" style={{ cx: dotX, cy: dotY, opacity: dotOpacity }} />
     </g>
