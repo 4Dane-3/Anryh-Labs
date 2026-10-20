@@ -4,8 +4,8 @@ import { getIntakeQuestions, type Agent } from "@/lib/booking/data";
 import { digestMessage, type DigestBooking } from "@/lib/booking/format";
 import { sendSlackMessage } from "@/lib/slack";
 
-// Runs every hour (see vercel.json). Each agent gets one DM per local day, at or after their digest hour.
-// Vercel sends `Authorization: Bearer $CRON_SECRET` automatically when CRON_SECRET is set.
+// Called every hour by Supabase pg_cron (supabase/migrations/20261022000000_digest_cron.sql), which sends
+// `Authorization: Bearer <cron_secret from Vault>`. Each agent gets one DM per local day, at or after their digest hour.
 export async function GET(req: Request) {
   const secret = process.env.CRON_SECRET;
   if (!secret || req.headers.get("authorization") !== `Bearer ${secret}`) {
