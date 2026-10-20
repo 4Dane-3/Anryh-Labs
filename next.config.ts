@@ -5,6 +5,15 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: __dirname,
   },
+  // Retired pages: send old links somewhere useful
+  async redirects() {
+    return [
+      { source: "/write", destination: "/contact", permanent: true },
+      { source: "/pairo", destination: "/", permanent: true },
+      { source: "/status", destination: "/", permanent: true },
+      { source: "/careers", destination: "/", permanent: true },
+    ];
+  },
   // Required headers for FFmpeg WASM (SharedArrayBuffer support)
   async headers() {
     return [
