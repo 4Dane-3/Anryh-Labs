@@ -8,7 +8,7 @@ with demo as (
     'demo-agent',
     'Demo Agent',
     'Life insurance that fits your family and your budget',
-    'I help families find the right coverage without the pressure. On our call we will talk through what you need, compare options from multiple carriers, and you decide.',
+    'I help families find the right coverage without the pressure. Already have a policy? I''ll review it and compare it with other carriers to make sure you''re not overpaying. On our call we will talk through what you need, compare options from multiple carriers, and you decide.',
     'TX-0000000',
     '{TX,FL,GA}',
     'agent@example.com',

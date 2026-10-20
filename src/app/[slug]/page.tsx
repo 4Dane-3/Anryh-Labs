@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { CalendarCheck, MessageCircle, ShieldCheck } from "lucide-react";
+import { CalendarCheck, MessageCircle, SearchCheck, ShieldCheck } from "lucide-react";
 import { getAgentBySlug } from "@/lib/booking/data";
 import { BookingWidget } from "@/components/booking/BookingWidget";
 
@@ -25,6 +25,11 @@ const steps = [
     icon: MessageCircle,
     title: "Tell me what you want to protect",
     body: "Your family, your mortgage, your final expenses. We start with your goals.",
+  },
+  {
+    icon: SearchCheck,
+    title: "Already have a policy? Make sure you're not overpaying",
+    body: "I'll review your current plan and compare it with other carriers to see if you can get the same coverage for less.",
   },
   {
     icon: ShieldCheck,
