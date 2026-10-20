@@ -5,6 +5,7 @@ import {
   type AvailabilityRule,
   type SlotConfig,
 } from "@/lib/booking/slots";
+import { DEFAULT_QUESTIONS, type IntakeQuestion } from "@/lib/booking/questions";
 
 export type Agent = {
   id: string;
@@ -24,6 +25,9 @@ export type Agent = {
   slack_user_id: string | null;
   digest_hour: number;
   last_digest_date: string | null;
+  user_id: string | null;
+  daily_budget_cents: number;
+  ads_paused: boolean;
 };
 
 export type Booking = {
@@ -36,6 +40,7 @@ export type Booking = {
   email: string;
   phone: string;
   token: string;
+  agent_notes: string | null;
 };
 
 export async function getAgentBySlug(slug: string): Promise<Agent | null> {
@@ -94,4 +99,17 @@ export async function getOpenSlots(agent: Agent): Promise<string[]> {
   };
 
   return generateSlots(rules, busy, config);
+}
+
+/** The agent's questions (enabled and disabled), or the defaults if they've never edited them. */
+export async function getIntakeQuestions(agentId: string): Promise<IntakeQuestion[]> {
+  const { data } = await supabaseAdmin
+    .from("intake_questions")
+    .select(
+      "key, step, sort, label, kind, options, allow_other, placeholder, hidden_when_key, hidden_when_value, enabled",
+    )
+    .eq("agent_id", agentId)
+    .order("step")
+    .order("sort");
+  return data?.length ? (data as IntakeQuestion[]) : DEFAULT_QUESTIONS;
 }

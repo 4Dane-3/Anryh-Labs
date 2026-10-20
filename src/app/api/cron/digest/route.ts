@@ -1,6 +1,6 @@
 import { DateTime } from "luxon";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import type { Agent } from "@/lib/booking/data";
+import { getIntakeQuestions, type Agent } from "@/lib/booking/data";
 import { digestMessage, type DigestBooking } from "@/lib/booking/format";
 import { sendSlackMessage } from "@/lib/slack";
 
@@ -44,7 +44,7 @@ export async function GET(req: Request) {
     try {
       const { data: rows } = await supabaseAdmin
         .from("bookings")
-        .select("name, email, phone, starts_at, intake_responses(*)")
+        .select("name, email, phone, starts_at, intake_responses(answers)")
         .eq("agent_id", agent.id)
         .eq("status", "confirmed")
         .gte("starts_at", now.startOf("day").toUTC().toISO()!)
@@ -60,11 +60,12 @@ export async function GET(req: Request) {
           email: r.email,
           phone: r.phone,
           starts_at: r.starts_at,
-          intake: intake ?? null,
+          intake: intake?.answers ?? null,
         };
       });
 
-      await sendSlackMessage(agent.slack_user_id!, digestMessage(agent, bookings, now));
+      const order = (await getIntakeQuestions(agent.id)).map((q) => q.key);
+      await sendSlackMessage(agent.slack_user_id!, digestMessage(agent, bookings, now, order));
       results[agent.slug] = `sent (${bookings.length})`;
     } catch (e) {
       // Release the claim so the next hourly run retries

@@ -1,11 +1,9 @@
+import { isHidden, MAX_LENGTH, type IntakeAnswers, type IntakeQuestion } from "@/lib/booking/questions";
+
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 function str(value: unknown, max: number): string {
   return typeof value === "string" ? value.trim().slice(0, max) : "";
-}
-
-function orNull(value: unknown, max: number): string | null {
-  return str(value, max) || null;
 }
 
 export type BookingInput = {
@@ -62,54 +60,37 @@ export function parseBooking(
   };
 }
 
-export type IntakeInput = {
-  date_of_birth: string | null;
-  gender: string | null;
-  marital_status: string | null;
-  nicotine: string | null;
-  existing_coverage: string | null;
-  policy_description: string | null;
-  goal: string | null;
-  reason: string | null;
-  budget: string | null;
-  coverage_amount: string | null;
-  best_time_to_reach: string | null;
-  notes: string | null;
-};
-
-export function parseIntake(
-  body: unknown,
-): { ok: true; data: IntakeInput } | { ok: false; error: string } {
-  const b = (body ?? {}) as Record<string, unknown>;
-
-  let dob: string | null = null;
-  const rawDob = str(b.date_of_birth, 10);
-  if (rawDob) {
-    const parsed = new Date(`${rawDob}T00:00:00Z`);
-    const valid =
-      /^\d{4}-\d{2}-\d{2}$/.test(rawDob) &&
-      !Number.isNaN(parsed.getTime()) &&
-      parsed.getUTCFullYear() >= 1900 &&
-      parsed.getTime() < Date.now();
-    if (!valid) return { ok: false, error: "That date of birth doesn't look right." };
-    dob = rawDob;
+/**
+ * Keeps only answers to the agent's enabled, visible questions, trimmed to each kind's max length,
+ * and snapshots each question's label next to its value.
+ */
+export function parseAnswers(
+  raw: unknown,
+  questions: IntakeQuestion[],
+): { ok: true; data: IntakeAnswers } | { ok: false; error: string } {
+  const input = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const values: Record<string, string> = {};
+  for (const question of questions) {
+    if (question.enabled) values[question.key] = str(input[question.key], MAX_LENGTH[question.kind]);
   }
 
-  return {
-    ok: true,
-    data: {
-      date_of_birth: dob,
-      gender: orNull(b.gender, 60),
-      marital_status: orNull(b.marital_status, 60),
-      nicotine: orNull(b.nicotine, 60),
-      existing_coverage: orNull(b.existing_coverage, 120),
-      policy_description: orNull(b.policy_description, 300),
-      goal: orNull(b.goal, 1000),
-      reason: orNull(b.reason, 1000),
-      budget: orNull(b.budget, 200),
-      coverage_amount: orNull(b.coverage_amount, 200),
-      best_time_to_reach: orNull(b.best_time_to_reach, 200),
-      notes: orNull(b.notes, 1500),
-    },
-  };
+  const answers: IntakeAnswers = {};
+  for (const question of questions) {
+    const value = values[question.key];
+    if (!question.enabled || !value || isHidden(question, values)) continue;
+
+    if (question.kind === "date") {
+      const parsed = new Date(`${value}T00:00:00Z`);
+      const valid =
+        /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+        !Number.isNaN(parsed.getTime()) &&
+        parsed.getUTCFullYear() >= 1900 &&
+        (question.key !== "date_of_birth" || parsed.getTime() < Date.now());
+      if (!valid) return { ok: false, error: `"${question.label}" doesn't look like a valid date.` };
+    }
+
+    answers[question.key] = { label: question.label, value };
+  }
+
+  return { ok: true, data: answers };
 }

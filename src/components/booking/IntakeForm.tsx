@@ -1,64 +1,29 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, Loader2 } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { ArrowLeft, CheckCircle2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { INTAKE_HEADER } from "@/lib/booking/constants";
 import {
-  GENDER_OPTIONS,
-  INTAKE_HEADER,
-  MARITAL_OPTIONS,
-  YES_NO,
-} from "@/lib/booking/constants";
-import type { IntakeInput } from "@/lib/booking/validate";
+  activeSteps,
+  isHidden,
+  STEP_TITLES,
+  type IntakeQuestion,
+} from "@/lib/booking/questions";
 
 const inputClass =
   "w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-base text-slate-900 placeholder:text-slate-400 focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-600/20";
 
-type Values = Record<keyof IntakeInput, string>;
-
-const empty: Values = {
-  date_of_birth: "",
-  gender: "",
-  marital_status: "",
-  nicotine: "",
-  existing_coverage: "",
-  policy_description: "",
-  goal: "",
-  reason: "",
-  budget: "",
-  coverage_amount: "",
-  best_time_to_reach: "",
-  notes: "",
-};
-
-function Field({
-  label,
-  htmlFor,
-  children,
-}: {
-  label: string;
-  htmlFor?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <label htmlFor={htmlFor} className="mb-1.5 block text-sm font-medium text-slate-700">
-        {label}
-      </label>
-      {children}
-    </div>
-  );
-}
-
 /** Pill-style radio group. With `allowOther`, an "Other" pill reveals a free-text input. */
 function Choice({
-  name,
+  label,
   options,
   value,
   onChange,
   allowOther,
 }: {
-  name: string;
+  label: string;
   options: readonly string[];
   value: string;
   onChange: (v: string) => void;
@@ -75,14 +40,14 @@ function Choice({
     }`;
 
   return (
-    <div role="radiogroup" aria-label={name} className="space-y-2">
+    <div role="radiogroup" aria-label={label} className="space-y-2">
       <div className="flex flex-wrap gap-2">
         {options.map((opt) => (
           <button
             key={opt}
             type="button"
             role="radio"
-            aria-checked={value === opt}
+            aria-checked={value === opt && !otherOpen}
             className={pill(value === opt && !otherOpen)}
             onClick={() => {
               setOtherOpen(false);
@@ -120,178 +85,273 @@ function Choice({
   );
 }
 
+function QuestionField({
+  question,
+  value,
+  onChange,
+}: {
+  question: IntakeQuestion;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const id = `q-${question.key}`;
+  const placeholder = question.placeholder ?? undefined;
+
+  let control: React.ReactNode;
+  if (question.kind === "choice") {
+    control = (
+      <Choice
+        label={question.label}
+        options={question.options}
+        value={value}
+        onChange={onChange}
+        allowOther={question.allow_other}
+      />
+    );
+  } else if (question.kind === "date") {
+    control = (
+      <input
+        id={id}
+        type="date"
+        className={inputClass}
+        max={question.key === "date_of_birth" ? new Date().toISOString().slice(0, 10) : undefined}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    );
+  } else if (question.kind === "long_text") {
+    control = (
+      <textarea
+        id={id}
+        rows={3}
+        className={inputClass}
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    );
+  } else {
+    control = (
+      <input
+        id={id}
+        className={inputClass}
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    );
+  }
+
+  return (
+    <div>
+      <label
+        htmlFor={question.kind === "choice" ? undefined : id}
+        className="mb-1.5 block text-sm font-medium text-slate-700"
+      >
+        {question.label}
+      </label>
+      {control}
+    </div>
+  );
+}
+
 export function IntakeForm({
   token,
   agentFirstName,
+  questions,
   initial,
+  completed,
 }: {
   token: string;
   agentFirstName: string;
-  initial: Partial<Values> | null;
+  questions: IntakeQuestion[];
+  initial: Record<string, string>;
+  completed: boolean;
 }) {
-  const [values, setValues] = useState<Values>({ ...empty, ...initial });
-  const [status, setStatus] = useState<"idle" | "saving" | "done">("idle");
+  const reduceMotion = useReducedMotion();
+  const steps = activeSteps(questions);
+  const [values, setValues] = useState<Record<string, string>>(initial);
+  const [index, setIndex] = useState(0);
+  const [dir, setDir] = useState(1);
+  const [status, setStatus] = useState<"idle" | "saving" | "done">(
+    completed || steps.length === 0 ? "done" : "idle",
+  );
   const [error, setError] = useState<string | null>(null);
 
-  const set = (key: keyof Values) => (v: string) => setValues((s) => ({ ...s, [key]: v }));
-  const text =
-    (key: keyof Values) =>
-    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-      set(key)(e.target.value);
+  const step = steps[index];
+  const isLast = index === steps.length - 1;
+  const stepQuestions = questions
+    .filter((q) => q.step === step && !isHidden(q, values))
+    .sort((a, b) => a.sort - b.sort);
+
+  async function save(final: boolean) {
+    // Only send answers to questions that are visible given the other answers
+    const answers = Object.fromEntries(
+      questions.filter((q) => !isHidden(q, values)).map((q) => [q.key, values[q.key] ?? ""]),
+    );
+    const res = await fetch("/api/intake", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, final, answers }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+  }
+
+  function go(next: number) {
+    setDir(next > index ? 1 : -1);
+    setIndex(next);
+    setError(null);
+    if (window.scrollY > 0) window.scrollTo({ top: 0, behavior: "smooth" });
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+
+    if (!isLast) {
+      // Autosave in the background so answers survive if they leave mid-way
+      save(false).catch(() => {});
+      go(index + 1);
+      return;
+    }
+
     setStatus("saving");
     setError(null);
     try {
-      const res = await fetch("/api/intake", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, ...values }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      await save(true);
       setStatus("done");
-      window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (err) {
-      setError(err instanceof Error && err.message ? err.message : "Something went wrong. Please try again.");
+      setError(
+        err instanceof Error && err.message ? err.message : "Something went wrong. Please try again.",
+      );
       setStatus("idle");
     }
   }
 
+  // Next swipes everything to the right (new step comes in from the left); Back swipes it back
+  const swipe = reduceMotion ? "0%" : "100%";
+  const back = reduceMotion ? "0%" : "-100%";
+  const variants = {
+    enter: (d: number) => ({ opacity: 0, x: d > 0 ? back : swipe }),
+    center: { opacity: 1, x: "0%" },
+    exit: (d: number) => ({ opacity: 0, x: d > 0 ? swipe : back }),
+  };
+
   if (status === "done") {
     return (
-      <div className="rounded-2xl bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
-        <CheckCircle2 className="mx-auto size-10 text-green-600" />
-        <h2 className="mt-3 text-xl font-bold">Thank you!</h2>
-        <p className="mt-1 text-slate-600">
+      <motion.div
+        initial={{ opacity: 0, scale: reduceMotion ? 1 : 0.96 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.35, ease: "easeOut" }}
+        className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-6 text-center"
+      >
+        <CheckCircle2 className="size-14 text-green-600" />
+        <h2 className="mt-4 text-3xl font-bold tracking-tight">Thank you!</h2>
+        <p className="mt-2 text-lg text-slate-600">
           {agentFirstName} will review your answers before your call.
         </p>
-        <button
-          type="button"
-          onClick={() => setStatus("idle")}
-          className="mt-4 text-sm text-slate-500 underline hover:text-slate-800"
-        >
-          Edit my answers
-        </button>
-      </div>
+        {steps.length > 0 && (
+          <button
+            type="button"
+            onClick={() => {
+              setIndex(0);
+              setDir(-1);
+              setStatus("idle");
+            }}
+            className="mt-4 text-sm text-slate-500 underline hover:text-slate-800"
+          >
+            Edit my answers
+          </button>
+        )}
+      </motion.div>
     );
   }
 
   return (
     <form
       onSubmit={submit}
-      className="space-y-6 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 sm:p-8"
+      className="mx-auto flex min-h-screen w-full max-w-xl flex-col px-5 pt-20 sm:px-6 sm:pt-28"
     >
-      <div>
-        <h2 className="text-xl font-bold leading-snug sm:text-2xl">{INTAKE_HEADER}</h2>
-        <p className="mt-1.5 text-sm text-slate-500">
-          Every question is optional. Answer as much or as little as you like.
+      <h1 className="text-2xl font-bold leading-tight tracking-tight sm:text-4xl">{INTAKE_HEADER}</h1>
+      <p className="mt-2 text-slate-500">
+        Every question is optional. Answer as much or as little as you like.
+      </p>
+
+      <div className="mt-8">
+        <div className="flex gap-1.5" aria-hidden="true">
+          {steps.map((s, i) => (
+            <div key={s} className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-200">
+              <motion.div
+                className="h-full rounded-full bg-blue-700"
+                initial={false}
+                animate={{ width: i <= index ? "100%" : "0%" }}
+                transition={{ duration: reduceMotion ? 0 : 0.35, ease: "easeOut" }}
+              />
+            </div>
+          ))}
+        </div>
+        <p className="mt-2 text-xs font-medium text-slate-500" aria-live="polite">
+          Step {index + 1} of {steps.length} · {STEP_TITLES[step - 1]}
         </p>
       </div>
 
-      <div className="grid gap-6 sm:grid-cols-2">
-        <Field label="Date of birth" htmlFor="dob">
-          <input
-            id="dob"
-            type="date"
-            className={inputClass}
-            max={new Date().toISOString().slice(0, 10)}
-            value={values.date_of_birth}
-            onChange={text("date_of_birth")}
-          />
-        </Field>
-        <Field label="Nicotine use">
-          <Choice name="Nicotine use" options={YES_NO} value={values.nicotine} onChange={set("nicotine")} />
-        </Field>
+      {/* Clip the swipe to the column; padding keeps focus rings from being cut off */}
+      <div className="relative -mx-2 mt-8 flex-1 overflow-hidden px-2 pb-2">
+        <AnimatePresence mode="popLayout" custom={dir} initial={false}>
+          <motion.div
+            key={step}
+            custom={dir}
+            variants={variants}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            transition={{
+              x: { type: "tween", duration: 0.32, ease: [0.32, 0.72, 0, 1] },
+              opacity: { duration: 0.2 },
+            }}
+            className="space-y-6"
+          >
+            {stepQuestions.map((q) => (
+              <QuestionField
+                key={q.key}
+                question={q}
+                value={values[q.key] ?? ""}
+                onChange={(v) => setValues((s) => ({ ...s, [q.key]: v }))}
+              />
+            ))}
+          </motion.div>
+        </AnimatePresence>
       </div>
 
-      <Field label="Gender">
-        <Choice name="Gender" options={GENDER_OPTIONS} value={values.gender} onChange={set("gender")} allowOther />
-      </Field>
+      {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
 
-      <Field label="Marital status">
-        <Choice
-          name="Marital status"
-          options={MARITAL_OPTIONS}
-          value={values.marital_status}
-          onChange={set("marital_status")}
-        />
-      </Field>
-
-      <Field label="Existing coverage / policy">
-        <Choice
-          name="Existing coverage"
-          options={YES_NO}
-          value={values.existing_coverage}
-          onChange={set("existing_coverage")}
-          allowOther
-        />
-      </Field>
-
-      <Field label="Description of policy (Term, Whole Life, IUL, Final Expense)" htmlFor="policy">
-        <input
-          id="policy"
-          className={inputClass}
-          placeholder="e.g. 20-year term through work"
-          value={values.policy_description}
-          onChange={text("policy_description")}
-        />
-      </Field>
-
-      <Field label="What is your goal with life insurance?" htmlFor="goal">
-        <textarea id="goal" rows={2} className={inputClass} value={values.goal} onChange={text("goal")} />
-      </Field>
-
-      <Field label="What is the reason you inquired or have a current policy in place?" htmlFor="reason">
-        <textarea id="reason" rows={2} className={inputClass} value={values.reason} onChange={text("reason")} />
-      </Field>
-
-      <div className="grid gap-6 sm:grid-cols-2">
-        <Field label="How much do you pay for your policy, or how much can you afford?" htmlFor="budget">
-          <input
-            id="budget"
-            className={inputClass}
-            placeholder="e.g. $50/month"
-            value={values.budget}
-            onChange={text("budget")}
-          />
-        </Field>
-        <Field label="How much coverage do you currently have or need?" htmlFor="coverage">
-          <input
-            id="coverage"
-            className={inputClass}
-            placeholder="e.g. $250,000"
-            value={values.coverage_amount}
-            onChange={text("coverage_amount")}
-          />
-        </Field>
+      <div className="sticky bottom-0 -mx-5 mt-6 flex items-center gap-3 bg-linear-to-t from-white from-75% to-white/0 px-5 pb-6 pt-8 sm:-mx-6 sm:px-6 sm:pb-10">
+        {index > 0 && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="lg"
+            onClick={() => go(index - 1)}
+            className="h-12 text-slate-600"
+          >
+            <ArrowLeft className="size-4" /> Back
+          </Button>
+        )}
+        <Button
+          type="submit"
+          size="lg"
+          disabled={status === "saving"}
+          className="h-12 flex-1 bg-blue-700 text-base hover:bg-blue-800"
+        >
+          {status === "saving" ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : isLast ? (
+            `Send to ${agentFirstName}`
+          ) : (
+            "Next"
+          )}
+        </Button>
       </div>
-
-      <Field label="Best time to reach out to you" htmlFor="best-time">
-        <input
-          id="best-time"
-          className={inputClass}
-          placeholder="e.g. weekday evenings after 6pm"
-          value={values.best_time_to_reach}
-          onChange={text("best_time_to_reach")}
-        />
-      </Field>
-
-      <Field label={`Extra notes for ${agentFirstName} to know before the appointment`} htmlFor="notes">
-        <textarea id="notes" rows={3} className={inputClass} value={values.notes} onChange={text("notes")} />
-      </Field>
-
-      {error && <p className="text-sm text-red-600">{error}</p>}
-
-      <Button
-        type="submit"
-        size="lg"
-        disabled={status === "saving"}
-        className="h-12 w-full bg-blue-700 text-base hover:bg-blue-800"
-      >
-        {status === "saving" ? <Loader2 className="size-4 animate-spin" /> : `Send to ${agentFirstName}`}
-      </Button>
     </form>
   );
 }

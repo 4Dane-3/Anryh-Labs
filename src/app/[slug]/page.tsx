@@ -1,13 +1,17 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { CalendarCheck, MessageCircle, SearchCheck, ShieldCheck } from "lucide-react";
+import { CalendarCheck, MessageCircle, SearchCheck, ShieldCheck, Star } from "lucide-react";
+import { supabaseAdmin } from "@/lib/supabase-admin";
 import { getAgentBySlug } from "@/lib/booking/data";
 import { BookingWidget } from "@/components/booking/BookingWidget";
 
 export const dynamic = "force-dynamic";
 
-type Props = { params: Promise<{ slug: string }> };
+type Props = {
+  params: Promise<{ slug: string }>;
+  searchParams?: Promise<{ preview?: string }>;
+};
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
@@ -43,10 +47,19 @@ const steps = [
   },
 ];
 
-export default async function AgentPage({ params }: Props) {
-  const { slug } = await params;
+export default async function AgentPage({ params, searchParams }: Props) {
+  const [{ slug }, query] = await Promise.all([params, searchParams]);
   const agent = await getAgentBySlug(slug);
   if (!agent) notFound();
+  // Embedded in the agent's dashboard: show the real page, but booking is switched off
+  const preview = query?.preview === "1";
+
+  const { data: testimonials } = await supabaseAdmin
+    .from("testimonials")
+    .select("id, author_name, author_detail, quote, rating")
+    .eq("agent_id", agent.id)
+    .eq("published", true)
+    .order("sort");
 
   const firstName = agent.full_name.split(" ")[0];
   const initials = agent.full_name
@@ -56,7 +69,7 @@ export default async function AgentPage({ params }: Props) {
     .join("");
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
+    <div className="min-h-screen bg-white text-slate-900">
       <main className="mx-auto grid max-w-5xl gap-10 px-4 py-10 sm:px-6 lg:grid-cols-[1fr_420px] lg:gap-14 lg:py-16">
         <section>
           <div className="flex items-center gap-4">
@@ -115,6 +128,33 @@ export default async function AgentPage({ params }: Props) {
               </li>
             ))}
           </ul>
+
+          {!!testimonials?.length && (
+            <div className="mt-12">
+              <h2 className="text-lg font-semibold">What clients say</h2>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                {testimonials.map((t) => (
+                  <figure key={t.id} className="rounded-xl bg-slate-50 p-5 ring-1 ring-slate-200">
+                    {t.rating && (
+                      <div className="mb-2 flex gap-0.5" aria-label={`${t.rating} out of 5 stars`}>
+                        {Array.from({ length: 5 }, (_, i) => (
+                          <Star
+                            key={i}
+                            className={i < t.rating! ? "size-4 fill-amber-400 text-amber-400" : "size-4 text-slate-300"}
+                          />
+                        ))}
+                      </div>
+                    )}
+                    <blockquote className="text-[15px] leading-relaxed text-slate-700">“{t.quote}”</blockquote>
+                    <figcaption className="mt-3 text-sm">
+                      <span className="font-medium text-slate-900">{t.author_name}</span>
+                      {t.author_detail && <span className="text-slate-500"> · {t.author_detail}</span>}
+                    </figcaption>
+                  </figure>
+                ))}
+              </div>
+            </div>
+          )}
         </section>
 
         <aside className="lg:sticky lg:top-8 lg:self-start">
@@ -123,7 +163,7 @@ export default async function AgentPage({ params }: Props) {
             <p className="mb-5 mt-1 text-sm text-slate-500">
               Pick a time that works for you.
             </p>
-            <BookingWidget slug={agent.slug} firstName={firstName} />
+            <BookingWidget slug={agent.slug} firstName={firstName} preview={preview} />
           </div>
         </aside>
       </main>

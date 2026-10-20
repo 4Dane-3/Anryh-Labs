@@ -1,6 +1,6 @@
 import { DateTime } from "luxon";
 import type { Agent } from "@/lib/booking/data";
-import type { IntakeInput } from "@/lib/booking/validate";
+import { DEFAULT_QUESTIONS, orderedAnswers, type IntakeAnswers } from "@/lib/booking/questions";
 
 // Prospect-supplied text goes into Slack, so neutralise mentions and links.
 function esc(text: string) {
@@ -20,29 +20,15 @@ function ageFrom(dob: string, zone: string) {
 
 type Prospect = { name: string; email: string; phone: string; starts_at: string };
 
-export function intakeLines(intake: Partial<IntakeInput>, zone: string): string[] {
-  const lines: string[] = [];
+const DEFAULT_ORDER = DEFAULT_QUESTIONS.map((q) => q.key);
 
-  const profile = [
-    intake.date_of_birth ? `age ${ageFrom(intake.date_of_birth, zone)}` : null,
-    intake.gender,
-    intake.marital_status,
-    intake.nicotine ? `nicotine: ${intake.nicotine}` : null,
-  ].filter(Boolean);
-  if (profile.length) lines.push(`Profile: ${profile.join(", ")}`);
-
-  const existing = [intake.existing_coverage, intake.policy_description]
-    .filter(Boolean)
-    .join(" — ");
-  if (existing) lines.push(`Existing coverage: ${existing}`);
-  if (intake.goal) lines.push(`Goal: ${intake.goal}`);
-  if (intake.reason) lines.push(`Why they inquired: ${intake.reason}`);
-  if (intake.budget) lines.push(`Budget / current premium: ${intake.budget}`);
-  if (intake.coverage_amount) lines.push(`Coverage amount: ${intake.coverage_amount}`);
-  if (intake.best_time_to_reach) lines.push(`Best time to reach: ${intake.best_time_to_reach}`);
-  if (intake.notes) lines.push(`Notes: ${intake.notes}`);
-
-  return lines.map((l) => esc(l));
+export function intakeLines(answers: IntakeAnswers, zone: string, order: string[] = DEFAULT_ORDER): string[] {
+  return orderedAnswers(answers, order).map(([key, { label, value }]) => {
+    const shown = key === "date_of_birth" ? `${value} (age ${ageFrom(value, zone)})` : value;
+    // "Gender: Female", but questions keep their own punctuation: "What is your goal? Protect my kids"
+    const prefix = /[?:]$/.test(label) ? label : `${label}:`;
+    return esc(`${prefix} ${shown}`);
+  });
 }
 
 export function newBookingMessage(agent: Agent, p: Prospect) {
@@ -59,7 +45,7 @@ export function newBookingMessage(agent: Agent, p: Prospect) {
 export function intakeCompletedMessage(
   agent: Agent,
   p: Prospect,
-  intake: Partial<IntakeInput>,
+  intake: IntakeAnswers,
 ) {
   const when = DateTime.fromISO(p.starts_at, { zone: agent.timezone }).toFormat(
     "ccc, LLL d 'at' h:mm a",
@@ -72,10 +58,10 @@ export function intakeCompletedMessage(
 }
 
 export type DigestBooking = Prospect & {
-  intake: Partial<IntakeInput> | null;
+  intake: IntakeAnswers | null;
 };
 
-export function digestMessage(agent: Agent, bookings: DigestBooking[], now: DateTime) {
+export function digestMessage(agent: Agent, bookings: DigestBooking[], now: DateTime, order?: string[]) {
   const first = agent.full_name.split(" ")[0];
   const header = `:sunrise: *Good morning, ${esc(first)}* — ${now.toFormat("cccc, LLL d")}`;
 
@@ -85,7 +71,7 @@ export function digestMessage(agent: Agent, bookings: DigestBooking[], now: Date
 
   const items = bookings.map((b) => {
     const time = DateTime.fromISO(b.starts_at, { zone: agent.timezone }).toFormat("h:mm a");
-    const lines = b.intake ? intakeLines(b.intake, agent.timezone) : [];
+    const lines = b.intake ? intakeLines(b.intake, agent.timezone, order) : [];
     const detail = lines.length
       ? lines.map((l) => `      ${l}`).join("\n")
       : "      _No prep answers yet_";

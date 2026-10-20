@@ -1,30 +1,37 @@
 import { after } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { getBookingByToken } from "@/lib/booking/data";
-import { parseIntake } from "@/lib/booking/validate";
+import { getBookingByToken, getIntakeQuestions } from "@/lib/booking/data";
+import { parseAnswers } from "@/lib/booking/validate";
 import { intakeCompletedMessage } from "@/lib/booking/format";
 import { sendSlackMessage } from "@/lib/slack";
 
+// Called after every step (autosave) and once more with `final: true` on the last step.
 export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
   const token = typeof body?.token === "string" ? body.token : "";
+  const final = body?.final === true;
 
   const booking = await getBookingByToken(token);
   if (!booking) return Response.json({ error: "Booking not found." }, { status: 404 });
 
-  const parsed = parseIntake(body);
+  const questions = await getIntakeQuestions(booking.agent_id);
+  const parsed = parseAnswers(body?.answers, questions);
   if (!parsed.ok) return Response.json({ error: parsed.error }, { status: 400 });
 
   const { data: existing } = await supabaseAdmin
     .from("intake_responses")
-    .select("booking_id")
+    .select("completed_at")
     .eq("booking_id", booking.id)
     .maybeSingle();
 
+  const now = new Date().toISOString();
+  const alreadyCompleted = existing?.completed_at ?? null;
+
   const { error } = await supabaseAdmin.from("intake_responses").upsert({
     booking_id: booking.id,
-    ...parsed.data,
-    submitted_at: new Date().toISOString(),
+    answers: parsed.data,
+    submitted_at: now,
+    completed_at: alreadyCompleted ?? (final ? now : null),
   });
 
   if (error) {
@@ -32,9 +39,9 @@ export async function POST(req: Request) {
     return Response.json({ error: "Something went wrong. Please try again." }, { status: 500 });
   }
 
-  // Notify the agent on the first submission only, not on edits
+  // Notify the agent once, when the prospect first finishes the last step (not on autosaves or edits)
   const agent = booking.agents;
-  if (!existing && agent.slack_user_id) {
+  if (final && !alreadyCompleted && agent.slack_user_id) {
     after(async () => {
       try {
         await sendSlackMessage(

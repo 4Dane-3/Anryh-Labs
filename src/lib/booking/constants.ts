@@ -4,7 +4,3 @@ export const CONSENT_TEXT =
 
 export const INTAKE_HEADER =
   "Help the agent prepare to secure you a better deal by answering (optional)";
-
-export const GENDER_OPTIONS = ["Male", "Female"] as const;
-export const MARITAL_OPTIONS = ["Married", "Single", "Divorced", "Widowed"] as const;
-export const YES_NO = ["Yes", "No"] as const;

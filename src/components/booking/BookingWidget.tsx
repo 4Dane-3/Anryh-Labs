@@ -35,9 +35,11 @@ function collectAttribution() {
 export function BookingWidget({
   slug,
   firstName,
+  preview = false,
 }: {
   slug: string;
   firstName: string;
+  preview?: boolean;
 }) {
   const router = useRouter();
   // Visitor's timezone; empty during SSR so server and client markup match
@@ -117,7 +119,7 @@ export function BookingWidget({
       const data = await res.json();
 
       if (res.ok && data.token) {
-        router.push(`/${slug}/prepare?b=${data.token}`);
+        router.push(`/${slug}/prepare?b=${data.token}&new=1`);
         return;
       }
 
@@ -238,10 +240,16 @@ export function BookingWidget({
         <Button
           type="submit"
           size="lg"
-          disabled={submitting}
+          disabled={submitting || preview}
           className="h-12 w-full bg-blue-700 text-base hover:bg-blue-800"
         >
-          {submitting ? <Loader2 className="size-4 animate-spin" /> : "Confirm booking"}
+          {submitting ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : preview ? (
+            "Booking is off in preview"
+          ) : (
+            "Confirm booking"
+          )}
         </Button>
       </form>
     );
