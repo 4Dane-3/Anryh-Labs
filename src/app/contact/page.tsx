@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { CONTACT_EMAIL, SiteFooter, SiteHeader, SiteShell } from "@/components/site/SiteChrome";
 import { ContactForm } from "@/components/site/ContactForm";
 
@@ -26,11 +27,11 @@ export default function ContactPage() {
             </div>
             <div>
               <p className="sb-help__k">delete your data</p>
-              <p >
+              <p>
                 see{" "}
-                <a href="/privacy#data-deletion" className="sb-link">
+                <Link href="/privacy#data-deletion" className="sb-link">
                   how to request deletion
-                </a>{" "}
+                </Link>{" "}
                 in our privacy policy.
               </p>
             </div>
