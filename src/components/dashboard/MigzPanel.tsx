@@ -82,7 +82,7 @@ export function MigzPanel({
 }: {
   connected: boolean;
   mode: "off" | "approve" | "auto";
-  recentlyRan: boolean; // reviewed within the last hour (computed on the server)
+  recentlyRan: boolean; // a full review finished within the last 10 minutes (computed on the server)
   proposals: MigzAction[];
   actions: MigzAction[];
 }) {
@@ -112,7 +112,7 @@ export function MigzPanel({
               {MODE_LABELS[mode]}
             </Link>
             {mode !== "off" && (
-              <Button size="sm" onClick={review} disabled={reviewing || recentlyRan} title={recentlyRan ? "Migz reviewed within the last hour" : undefined}>
+              <Button size="sm" onClick={review} disabled={reviewing || recentlyRan} title={recentlyRan ? "Migz just finished a review. Try again in a few minutes." : undefined}>
                 {reviewing ? <Loader2 className="animate-spin" /> : null}
                 {reviewing ? "Starting…" : "Review now"}
               </Button>

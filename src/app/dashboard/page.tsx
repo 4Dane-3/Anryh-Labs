@@ -29,7 +29,7 @@ export default async function OverviewPage() {
     getBrainLive(agent),
   ]);
   const recentlyRan =
-    !!agent.migz_last_run_at && DateTime.now().diff(DateTime.fromISO(agent.migz_last_run_at), "hours").hours < 1;
+    !!agent.migz_last_operator_at && DateTime.now().diff(DateTime.fromISO(agent.migz_last_operator_at), "minutes").minutes < 10;
 
   const spend = metrics.reduce((s, d) => s + d.spend_cents, 0);
   const leads = metrics.reduce((s, d) => s + d.leads, 0);

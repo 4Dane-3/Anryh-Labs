@@ -470,14 +470,15 @@ export async function setMigzMode(mode: "off" | "approve" | "auto"): Promise<Res
   return { ok: true };
 }
 
-const MANUAL_REVIEW_COOLDOWN_MS = 60 * 60_000;
+// Based on the last full review (not quiet hourly checks, which would keep resetting it)
+const MANUAL_REVIEW_COOLDOWN_MS = 10 * 60_000;
 
 export async function runMigzNow(): Promise<Result> {
   const agent = await requireAgent();
   if (agent.migz_mode === "off") return fail("Migz is turned off. Turn it on in Settings first.");
   if (!migzReadyFor(agent)) return fail("Migz isn't connected to your ad account yet.");
-  if (agent.migz_last_run_at && Date.now() - new Date(agent.migz_last_run_at).getTime() < MANUAL_REVIEW_COOLDOWN_MS) {
-    return fail("Migz reviewed your ads within the last hour. Give results time to come in.");
+  if (agent.migz_last_operator_at && Date.now() - new Date(agent.migz_last_operator_at).getTime() < MANUAL_REVIEW_COOLDOWN_MS) {
+    return fail("Migz just finished a review. Give it a few minutes, then try again.");
   }
   // The review takes a minute or more, so it runs after this response is sent and the dashboard sends
   // the agent to the Brain page, which shows it live. Failures appear there (and alert Anryh Labs).
