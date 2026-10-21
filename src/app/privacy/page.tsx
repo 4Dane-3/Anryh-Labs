@@ -1,241 +1,214 @@
-"use client";
+import type { Metadata } from "next";
+import { CONTACT_EMAIL, SiteFooter, SiteHeader, SiteShell } from "@/components/site/SiteChrome";
 
-import { motion } from "framer-motion";
-import Link from "next/link";
-import { Button } from "@/components/ui/button";
+export const metadata: Metadata = {
+  title: "privacy policy · anryh labs",
+  description:
+    "how anryh labs and the migz platform collect, use, share and delete data, including data from meta and from people who book calls with our agents.",
+};
+
+const EFFECTIVE = "october 20, 2026";
+
+const SECTIONS = [
+  ["who-we-are", "who we are"],
+  ["who-this-covers", "who this policy covers"],
+  ["what-we-collect", "information we collect"],
+  ["how-we-use", "how we use information"],
+  ["sharing", "who we share it with"],
+  ["meta-data", "data from meta"],
+  ["cookies", "cookies"],
+  ["retention", "how long we keep it"],
+  ["security", "security"],
+  ["data-deletion", "your rights and deleting your data"],
+  ["children", "children"],
+  ["changes", "changes to this policy"],
+  ["contact", "contact us"],
+] as const;
+
+function H2({ id, children }: { id: string; children: React.ReactNode }) {
+  return (
+    <h2 id={id} className="scroll-mt-24 pt-4 text-xl font-semibold tracking-tight text-slate-900">
+      {children}
+    </h2>
+  );
+}
+
+function Item({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <li>
+      <span className="font-medium text-slate-900">{label}:</span> {children}
+    </li>
+  );
+}
 
 export default function PrivacyPage() {
+  const email = (
+    <a href={`mailto:${CONTACT_EMAIL}`} className="text-blue-700 hover:underline">
+      {CONTACT_EMAIL}
+    </a>
+  );
+
   return (
-    <div className="min-h-screen flex flex-col bg-black">
-      <header className="relative z-20 w-full border-b border-white/10">
-        <div className="mx-auto flex h-[75px] max-w-[1336px] items-center justify-between px-6">
-          <Link
-            href="/"
-            className="text-[28px] font-manifold font-bold tracking-tight text-white"
-          >
-            anryh labs
-          </Link>
+    <SiteShell>
+      <SiteHeader />
+      <main className="sb-doc mx-auto max-w-6xl px-4 py-14 sm:px-6 lg:py-20">
+        <div className="grid gap-12 lg:grid-cols-[220px_1fr]">
+          <aside className="hidden lg:block">
+            <nav className="sticky top-24 space-y-1.5 text-sm" aria-label="on this page">
+              <p className="mb-3 text-xs font-medium uppercase tracking-wide text-slate-400">on this page</p>
+              {SECTIONS.map(([id, label]) => (
+                <a key={id} href={`#${id}`} className="block text-slate-500 transition-colors hover:text-slate-900">
+                  {label}
+                </a>
+              ))}
+            </nav>
+          </aside>
 
-          <nav className="flex items-center gap-6">
-            <Link
-              href="/write"
-              className="text-sm text-white/70 hover:text-white transition-colors hidden md:block"
-            >
-              write
-            </Link>
-            <Button className="h-[38px] px-4 bg-white text-black text-sm font-normal rounded-full hover:bg-white/90 transition-colors">
-              get started
-            </Button>
-          </nav>
-        </div>
-      </header>
+          <article className="max-w-2xl space-y-5 leading-relaxed text-slate-600">
+            <header className="space-y-3 pb-4">
+              <h1 className="text-4xl font-bold tracking-tight text-slate-900 sm:text-5xl">privacy policy</h1>
+              <p className="text-sm text-slate-500">effective {EFFECTIVE}</p>
+              <p>
+                this policy explains how anryh labs collects, uses, shares and deletes information through our website
+                and the migz platform. if you have a question, or want your data deleted, email {email}.
+              </p>
+            </header>
 
-      <main className="flex-1">
-        <div className="mx-auto max-w-[800px] px-6 py-16">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
-          >
-            <h1 className="font-manifold text-[48px] md:text-[56px] leading-[1.1] tracking-[-0.02em] text-white mb-4">
-              privacy policy
-            </h1>
-            <p className="text-white/40 mb-12">effective date: 07/11/2026</p>
+            <H2 id="who-we-are">1. who we are</H2>
+            <p>
+              anryh labs (&ldquo;we&rdquo;, &ldquo;us&rdquo;) is an ai ad automation agency. we run{" "}
+              <span className="font-medium text-slate-900">migz</span>, a platform that independent life insurance
+              agents use to run their advertising. with an agent&apos;s permission, migz creates and manages ad campaigns
+              on meta (facebook and instagram) on their behalf, generates ad creatives, hosts the agent&apos;s booking page
+              and calendar, and reports results back to the agent. anryh labs is not an insurance company or agency and
+              does not sell insurance.
+            </p>
 
-            <div className="space-y-10 text-white/80 leading-relaxed">
-              <section>
-                <h2 className="text-2xl font-semibold text-white mb-4">
-                  1. our core philosophy: you are not the product
-                </h2>
-                <p>
-                  this policy explains how anryh labs handles your data. we
-                  build products we&apos;d actually use ourselves — starting
-                  with pairo, our head-to-head mini-games app. unlike most tech
-                  companies, our business model does not rely on advertising,
-                  tracking, or selling your information. our aim is not just to
-                  comply with privacy laws, but to collect as little as
-                  possible and be clear about what we do keep.
-                </p>
-              </section>
+            <H2 id="who-this-covers">2. who this policy covers</H2>
+            <ul className="list-disc space-y-2 pl-5">
+              <Item label="agents">insurance agents who use migz and their dashboard.</Item>
+              <Item label="prospects">people who visit an agent&apos;s booking page, book a call or answer prep questions.</Item>
+              <Item label="visitors">anyone browsing this website or contacting us.</Item>
+            </ul>
 
-              <section>
-                <h2 className="text-2xl font-semibold text-white mb-4">
-                  2. information we do not collect
-                </h2>
-                <p className="mb-4">to be explicitly clear:</p>
-                <ul className="list-disc list-inside space-y-2 ml-4">
-                  <li>we do not collect your personal browsing history.</li>
-                  <li>
-                    we do not collect your IP address for tracking or analytics.
-                  </li>
-                  <li>
-                    we do not sell, trade, or mine your data for marketing.
-                  </li>
-                  <li>
-                    we do not use cookies to follow you across the internet.
-                  </li>
-                </ul>
-              </section>
+            <H2 id="what-we-collect">3. information we collect</H2>
+            <p>from agents:</p>
+            <ul className="list-disc space-y-2 pl-5">
+              <Item label="account and profile">name, email, login credentials, photo, bio, license number, licensed states, timezone, availability and slack member id.</Item>
+              <Item label="content">testimonials, photos and videos agents upload, and the questions they choose to ask prospects.</Item>
+              <Item label="billing">ad budget, balance and transaction history. card payments are handled by stripe; we do not store card numbers.</Item>
+            </ul>
+            <p>from meta&apos;s platform, through the meta marketing api, for agents who authorize it:</p>
+            <ul className="list-disc space-y-2 pl-5">
+              <Item label="ad accounts and pages">ad account ids, facebook page and instagram account ids used to run the agent&apos;s ads.</Item>
+              <Item label="campaign data">campaign, ad set and ad settings, budgets, delivery status and creative assets.</Item>
+              <Item label="performance data">aggregated results such as spend, impressions, clicks and conversion counts.</Item>
+            </ul>
+            <p>from prospects, on an agent&apos;s booking page:</p>
+            <ul className="list-disc space-y-2 pl-5">
+              <Item label="booking details">name, email, phone number, the appointment time and a record of your consent to be contacted.</Item>
+              <Item label="optional prep answers">answers you choose to give, which may include date of birth, gender, marital status, nicotine use, existing coverage, budget, coverage needs and notes for the agent. every question is optional.</Item>
+              <Item label="ad attribution">if you arrived from an ad: campaign tags in the link (such as utm parameters and meta&apos;s click id), meta&apos;s browser cookies if present (_fbp, _fbc), and your ip address and browser type at the moment you book.</Item>
+            </ul>
+            <p>from visitors: the details you include if you email us.</p>
 
-              <section>
-                <h2 className="text-2xl font-semibold text-white mb-4">
-                  3. information we do collect
-                </h2>
-                <p className="mb-4">
-                  this website is intentionally minimal. we only collect data
-                  when you choose to give it to us:
-                </p>
-                <ul className="list-disc list-inside space-y-2 ml-4">
-                  <li>
-                    <strong className="text-white">pairo waitlist:</strong> if
-                    you sign up for early access, we store your email address so
-                    we can notify you when pairo launches. that&apos;s it — no
-                    account, no profile, no behavioral tracking.
-                  </li>
-                  <li>
-                    <strong className="text-white">contact form:</strong> if
-                    you write to us, we receive your name, email, subject, and
-                    message so we can respond. this is delivered to us by email
-                    and used only to handle your inquiry.
-                  </li>
-                </ul>
-              </section>
+            <H2 id="how-we-use">4. how we use information</H2>
+            <ul className="list-disc space-y-2 pl-5">
+              <li>to run and improve agents&apos; ad campaigns: migz analyzes performance data, adjusts budgets, placements and ads, and generates new creatives.</li>
+              <li>to let prospects book calls with an agent, confirm appointments and give the agent the prep answers before the call.</li>
+              <li>to notify agents about new bookings and send a daily summary, including through slack.</li>
+              <li>to measure which ads lead to booked calls, including by reporting a booking to meta as a conversion (see below).</li>
+              <li>to manage agents&apos; ad funds and billing, provide support, keep the service secure and meet legal obligations.</li>
+            </ul>
+            <p>
+              we do not sell personal information, and we do not use prospects&apos; information for anything other than
+              providing the service to the agent they booked with.
+            </p>
 
-              <section>
-                <h2 className="text-2xl font-semibold text-white mb-4">
-                  4. how we use your information
-                </h2>
-                <ul className="list-disc list-inside space-y-2 ml-4">
-                  <li>
-                    waitlist emails are used only to send launch updates about
-                    pairo.
-                  </li>
-                  <li>
-                    contact form submissions are used only to read and reply to
-                    your message.
-                  </li>
-                  <li>
-                    we do not use your information for advertising, profiling,
-                    or resale.
-                  </li>
-                </ul>
-              </section>
+            <H2 id="sharing">5. who we share it with</H2>
+            <ul className="list-disc space-y-2 pl-5">
+              <Item label="the agent you booked with">receives your booking details and any prep answers you provided.</Item>
+              <Item label="meta">receives the agent&apos;s ads and settings, and, when you book, a conversion event containing your email and phone number in hashed (scrambled) form plus the attribution details above. prep answers are never sent to meta.</Item>
+              <Item label="supabase">stores our database, files and logins.</Item>
+              <Item label="vercel">hosts our website and app.</Item>
+              <Item label="slack">delivers booking notifications and summaries to the agent.</Item>
+              <Item label="anthropic (claude)">powers migz&apos;s decisions. it receives ad performance data, campaign settings and ad copy, not prospects&apos; contact details or prep answers.</Item>
+              <Item label="higgsfield">generates ad videos and images from creative descriptions. it does not receive personal information.</Item>
+              <Item label="stripe">processes payments when agents add ad funds.</Item>
+            </ul>
+            <p>
+              these providers process data only to deliver their service to us. we may also disclose information when
+              required by law, to protect our rights or users&apos; safety, or as part of a merger or sale of our business.
+            </p>
 
-              <section>
-                <h2 className="text-2xl font-semibold text-white mb-4">
-                  5. third-party services
-                </h2>
-                <p className="mb-4">
-                  anryh labs operates with minimal third-party dependencies.
-                  however, some infrastructure is required to keep the site and
-                  waitlist running:
-                </p>
-                <ul className="list-disc list-inside space-y-2 ml-4">
-                  <li>
-                    <strong className="text-white">hosting:</strong> we use
-                    vercel to host this website.
-                  </li>
-                  <li>
-                    <strong className="text-white">waitlist storage:</strong>{" "}
-                    pairo waitlist signups are stored in supabase.
-                  </li>
-                  <li>
-                    <strong className="text-white">waitlist email:</strong> if
-                    you join the pairo waitlist, a confirmation email may be
-                    sent via resend.
-                  </li>
-                  <li>
-                    <strong className="text-white">contact delivery:</strong>{" "}
-                    messages from our contact form are delivered via web3forms.
-                  </li>
-                  <li>
-                    <strong className="text-white">
-                      no external analytics:
-                    </strong>{" "}
-                    we do not use google analytics, facebook pixels, or
-                    third-party trackers.
-                  </li>
-                </ul>
-              </section>
+            <H2 id="meta-data">6. data from meta</H2>
+            <p>
+              we access meta&apos;s platform only with an agent&apos;s authorization and use the data we receive only to provide
+              migz to that agent: running their campaigns, reporting their results and improving their ads. we follow
+              meta&apos;s platform terms. we do not sell meta platform data, use it to build profiles of individual people,
+              or share it with anyone other than the service providers listed above. when an agent stops using migz,
+              removes our access, or asks us to, we delete the meta data we hold for them as described below.
+            </p>
 
-              <section>
-                <h2 className="text-2xl font-semibold text-white mb-4">
-                  6. cookies & local storage
-                </h2>
-                <p className="mb-4">we do not use tracking cookies.</p>
-                <p>
-                  <strong className="text-white">functional only:</strong> we
-                  may use local storage on your device to save preferences. this
-                  data never leaves your device and is never sent to anryh labs.
-                  if you clear your browser cache, any local settings are reset.
-                </p>
-              </section>
+            <H2 id="cookies">7. cookies</H2>
+            <p>
+              this website does not use advertising or analytics trackers. the agent dashboard uses essential cookies to
+              keep you signed in. on booking pages, we read meta&apos;s own cookies if they are already in your browser,
+              only to attribute a booking to the ad that led to it.
+            </p>
 
-              <section>
-                <h2 className="text-2xl font-semibold text-white mb-4">
-                  7. data security
-                </h2>
-                <p>
-                  we use industry-standard encryption (https/tls) to protect
-                  data in transit between your device and our services. we keep
-                  collection narrow and retention purposeful: waitlist emails
-                  exist only to notify you about pairo, and contact messages
-                  exist only to support conversation with you.
-                </p>
-              </section>
+            <H2 id="retention">8. how long we keep it</H2>
+            <ul className="list-disc space-y-2 pl-5">
+              <li>agent accounts and meta data: while the account is active, then deleted within 30 days of closing the account or revoking access.</li>
+              <li>prospect bookings and prep answers: for as long as the agent uses migz, unless you ask us to delete them sooner.</li>
+              <li>billing records: as long as the law requires.</li>
+              <li>emails to us: as long as needed to answer you.</li>
+            </ul>
 
-              <section>
-                <h2 className="text-2xl font-semibold text-white mb-4">
-                  8. government requests
-                </h2>
-                <p>
-                  if anryh labs receives a legal request for user data, we will
-                  review it and respond truthfully based on what we actually
-                  hold. today that is limited to waitlist email addresses and
-                  contact form correspondence — nothing more.
-                </p>
-              </section>
+            <H2 id="security">9. security</H2>
+            <p>
+              data is encrypted in transit (https/tls) and at rest by our providers. access to agent and prospect data
+              is restricted to our servers and the agent it belongs to, and contact details sent to meta are hashed
+              first. no system is perfectly secure, but we work to protect your information and will notify affected
+              users of a breach as required by law.
+            </p>
 
-              <section>
-                <h2 className="text-2xl font-semibold text-white mb-4">
-                  9. changes to this policy
-                </h2>
-                <p>
-                  we may update this policy to clarify our practices or comply
-                  with new regulations. if we make significant changes, we will
-                  notify users through our website. the most current version
-                  will always be available here.
-                </p>
-              </section>
-            </div>
-          </motion.div>
+            <section id="data-deletion" className="scroll-mt-24 space-y-3 rounded-2xl bg-slate-50 p-6 ring-1 ring-slate-200">
+              <h2 className="text-xl font-semibold tracking-tight text-slate-900">10. your rights and deleting your data</h2>
+              <p>
+                you can ask to see, correct or delete the personal information we hold about you, whether you are an
+                agent or a prospect who booked a call. to request deletion:
+              </p>
+              <ol className="list-decimal space-y-2 pl-5">
+                <li>
+                  email {email} with the subject <span className="font-medium text-slate-900">&ldquo;data deletion request&rdquo;</span>.
+                </li>
+                <li>include the email address or phone number you used, and the agent&apos;s name if you booked a call.</li>
+                <li>we will confirm the request came from you, delete your data within 30 days, and email you when it&apos;s done.</li>
+              </ol>
+              <p>
+                agents can also remove migz&apos;s access to their meta account at any time in their facebook settings
+                (settings &amp; privacy → business integrations). when access is removed, we delete the meta data we
+                received for that agent within 30 days. we may keep records we are legally required to retain, such as
+                billing records.
+              </p>
+            </section>
+
+            <H2 id="children">11. children</H2>
+            <p>migz and our booking pages are for adults. we do not knowingly collect information from anyone under 18.</p>
+
+            <H2 id="changes">12. changes to this policy</H2>
+            <p>
+              we may update this policy as our product or the law changes. we will update the effective date above, and
+              for significant changes, notify agents by email or in their dashboard.
+            </p>
+
+            <H2 id="contact">13. contact us</H2>
+            <p>anryh labs · {email}</p>
+          </article>
         </div>
       </main>
-
-      <footer className="relative z-20 border-t border-white/10 py-6">
-        <div className="mx-auto max-w-[1336px] px-6">
-          <nav className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[13px] text-white/40">
-            <Link href="/write" className="hover:text-white transition-colors">
-              help
-            </Link>
-            <Link href="/status" className="hover:text-white transition-colors">
-              status
-            </Link>
-            <Link
-              href="/careers"
-              className="hover:text-white transition-colors"
-            >
-              careers
-            </Link>
-            <Link
-              href="/privacy"
-              className="hover:text-white transition-colors"
-            >
-              privacy
-            </Link>
-          </nav>
-        </div>
-      </footer>
-    </div>
+      <SiteFooter />
+    </SiteShell>
   );
 }

@@ -1,117 +1,111 @@
-"use client";
+import { DEMO_MAILTO, SiteFooter, SiteHeader, SiteShell } from "@/components/site/SiteChrome";
+import { Board } from "@/components/site/Board";
+import { Diagnose } from "@/components/site/Diagnose";
+import { SignalChain } from "@/components/site/SignalChain";
+import { SlipFile } from "@/components/site/SlipFile";
+import { HookSwap } from "@/components/site/HookSwap";
+import { PhoneStory } from "@/components/site/PhoneStory";
+import { Limits } from "@/components/site/Limits";
 
-import { motion } from "framer-motion";
-import Link from "next/link";
-import { RotatingGlobe } from "@/components/RotatingGlobe";
-import { BackgroundPaths } from "@/components/ui/background-paths";
+const line = (i: number) => ({ "--i": i }) as React.CSSProperties;
+const delay = (ms: number) => ({ "--d": `${ms}ms` }) as React.CSSProperties;
 
 export default function Home() {
   return (
-    <div className="min-h-screen flex flex-col bg-black overflow-hidden">
-      {/* Header */}
-      <header className="relative z-20 w-full border-b border-white/10">
-        <div className="mx-auto flex h-[75px] max-w-[1336px] items-center justify-between px-6">
-          <a
-            href="/"
-            className="text-[28px] font-manifold font-bold tracking-tight text-white"
-          >
-            anryh labs
-          </a>
-
-          <nav className="flex items-center gap-6">
-            <Link
-              href="/write"
-              className="text-sm text-white/70 hover:text-white transition-colors hidden md:block"
-            >
-              write
-            </Link>
-            <button className="h-[38px] px-4 bg-white text-black text-sm font-normal rounded-full hover:bg-white/90 transition-colors">
-              get started
-            </button>
-          </nav>
-        </div>
-      </header>
-
-      {/* Hero Section */}
-      <main className="relative flex-1 flex items-center">
-        {/* Background Paths - lowest layer */}
-        <div className="absolute inset-0 z-0">
-          <BackgroundPaths />
-        </div>
-
-        {/* Globe - positioned to the right, partially off-screen */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 1, delay: 0.3 }}
-          className="absolute right-[-150px] top-1/2 -translate-y-1/2 w-[700px] h-[700px] z-5 hidden lg:block"
-        >
-          {/* Circular black background matching globe sphere */}
-          <div
-            className="absolute inset-0"
-            style={{
-              background:
-                "radial-gradient(circle at 50% 50%, black 0%, black 39.5%, transparent 40%)",
-            }}
-          />
-          <div className="relative w-full h-full">
-            <RotatingGlobe />
-          </div>
-        </motion.div>
-
-        <div className="relative z-10 mx-auto max-w-[1336px] w-full px-6">
-          <div className="flex items-center justify-between gap-8">
-            {/* Left - Text Content */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6 }}
-              className="max-w-[650px]"
-            >
-              <h1 className="font-manifold text-[60px] md:text-[80px] leading-[0.95] tracking-[-0.02em] text-white mb-8">
-                tech built for
-                <br />
-                cool people
-              </h1>
-              <p className="text-[21px] text-white/70 mb-8 font-normal">
-                building cool sh*t
+    <SiteShell>
+      <SiteHeader />
+      <main>
+        <section className="sb-hero">
+          <div className="sb-hero__top">
+            <h1 className="sb-h1">
+              <span className="line">
+                <span data-line style={line(0)}>
+                  life insurance ads
+                </span>
+              </span>
+              <span className="line">
+                <span data-line style={line(1)}>
+                  that fix themselves.
+                </span>
+              </span>
+            </h1>
+            <div className="sb-hero__copy">
+              <p className="sb-lead" data-load style={delay(380)}>
+                migz runs your whole meta campaign. it reads the analytics all day, works out what is holding results
+                back, and fixes it: budget, placements, creative and copy.
               </p>
-              <Link
-                href="/pairo"
-                className="inline-flex items-center justify-center h-[46px] px-6 bg-white text-black text-[20px] font-normal rounded-full hover:bg-white/90 transition-colors"
-              >
-                pairo
-              </Link>
-            </motion.div>
+              <div className="sb-hero__cta" data-load style={delay(470)}>
+                <a href={DEMO_MAILTO} className="sb-cta">
+                  reach out
+                </a>
+                <p className="sb-invite">invite only, while we onboard agents one at a time.</p>
+              </div>
+            </div>
           </div>
-        </div>
-      </main>
+          <div className="sb-hero__board" data-open>
+            <Board />
+          </div>
+        </section>
 
-      {/* Footer */}
-      <footer className="relative z-20 border-t border-white/10 py-6">
-        <div className="mx-auto max-w-[1336px] px-6">
-          <nav className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[13px] text-white/40">
-            <Link href="/write" className="hover:text-white transition-colors">
-              help
-            </Link>
-            <Link href="/status" className="hover:text-white transition-colors">
-              status
-            </Link>
-            <Link
-              href="/careers"
-              className="hover:text-white transition-colors"
-            >
-              careers
-            </Link>
-            <Link
-              href="/privacy"
-              className="hover:text-white transition-colors"
-            >
-              privacy
-            </Link>
-          </nav>
-        </div>
-      </footer>
-    </div>
+        <section className="sb-sec" aria-labelledby="reads">
+          <h2 className="sb-h2" id="reads" data-reveal>
+            it reads the numbers, then fixes the campaign.
+          </h2>
+          <Diagnose />
+          <p className="sb-note" style={{ marginTop: 16 }}>
+            sample reads with illustrative numbers. migz checks results through the day, acts within your limits, and when the right move is to wait, it says so.
+          </p>
+        </section>
+
+        <section className="sb-sec" aria-labelledby="calls">
+          <h2 className="sb-h2" id="calls" data-reveal>
+            calls, not clicks.
+          </h2>
+          <SignalChain />
+        </section>
+
+        <section className="sb-sec" aria-labelledby="slips">
+          <h2 className="sb-h2" id="slips" data-reveal>
+            every move comes with a reason.
+          </h2>
+          <SlipFile />
+          <p className="sb-note" style={{ marginTop: 16 }}>
+            sample activity, written the way migz writes it in your dashboard.
+          </p>
+        </section>
+
+        <section className="sb-sec" aria-labelledby="creatives">
+          <h2 className="sb-h2" id="creatives" data-reveal>
+            creative is one lever. it makes the video too.
+          </h2>
+          <HookSwap />
+        </section>
+
+        <section className="sb-sec" id="how" aria-labelledby="how-h">
+          <h2 className="sb-h2" id="how-h" data-reveal>
+            from ad to your morning slack.
+          </h2>
+          <PhoneStory />
+        </section>
+
+        <section className="sb-sec" id="limits" aria-labelledby="limits-h">
+          <h2 className="sb-h2" id="limits-h" data-reveal>
+            hard limits it can’t cross.
+          </h2>
+          <Limits />
+        </section>
+
+        <section className="sb-close" aria-labelledby="close-h">
+          <h2 className="sb-h2" id="close-h">
+            ask for an invite.
+          </h2>
+          <a href={DEMO_MAILTO} className="sb-cta">
+            reach out
+          </a>
+          <p className="sb-invite">invite only. tell us your state and monthly ad budget and we’ll reply.</p>
+        </section>
+      </main>
+      <SiteFooter />
+    </SiteShell>
   );
 }
