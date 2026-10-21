@@ -79,6 +79,7 @@ export async function buildEvalContext(agent: Agent, snapshot: Snapshot): Promis
     actionsThisRun: 0,
     generationsThisRun: 0,
     videosThisRun: 0,
+    testMode: isTestMode(),
     openGenerations: snapshot.openGenerations,
     scriptedAds,
     reusableAds,
@@ -161,10 +162,21 @@ async function syncCampaignSwitch(agent: Agent, runId: string) {
   for (const c of campaigns ?? []) {
     await setStatus(c.meta_campaign_id, want);
     await supabaseAdmin.from("ad_campaigns").update({ status: want, updated_at: new Date().toISOString() }).eq("id", c.id);
+    // Going live for the first time: the campaign switch alone does nothing while its ad sets are still
+    // paused, so turn them on too (unless the agent has paused their ads themselves)
+    let resumed = 0;
+    if (want === "ACTIVE" && !agent.ads_paused) {
+      const { data: sets } = await supabaseAdmin.from("ad_sets").select("id, meta_adset_id").eq("campaign_id", c.id).eq("status", "PAUSED");
+      for (const set of sets ?? []) {
+        await setStatus(set.meta_adset_id, "ACTIVE");
+        await supabaseAdmin.from("ad_sets").update({ status: "ACTIVE", updated_at: new Date().toISOString() }).eq("id", set.id);
+        resumed++;
+      }
+    }
     await logAction(agent.id, {
       kind: want === "ACTIVE" ? "launch" : "pause",
       title: want === "ACTIVE" ? "Turned your campaign on" : "Paused your campaign for testing",
-      detail: want === "ACTIVE" ? "Test mode is off, so ads can now deliver." : "Test mode is on: ads are built but won't deliver or spend.",
+      detail: want === "ACTIVE" ? `Test mode is off, so ads can now deliver${resumed ? ` (${resumed} ad set${resumed === 1 ? "" : "s"} switched on too)` : ""}.` : "Test mode is on: ads are built but won't deliver or spend.",
       status: "applied",
       tool: "system_test_mode",
       run_id: runId,

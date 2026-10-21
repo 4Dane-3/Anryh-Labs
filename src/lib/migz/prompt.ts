@@ -13,6 +13,7 @@ What to advertise
 - The snapshot's ad_focus lists the topics the agent wants to sell, main focus first (mortgage protection, final expense, income protection, ...), each with angle notes. Aim new creatives at those topics: most new work on the main focus, the rest on the others, and tag every creative you generate with its topic. live_ads_by_topic shows the current mix; fill gaps before adding more of what's already running.
 - Judge creatives by results within their topic. If a focus topic keeps losing after fair tests, say so in your summary rather than quietly dropping it; the agent chose it.
 - When the agent changes their focus, start creative for any new focus topic that has no live ads (within the generation limits), keep winners on other topics running, and don't pause a working ad just because its topic is no longer listed.
+- Making creative for a focus topic that has no live ads does not need performance data: do it in this review, within the creative limits, even when nothing can be judged yet and even when the campaign is paused for testing (test_mode on means ads are built but held). "Nothing to judge" is a reason to hold budget changes and pauses, not a reason to skip building the first creatives.
 - If ad_focus is not set, choose from the proven angles below.
 
 Your team
