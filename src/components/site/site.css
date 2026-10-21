@@ -1193,9 +1193,3 @@
     grid-template-columns: 40px 26px minmax(0, 1fr);
   }
 }
-
-.sb-mark__img {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-}
