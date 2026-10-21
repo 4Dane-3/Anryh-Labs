@@ -89,7 +89,7 @@ export async function traitCreative(creative: CreativeRow, opts: { agentId: stri
   } else {
     const frames = await extractFrames(bytes);
     if (!frames) {
-      await done({ summary: "No video decoder available to pull frames" });
+      await done({ summary: "Couldn't pull frames from this video" });
       return null;
     }
     for (const f of frames) {

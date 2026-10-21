@@ -138,7 +138,9 @@ export const planExperimentTool: ExtraTool = {
     if (variants.some((v) => !v.label || (!v.ad_id && !v.creative_job_id))) return { content: "Each variant needs a label and either a live ad_id or the creative_job_id that will produce it.", isError: true };
     if (!Number.isFinite(minImpr) || minImpr < MIN_IMPRESSIONS_PER_VARIANT) return { content: `The minimum sample must be at least ${MIN_IMPRESSIONS_PER_VARIANT} impressions per variant.`, isError: true };
     const ids = variants.map((v) => v.ad_id).filter(Boolean) as string[];
-    const known = new Set(env.snapshot.guardAdsets.flatMap((s) => s.ads.map((a) => a.meta_ad_id)));
+    // Check against the table, not the review-start snapshot: variants may have launched this review
+    const { data: found } = ids.length ? await supabaseAdmin.from("ads").select("meta_ad_id").eq("agent_id", env.agent.id).in("meta_ad_id", ids) : { data: [] };
+    const known = new Set((found ?? []).map((a) => a.meta_ad_id));
     const unknown = ids.find((id) => !known.has(id));
     if (unknown) return { content: `No ad ${unknown} in this account.`, isError: true };
     const { count } = await supabaseAdmin.from("experiments").select("id", { count: "exact", head: true }).eq("agent_id", env.agent.id).in("status", ["planned", "running"]);

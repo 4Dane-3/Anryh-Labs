@@ -301,7 +301,9 @@ export async function runMigz(
 
     const now = new Date().toISOString();
     await finish(runId, agent.id, { summary, model: result.executor, input_tokens: result.usage.input, output_tokens: result.usage.output, cost_usd: await cost() });
-    await supabaseAdmin.from("agents").update({ migz_last_operator_at: now, migz_gate_state: gateState(snapshot) }).eq("id", agent.id);
+    // Remember the account as this review left it, so its own changes don't trigger the next one
+    const after = await buildSnapshot(agent);
+    await supabaseAdmin.from("agents").update({ migz_last_operator_at: now, migz_gate_state: gateState(after) }).eq("id", agent.id);
     await emit({ agentId: agent.id, runId, step: "finished", tier: "code", summary: summary || "Review finished", evidence: { advisor_calls: result.advisorCalls, executor: result.executor, degraded: result.degraded } });
     return { runId, status: "succeeded" as const, summary };
   } catch (e) {
