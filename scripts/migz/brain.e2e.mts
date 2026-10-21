@@ -591,6 +591,18 @@ try {
   assert.deepEqual([liveRow!.status, liveRow!.held_by_test_mode], ["ACTIVE", false]);
   ok("test mode: the ad was built in Meta paused (previewable, can't deliver); leaving test mode switched it on");
 
+  // ===== 8e =====
+  step("8e. A recent out-of-credits failure makes Migz try ONE creative (not give up), so it recovers when credits return");
+  await db.from("creative_jobs").insert({ agent_id: AGENT_ID, stage: "failed", error: 'Higgsfield 403: "not_enough_credits"', brief: { concept: "x" } });
+  const snapCredits = await buildSnapshot((await getAgent()) as never);
+  assert.match(String(snapCredits.forModel.agent.creative_generation), /Try ONE creative/);
+  const ctxCredits = await buildEvalContext((await getAgent()) as never, snapCredits);
+  assert.equal(ctxCredits.maxGenerations, 1);
+  await db.from("creative_jobs").insert({ agent_id: AGENT_ID, stage: "launched", brief: { concept: "y" } }); // a later attempt worked
+  const snapOk = await buildSnapshot((await getAgent()) as never);
+  assert.equal(snapOk.forModel.agent.creative_generation, "available");
+  ok("after a credits refusal the next review is allowed one creative; once an attempt works it's back to normal");
+
   // ===== 9 =====
   step("9. Slack: morning digest section, and failure alerts to staff (once per distinct error)");
   const { migzDigestSection } = await import("@/lib/migz/slack");

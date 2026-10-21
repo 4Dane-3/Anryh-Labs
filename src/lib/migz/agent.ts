@@ -81,6 +81,7 @@ export async function buildEvalContext(agent: Agent, snapshot: Snapshot): Promis
     generationsThisRun: 0,
     videosThisRun: 0,
     testMode: isTestMode(),
+    ...(snapshot.creditsRecentlyRefused ? { maxGenerations: 1 } : {}),
     openGenerations: snapshot.openGenerations,
     scriptedAds,
     reusableAds,
