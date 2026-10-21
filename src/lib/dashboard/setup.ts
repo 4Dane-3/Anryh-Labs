@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
 import { cleanFocus } from "@/lib/migz/topics";
 import { getBalanceCents } from "@/lib/dashboard/queries";
+import { MIN_AD_BALANCE_CENTS, MIN_DEPOSIT_CENTS } from "@/lib/campaign";
 
 // What "Start here" checks. Each step is done or not, with the reason it isn't, so the page and the
 // launch action agree. Only what's needed to run a first campaign.
@@ -41,7 +42,10 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
         ? "Write a short bio so people know who they're booking with."
         : null;
   const pageMissing = (hours.count ?? 0) === 0 ? "Set the hours you take calls." : null;
-  const fundsMissing = balanceCents < agent.daily_budget_cents ? "Add enough to cover at least one day of ads." : null;
+  const fundsMissing =
+    balanceCents < MIN_AD_BALANCE_CENTS
+      ? `Add at least $${MIN_DEPOSIT_CENTS / 100}. After the 20% fee that's $${MIN_AD_BALANCE_CENTS / 100} of ads: 2 campaigns at $10/day for 2 weeks.`
+      : null;
   const planMissing = !cleanFocus(agent.ad_focus).length
     ? "Choose what you want to promote."
     : agent.campaign_days === null || agent.campaign_days === undefined

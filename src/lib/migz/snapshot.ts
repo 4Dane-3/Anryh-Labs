@@ -8,7 +8,7 @@ import { LOOKBACK_DAYS } from "@/lib/migz/sync";
 import { briefLabel, isImageBrief, type AnyBrief } from "@/lib/migz/brief";
 import { addRow, derive, emptyTotals, fatigue, present, type Totals } from "@/lib/migz/metrics";
 import { cleanFocus, TOPICS } from "@/lib/migz/topics";
-import { daysLeft } from "@/lib/campaign";
+import { daysLeft, REVISE_AFTER_DAYS } from "@/lib/campaign";
 
 /**
  * Everything Migz needs for one review: the campaign tree with 14-day and 3-day results per ad,
@@ -199,6 +199,16 @@ export async function buildSnapshot(agent: Agent) {
     beingMadeByFormat[f] = (beingMadeByFormat[f] ?? 0) + 1;
   }
 
+  const revisionsFrom = agent.campaign_started_on
+    ? DateTime.fromISO(agent.campaign_started_on, { zone: agent.timezone }).plus({ days: REVISE_AFTER_DAYS }).toISODate()!
+    : null;
+  const adsetsByTopic = new Map<string, string[]>();
+  for (const c of campaigns.data ?? []) {
+    if (!c.topic) continue;
+    const ids = (adsets.data ?? []).filter((x) => x.campaign_id === c.id).map((x) => x.meta_adset_id);
+    adsetsByTopic.set(c.topic, [...(adsetsByTopic.get(c.topic) ?? []), ...ids]);
+  }
+
   const forModel = {
     agent: {
       name: agent.full_name,
@@ -212,11 +222,19 @@ export async function buildSnapshot(agent: Agent) {
         ? "on: campaigns stay paused and every ad you launch is built paused, so the agent can preview the finished ads in Meta Ads Manager and nothing delivers or spends. Build and launch ads as normal (launch creatives into the ad set), and don't ask the agent to turn the campaign on; the ads switch on when test mode ends"
         : "off",
       today: today.toISODate(),
-      campaign: agent.campaign_ends_on
-        ? { runs_until: agent.campaign_ends_on, days_left: daysLeft(agent.campaign_ends_on, agent.timezone), note: "The agent chose this length. Pace tests so winners are found with time left to benefit; don't start long tests near the end." }
-        : agent.campaign_days === 0
-          ? "ongoing (no end date)"
-          : "no end date set",
+      campaign: {
+        started_on: agent.campaign_started_on ?? "not started",
+        runs_until: agent.campaign_ends_on ?? (agent.campaign_days === 0 ? "ongoing (no end date)" : "no end date set"),
+        days_left: daysLeft(agent.campaign_ends_on, agent.timezone),
+        // The plan the agent was shown: results first, then revisions, then check they worked
+        revisions_from: revisionsFrom,
+        phase: !revisionsFrom
+          ? "not started"
+          : today.toISODate()! < revisionsFrom
+            ? `collecting results: the first ${REVISE_AFTER_DAYS} days are for data. Build and launch creative for every campaign, but don't pause ads, move budget or change placements yet (the system refuses). Compare the campaigns from ${revisionsFrom}.`
+            : "revising: compare the campaigns and their ads, revise what's losing (hooks, copy, budget between campaigns), then judge whether each change helped before the campaign ends",
+        note: agent.campaign_ends_on ? "The agent chose this length. Pace tests so winners are found with time left to benefit; don't start long tests near the end." : undefined,
+      },
       creative_generation: outOfCredits > 0
         ? `uncertain: the generator refused the last attempt (${DateTime.fromISO(refusedAt!).toRelative({ base: DateTime.now() })}) for lack of credits, but credits may have been added since. Try ONE creative now (an image first: they cost the least). If it fails again, stop starting creatives this review and say so; if it works, carry on as normal next review.`
         : "available",
@@ -229,6 +247,7 @@ export async function buildSnapshot(agent: Agent) {
           what_to_sell: TOPICS[key].pitch,
           angle_notes: TOPICS[key].angle,
           live_ads_on_this_topic: liveByTopic.get(key) ?? 0,
+          ad_sets_for_this_topic: adsetsByTopic.get(key) ?? [],
         }))
       : "not set: choose from the proven angles",
     live_ads_by_topic: Object.fromEntries(liveByTopic),
@@ -242,6 +261,7 @@ export async function buildSnapshot(agent: Agent) {
       campaign_id: c.meta_campaign_id,
       name: c.name,
       status: c.status,
+      serves_topic: c.topic && c.topic in TOPICS ? `${c.topic} (${TOPICS[c.topic as keyof typeof TOPICS].label})` : "any topic",
       ad_sets: (adsets.data ?? [])
         .filter((s) => s.campaign_id === c.id)
         .map((s) => ({
@@ -322,6 +342,7 @@ export async function buildSnapshot(agent: Agent) {
     creditsRecentlyRefused: outOfCredits > 0,
     focus,
     balanceCents: balance,
+    revisionsFrom,
   };
 }
 

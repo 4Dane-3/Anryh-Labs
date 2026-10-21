@@ -37,6 +37,9 @@ const meta = {
   placements: [] as Record<string, unknown>[],
   calls: [] as { method: string; path: string; body: Record<string, string> }[],
   counter: 0,
+  campaigns: 0,
+  adsets: 0,
+  otherBudgets: new Map<string, number>(), // daily budgets of ad sets after adset_1
 };
 const slack: { channel: string; text: string }[] = [];
 const hf = { status: new Map<string, string>(), submitted: [] as { path: string; body: Record<string, unknown> }[] };
@@ -57,8 +60,9 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     if (body.access_token !== "fake-meta-token") { console.error("TOKEN MISMATCH", method, path, Object.keys(body), init?.body?.constructor?.name, typeof init?.body, String(init?.body).slice(0,120)); throw new Error("bad token"); }
     const id = () => `${++meta.counter}`;
     if (path === "search") return json({ data: [{ key: `region_${body.q}`, name: body.q, type: "region", country_code: "US" }] });
-    if (/^act_\d+\/campaigns$/.test(path)) return json({ id: "cmp_1" });
-    if (/^act_\d+\/adsets$/.test(path)) { meta.adsetBudget = Number(body.daily_budget); return json({ id: "adset_1" }); }
+    // The first campaign and ad set are cmp_1 / adset_1 (tracked in `meta`); later ones (per-focus campaigns) get new ids
+    if (/^act_\d+\/campaigns$/.test(path)) return json({ id: `cmp_${++meta.campaigns}` });
+    if (/^act_\d+\/adsets$/.test(path)) { if (++meta.adsets === 1) meta.adsetBudget = Number(body.daily_budget); else meta.otherBudgets.set(`adset_${meta.adsets}`, Number(body.daily_budget)); return json({ id: `adset_${meta.adsets}` }); }
     if (/^act_\d+\/insights$/.test(path)) return json({ data: body.breakdowns ? meta.placements : meta.insights });
     if (/^act_\d+\/ads$/.test(path) && method === "GET") return json({ data: [...meta.ads].map(([id, status]) => ({ id, status, effective_status: status })) });
     if (/^act_\d+\/ads$/.test(path)) { const adId = `ad_${id()}`; meta.ads.set(adId, body.status); return json({ id: adId }); }
@@ -71,7 +75,8 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     if (path === "vid_1") return json({ status: { video_status: meta.videoReady ? "ready" : "processing" } });
     if (path === "vid_1/thumbnails") return json({ data: [{ uri: "https://cdn.test/thumb.jpg", is_preferred: true }] });
     if (path.startsWith("ad_") && method === "POST") { meta.ads.set(path, body.status); return json({ success: true }); }
-    if (path === "cmp_1") return json({ success: true });
+    if (/^cmp_\d+$/.test(path)) return json({ success: true });
+    if (/^adset_\d+$/.test(path) && method === "POST") { if (body.daily_budget) meta.otherBudgets.set(path, Number(body.daily_budget)); return json({ success: true }); }
     if (path === "pixel_1/events") return json({ events_received: 1 });
     throw new Error(`Unexpected Meta call: ${method} ${path}`);
   }
@@ -194,7 +199,8 @@ const SLUG = `e2e-brain-${Math.random().toString(36).slice(2, 8)}`;
 const T0 = new Date(Date.now() - 1000).toISOString();
 const { data: created, error: createError } = await db.from("agents").insert({
   slug: SLUG, full_name: "E2E Brain Agent", email: `${SLUG}@example.com`, licensed_states: ["FL", "GA", "TX"],
-  timezone: "America/Chicago", active: true, daily_budget_cents: 2000, meta_ad_account_id: "act_9990001", meta_page_id: "page_1",
+  // $10/day = one campaign, so the steps below can follow a single ad set; step 8f raises it to test the split
+  timezone: "America/Chicago", active: true, daily_budget_cents: 1000, meta_ad_account_id: "act_9990001", meta_page_id: "page_1",
   migz_mode: "approve", slack_user_id: "U_TEST", ad_focus: ["final_expense", "mortgage_protection"],
 }).select("id").single();
 if (createError) throw createError;
@@ -602,6 +608,35 @@ try {
   const snapOk = await buildSnapshot((await getAgent()) as never);
   assert.equal(snapOk.forModel.agent.creative_generation, "available");
   ok("after a credits refusal the next review is allowed one creative; once an attempt works it's back to normal");
+
+  // ===== 8f =====
+  step("8f. The plan: one campaign per focus while the budget covers them, extras follow the focus order; 7 days of results before revisions");
+  const { data: firstCampaign } = await db.from("ad_campaigns").select("topic").eq("agent_id", AGENT_ID).single();
+  assert.equal(firstCampaign!.topic, "final_expense", "$10/day = one campaign, on the main focus");
+  await db.from("agents").update({ daily_budget_cents: 4000, ad_focus: ["final_expense", "mortgage_protection", "income_protection"], migz_mode: "approve", migz_last_run_at: null }).eq("id", AGENT_ID);
+  operatorScript = () => ({ content: [text("Plan set up.")] });
+  assert.equal((await run("manual")).status, "succeeded");
+  const { data: planned } = await db.from("ad_campaigns").select("name, topic, ad_sets(daily_budget_cents)").eq("agent_id", AGENT_ID).order("created_at");
+  assert.deepEqual(planned!.map((c) => c.topic).sort(), ["final_expense", "final_expense", "income_protection", "mortgage_protection"]);
+  assert.ok(planned!.every((c) => (c.ad_sets as { daily_budget_cents: number }[]).every((x) => x.daily_budget_cents === 1000)), JSON.stringify(planned));
+  assert.equal(meta.adsetBudget, 1000);
+  assert.ok([...meta.otherBudgets.values()].every((b) => b === 1000));
+  assert.ok(planned!.some((c) => / B · /.test(c.name)), "the second final-expense campaign is labelled B");
+  const { data: setupLog } = await db.from("ad_actions").select("title").eq("agent_id", AGENT_ID).eq("tool", "system_setup").order("created_at", { ascending: false }).limit(1).single();
+  assert.equal(setupLog!.title, "Set up 3 campaigns");
+  const snapPlan = await buildSnapshot((await getAgent()) as never);
+  assert.match(JSON.stringify(snapPlan.forModel.campaigns.map((c) => c.serves_topic)), /mortgage_protection \(Mortgage protection\)/);
+  // A campaign that started today is collecting results: pauses and budget moves are refused until day 8
+  const { DateTime: DT } = await import("luxon");
+  await db.from("agents").update({ campaign_started_on: DT.now().setZone("America/Chicago").toISODate() }).eq("id", AGENT_ID);
+  const snapNew = await buildSnapshot((await getAgent()) as never);
+  assert.match(String((snapNew.forModel.agent.campaign as { phase: string }).phase), /collecting results/);
+  const ctxNew = await buildEvalContext((await getAgent()) as never, snapNew);
+  const { checkPauseAd, checkBudgetChange } = await import("@/lib/migz/guardrails");
+  assert.match(checkPauseAd(ctxNew, "ad_x") ?? "", /first week of results/);
+  assert.match(checkBudgetChange(ctxNew, "adset_1", 1100) ?? "", /first week of results/);
+  await db.from("agents").update({ campaign_started_on: null }).eq("id", AGENT_ID);
+  ok("$40/day over 3 focuses = 4 campaigns (2 on the main focus), $10/day each; the first week refuses revisions");
 
   // ===== 9 =====
   step("9. Slack: morning digest section, and failure alerts to staff (once per distinct error)");

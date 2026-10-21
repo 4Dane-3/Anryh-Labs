@@ -15,9 +15,9 @@ export default async function QuestionsPage() {
     <>
       <PageHeader
         title="Questions"
-        description="The optional questions people answer after they book, to help you prepare for the call. Every question is optional for them."
+        description="What people answer to help you prepare for the call. Mark a question or a whole step as required and it's asked before they can confirm the booking; everything else is optional and asked after they book."
       />
-      <QuestionsEditor initial={questions} usingDefaults={!count} />
+      <QuestionsEditor initial={questions} initialRequiredSteps={agent.required_intake_steps ?? []} usingDefaults={!count} />
     </>
   );
 }

@@ -5,6 +5,14 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, Globe, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CONSENT_TEXT } from "@/lib/booking/constants";
+import { QuestionField } from "@/components/booking/IntakeForm";
+import {
+  isHidden,
+  isRequired,
+  missingRequired,
+  STEP_TITLES,
+  type IntakeQuestion,
+} from "@/lib/booking/questions";
 
 const inputClass =
   "w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-base text-slate-900 placeholder:text-slate-400 focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-600/20";
@@ -36,10 +44,15 @@ export function BookingWidget({
   slug,
   firstName,
   preview = false,
+  questions = [],
+  requiredSteps = [],
 }: {
   slug: string;
   firstName: string;
   preview?: boolean;
+  /** The agent's required questions (and what they depend on), asked before the booking is confirmed. */
+  questions?: IntakeQuestion[];
+  requiredSteps?: number[];
 }) {
   const router = useRouter();
   // Visitor's timezone; empty during SSR so server and client markup match
@@ -61,6 +74,13 @@ export function BookingWidget({
     company: "", // honeypot
     consent: false,
   });
+  // 0 = contact details; then one page per step that has required questions
+  const [page, setPage] = useState(0);
+  const [values, setValues] = useState<Record<string, string>>({});
+  const questionSteps = [...new Set(questions.map((q) => q.step))];
+  const step = questionSteps[page - 1];
+  const pageQuestions = questions.filter((q) => q.step === step && !isHidden(q, values));
+  const isLastPage = page === questionSteps.length;
 
   async function loadSlots() {
     try {
@@ -121,8 +141,18 @@ export function BookingWidget({
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!picked) return;
-    setSubmitting(true);
     setError(null);
+
+    if (page > 0) {
+      const missing = missingRequired(pageQuestions, requiredSteps, values);
+      if (missing) return setError(`Please answer "${missing.label}" to book.`);
+    }
+    if (!isLastPage) {
+      setPage(page + 1);
+      return;
+    }
+
+    setSubmitting(true);
 
     try {
       const res = await fetch("/api/bookings", {
@@ -132,6 +162,10 @@ export function BookingWidget({
           slug,
           startsAt: picked,
           ...form,
+          // Only answers to questions that are showing, given the other answers
+          answers: Object.fromEntries(
+            questions.filter((q) => !isHidden(q, values)).map((q) => [q.key, values[q.key] ?? ""]),
+          ),
           attribution: collectAttribution(),
         }),
       });
@@ -145,6 +179,7 @@ export function BookingWidget({
       setError(data.error ?? "Something went wrong. Please try again.");
       if (res.status === 409) {
         setPicked(null);
+        setPage(0);
         await loadSlots();
       }
     } catch {
@@ -174,12 +209,13 @@ export function BookingWidget({
         <button
           type="button"
           onClick={() => {
-            setPicked(null);
             setError(null);
+            if (page > 0) setPage(page - 1);
+            else setPicked(null);
           }}
           className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-900"
         >
-          <ArrowLeft className="size-4" /> Change time
+          <ArrowLeft className="size-4" /> {page > 0 ? "Back" : "Change time"}
         </button>
 
         <div className="rounded-lg bg-blue-50 px-4 py-3 text-sm text-blue-900">
@@ -189,81 +225,108 @@ export function BookingWidget({
           <div className="text-blue-800/80">{slotMinutes}-minute call with {firstName}</div>
         </div>
 
-        <div>
-          <label htmlFor="name" className="mb-1 block text-sm font-medium text-slate-700">
-            Full name
-          </label>
-          <input
-            id="name"
-            required
-            autoComplete="name"
-            className={inputClass}
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-          />
-        </div>
-        <div>
-          <label htmlFor="email" className="mb-1 block text-sm font-medium text-slate-700">
-            Email
-          </label>
-          <input
-            id="email"
-            type="email"
-            required
-            autoComplete="email"
-            className={inputClass}
-            value={form.email}
-            onChange={(e) => setForm({ ...form, email: e.target.value })}
-          />
-        </div>
-        <div>
-          <label htmlFor="phone" className="mb-1 block text-sm font-medium text-slate-700">
-            Phone number
-          </label>
-          <input
-            id="phone"
-            type="tel"
-            required
-            autoComplete="tel"
-            className={inputClass}
-            value={form.phone}
-            onChange={(e) => setForm({ ...form, phone: e.target.value })}
-          />
-        </div>
+        {page > 0 ? (
+          <div className="space-y-5">
+            <div>
+              <p className="text-xs font-medium text-slate-500" aria-live="polite">
+                Before you book · {page} of {questionSteps.length} · {STEP_TITLES[step - 1]}
+              </p>
+              <p className="mt-1 text-sm text-slate-600">
+                {firstName} asks these before confirming your call. Questions marked{" "}
+                <span className="text-red-600">*</span> are required.
+              </p>
+            </div>
+            {pageQuestions.map((q) => (
+              <QuestionField
+                key={q.key}
+                question={q}
+                required={isRequired(q, requiredSteps)}
+                value={values[q.key] ?? ""}
+                onChange={(v) => setValues((cur) => ({ ...cur, [q.key]: v }))}
+              />
+            ))}
+          </div>
+        ) : (
+          <>
+            <div>
+              <label htmlFor="name" className="mb-1 block text-sm font-medium text-slate-700">
+                Full name
+              </label>
+              <input
+                id="name"
+                required
+                autoComplete="name"
+                className={inputClass}
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+              />
+            </div>
+            <div>
+              <label htmlFor="email" className="mb-1 block text-sm font-medium text-slate-700">
+                Email
+              </label>
+              <input
+                id="email"
+                type="email"
+                required
+                autoComplete="email"
+                className={inputClass}
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+              />
+            </div>
+            <div>
+              <label htmlFor="phone" className="mb-1 block text-sm font-medium text-slate-700">
+                Phone number
+              </label>
+              <input
+                id="phone"
+                type="tel"
+                required
+                autoComplete="tel"
+                className={inputClass}
+                value={form.phone}
+                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+              />
+            </div>
 
-        {/* honeypot: hidden from people, irresistible to bots */}
-        <input
-          type="text"
-          name="company"
-          tabIndex={-1}
-          autoComplete="off"
-          aria-hidden="true"
-          className="absolute -left-[9999px] h-0 w-0 opacity-0"
-          value={form.company}
-          onChange={(e) => setForm({ ...form, company: e.target.value })}
-        />
+            {/* honeypot: hidden from people, irresistible to bots */}
+            <input
+              type="text"
+              name="company"
+              tabIndex={-1}
+              autoComplete="off"
+              aria-hidden="true"
+              className="absolute -left-[9999px] h-0 w-0 opacity-0"
+              value={form.company}
+              onChange={(e) => setForm({ ...form, company: e.target.value })}
+            />
 
-        <label className="flex items-start gap-2.5 text-xs leading-relaxed text-slate-500">
-          <input
-            type="checkbox"
-            required
-            className="mt-0.5 size-4 shrink-0 accent-blue-700"
-            checked={form.consent}
-            onChange={(e) => setForm({ ...form, consent: e.target.checked })}
-          />
-          <span>{CONSENT_TEXT}</span>
-        </label>
+            <label className="flex items-start gap-2.5 text-xs leading-relaxed text-slate-500">
+              <input
+                type="checkbox"
+                required
+                className="mt-0.5 size-4 shrink-0 accent-blue-700"
+                checked={form.consent}
+                onChange={(e) => setForm({ ...form, consent: e.target.checked })}
+              />
+              <span>{CONSENT_TEXT}</span>
+            </label>
+          </>
+        )}
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
         <Button
           type="submit"
           size="lg"
-          disabled={submitting || preview}
+          disabled={submitting || (preview && isLastPage)}
           className="h-12 w-full bg-blue-700 text-base hover:bg-blue-800"
         >
           {submitting ? (
             <Loader2 className="size-4 animate-spin" />
+          ) : !isLastPage ? (
+            "Continue"
           ) : preview ? (
             "Booking is off in preview"
           ) : (

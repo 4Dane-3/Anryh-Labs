@@ -46,6 +46,7 @@ export type Agent = {
   campaign_ends_on?: string | null;
   creative_mode?: "upload" | "ai" | "both" | null;
   onboarding_completed_at?: string | null;
+  required_intake_steps?: number[]; // steps whose questions must be answered before booking
 };
 
 export type Booking = {
@@ -121,13 +122,12 @@ export async function getOpenSlots(agent: Agent): Promise<string[]> {
 
 /** The agent's questions (enabled and disabled), or the defaults if they've never edited them. */
 export async function getIntakeQuestions(agentId: string): Promise<IntakeQuestion[]> {
-  const { data } = await supabaseAdmin
-    .from("intake_questions")
-    .select(
-      "key, step, sort, label, kind, options, allow_other, placeholder, hidden_when_key, hidden_when_value, enabled",
-    )
-    .eq("agent_id", agentId)
-    .order("step")
-    .order("sort");
-  return data?.length ? (data as IntakeQuestion[]) : DEFAULT_QUESTIONS;
+  const columns = "key, step, sort, label, kind, options, allow_other, placeholder, hidden_when_key, hidden_when_value, enabled";
+  const query = (cols: string) =>
+    supabaseAdmin.from("intake_questions").select(cols).eq("agent_id", agentId).order("step").order("sort");
+  let { data, error } = await query(`${columns}, required`);
+  // Before the required-questions migration: the agent's own questions, none required
+  if (error) ({ data, error } = await query(columns));
+  if (!data?.length) return DEFAULT_QUESTIONS;
+  return (data as unknown as IntakeQuestion[]).map((q) => ({ ...q, required: q.required ?? false }));
 }

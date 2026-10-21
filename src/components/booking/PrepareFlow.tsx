@@ -26,6 +26,7 @@ export function PrepareFlow({
   initial,
   completed,
   justBooked,
+  answeredAtBooking,
 }: {
   token: string;
   agentName: string;
@@ -34,6 +35,7 @@ export function PrepareFlow({
   initial: Record<string, string>;
   completed: boolean;
   justBooked: boolean;
+  answeredAtBooking: string[];
 }) {
   const reduceMotion = useReducedMotion();
   const [phase, setPhase] = useState<"intro" | "settled">(justBooked ? "intro" : "settled");
@@ -135,6 +137,7 @@ export function PrepareFlow({
             questions={questions}
             initial={initial}
             completed={completed}
+            answeredAtBooking={answeredAtBooking}
           />
         </motion.div>
       )}
