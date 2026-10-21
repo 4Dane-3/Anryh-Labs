@@ -3,7 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { requireAgent } from "@/lib/auth";
-import { integrations } from "@/lib/integrations";
+import { integrations, migzReadyFor } from "@/lib/integrations";
+import { buildEvalContext, runMigz } from "@/lib/migz/agent";
+import { applyPayload } from "@/lib/migz/executor";
+import { buildSnapshot } from "@/lib/migz/snapshot";
+import { syncAgent } from "@/lib/migz/sync";
+import { recheck, type ActionPayload } from "@/lib/migz/tools";
 import { STEP_TITLES, type IntakeQuestion, type QuestionKind } from "@/lib/booking/questions";
 
 // Every action re-resolves the signed-in agent and scopes writes to agent.id,
@@ -394,4 +399,84 @@ export async function updateSettings(input: {
   if (error) return fail("Couldn't save your settings.");
   revalidatePath("/dashboard", "layout");
   return { ok: true };
+}
+
+// ---------- Migz AI ----------
+
+const PROPOSAL_TTL_MS = 48 * 3_600_000;
+
+export async function decideMigzAction(actionId: string, decision: "approve" | "reject"): Promise<Result> {
+  const agent = await requireAgent();
+  const { data: action } = await supabaseAdmin
+    .from("ad_actions")
+    .select("id, status, payload, created_at")
+    .eq("id", actionId)
+    .eq("agent_id", agent.id)
+    .maybeSingle();
+  if (!action || action.status !== "proposed") return fail("That suggestion was already handled.");
+
+  const decidedAt = new Date().toISOString();
+  if (decision === "reject") {
+    await supabaseAdmin.from("ad_actions").update({ status: "rejected", decided_at: decidedAt }).eq("id", actionId);
+    revalidatePath("/dashboard");
+    return { ok: true };
+  }
+
+  if (Date.now() - new Date(action.created_at).getTime() > PROPOSAL_TTL_MS) {
+    await supabaseAdmin.from("ad_actions").update({ status: "expired", decided_at: decidedAt }).eq("id", actionId);
+    revalidatePath("/dashboard");
+    return fail("That suggestion is more than 2 days old, so results have moved on. Migz will suggest again if it still makes sense.");
+  }
+  if (!migzReadyFor(agent)) return fail("Migz isn't connected to your ad account yet.");
+
+  // Re-check against the latest numbers: things may have changed since Migz suggested this
+  await syncAgent(agent);
+  const snapshot = await buildSnapshot(agent);
+  const ctx = await buildEvalContext(agent, snapshot);
+  const payload = action.payload as ActionPayload;
+  const blocked = recheck(payload, ctx);
+  if (blocked) {
+    await supabaseAdmin
+      .from("ad_actions")
+      .update({ status: "failed", decided_at: decidedAt, result: { error: blocked } })
+      .eq("id", actionId);
+    revalidatePath("/dashboard");
+    return fail(`This can't go ahead anymore: ${blocked}`);
+  }
+
+  const applied = await applyPayload(agent, payload, actionId);
+  await supabaseAdmin
+    .from("ad_actions")
+    .update(
+      applied.ok
+        ? { status: "applied", decided_at: decidedAt, result: applied.result }
+        : { status: "failed", decided_at: decidedAt, result: { error: applied.error } },
+    )
+    .eq("id", actionId);
+  revalidatePath("/dashboard", "layout");
+  return applied.ok ? { ok: true } : fail(applied.error);
+}
+
+export async function setMigzMode(mode: "off" | "approve" | "auto"): Promise<Result> {
+  const agent = await requireAgent();
+  if (!["off", "approve", "auto"].includes(mode)) return fail("Unknown mode.");
+  const { error } = await supabaseAdmin.from("agents").update({ migz_mode: mode }).eq("id", agent.id);
+  if (error) return fail("Couldn't change how Migz works.");
+  revalidatePath("/dashboard", "layout");
+  return { ok: true };
+}
+
+const MANUAL_REVIEW_COOLDOWN_MS = 60 * 60_000;
+
+export async function runMigzNow(): Promise<Result & { summary?: string }> {
+  const agent = await requireAgent();
+  if (agent.migz_mode === "off") return fail("Migz is turned off. Turn it on in Settings first.");
+  if (!migzReadyFor(agent)) return fail("Migz isn't connected to your ad account yet.");
+  if (agent.migz_last_run_at && Date.now() - new Date(agent.migz_last_run_at).getTime() < MANUAL_REVIEW_COOLDOWN_MS) {
+    return fail("Migz reviewed your ads within the last hour. Give results time to come in.");
+  }
+  const run = await runMigz(agent, { trigger: "manual" });
+  revalidatePath("/dashboard", "layout");
+  if (run.status === "failed") return fail(`Migz couldn't finish this review: ${run.error}`);
+  return { ok: true, summary: run.status === "succeeded" ? run.summary : "Ads are paused, so Migz made no changes." };
 }

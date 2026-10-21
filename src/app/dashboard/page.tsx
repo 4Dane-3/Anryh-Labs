@@ -2,10 +2,11 @@ import Link from "next/link";
 import { DateTime } from "luxon";
 import { ArrowRight } from "lucide-react";
 import { requireAgent } from "@/lib/auth";
-import { integrations } from "@/lib/integrations";
+import { integrations, migzReadyFor } from "@/lib/integrations";
 import {
   getAdActions,
   getBalanceCents,
+  getProposedActions,
   getDailyMetrics,
   getUpcomingBookings,
 } from "@/lib/dashboard/queries";
@@ -13,25 +14,19 @@ import { pct, usd } from "@/lib/dashboard/format";
 import { StatTile } from "@/components/dashboard/StatTile";
 import { BarChart } from "@/components/dashboard/BarChart";
 import { Badge, EmptyState, NotConnected, PageHeader, Panel, PanelHeader } from "@/components/dashboard/ui";
-import { MigzStatus } from "@/components/dashboard/Migz";
-
-const ACTION_LABELS: Record<string, string> = {
-  launch: "Launch",
-  budget: "Budget",
-  creative: "Creative",
-  pause: "Paused",
-  audience: "Placement",
-  other: "Change",
-};
+import { MigzPanel } from "@/components/dashboard/MigzPanel";
 
 export default async function OverviewPage() {
   const agent = await requireAgent();
-  const [metrics, balance, upcoming, actions] = await Promise.all([
+  const [metrics, balance, upcoming, actions, proposals] = await Promise.all([
     getDailyMetrics(agent, 30),
     getBalanceCents(agent.id),
     getUpcomingBookings(agent.id, 5),
     getAdActions(agent.id, 6),
+    getProposedActions(agent.id),
   ]);
+  const recentlyRan =
+    !!agent.migz_last_run_at && DateTime.now().diff(DateTime.fromISO(agent.migz_last_run_at), "hours").hours < 1;
 
   const spend = metrics.reduce((s, d) => s + d.spend_cents, 0);
   const leads = metrics.reduce((s, d) => s + d.leads, 0);
@@ -175,45 +170,13 @@ export default async function OverviewPage() {
         </Panel>
 
         <Panel className="lg:col-span-2">
-          <div className="border-b border-line px-5 py-4">
-            <MigzStatus connected={integrations.meta} />
-          </div>
-          <p className="px-5 pt-4 text-[11px] font-medium uppercase tracking-wide text-fg-faint">
-            What Migz changed, and why
-          </p>
-          {actions.length ? (
-            <ol className="relative px-5 pb-4 pt-3">
-              {/* timeline rail */}
-              <span className="absolute bottom-6 left-[23px] top-5 w-px bg-line" aria-hidden="true" />
-              {actions.map((a) => (
-                <li key={a.id} className="relative pb-5 pl-6 last:pb-0">
-                  <span className="absolute left-[-1px] top-1.5 size-[7px] rounded-full border border-ink-raised bg-brand" />
-                  <div className="flex items-baseline justify-between gap-3">
-                    <p className="text-[13px] font-medium text-fg">{a.title}</p>
-                    <span className="shrink-0 text-[11px] text-fg-faint">
-                      {DateTime.fromISO(a.created_at).toRelative({ style: "short" })}
-                    </span>
-                  </div>
-                  {a.detail && <p className="mt-0.5 text-[13px] leading-relaxed text-fg-muted">{a.detail}</p>}
-                  <p className="mt-1 text-[11px] uppercase tracking-wide text-fg-faint">
-                    {ACTION_LABELS[a.kind] ?? a.kind}
-                  </p>
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <EmptyState title="No changes yet">
-              Migz checks your results throughout the day and logs every change it makes to your campaigns here,
-              with the reason.
-            </EmptyState>
-          )}
-          <Link
-            href="/dashboard/creatives"
-            className="flex items-center justify-between gap-3 border-t border-line px-5 py-3 text-[13px] text-fg-muted transition-colors hover:bg-white/[0.03] hover:text-fg"
-          >
-            <span>The better your videos, the better Migz can do. Add creatives</span>
-            <ArrowRight className="size-3.5 shrink-0" />
-          </Link>
+          <MigzPanel
+            connected={migzReadyFor(agent)}
+            mode={agent.migz_mode}
+            recentlyRan={recentlyRan}
+            proposals={proposals}
+            actions={actions}
+          />
         </Panel>
       </div>
     </>

@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { updateSettings } from "@/app/dashboard/actions";
+import { setMigzMode, updateSettings } from "@/app/dashboard/actions";
 import { createSupabaseBrowser } from "@/lib/supabase-browser";
 import { Button, Label, Panel, PanelHeader, inputClass } from "@/components/dashboard/ui";
 
@@ -155,6 +155,77 @@ export function PasswordForm({ email, devLogin }: { email: string; devLogin: boo
           {error && <p className="text-[13px] text-bad">{error}</p>}
           <Saved show={saved} />
         </div>
+      </div>
+    </Panel>
+  );
+}
+
+const MIGZ_MODES = [
+  {
+    value: "approve",
+    label: "Ask me first",
+    detail: "Migz suggests changes and you approve each one from your Overview. Best while you get to know it.",
+  },
+  {
+    value: "auto",
+    label: "Automatic",
+    detail: "Migz makes changes as results come in, within your daily budget and its safety limits. Everything is logged.",
+  },
+  { value: "off", label: "Off", detail: "Migz stops reviewing your ads. Running ads keep running as they are." },
+] as const;
+
+export function MigzModeForm({ mode }: { mode: "off" | "approve" | "auto" }) {
+  const router = useRouter();
+  const [value, setValue] = useState(mode);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  const choose = (next: typeof value) =>
+    startTransition(async () => {
+      const previous = value;
+      setValue(next);
+      setError(null);
+      const res = await setMigzMode(next);
+      if (!res.ok) {
+        setValue(previous);
+        setError(res.error);
+      }
+      router.refresh();
+    });
+
+  return (
+    <Panel>
+      <PanelHeader title="Migz AI" description="How much Migz does on its own when it reviews your ads, several times a day." />
+      <div role="radiogroup" aria-label="Migz mode" className="space-y-2 px-5 py-5">
+        {MIGZ_MODES.map((m) => {
+          const selected = value === m.value;
+          return (
+            <button
+              key={m.value}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              disabled={pending}
+              onClick={() => choose(m.value)}
+              className={`relative flex w-full items-start gap-3 rounded-lg border px-4 py-3 text-left transition-colors ${
+                selected ? "border-brand/50 bg-brand/[0.06]" : "border-line hover:border-line-strong"
+              }`}
+            >
+              <span
+                className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border ${
+                  selected ? "border-brand" : "border-line-strong"
+                }`}
+              >
+                {selected && <motion.span layoutId="migz-mode-dot" className="size-2 rounded-full bg-brand" />}
+              </span>
+              <span>
+                <span className="block text-sm font-medium text-fg">{m.label}</span>
+                <span className="mt-0.5 block text-[13px] text-fg-muted">{m.detail}</span>
+              </span>
+            </button>
+          );
+        })}
+        {error && <p className="text-[13px] text-bad">{error}</p>}
       </div>
     </Panel>
   );

@@ -2,6 +2,9 @@ import type { Metadata } from "next";
 import { requireAgent, devAgentSlug } from "@/lib/auth";
 import { Sidebar } from "@/components/dashboard/Sidebar";
 
+// Server actions run here too; "Review now" runs a full Migz review (Meta sync + Claude)
+export const maxDuration = 300;
+
 export const metadata: Metadata = {
   title: "Agent dashboard",
   robots: { index: false, follow: false },
