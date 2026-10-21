@@ -101,7 +101,7 @@ export async function experimentContext(agent: Agent, snapshot: Snapshot) {
 }
 
 function tool(name: string, description: string, properties: Record<string, unknown>): Anthropic.Beta.BetaTool {
-  return { name, description, strict: true, input_schema: { type: "object", properties, required: Object.keys(properties), additionalProperties: false } };
+  return { name, description, strict: false, input_schema: { type: "object", properties, required: Object.keys(properties), additionalProperties: false } };
 }
 
 const variantSchema = {

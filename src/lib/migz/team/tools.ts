@@ -12,7 +12,7 @@ function tool(name: string, description: string, properties: Record<string, unkn
   return {
     name,
     description,
-    strict: true,
+    strict: false, // see MAX_STRICT_TOOLS in tools.ts
     input_schema: { type: "object", properties, required: Object.keys(properties), additionalProperties: false },
   };
 }

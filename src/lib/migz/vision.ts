@@ -175,7 +175,7 @@ export const diagnoseCreativeTool: ExtraTool = {
   def: {
     name: "diagnose_creative",
     description: "Read-only. For one ad: its creative traits (what's in the frames), its funnel numbers vs its ad set's average (hook rate, hold rate, retention, link click-through, visit-to-booking, frequency), and which rung of the diagnosis ladder it's on.",
-    strict: true,
+    strict: false, // see MAX_STRICT_TOOLS in tools.ts
     input_schema: { type: "object", properties: { ad_id: { type: "string" } }, required: ["ad_id"], additionalProperties: false },
   } satisfies Anthropic.Beta.BetaTool,
   spend: () => false,

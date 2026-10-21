@@ -40,11 +40,17 @@ const titleAndReason = {
   },
 } as const;
 
-function tool(name: string, description: string, properties: Record<string, unknown>): Anthropic.Beta.BetaTool {
+// Anthropic compiles every strict tool's schema into one grammar, and rejects the request when the
+// total is too large ("compiled grammar is too large"). 18 strict tools was over the limit, 9 is fine,
+// so strict is kept for the original action tools and the rest rely on evaluate() / their own
+// validation, which runs on every call anyway. scripts/migz/probe-tools.mts checks the live API.
+export const MAX_STRICT_TOOLS = 10;
+
+function tool(name: string, description: string, properties: Record<string, unknown>, strict = true): Anthropic.Beta.BetaTool {
   return {
     name,
     description,
-    strict: true,
+    strict,
     input_schema: {
       type: "object",
       properties: { ...properties, ...titleAndReason },
@@ -170,6 +176,7 @@ export const MIGZ_TOOLS: Anthropic.Beta.BetaTool[] = [
         description: `1 to ${MAX_COPY_VARIANTS} variants.`,
       },
     },
+    false,
   ),
   tool("hold", "Record a deliberate decision not to change something, e.g. while ad sets are learning or results are steady. Use once per review at most.", {
     kind: { type: "string", enum: ["budget", "creative", "audience", "other"] },
