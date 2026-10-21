@@ -36,7 +36,9 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if ((user || devBypass) && pathname === "/login") {
+  // A signed-in user with no agent account is sent to /login?error=noaccount and must be allowed to stay
+  // there (to sign out or use another email); only bounce them when there's no error to show.
+  if ((user || devBypass) && pathname === "/login" && !request.nextUrl.searchParams.get("error")) {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
     url.search = "";

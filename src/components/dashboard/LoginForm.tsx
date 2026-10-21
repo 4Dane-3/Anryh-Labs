@@ -6,13 +6,24 @@ import { Loader2, MailCheck } from "lucide-react";
 import { createSupabaseBrowser } from "@/lib/supabase-browser";
 import { Button, Label, inputClass } from "@/components/dashboard/ui";
 
-export function LoginForm({ linkError }: { linkError: boolean }) {
+export function LoginForm({ linkError, noAccount = false }: { linkError: boolean; noAccount?: boolean }) {
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(
-    linkError ? "That sign-in link expired or was already used. Request a new one." : null,
+    linkError
+      ? "That sign-in link expired or was already used. Request a new one."
+      : noAccount
+        ? "You're signed in, but that email isn't linked to an agent account. Sign out and use the email your account was set up with."
+        : null,
   );
+  const [signingOut, setSigningOut] = useState(false);
+
+  async function signOut() {
+    setSigningOut(true);
+    await createSupabaseBrowser().auth.signOut();
+    window.location.href = "/login";
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -92,6 +103,11 @@ export function LoginForm({ linkError }: { linkError: boolean }) {
             </div>
 
             {error && <p className="text-[13px] text-bad">{error}</p>}
+            {noAccount && (
+              <Button type="button" variant="secondary" disabled={signingOut} onClick={signOut} className="w-full">
+                {signingOut ? <Loader2 className="animate-spin" /> : "Sign out"}
+              </Button>
+            )}
 
             <Button type="submit" variant="primary" disabled={busy} className="w-full">
               {busy ? <Loader2 className="animate-spin" /> : "Email me a sign-in link"}

@@ -47,7 +47,9 @@ export const getCurrentAgent = cache(async (): Promise<Agent | null> => {
 
 export async function requireAgent(): Promise<Agent> {
   const agent = await getCurrentAgent();
-  if (!agent) redirect("/login");
+  // Signed in but not linked to an agent: /login (with a reason) rather than a bare /login, which the
+  // proxy would send straight back to /dashboard, looping forever
+  if (!agent) redirect("/login?error=noaccount");
   return agent;
 }
 

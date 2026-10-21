@@ -14,7 +14,7 @@ export default async function LoginPage({
   const { error } = await searchParams;
   return (
     <div className="flex min-h-screen items-center justify-center bg-ink px-4 text-fg [color-scheme:dark]">
-      <LoginForm linkError={error === "link"} />
+      <LoginForm linkError={error === "link"} noAccount={error === "noaccount"} />
     </div>
   );
 }
