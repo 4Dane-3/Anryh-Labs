@@ -94,8 +94,12 @@ export function MigzPanel({
     startReview(async () => {
       setNote(null);
       const res = await runMigzNow();
-      setNote(res.ok ? { tone: "good", text: res.summary ?? "Review finished." } : { tone: "bad", text: res.error });
-      router.refresh();
+      if (!res.ok) {
+        setNote({ tone: "bad", text: res.error });
+        return;
+      }
+      // The review runs in the background; the Brain page shows it step by step
+      router.push("/dashboard/brain?started=1");
     });
 
   return (
@@ -110,7 +114,7 @@ export function MigzPanel({
             {mode !== "off" && (
               <Button size="sm" onClick={review} disabled={reviewing || recentlyRan} title={recentlyRan ? "Migz reviewed within the last hour" : undefined}>
                 {reviewing ? <Loader2 className="animate-spin" /> : null}
-                {reviewing ? "Reviewing…" : "Review now"}
+                {reviewing ? "Starting…" : "Review now"}
               </Button>
             )}
           </div>

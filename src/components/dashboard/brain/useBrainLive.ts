@@ -10,12 +10,15 @@ const MAX_EVENTS = 120;
  * Real events, polled: every 2.5s while a review runs, every 30s when idle (and paused while the tab
  * is hidden). Demo mode replays a labelled sample run instead and never touches the account's data.
  */
-export function useBrainLive(initial: BrainLive, demo: boolean) {
+export function useBrainLive(initial: BrainLive, demo: boolean, justStarted = false) {
   const [live, setLive] = useState(initial);
   const state = useRef(initial);
+  // Right after "Review now" the run row may not exist yet: poll fast for a couple of minutes
+  const fastUntil = useRef(0);
 
   useEffect(() => {
     if (demo) return;
+    if (justStarted) fastUntil.current = Date.now() + 120_000;
     let timer: ReturnType<typeof setTimeout>;
     let stopped = false;
     const tick = async () => {
@@ -38,14 +41,14 @@ export function useBrainLive(initial: BrainLive, demo: boolean) {
           // offline for a moment: try again next tick
         }
       }
-      if (!stopped) timer = setTimeout(tick, state.current.running ? 2500 : 30_000);
+      if (!stopped) timer = setTimeout(tick, state.current.running || Date.now() < fastUntil.current ? 2500 : 30_000);
     };
-    timer = setTimeout(tick, state.current.running ? 2500 : 30_000);
+    timer = setTimeout(tick, state.current.running || justStarted ? 1500 : 30_000);
     return () => {
       stopped = true;
       clearTimeout(timer);
     };
-  }, [demo]);
+  }, [demo, justStarted]);
 
   const demoLive = useDemo(demo);
   return demo ? demoLive : live;

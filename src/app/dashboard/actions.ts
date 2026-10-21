@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { isAnryhAdmin, requireAgent } from "@/lib/auth";
 import { integrations, migzReadyFor } from "@/lib/integrations";
@@ -471,17 +472,19 @@ export async function setMigzMode(mode: "off" | "approve" | "auto"): Promise<Res
 
 const MANUAL_REVIEW_COOLDOWN_MS = 60 * 60_000;
 
-export async function runMigzNow(): Promise<Result & { summary?: string }> {
+export async function runMigzNow(): Promise<Result> {
   const agent = await requireAgent();
   if (agent.migz_mode === "off") return fail("Migz is turned off. Turn it on in Settings first.");
   if (!migzReadyFor(agent)) return fail("Migz isn't connected to your ad account yet.");
   if (agent.migz_last_run_at && Date.now() - new Date(agent.migz_last_run_at).getTime() < MANUAL_REVIEW_COOLDOWN_MS) {
     return fail("Migz reviewed your ads within the last hour. Give results time to come in.");
   }
-  const run = await runMigz(agent, { trigger: "manual" });
-  revalidatePath("/dashboard", "layout");
-  if (run.status === "failed") return fail(`Migz couldn't finish this review: ${run.error}`);
-  return { ok: true, summary: run.status === "succeeded" ? run.summary : "Ads are paused, so Migz made no changes." };
+  // The review takes a minute or more, so it runs after this response is sent and the dashboard sends
+  // the agent to the Brain page, which shows it live. Failures appear there (and alert Anryh Labs).
+  after(async () => {
+    await runMigz(agent, { trigger: "manual" }).catch((e) => console.error("manual review crashed", e));
+  });
+  return { ok: true };
 }
 
 // ---------- Migz brain ----------

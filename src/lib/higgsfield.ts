@@ -42,6 +42,10 @@ async function submit(path: string, body: Record<string, unknown>, opts: SubmitO
     detail?: unknown;
     error?: unknown;
   };
+  if (res.status === 403 && JSON.stringify(json.detail ?? json).includes("not_enough_credits")) {
+    // Credits live on the account that owns the API key, separate from web-app subscription credits
+    throw new Error("Higgsfield is out of credits on the API account, so no new creatives can be made until credits are added.");
+  }
   if (!res.ok || !json.request_id || !json.status_url) {
     throw new Error(`Higgsfield ${res.status}: ${JSON.stringify(json.detail ?? json.error ?? json).slice(0, 300)}`);
   }

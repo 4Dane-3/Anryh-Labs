@@ -84,7 +84,14 @@ export async function enqueueGeneration(input: {
       : await submitVideo(input.brief, opts);
     await update(job.id, { provider_request_id: requestId, status_url: statusUrl });
   } catch (e) {
-    await update(job.id, { stage: "failed", error: e instanceof Error ? e.message : String(e) });
+    const message = e instanceof Error ? e.message : String(e);
+    await update(job.id, { stage: "failed", error: message });
+    try {
+      const { data: owner } = await supabaseAdmin.from("agents").select("slug").eq("id", input.agentId).single();
+      await alertCreativeFailed(input.agentId, owner?.slug ?? "unknown", job.id, message);
+    } catch {
+      // alerts are best effort
+    }
     throw e;
   }
   return job.id;
