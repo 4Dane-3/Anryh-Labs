@@ -165,14 +165,21 @@ export async function buildSnapshot(agent: Agent) {
     liveByTopic.set(topic, (liveByTopic.get(topic) ?? 0) + 1);
   }
 
-  // If Higgsfield recently refused for lack of credits, tell the model so it doesn't burn actions retrying
-  const { count: outOfCredits } = await supabaseAdmin
+  // If the latest creative attempt was refused for lack of credits (in the last 2 hours), tell the model so
+  // it doesn't burn actions retrying; once credits are added and a later attempt works, or after 2 hours, it tries again
+  const { data: lastJob } = await supabaseAdmin
     .from("creative_jobs")
-    .select("id", { count: "exact", head: true })
+    .select("stage, error, created_at")
     .eq("agent_id", agent.id)
-    .eq("stage", "failed")
-    .ilike("error", "%out of credits%")
-    .gte("created_at", new Date(Date.now() - 12 * 3_600_000).toISOString());
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const outOfCredits =
+    lastJob?.stage === "failed" &&
+    /credits/i.test(lastJob.error ?? "") &&
+    Date.now() - new Date(lastJob.created_at).getTime() < 2 * 3_600_000
+      ? 1
+      : 0;
 
   // What's live and in the works, by format, so the model fills gaps instead of repeating one format
   const formatOf = (kind?: string, script?: AnyBrief | null) =>
@@ -209,7 +216,7 @@ export async function buildSnapshot(agent: Agent) {
         : agent.campaign_days === 0
           ? "ongoing (no end date)"
           : "no end date set",
-      creative_generation: (outOfCredits ?? 0) > 0
+      creative_generation: outOfCredits > 0
         ? "unavailable: the video and image generator is out of credits. Don't start new creatives; launch existing library creatives or adjust what's running, and say in your summary that new creatives are waiting on credits."
         : "available",
     },

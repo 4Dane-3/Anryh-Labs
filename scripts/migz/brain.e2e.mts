@@ -518,6 +518,42 @@ try {
   await db.from("agents").update({ campaign_ends_on: null, migz_last_run_at: null }).eq("id", AGENT_ID);
   ok("ended campaign paused ads with a clear message (no AI call), extending it resumed them, and Migz sees the days left");
 
+  // ===== 8c =====
+  step("8c. Test mode, then going live: the campaign AND its paused ad sets switch on");
+  process.env.MIGZ_TEST_MODE = "1";
+  meta.adsetStatus = "PAUSED";
+  await db.from("ad_sets").update({ status: "PAUSED" }).eq("agent_id", AGENT_ID);
+  await db.from("agents").update({ migz_last_run_at: null }).eq("id", AGENT_ID);
+  operatorScript = () => ({ content: [text("Test mode: held.")] });
+  await run("manual");
+  const { data: cTest } = await db.from("ad_campaigns").select("status").eq("agent_id", AGENT_ID).single();
+  assert.equal(cTest!.status, "PAUSED");
+  assert.equal(meta.adsetStatus, "PAUSED", "test mode doesn't touch the ad set");
+  process.env.MIGZ_TEST_MODE = "0";
+  await db.from("agents").update({ migz_last_run_at: null }).eq("id", AGENT_ID);
+  await run("manual");
+  const { data: cLive } = await db.from("ad_campaigns").select("status").eq("agent_id", AGENT_ID).single();
+  assert.equal(cLive!.status, "ACTIVE");
+  assert.equal(meta.adsetStatus, "ACTIVE", "the paused ad set was switched on with the campaign");
+  const { data: liveSets } = await db.from("ad_sets").select("status").eq("agent_id", AGENT_ID);
+  assert.ok(liveSets!.every((x) => x.status === "ACTIVE"));
+  const { data: goLive } = await db.from("ad_actions").select("detail").eq("agent_id", AGENT_ID).eq("tool", "system_test_mode").order("created_at", { ascending: false }).limit(1).single();
+  assert.match(goLive!.detail, /switched on too/);
+  // An agent who paused their own ads is never switched on by this
+  await db.from("agents").update({ ads_paused: true, migz_last_run_at: null }).eq("id", AGENT_ID);
+  process.env.MIGZ_TEST_MODE = "1";
+  modelAllowed = false;
+  await run("manual");
+  process.env.MIGZ_TEST_MODE = "0";
+  await db.from("agents").update({ migz_last_run_at: null }).eq("id", AGENT_ID);
+  await run("manual");
+  assert.equal(meta.adsetStatus, "PAUSED", "ads_paused agents stay paused");
+  await db.from("agents").update({ ads_paused: false, migz_last_run_at: null }).eq("id", AGENT_ID);
+  modelAllowed = true;
+  operatorScript = () => ({ content: [text("Back on.")] });
+  await run("manual");
+  ok("leaving test mode switched on the campaign and its paused ad set; an agent-paused account stays paused");
+
   // ===== 9 =====
   step("9. Slack: morning digest section, and failure alerts to staff (once per distinct error)");
   const { migzDigestSection } = await import("@/lib/migz/slack");
