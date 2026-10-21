@@ -87,7 +87,8 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     }
     const rid = url.pathname.split("/")[2];
     const status = hf.status.get(rid)!;
-    const isImage = hf.submitted[Number(rid.split("_")[1]) - 1].path.includes("ideogram");
+    const submittedPath = hf.submitted[Number(rid.split("_")[1]) - 1].path;
+    const isImage = submittedPath.includes("ideogram") || submittedPath.includes("soul");
     if (status !== "completed") return json({ status, request_id: rid });
     return json(isImage ? { status, request_id: rid, images: [{ url: "https://cdn.test/image.png" }] } : { status, request_id: rid, video: { url: "https://cdn.test/video.mp4" } });
   }
@@ -405,16 +406,29 @@ try {
   step("5b. Agent changes their ad focus → next scheduled check runs a full review");
   await db.from("agents").update({ ad_focus: ["income_protection"] }).eq("id", AGENT_ID);
   operatorCalls = 0;
-  operatorScript = (p) => {
-    assert.match(String(p.messages[0].content), /changed their ad focus/);
-    const snap = snapshotOf(p);
-    assert.equal(snap.ad_focus[0].topic, "income_protection");
-    assert.equal(snap.ad_focus[0].live_ads_on_this_topic, 0);
-    return { content: [text("New focus noted; no income-protection ads yet.")] };
+  const story = (lines: string[]) => ({ concept: "Income protection", topic: "income_protection", scene: "A father tucks his daughter into bed, hallway light behind him", style: "warm cinematic", overlay_lines: lines, button_text: null, aspect_ratio: "9:16", primary_text: "If your paycheck stopped tomorrow, how long could your family keep up? A free call walks you through it.", headline: "Protect their routine", launch_adset_id: null, title: "Started a Stories image", reason: "No income-protection creative yet." });
+  const submittedBefore = hf.submitted.length;
+  operatorScript = (p, call) => {
+    if (call === 1) {
+      assert.match(String(p.messages[0].content), /changed their ad focus/);
+      const snap = snapshotOf(p);
+      assert.equal(snap.ad_focus[0].topic, "income_protection");
+      assert.equal(snap.ad_focus[0].live_ads_on_this_topic, 0);
+      return { content: [toolUse("generate_image", story(["Text on a 9:16 image"])), toolUse("generate_image", story([]))] };
+    }
+    const r = lastToolResults(p);
+    assert.ok(r[0].is_error && /photos made without text/.test(r[0].content), r[0].content);
+    assert.match(r[1].content, /^Done/, r[1].content);
+    return { content: [text("Started a Stories image for the new focus.")] };
   };
   res = await run("schedule");
   assert.equal(res.status, "succeeded", JSON.stringify(res));
-  ok("focus change triggered a review; the lead saw the new focus with 0 live ads on it");
+  const newSubmits = hf.submitted.slice(submittedBefore);
+  assert.equal(newSubmits.length, 1);
+  assert.equal(newSubmits[0].path, "/higgsfield-ai/soul/cinema");
+  assert.deepEqual([newSubmits[0].body.aspect_ratio, newSubmits[0].body.resolution], ["9:16", "720p"]);
+  assert.ok(!/Text on a 9:16/.test(String(newSubmits[0].body.prompt)) && /No text/.test(String(newSubmits[0].body.prompt)));
+  ok("focus change triggered a review; the lead saw the new focus; a 9:16 image went to Soul Cinema 720p without text, and text on a 9:16 image was refused");
 
   // ===== 6 =====
   step("6. Experiment reaches its sample → verdict and learning");
