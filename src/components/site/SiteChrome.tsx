@@ -54,6 +54,9 @@ export function SiteFooter() {
             <Link href="/privacy" className="sb-link">
               privacy
             </Link>
+            <Link href="/terms" className="sb-link">
+              terms
+            </Link>
             <Link href="/data-deletion" className="sb-link">
               delete your data
             </Link>
