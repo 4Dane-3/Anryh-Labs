@@ -10,6 +10,7 @@ import { buildSnapshot } from "@/lib/migz/snapshot";
 import { syncAgent } from "@/lib/migz/sync";
 import { defaultCreateMessage, monthlyBudget } from "@/lib/migz/router";
 import { traitSwipe } from "@/lib/migz/team/scout";
+import { cleanFocus } from "@/lib/migz/topics";
 import { recheck, type ActionPayload } from "@/lib/migz/tools";
 import { STEP_TITLES, type IntakeQuestion, type QuestionKind } from "@/lib/booking/questions";
 
@@ -519,6 +520,15 @@ export async function setModelBudget(cents: number): Promise<Result> {
   if (!(await isAnryhAdmin())) return fail("Only Anryh Labs can change the AI budget.");
   if (!Number.isInteger(cents) || cents < 0 || cents > 100_000) return fail("Enter a budget between $0 and $1,000.");
   await supabaseAdmin.from("agents").update({ migz_model_budget_cents: cents }).eq("id", agent.id);
+  revalidatePath("/dashboard", "layout");
+  return { ok: true };
+}
+
+/** What the agent wants Migz to advertise, most important first. The next review picks it up. */
+export async function setAdFocus(topics: string[]): Promise<Result> {
+  const agent = await requireAgent();
+  const { error } = await supabaseAdmin.from("agents").update({ ad_focus: cleanFocus(topics) }).eq("id", agent.id);
+  if (error) return fail("Couldn't save your ad focus. If this keeps happening, the ad focus migration may not have run yet.");
   revalidatePath("/dashboard", "layout");
   return { ok: true };
 }

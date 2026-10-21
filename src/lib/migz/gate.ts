@@ -11,6 +11,7 @@ export type GateState = {
   statuses: string; // ad set + ad statuses, sorted
   library: string; // creative ids waiting to launch
   generating: number;
+  focus?: string; // the agent's ad focus, in order
 };
 
 export const MATERIAL_IMPRESSIONS = 1000;
@@ -35,6 +36,7 @@ export function gateState(snapshot: Snapshot): GateState {
       .join(","),
     library: snapshot.forModel.creatives_not_running.map((c) => c.creative_id).sort().join(","),
     generating: snapshot.openGenerations,
+    focus: snapshot.focus.join(","),
   };
 }
 
@@ -66,6 +68,7 @@ export function materialChanges(input: GateInput): string[] {
     if (cur.statuses !== prev.statuses) reasons.push("ad or ad set status changed");
     if (cur.library !== prev.library && cur.library) reasons.push("new creative ready to launch");
     if (cur.generating < prev.generating) reasons.push("a creative finished generating");
+    if ((prev.focus ?? "") !== (cur.focus ?? "")) reasons.push("the agent changed their ad focus");
     const hours = (now.getTime() - new Date(input.lastOperatorAt).getTime()) / 3_600_000;
     if (hours >= MAX_QUIET_HOURS) reasons.push(`daily check (${Math.floor(hours)}h since last full review)`);
   }

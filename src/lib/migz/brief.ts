@@ -7,6 +7,7 @@
 export type CreativeBrief = {
   format?: "video"; // briefs stored before image ads existed have no format: they're videos
   concept: string; // one line: the angle, e.g. "Mortgage protection for new homeowners"
+  topic?: string; // which advertising topic it serves (topics.ts), when Migz made it
   style: string; // visual direction applied to every shot
   hook_line: string; // the opening idea in words (also leads the primary text)
   hook_shot: string; // prompt for the first ~3 seconds
@@ -18,6 +19,7 @@ export type CreativeBrief = {
 export type ImageBrief = {
   format: "image";
   concept: string;
+  topic?: string;
   scene: string; // who is in the photo, where, doing what, and the light
   style: string; // photographic look
   overlay_lines: string[]; // 1-3 short lines rendered on the image, e.g. "Protect their peace."

@@ -193,7 +193,7 @@ const T0 = new Date(Date.now() - 1000).toISOString();
 const { data: created, error: createError } = await db.from("agents").insert({
   slug: SLUG, full_name: "E2E Brain Agent", email: `${SLUG}@example.com`, licensed_states: ["FL", "GA", "TX"],
   timezone: "America/Chicago", active: true, daily_budget_cents: 2000, meta_ad_account_id: "act_9990001", meta_page_id: "page_1",
-  migz_mode: "approve", slack_user_id: "U_TEST",
+  migz_mode: "approve", slack_user_id: "U_TEST", ad_focus: ["final_expense", "mortgage_protection"],
 }).select("id").single();
 if (createError) throw createError;
 const AGENT_ID = created!.id as string;
@@ -215,11 +215,14 @@ try {
   operatorScript = (p, call) => {
     const snap = snapshotOf(p);
     const adsetId = snap.campaigns[0].ad_sets[0].adset_id;
-    const video = { concept: "Mortgage protection", style: "warm natural light", hook_line: "Is your family covered if something happens to you?", hook_shot: "A dad pauses at the door", body_shots: [{ prompt: "Family dinner", duration: 4 }], primary_text: "Is your family covered if something happens to you? Let's make sure.", headline: "Book a free call", launch_adset_id: adsetId, title: "Launched a mortgage-protection video", reason: "No live ads yet." };
-    const image = { concept: "Peace of mind", scene: "A mother on a porch swing at sunset", style: "golden hour", overlay_lines: ["Prepare for the worst.", "Protect their peace."], button_text: "Book a free call", aspect_ratio: "4:5", primary_text: "Prepare for the worst, protect their peace.", headline: "Protect their peace", launch_adset_id: adsetId, title: "Launched an image ad", reason: "Cheaper test." };
+    const video = { concept: "Mortgage protection", topic: "mortgage_protection", style: "warm natural light", hook_line: "Is your family covered if something happens to you?", hook_shot: "A dad pauses at the door", body_shots: [{ prompt: "Family dinner", duration: 4 }], primary_text: "Is your family covered if something happens to you? Let's make sure.", headline: "Book a free call", launch_adset_id: adsetId, title: "Launched a mortgage-protection video", reason: "No live ads yet." };
+    const image = { concept: "Peace of mind", topic: "final_expense", scene: "A mother on a porch swing at sunset", style: "golden hour", overlay_lines: ["Prepare for the worst.", "Protect their peace."], button_text: "Book a free call", aspect_ratio: "4:5", primary_text: "Prepare for the worst, protect their peace.", headline: "Protect their peace", launch_adset_id: adsetId, title: "Launched an image ad", reason: "Cheaper test." };
     if (call === 1) {
       const team = teamOf(p);
       assert.ok(team.strategy_memo, "weekly memo reaches the lead");
+      assert.deepEqual(snap.ad_focus.map((f: { topic: string; priority: string }) => [f.topic, f.priority]), [["final_expense", "main focus"], ["mortgage_protection", "focus 2"]]);
+      assert.match(snap.ad_focus[0].angle_notes, /Never call out age/);
+      assert.ok(p.tools!.find((t) => t.name === "generate_image"), "generation tools offered");
       assert.ok(Array.isArray(team.open_audit_findings));
       return { content: [text("Launching creative."), toolUse("generate_video", video)] };
     }
@@ -261,6 +264,7 @@ try {
   ok(`event stream: ${steps1.join(" → ")}`);
   const { data: proposals } = await db.from("ad_actions").select("*").eq("agent_id", AGENT_ID).eq("status", "proposed").gte("created_at", T0);
   assert.equal(proposals!.length, 2);
+  assert.deepEqual(proposals!.map((x) => x.payload.brief.topic).sort(), ["final_expense", "mortgage_protection"]);
   const { data: swipes } = await db.from("swipe_files").select("added_by, traits").is("agent_id", null).gte("created_at", T0);
   assert.equal(swipes!.length, 1);
   const { data: memoLearnings } = await db.from("learnings").select("source").eq("agent_id", AGENT_ID).eq("source", "memo");
@@ -382,6 +386,21 @@ try {
   assert.equal((await callsFor(res.runId)).length, 0);
   modelAllowed = true;
   ok("run skipped: quiet, zero model calls");
+
+  // ===== 5b =====
+  step("5b. Agent changes their ad focus → next scheduled check runs a full review");
+  await db.from("agents").update({ ad_focus: ["income_protection"] }).eq("id", AGENT_ID);
+  operatorCalls = 0;
+  operatorScript = (p) => {
+    assert.match(String(p.messages[0].content), /changed their ad focus/);
+    const snap = snapshotOf(p);
+    assert.equal(snap.ad_focus[0].topic, "income_protection");
+    assert.equal(snap.ad_focus[0].live_ads_on_this_topic, 0);
+    return { content: [text("New focus noted; no income-protection ads yet.")] };
+  };
+  res = await run("schedule");
+  assert.equal(res.status, "succeeded", JSON.stringify(res));
+  ok("focus change triggered a review; the lead saw the new focus with 0 live ads on it");
 
   // ===== 6 =====
   step("6. Experiment reaches its sample → verdict and learning");

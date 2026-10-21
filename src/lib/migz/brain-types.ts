@@ -38,5 +38,6 @@ export type Scorecard = {
   cost_per_booked_call: number | null;
   verdict: { rung: string; read: string };
   traits: { angle?: string; hook_type?: string } | null;
+  topic: string | null;
 };
 
