@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
 import { createAd, createAdCreative, setDailyBudget, setPlacements, setStatus, videoState } from "@/lib/meta/ads";
 import { MetaApiError } from "@/lib/meta/graph";
+import { isTestMode } from "@/lib/migz/test-mode";
 import { enqueueGeneration, enqueueLaunch } from "@/lib/migz/creative-jobs";
 import type { ActionPayload } from "@/lib/migz/tools";
 
@@ -106,7 +107,8 @@ async function launchCopyVariants(agent: Agent, payload: Extract<ActionPayload, 
       headline: v.headline,
       media,
     });
-    const adId = await createAd(account, { name, adsetId: payload.adset_id, creativeId: metaCreativeId, status: "ACTIVE" });
+    const held = isTestMode();
+    const adId = await createAd(account, { name, adsetId: payload.adset_id, creativeId: metaCreativeId, status: held ? "PAUSED" : "ACTIVE" });
     await supabaseAdmin.from("ads").insert({
       agent_id: agent.id,
       adset_id: source.adset_id,
@@ -114,7 +116,8 @@ async function launchCopyVariants(agent: Agent, payload: Extract<ActionPayload, 
       meta_ad_id: adId,
       meta_creative_id: metaCreativeId,
       name,
-      status: "ACTIVE",
+      status: held ? "PAUSED" : "ACTIVE",
+      held_by_test_mode: held,
       primary_text: v.primary_text,
       headline: v.headline,
     });

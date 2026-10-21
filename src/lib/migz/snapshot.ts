@@ -208,7 +208,7 @@ export async function buildSnapshot(agent: Agent) {
       ads_paused_by_agent: agent.ads_paused,
       // Test mode keeps campaigns paused on purpose (set by the account manager, not something to fix)
       test_mode: process.env.MIGZ_TEST_MODE === "1"
-        ? "on: campaigns stay paused so nothing delivers or spends; build and launch ads as normal, and don't ask the agent to turn the campaign on"
+        ? "on: campaigns stay paused and every ad you launch is built paused, so the agent can preview the finished ads in Meta Ads Manager and nothing delivers or spends. Build and launch ads as normal (launch creatives into the ad set), and don't ask the agent to turn the campaign on; the ads switch on when test mode ends"
         : "off",
       today: today.toISODate(),
       campaign: agent.campaign_ends_on

@@ -7,6 +7,7 @@ import { buildSnapshot, type Snapshot } from "@/lib/migz/snapshot";
 import { syncAgent } from "@/lib/migz/sync";
 import { begin, emit } from "@/lib/migz/events";
 import { campaignEnded } from "@/lib/campaign";
+import { isTestMode } from "@/lib/migz/test-mode";
 import { gateState, materialChanges, type GateState } from "@/lib/migz/gate";
 import { MODELS } from "@/lib/migz/models";
 import { runOperator, type ExtraTool } from "@/lib/migz/operator";
@@ -27,7 +28,7 @@ export type { CreateMessage } from "@/lib/migz/router";
  * MIGZ_TEST_MODE=1: everything is created for real (campaign, ad set, uploads, ads) but the campaign
  * stays paused, so nothing delivers or spends. Remove the flag and the next review switches it on.
  */
-export const isTestMode = () => process.env.MIGZ_TEST_MODE === "1";
+export { isTestMode };
 
 /** Operator tools and team context beyond the core: experiments, creative vision, pro routines. */
 type Extension = {
@@ -79,6 +80,7 @@ export async function buildEvalContext(agent: Agent, snapshot: Snapshot): Promis
     actionsThisRun: 0,
     generationsThisRun: 0,
     videosThisRun: 0,
+    testMode: isTestMode(),
     openGenerations: snapshot.openGenerations,
     scriptedAds,
     reusableAds,
@@ -164,6 +166,7 @@ async function syncCampaignSwitch(agent: Agent, runId: string) {
     // Going live for the first time: the campaign switch alone does nothing while its ad sets are still
     // paused, so turn them on too (unless the agent has paused their ads themselves)
     let resumed = 0;
+    let heldOn = 0;
     if (want === "ACTIVE" && !agent.ads_paused) {
       const { data: sets } = await supabaseAdmin.from("ad_sets").select("id, meta_adset_id").eq("campaign_id", c.id).eq("status", "PAUSED");
       for (const set of sets ?? []) {
@@ -171,11 +174,18 @@ async function syncCampaignSwitch(agent: Agent, runId: string) {
         await supabaseAdmin.from("ad_sets").update({ status: "ACTIVE", updated_at: new Date().toISOString() }).eq("id", set.id);
         resumed++;
       }
+      // Ads built paused during test mode go live with the campaign
+      const { data: held } = await supabaseAdmin.from("ads").select("id, meta_ad_id").eq("agent_id", agent.id).eq("held_by_test_mode", true);
+      for (const ad of held ?? []) {
+        await setStatus(ad.meta_ad_id, "ACTIVE");
+        await supabaseAdmin.from("ads").update({ status: "ACTIVE", held_by_test_mode: false, updated_at: new Date().toISOString() }).eq("id", ad.id);
+        heldOn++;
+      }
     }
     await logAction(agent.id, {
       kind: want === "ACTIVE" ? "launch" : "pause",
       title: want === "ACTIVE" ? "Turned your campaign on" : "Paused your campaign for testing",
-      detail: want === "ACTIVE" ? `Test mode is off, so ads can now deliver${resumed ? ` (${resumed} ad set${resumed === 1 ? "" : "s"} switched on too)` : ""}.` : "Test mode is on: ads are built but won't deliver or spend.",
+      detail: want === "ACTIVE" ? `Test mode is off, so ads can now deliver${resumed ? ` (${resumed} ad set${resumed === 1 ? "" : "s"} switched on too)` : ""}${heldOn ? ` and ${heldOn} ad${heldOn === 1 ? "" : "s"} you'd approved were switched on` : ""}.` : "Test mode is on: ads are built but won't deliver or spend.",
       status: "applied",
       tool: "system_test_mode",
       run_id: runId,
