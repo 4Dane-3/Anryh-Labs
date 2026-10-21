@@ -36,6 +36,8 @@ export type GuardContext = {
   actionsThisRun: number;
   generationsThisRun: number;
   videosThisRun?: number;
+  /** Fewer new creatives than usual this review (e.g. 1 while checking whether generator credits are back). */
+  maxGenerations?: number;
   /** MIGZ_TEST_MODE: ads are built paused, so launching into a paused ad set is allowed. */
   testMode?: boolean;
   openGenerations: number;
@@ -125,8 +127,9 @@ export function checkLaunchTarget(ctx: GuardContext, adsetId: string) {
 }
 
 export function checkGeneration(ctx: GuardContext, kind: "image" | "video" = "image") {
-  if (ctx.generationsThisRun >= MAX_GENERATIONS_PER_RUN)
-    return `Already started ${MAX_GENERATIONS_PER_RUN} creatives this review, the most per review.`;
+  const cap = ctx.maxGenerations ?? MAX_GENERATIONS_PER_RUN;
+  if (ctx.generationsThisRun >= cap)
+    return `Already started ${cap} creative${cap === 1 ? "" : "s"} this review, the most allowed${cap < MAX_GENERATIONS_PER_RUN ? " while the generator's credits are being checked" : " per review"}.`;
   if (kind === "video" && (ctx.videosThisRun ?? 0) >= MAX_VIDEOS_PER_RUN)
     return `Already started ${MAX_VIDEOS_PER_RUN} video this review, the most per review (videos cost the most). Make a 4:5 feed image or a 9:16 Stories/Reels image instead.`;
   if (ctx.openGenerations >= MAX_OPEN_GENERATIONS)

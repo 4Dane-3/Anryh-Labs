@@ -169,7 +169,9 @@ assert.match(checkGeneration(gc({ videosThisRun: 1, generationsThisRun: 1 }), "v
 assert.equal(checkGeneration(gc({ videosThisRun: 1, generationsThisRun: 1 }), "image"), null);
 assert.equal(checkGeneration(gc({ videosThisRun: 1, generationsThisRun: 2 }), "image"), null);
 assert.match(checkGeneration(gc({ videosThisRun: 1, generationsThisRun: 3 }), "image")!, /3 creatives/);
-ok("creative caps: 3 per review, 1 video, images fill the rest");
+assert.match(checkGeneration(gc({ generationsThisRun: 1, maxGenerations: 1 }), "image")!, /credits are being checked/);
+assert.equal(checkGeneration(gc({ generationsThisRun: 0, maxGenerations: 1 }), "image"), null);
+ok("creative caps: 3 per review, 1 video, images fill the rest; 1 while credits are being re-checked");
 
 // topics
 const { cleanFocus } = await import("@/lib/migz/topics");

@@ -180,6 +180,7 @@ export async function buildSnapshot(agent: Agent) {
     Date.now() - new Date(lastJob.created_at).getTime() < 2 * 3_600_000
       ? 1
       : 0;
+  const refusedAt = lastJob?.created_at ?? null;
 
   // What's live and in the works, by format, so the model fills gaps instead of repeating one format
   const formatOf = (kind?: string, script?: AnyBrief | null) =>
@@ -217,7 +218,7 @@ export async function buildSnapshot(agent: Agent) {
           ? "ongoing (no end date)"
           : "no end date set",
       creative_generation: outOfCredits > 0
-        ? "unavailable: the video and image generator is out of credits. Don't start new creatives; launch existing library creatives or adjust what's running, and say in your summary that new creatives are waiting on credits."
+        ? `uncertain: the generator refused the last attempt (${DateTime.fromISO(refusedAt!).toRelative({ base: DateTime.now() })}) for lack of credits, but credits may have been added since. Try ONE creative now (an image first: they cost the least). If it fails again, stop starting creatives this review and say so; if it works, carry on as normal next review.`
         : "available",
     },
     ad_focus: focus.length
@@ -318,6 +319,7 @@ export async function buildSnapshot(agent: Agent) {
     guardAdsets,
     openGenerations: (jobs.data ?? []).filter((j) => j.stage === "generating").length,
     hasCampaign: (campaigns.data ?? []).length > 0,
+    creditsRecentlyRefused: outOfCredits > 0,
     focus,
     balanceCents: balance,
   };
