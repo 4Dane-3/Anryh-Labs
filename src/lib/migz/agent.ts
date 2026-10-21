@@ -15,6 +15,7 @@ import { diagnoseCreativeTool, watchNewCreatives } from "@/lib/migz/vision";
 import { runRoutines } from "@/lib/migz/routines";
 import { audit } from "@/lib/migz/team/auditor";
 import { writeFeed } from "@/lib/migz/team/clerk";
+import { alertCriticalFindings, alertReviewFailed, nudgeProposals } from "@/lib/migz/slack";
 import { runScout } from "@/lib/migz/team/scout";
 import { READ_TOOLS } from "@/lib/migz/team/tools";
 import type { EvalContext } from "@/lib/migz/tools";
@@ -253,6 +254,7 @@ export async function runMigz(
     const budget = await monthlyBudget(agent.id, agent.migz_model_budget_cents ?? 3000);
     const team = { runId, budget, createMessage };
     const audited = await audit(agent, snapshot, team);
+    await alertCriticalFindings(agent, audited.findings).catch(() => {});
     await runScout({ agentId: agent.id, ...team });
     const routines = await runRoutines(agent, snapshot, team);
 
@@ -305,6 +307,7 @@ export async function runMigz(
     const after = await buildSnapshot(agent);
     await supabaseAdmin.from("agents").update({ migz_last_operator_at: now, migz_gate_state: gateState(after) }).eq("id", agent.id);
     await emit({ agentId: agent.id, runId, step: "finished", tier: "code", summary: summary || "Review finished", evidence: { advisor_calls: result.advisorCalls, executor: result.executor, degraded: result.degraded } });
+    await nudgeProposals(agent, runId).catch(() => {});
     return { runId, status: "succeeded" as const, summary };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
@@ -312,6 +315,8 @@ export async function runMigz(
       .from("migz_runs")
       .update({ status: "failed", error: message.slice(0, 1000), finished_at: new Date().toISOString(), cost_usd: await cost() })
       .eq("id", runId);
+    // Alert first (it checks recent events to avoid repeats), then record the failure
+    await alertReviewFailed(agent, message, runId).catch(() => {});
     await emit({ agentId: agent.id, runId, step: "finished", tier: "code", summary: `Review failed: ${message.slice(0, 200)}` });
     // Failed reviews don't count toward the 6-hour schedule or the 1-hour "Review now" cooldown,
     // so a fixed setup problem (bad key, missing asset) can be retried right away.

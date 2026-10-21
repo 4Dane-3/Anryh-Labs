@@ -17,6 +17,7 @@ Object.assign(process.env, {
   APP_URL: "https://app.test",
   ANTHROPIC_API_KEY: "unused-model-is-simulated",
   SLACK_BOT_TOKEN: "xoxb-fake",
+  ANRYH_ALERT_SLACK_ID: "U_ADMIN",
   MIGZ_TEST_MODE: "0",
 });
 // supabase-js wants a WebSocket for realtime on Node 20; we never use realtime
@@ -197,6 +198,10 @@ const { data: created, error: createError } = await db.from("agents").insert({
 }).select("id").single();
 if (createError) throw createError;
 const AGENT_ID = created!.id as string;
+// The market scout runs weekly and files shared research. Real research may already exist; the test
+// never deletes it, it just expects the scout only when it is actually due.
+const { data: lastScout } = await db.from("swipe_files").select("created_at").is("agent_id", null).eq("added_by", "scout").order("created_at", { ascending: false }).limit(1).maybeSingle();
+const scoutDue = !lastScout || Date.now() - new Date(lastScout.created_at).getTime() > 7 * 86_400_000;
 await db.from("wallet_transactions").insert({ agent_id: AGENT_ID, kind: "deposit", amount_cents: 10_000, status: "completed", description: "e2e test funds" });
 const getAgent = async () => (await db.from("agents").select("*").eq("id", AGENT_ID).single()).data!;
 const testBookingIds: string[] = [];
@@ -244,7 +249,7 @@ try {
   const run1 = res.runId;
   const calls1 = await callsFor(run1);
   const tasks1 = seen.map((s) => `${s.task}:${s.model}`);
-  assert.ok(tasks1.includes(`scout:${HAIKU}`) && tasks1.includes(`memo:${OPUS}`) && tasks1.includes(`operator:${SONNET}`) && tasks1.includes(`copy_check:${HAIKU}`) && tasks1.includes(`feed:${HAIKU}`) && tasks1.includes(`slack:${HAIKU}`), tasks1.join(", "));
+  assert.ok((!scoutDue || tasks1.includes(`scout:${HAIKU}`)) && tasks1.includes(`memo:${OPUS}`) && tasks1.includes(`operator:${SONNET}`) && tasks1.includes(`copy_check:${HAIKU}`) && tasks1.includes(`feed:${HAIKU}`) && tasks1.includes(`slack:${HAIKU}`), tasks1.join(", "));
   ok(`routed: ${[...new Set(tasks1)].join(", ")}`);
   const advisorRow = calls1.find((c) => c.task === "advisor")!;
   assert.equal(advisorRow.model, OPUS); assert.equal(advisorRow.tier, "opus");
@@ -252,12 +257,14 @@ try {
   const { data: runRow } = await db.from("migz_runs").select("cost_usd, model").eq("id", run1).single();
   const sum = calls1.reduce((s, c) => s + Number(c.cost_usd), 0);
   assert.ok(Math.abs(Number(runRow!.cost_usd) - sum) < 1e-4 && sum > 0, `${runRow!.cost_usd} vs ${sum}`);
-  const { data: scoutCalls } = await db.from("model_calls").select("cost_usd").eq("run_id", run1).eq("task", "scout");
-  assert.ok(Number(scoutCalls![0].cost_usd) >= 0.02, "web searches billed");
+  if (scoutDue) {
+    const { data: scoutCalls } = await db.from("model_calls").select("cost_usd").eq("run_id", run1).eq("task", "scout");
+    assert.ok(Number(scoutCalls![0].cost_usd) >= 0.02, "web searches billed");
+  }
   ok(`cost logged per call (${calls1.length} rows, $${sum.toFixed(4)}), advisor tokens billed at Opus rates, run total matches`);
   const ev1 = await eventsFor(run1);
   const steps1 = ev1.map((e) => e.step);
-  for (const s of ["auditing", "researching", "remembering", "triaging", "checking", "advising", "drafting", "finished"]) assert.ok(steps1.includes(s), `event ${s} missing: ${steps1.join(",")}`);
+  for (const s of ["auditing", ...(scoutDue ? ["researching"] : []), "remembering", "triaging", "checking", "advising", "drafting", "finished"]) assert.ok(steps1.includes(s), `event ${s} missing: ${steps1.join(",")}`);
   assert.ok(ev1.every((e) => e.finished_at), "every step closed");
   assert.ok(ev1.some((e) => e.step === "checking" && /advisor not consulted/.test(e.summary)));
   assert.ok(ev1.some((e) => e.step === "advising" && e.tier === "opus"));
@@ -266,11 +273,15 @@ try {
   assert.equal(proposals!.length, 2);
   assert.deepEqual(proposals!.map((x) => x.payload.brief.topic).sort(), ["final_expense", "mortgage_protection"]);
   const { data: swipes } = await db.from("swipe_files").select("added_by, traits").is("agent_id", null).gte("created_at", T0);
-  assert.equal(swipes!.length, 1);
+  assert.equal(swipes!.length, scoutDue ? 1 : 0);
   const { data: memoLearnings } = await db.from("learnings").select("source").eq("agent_id", AGENT_ID).eq("source", "memo");
   assert.equal(memoLearnings!.length, 1);
-  assert.equal(slack.length, 1); assert.equal(slack[0].channel, "U_TEST");
-  ok("2 proposals; scout filed 1 shared swipe example; memo saved a learning and Slack got the weekly report");
+  const toAgent = slack.filter((m) => m.channel === "U_TEST");
+  assert.equal(toAgent.length, 2, JSON.stringify(slack.map((m) => [m.channel, m.text.slice(0, 40)])));
+  assert.ok(toAgent.some((m) => /Your week/.test(m.text)), "weekly report");
+  assert.ok(toAgent.some((m) => /waiting for your OK/.test(m.text) && /Launched a mortgage-protection video/.test(m.text)), "proposal nudge lists the changes");
+  assert.equal(slack.filter((m) => m.channel === "U_ADMIN").length, 0, "no staff alert on a healthy run");
+  ok("2 proposals; scout filed 1 shared swipe example (when due); memo saved a learning; Slack: weekly report and a nudge listing the 2 proposals");
 
   // ===== 2–3 =====
   step("2. Approve, generate and launch");
@@ -332,6 +343,9 @@ try {
   // ===== 4 =====
   step("4. Auto review: vision traits, diagnose, pause + copy variants + experiment; no early verdict");
   await db.from("agents").update({ migz_mode: "auto", migz_last_run_at: null }).eq("id", AGENT_ID);
+  // The copy-lift guardrail needs a market example to compare against; use this agent's own swipe row
+  // so the test doesn't depend on whether the shared scout ran (its rows aren't ours to delete)
+  await db.from("swipe_files").insert({ agent_id: AGENT_ID, advertiser: "Example Life", notes: "A dad packing lunches asks what happens to this routine if he is gone tomorrow morning.", added_by: "agent" });
   operatorCalls = 0;
   let copyAdIds: string[] = [];
   let expId = "";
@@ -435,7 +449,7 @@ try {
   // ===== 7 =====
   step("7. Monthly ceiling reached → cheaper tiers, Opus advisor still required");
   await db.from("agents").update({ migz_model_budget_cents: 1, migz_last_weekly_at: null }).eq("id", AGENT_ID);
-  await db.from("swipe_files").delete().is("agent_id", null).gte("created_at", T0); // make the scout due again
+  await db.from("swipe_files").delete().is("agent_id", null).eq("added_by", "scout").gte("created_at", T0); // only rows this test made, so the scout is due again
   operatorCalls = 0;
   const before = seen.length;
   operatorScript = (p, call) => {
@@ -452,7 +466,7 @@ try {
   assert.ok(after.some((s) => s.task === "memo" && s.model === SONNET), "memo degraded to Sonnet");
   const calls7 = await callsFor(res.runId);
   assert.ok(calls7.some((c) => c.task === "operator" && c.degraded && c.model === HAIKU));
-  assert.ok((await eventsFor(res.runId)).some((e) => /market research/.test(e.summary)));
+  if (scoutDue) assert.ok((await eventsFor(res.runId)).some((e) => /market research/.test(e.summary)));
   ok("over budget: scout skipped, memo on Sonnet, operator on Haiku (degraded logged), advisor rule unchanged");
 
   // ===== 8 =====
@@ -468,6 +482,33 @@ try {
   assert.ok(board.experiments.some((e) => e.status === "concluded")); assert.ok(board.learnings.length >= 3);
   ok(`events polled incrementally; cost by tier $${board.cost.totalUsd.toFixed(4)}; ${board.scorecards.length} scorecards; experiments + learnings present`);
 
+  // ===== 9 =====
+  step("9. Slack: morning digest section, and failure alerts to staff (once per distinct error)");
+  const { migzDigestSection } = await import("@/lib/migz/slack");
+  const { DateTime } = await import("luxon");
+  agent = await getAgent();
+  const section = await migzDigestSection(agent as never, DateTime.now().setZone("America/Chicago").plus({ days: 1 }));
+  assert.match(section, /Your ads yesterday/); assert.match(section, /What Migz did/); assert.match(section, /Paused the image ad/);
+  assert.match(section, /spent/);
+  ok("digest section: yesterday's spend and results, what Migz did (including the pause), nothing invented");
+
+  slack.length = 0;
+  await db.from("agents").update({ migz_last_run_at: null }).eq("id", AGENT_ID);
+  const broken = async () => { throw new Error("400 invalid_request_error: simulated outage"); };
+  const failRun = () => getAgent().then((a) => runMigz(a as never, { trigger: "manual", createMessage: broken as never }));
+  const f1 = await failRun();
+  assert.equal(f1.status, "failed");
+  const adminMsgs = () => slack.filter((m) => m.channel === "U_ADMIN");
+  assert.equal(adminMsgs().length, 1); assert.match(adminMsgs()[0].text, /Migz review failed/); assert.match(adminMsgs()[0].text, /simulated outage/); assert.match(adminMsgs()[0].text, new RegExp(SLUG));
+  const f2 = await failRun();
+  assert.equal(f2.status, "failed");
+  assert.equal(adminMsgs().length, 1, "same error within 6h does not alert again");
+  const failRun3 = () => getAgent().then((a) => runMigz(a as never, { trigger: "manual", createMessage: (async () => { throw new Error("401 authentication_error: different"); }) as never }));
+  await failRun3();
+  assert.equal(adminMsgs().length, 2, "a different error alerts");
+  assert.equal(slack.filter((m) => m.channel === "U_TEST").length, 0, "the agent isn't paged about our outages");
+  ok("review failure alerts staff once per distinct error and never pages the agent");
+
   console.log("\nALL BRAIN E2E STEPS PASSED");
 } catch (e) {
   failed = true;
@@ -477,7 +518,7 @@ try {
   const { data: runs } = await db.from("migz_runs").select("id").eq("agent_id", AGENT_ID);
   const runIds = (runs ?? []).map((r) => r.id);
   if (runIds.length) await db.from("model_calls").delete().in("run_id", runIds); // includes shared scout calls (agent_id null)
-  await db.from("swipe_files").delete().is("agent_id", null).eq("added_by", "scout").gte("created_at", T0);
+  await db.from("swipe_files").delete().is("agent_id", null).eq("added_by", "scout").gte("created_at", T0); // only this run's rows
   const { data: files } = await db.from("creatives").select("storage_path").eq("agent_id", AGENT_ID);
   if (files?.length) await db.storage.from("creatives").remove(files.map((c) => c.storage_path));
   await db.from("ad_insights_daily").delete().eq("agent_id", AGENT_ID);

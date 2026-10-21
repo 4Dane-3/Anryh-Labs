@@ -5,6 +5,7 @@ import type { Agent } from "@/lib/booking/data";
 import { getRequestStatus, submitImage, submitVideo } from "@/lib/higgsfield";
 import { createAd, createAdCreative, uploadImage, uploadVideo, videoState } from "@/lib/meta/ads";
 import { MetaApiError } from "@/lib/meta/graph";
+import { alertCreativeFailed } from "@/lib/migz/slack";
 import { briefLabel, isImageBrief, type AnyBrief, type CreativeBrief } from "@/lib/migz/brief";
 
 // Creative jobs move through stages, advanced by the creatives cron (every 10 min) and the
@@ -293,6 +294,12 @@ export async function advanceJob(job: Job) {
           ? e.message
           : String(e);
     await update(job.id, { stage: "failed", error: message.slice(0, 500) });
+    try {
+      const { data: owner } = await supabaseAdmin.from("agents").select("slug").eq("id", job.agent_id).single();
+      await alertCreativeFailed(job.agent_id, owner?.slug ?? "unknown", job.id, message);
+    } catch {
+      // alerts are best effort
+    }
     if (job.creative_id) await supabaseAdmin.from("creatives").update({ status: "rejected", review_note: message.slice(0, 200) }).eq("id", job.creative_id);
     return "failed";
   }
