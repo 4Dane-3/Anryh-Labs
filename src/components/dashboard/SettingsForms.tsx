@@ -4,7 +4,6 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { setMigzMode, setModelBudget, updateSettings } from "@/app/dashboard/actions";
-import { createSupabaseBrowser } from "@/lib/supabase-browser";
 import { Button, Label, Panel, PanelHeader, inputClass } from "@/components/dashboard/ui";
 
 const TIMEZONES = [
@@ -109,52 +108,6 @@ export function NotificationSettings({
           Save
         </Button>
         <Saved show={saved} />
-      </div>
-    </Panel>
-  );
-}
-
-export function PasswordForm({ email, devLogin }: { email: string; devLogin: boolean }) {
-  const [password, setPassword] = useState("");
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
-
-  const save = () =>
-    startTransition(async () => {
-      setError(null);
-      if (password.length < 8) return setError("Use at least 8 characters.");
-      const { error } = await createSupabaseBrowser().auth.updateUser({ password });
-      if (error) return setError(error.message);
-      setPassword("");
-      setSaved(true);
-      setTimeout(() => setSaved(false), 1500);
-    });
-
-  return (
-    <Panel>
-      <PanelHeader title="Account" description={`Signed in as ${email}`} />
-      <div className="px-5 py-5">
-        <Label htmlFor="new-password">New password</Label>
-        <div className="flex gap-2">
-          <input
-            id="new-password"
-            type="password"
-            autoComplete="new-password"
-            className={inputClass}
-            value={password}
-            disabled={devLogin}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-          <Button onClick={save} disabled={pending || !password || devLogin}>
-            Update
-          </Button>
-        </div>
-        <div className="mt-2 flex items-center gap-3">
-          {devLogin && <p className="text-[12px] text-fg-faint">Not available in dev login mode. Sign in for real to change it.</p>}
-          {error && <p className="text-[13px] text-bad">{error}</p>}
-          <Saved show={saved} />
-        </div>
       </div>
     </Panel>
   );
