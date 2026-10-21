@@ -59,6 +59,9 @@
   margin-inline: auto;
 }
 .sb-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   font-weight: 700;
   font-size: 24px;
   letter-spacing: -0.025em;
@@ -1189,4 +1192,10 @@
   .bd-stage {
     grid-template-columns: 40px 26px minmax(0, 1fr);
   }
+}
+
+.sb-mark__img {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
 }
