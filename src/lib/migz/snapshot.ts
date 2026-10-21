@@ -123,6 +123,10 @@ export async function buildSnapshot(agent: Agent) {
       balance: `$${(balance / 100).toFixed(2)}`,
       days_of_funding_left: agent.daily_budget_cents ? Math.floor(balance / agent.daily_budget_cents) : null,
       ads_paused_by_agent: agent.ads_paused,
+      // Test mode keeps campaigns paused on purpose (set by the account manager, not something to fix)
+      test_mode: process.env.MIGZ_TEST_MODE === "1"
+        ? "on: campaigns stay paused so nothing delivers or spends; build and launch ads as normal, and don't ask the agent to turn the campaign on"
+        : "off",
       today: today.toISODate(),
     },
     account_last_14_days: summarize(totals),

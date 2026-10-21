@@ -18,13 +18,21 @@ import { syncAgent } from "@/lib/migz/sync";
 import { evaluate, MIGZ_TOOLS, type EvalContext } from "@/lib/migz/tools";
 
 export const MIGZ_MODEL = "claude-opus-5-5";
+
+/**
+ * MIGZ_TEST_MODE=1: everything is created for real (campaign, ad set, uploads, ads) but the campaign
+ * stays paused, so nothing delivers or spends. Remove the flag and the next review switches it on.
+ */
+export const isTestMode = () => process.env.MIGZ_TEST_MODE === "1";
 const MAX_TURNS = 10;
 
 export type CreateMessage = (params: MessageCreateParamsNonStreaming) => Promise<BetaMessage>;
 
 let client: Anthropic | null = null;
 const defaultCreateMessage: CreateMessage = (params) => {
-  client ??= new Anthropic();
+  // Keys that aren't scoped to a workspace must name one on every request
+  const workspace = process.env.ANTHROPIC_WORKSPACE_ID;
+  client ??= new Anthropic(workspace ? { defaultHeaders: { "anthropic-workspace-id": workspace } } : {});
   return client.beta.messages.create(params);
 };
 
@@ -126,13 +134,36 @@ async function enforceSpendState(agent: Agent, snapshot: Snapshot, runId: string
   return agent.ads_paused || lowBalance ? "paused" : "ok";
 }
 
+/** Keeps campaigns paused in test mode; switches them on the first review after test mode is removed. */
+async function syncCampaignSwitch(agent: Agent, runId: string) {
+  const want = isTestMode() ? "PAUSED" : "ACTIVE";
+  const { data: campaigns } = await supabaseAdmin
+    .from("ad_campaigns")
+    .select("id, meta_campaign_id, status")
+    .eq("agent_id", agent.id)
+    .neq("status", want);
+  for (const c of campaigns ?? []) {
+    await setStatus(c.meta_campaign_id, want);
+    await supabaseAdmin.from("ad_campaigns").update({ status: want, updated_at: new Date().toISOString() }).eq("id", c.id);
+    await logAction(agent.id, {
+      kind: want === "ACTIVE" ? "launch" : "pause",
+      title: want === "ACTIVE" ? "Turned your campaign on" : "Paused your campaign for testing",
+      detail: want === "ACTIVE" ? "Test mode is off, so ads can now deliver." : "Test mode is on: ads are built but won't deliver or spend.",
+      status: "applied",
+      tool: "system_test_mode",
+      run_id: runId,
+    });
+  }
+}
+
 /** First run: one campaign + one ad set targeting the agent's licensed states, funded at their daily budget. */
 async function ensureCampaign(agent: Agent, runId: string) {
   if (!agent.licensed_states.length) throw new Error("Add the agent's licensed states before Migz can launch ads.");
   const account = agent.meta_ad_account_id!;
   const name = `Migz · Booked calls · ${agent.licensed_states.join(" ")}`;
   const campaignId = await createCampaign(account, name);
-  await setStatus(campaignId, "ACTIVE"); // spends nothing until ads exist
+  const campaignStatus = isTestMode() ? "PAUSED" : "ACTIVE";
+  if (campaignStatus === "ACTIVE") await setStatus(campaignId, "ACTIVE"); // spends nothing until ads exist
   const adsetId = await createAdSet(account, {
     campaignId,
     name: `${agent.licensed_states.join(", ")} · adults 18+`,
@@ -145,7 +176,7 @@ async function ensureCampaign(agent: Agent, runId: string) {
 
   const { data: campaign } = await supabaseAdmin
     .from("ad_campaigns")
-    .insert({ agent_id: agent.id, meta_campaign_id: campaignId, name, status: "ACTIVE" })
+    .insert({ agent_id: agent.id, meta_campaign_id: campaignId, name, status: campaignStatus })
     .select("id")
     .single();
   await supabaseAdmin.from("ad_sets").insert({
@@ -276,6 +307,7 @@ export async function runMigz(
       snapshot = await buildSnapshot(agent);
     }
 
+    await syncCampaignSwitch(agent, runId);
     const spend = await enforceSpendState(agent, snapshot, runId);
     if (spend === "paused") {
       await finish(runId, agent.id, { summary: "Ads are paused, so Migz made no changes." });
@@ -296,7 +328,8 @@ export async function runMigz(
       .from("migz_runs")
       .update({ status: "failed", error: message.slice(0, 1000), finished_at: new Date().toISOString() })
       .eq("id", runId);
-    await supabaseAdmin.from("agents").update({ migz_last_run_at: new Date().toISOString() }).eq("id", agent.id);
+    // Failed reviews don't count toward the 6-hour schedule or the 1-hour "Review now" cooldown,
+    // so a fixed setup problem (bad key, missing asset) can be retried right away.
     return { runId, status: "failed" as const, error: message };
   }
 }
