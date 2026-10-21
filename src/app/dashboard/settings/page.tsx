@@ -1,7 +1,7 @@
-import { requireAgent, devAgentSlug } from "@/lib/auth";
+import { isAnryhAdmin, requireAgent, devAgentSlug } from "@/lib/auth";
 import { integrations } from "@/lib/integrations";
 import { PageHeader, Panel, PanelHeader } from "@/components/dashboard/ui";
-import { MigzModeForm, NotificationSettings, PasswordForm } from "@/components/dashboard/SettingsForms";
+import { MigzModeForm, ModelBudgetForm, NotificationSettings, PasswordForm } from "@/components/dashboard/SettingsForms";
 import { cn } from "@/lib/utils";
 
 const SERVICES = [
@@ -15,6 +15,7 @@ const SERVICES = [
 
 export default async function SettingsPage() {
   const agent = await requireAgent();
+  const admin = await isAnryhAdmin();
 
   return (
     <>
@@ -22,6 +23,7 @@ export default async function SettingsPage() {
       <div className="grid gap-3 lg:grid-cols-5">
         <div className="space-y-3 lg:col-span-3">
           <MigzModeForm mode={agent.migz_mode} />
+          {admin && <ModelBudgetForm cents={agent.migz_model_budget_cents ?? 3000} />}
           <NotificationSettings
             initial={{
               slack_user_id: agent.slack_user_id ?? "",

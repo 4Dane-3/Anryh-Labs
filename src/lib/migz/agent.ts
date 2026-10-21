@@ -1,32 +1,44 @@
 import "server-only";
-import Anthropic from "@anthropic-ai/sdk";
-import type {
-  BetaMessage,
-  BetaMessageParam,
-  BetaToolResultBlockParam,
-  BetaToolUseBlock,
-  MessageCreateParamsNonStreaming,
-} from "@anthropic-ai/sdk/resources/beta/messages/messages";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
 import { createAdSet, createCampaign, setStatus } from "@/lib/meta/ads";
 import { isImageBrief, type AnyBrief, type CreativeBrief } from "@/lib/migz/brief";
-import { applyPayload } from "@/lib/migz/executor";
-import { MIGZ_SYSTEM_PROMPT, reviewMessage } from "@/lib/migz/prompt";
 import { buildSnapshot, type Snapshot } from "@/lib/migz/snapshot";
 import { syncAgent } from "@/lib/migz/sync";
-import { evaluate, MIGZ_TOOLS, type EvalContext } from "@/lib/migz/tools";
+import { begin, emit } from "@/lib/migz/events";
+import { gateState, materialChanges, type GateState } from "@/lib/migz/gate";
+import { MODELS } from "@/lib/migz/models";
+import { runOperator, type ExtraTool } from "@/lib/migz/operator";
+import { defaultCreateMessage, monthlyBudget, type Budget, type CreateMessage } from "@/lib/migz/router";
+import { EXPERIMENT_TOOLS, experimentContext } from "@/lib/migz/experiments";
+import { diagnoseCreativeTool, watchNewCreatives } from "@/lib/migz/vision";
+import { runRoutines } from "@/lib/migz/routines";
+import { audit } from "@/lib/migz/team/auditor";
+import { writeFeed } from "@/lib/migz/team/clerk";
+import { runScout } from "@/lib/migz/team/scout";
+import { READ_TOOLS } from "@/lib/migz/team/tools";
+import type { EvalContext } from "@/lib/migz/tools";
 
-export const MIGZ_MODEL = "claude-opus-5-5";
-const MAX_TURNS = 10;
+export type { CreateMessage } from "@/lib/migz/router";
 
-export type CreateMessage = (params: MessageCreateParamsNonStreaming) => Promise<BetaMessage>;
+/**
+ * MIGZ_TEST_MODE=1: everything is created for real (campaign, ad set, uploads, ads) but the campaign
+ * stays paused, so nothing delivers or spends. Remove the flag and the next review switches it on.
+ */
+export const isTestMode = () => process.env.MIGZ_TEST_MODE === "1";
 
-let client: Anthropic | null = null;
-const defaultCreateMessage: CreateMessage = (params) => {
-  client ??= new Anthropic();
-  return client.beta.messages.create(params);
+/** Operator tools and team context beyond the core: experiments, creative vision, pro routines. */
+type Extension = {
+  tools?: ExtraTool[];
+  /** Adds to the team context the operator reads, and can report reasons to run (e.g. experiments ready). */
+  context?: (agent: Agent, snapshot: Snapshot) => Promise<{ context: Record<string, unknown>; reasons: string[] }>;
+  /** Runs once the gate decides a full review is due, before the operator starts. */
+  beforeReview?: (agent: Agent, team: { runId: string; budget: Budget; createMessage: CreateMessage }) => Promise<unknown>;
 };
+const extensions: Extension[] = [
+  { tools: EXPERIMENT_TOOLS, context: experimentContext },
+  { tools: [diagnoseCreativeTool], beforeReview: watchNewCreatives },
+];
 
 async function logAction(agentId: string, row: Record<string, unknown>) {
   const { data } = await supabaseAdmin
@@ -40,12 +52,16 @@ async function logAction(agentId: string, row: Record<string, unknown>) {
 export async function buildEvalContext(agent: Agent, snapshot: Snapshot): Promise<EvalContext> {
   const { data: scripted } = await supabaseAdmin
     .from("ads")
-    .select("meta_ad_id, creative_id, ad_sets(meta_adset_id), creatives(script)")
+    .select("meta_ad_id, creative_id, status, ad_sets(meta_adset_id), creatives(script, meta_video_id, meta_image_hash)")
     .eq("agent_id", agent.id)
     .not("creative_id", "is", null);
 
   const scriptedAds = new Map<string, { creative_id: string; script: CreativeBrief; meta_adset_id: string }>();
+  const reusableAds = new Map<string, string>();
   for (const row of scripted ?? []) {
+    const media = row.creatives as { meta_video_id?: string | null; meta_image_hash?: string | null } | null;
+    const set = (row.ad_sets as { meta_adset_id?: string } | null)?.meta_adset_id;
+    if (set && row.status === "ACTIVE" && (media?.meta_video_id || media?.meta_image_hash)) reusableAds.set(row.meta_ad_id, set);
     const script = (row.creatives as { script?: AnyBrief } | null)?.script;
     const adset = row.ad_sets as { meta_adset_id?: string } | null;
     // Only videos have a body to reuse with a new hook
@@ -62,6 +78,7 @@ export async function buildEvalContext(agent: Agent, snapshot: Snapshot): Promis
     generationsThisRun: 0,
     openGenerations: snapshot.openGenerations,
     scriptedAds,
+    reusableAds,
     libraryCreativeIds: new Set(snapshot.forModel.creatives_not_running.map((c) => c.creative_id)),
   };
 }
@@ -126,13 +143,36 @@ async function enforceSpendState(agent: Agent, snapshot: Snapshot, runId: string
   return agent.ads_paused || lowBalance ? "paused" : "ok";
 }
 
+/** Keeps campaigns paused in test mode; switches them on the first review after test mode is removed. */
+async function syncCampaignSwitch(agent: Agent, runId: string) {
+  const want = isTestMode() ? "PAUSED" : "ACTIVE";
+  const { data: campaigns } = await supabaseAdmin
+    .from("ad_campaigns")
+    .select("id, meta_campaign_id, status")
+    .eq("agent_id", agent.id)
+    .neq("status", want);
+  for (const c of campaigns ?? []) {
+    await setStatus(c.meta_campaign_id, want);
+    await supabaseAdmin.from("ad_campaigns").update({ status: want, updated_at: new Date().toISOString() }).eq("id", c.id);
+    await logAction(agent.id, {
+      kind: want === "ACTIVE" ? "launch" : "pause",
+      title: want === "ACTIVE" ? "Turned your campaign on" : "Paused your campaign for testing",
+      detail: want === "ACTIVE" ? "Test mode is off, so ads can now deliver." : "Test mode is on: ads are built but won't deliver or spend.",
+      status: "applied",
+      tool: "system_test_mode",
+      run_id: runId,
+    });
+  }
+}
+
 /** First run: one campaign + one ad set targeting the agent's licensed states, funded at their daily budget. */
 async function ensureCampaign(agent: Agent, runId: string) {
   if (!agent.licensed_states.length) throw new Error("Add the agent's licensed states before Migz can launch ads.");
   const account = agent.meta_ad_account_id!;
   const name = `Migz · Booked calls · ${agent.licensed_states.join(" ")}`;
   const campaignId = await createCampaign(account, name);
-  await setStatus(campaignId, "ACTIVE"); // spends nothing until ads exist
+  const campaignStatus = isTestMode() ? "PAUSED" : "ACTIVE";
+  if (campaignStatus === "ACTIVE") await setStatus(campaignId, "ACTIVE"); // spends nothing until ads exist
   const adsetId = await createAdSet(account, {
     campaignId,
     name: `${agent.licensed_states.join(", ")} · adults 18+`,
@@ -145,7 +185,7 @@ async function ensureCampaign(agent: Agent, runId: string) {
 
   const { data: campaign } = await supabaseAdmin
     .from("ad_campaigns")
-    .insert({ agent_id: agent.id, meta_campaign_id: campaignId, name, status: "ACTIVE" })
+    .insert({ agent_id: agent.id, meta_campaign_id: campaignId, name, status: campaignStatus })
     .select("id")
     .single();
   await supabaseAdmin.from("ad_sets").insert({
@@ -166,119 +206,42 @@ async function ensureCampaign(agent: Agent, runId: string) {
   });
 }
 
-/** Claude's review loop. Each tool call is validated, then proposed or applied depending on the agent's mode. */
-async function decide(
-  agent: Agent,
-  snapshot: Snapshot,
-  runId: string,
-  createMessage: CreateMessage,
-) {
-  const mode = agent.migz_mode === "auto" ? "auto" : "approve";
-  const ctx = await buildEvalContext(agent, snapshot);
-  const messages: BetaMessageParam[] = [
-    { role: "user", content: reviewMessage({ mode, snapshotJson: JSON.stringify(snapshot.forModel, null, 1) }) },
-  ];
-  const usage = { input: 0, output: 0 };
-  let summary = "";
-  let holds = 0;
-
-  for (let turn = 0; turn < MAX_TURNS; turn++) {
-    const response = await createMessage({
-      model: MIGZ_MODEL,
-      max_tokens: 16000,
-      betas: ["server-side-fallback-2026-07-01"],
-      fallbacks: "default", // a policy decline is retried server-side instead of ending the review
-      output_config: { effort: "high" },
-      system: [{ type: "text", text: MIGZ_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
-      tools: MIGZ_TOOLS,
-      messages,
-    });
-    usage.input += response.usage.input_tokens + (response.usage.cache_read_input_tokens ?? 0);
-    usage.output += response.usage.output_tokens;
-
-    if (response.stop_reason === "refusal") throw new Error("The model declined this review.");
-    const text = response.content.filter((b) => b.type === "text").map((b) => b.text).join("\n").trim();
-    if (text) summary = text;
-
-    // Only run tools on a clean tool_use stop: a max_tokens stop can carry a truncated tool input
-    const toolUses = response.content.filter((b): b is BetaToolUseBlock => b.type === "tool_use");
-    if (response.stop_reason !== "tool_use" || !toolUses.length) break;
-
-    messages.push({ role: "assistant", content: response.content });
-    const results: BetaToolResultBlockParam[] = [];
-
-    for (const use of toolUses) {
-      if (use.name === "hold" && holds++ >= 1) {
-        results.push({ type: "tool_result", tool_use_id: use.id, is_error: true, content: "Already recorded a hold this review." });
-        continue;
-      }
-      const evaluated = evaluate(use.name, use.input, ctx);
-      if (!evaluated.ok) {
-        results.push({ type: "tool_result", tool_use_id: use.id, is_error: true, content: evaluated.error });
-        continue;
-      }
-      if (evaluated.payload.tool !== "hold") ctx.actionsThisRun++;
-      if (["generate_video", "generate_image", "new_hook_variant"].includes(evaluated.payload.tool)) {
-        ctx.generationsThisRun++;
-        ctx.openGenerations++;
-      }
-
-      const base = {
-        kind: evaluated.kind,
-        title: evaluated.title,
-        detail: evaluated.detail,
-        tool: evaluated.payload.tool,
-        payload: evaluated.payload,
-        run_id: runId,
-      };
-
-      if (mode === "approve" && evaluated.payload.tool !== "hold") {
-        await logAction(agent.id, { ...base, status: "proposed" });
-        results.push({ type: "tool_result", tool_use_id: use.id, content: "Proposed. The agent will approve or reject it." });
-        continue;
-      }
-
-      const actionId = await logAction(agent.id, { ...base, status: "applied" });
-      const applied = await applyPayload(agent, evaluated.payload, actionId);
-      await supabaseAdmin
-        .from("ad_actions")
-        .update(applied.ok ? { result: applied.result } : { status: "failed", result: { error: applied.error } })
-        .eq("id", actionId);
-      results.push(
-        applied.ok
-          ? { type: "tool_result", tool_use_id: use.id, content: `Done. ${JSON.stringify(applied.result)}` }
-          : { type: "tool_result", tool_use_id: use.id, is_error: true, content: applied.error },
-      );
-    }
-
-    messages.push({ role: "user", content: results });
-  }
-
-  return { summary, usage };
-}
-
-/** One full Migz review for an agent: sync, safety checks, setup, decisions. */
+/**
+ * One Migz cycle: sync (code) -> audit (code + Haiku) -> market research when due (Haiku) -> the
+ * quiet-run gate (code) -> the review (Sonnet, advised by Opus) -> feed wording (Haiku).
+ */
 export async function runMigz(
   agent: Agent,
   opts: { trigger?: "schedule" | "manual"; createMessage?: CreateMessage } = {},
 ) {
+  const trigger = opts.trigger ?? "schedule";
+  const createMessage = opts.createMessage ?? defaultCreateMessage;
   const { data: run } = await supabaseAdmin
     .from("migz_runs")
-    .insert({ agent_id: agent.id, trigger: opts.trigger ?? "schedule", model: MIGZ_MODEL })
+    .insert({ agent_id: agent.id, trigger, model: MODELS.sonnet })
     .select("id")
     .single();
   const runId = run!.id as string;
+  const cost = async () => {
+    const { data } = await supabaseAdmin.from("model_calls").select("cost_usd").eq("run_id", runId);
+    return (data ?? []).reduce((s, r) => s + Number(r.cost_usd), 0);
+  };
 
   try {
     let snapshot = await buildSnapshot(agent);
     if (snapshot.hasCampaign) {
+      const done = await begin({ agentId: agent.id, runId, step: "syncing", tier: "code", summary: "Pulling results from Meta" });
       await syncAgent(agent);
       snapshot = await buildSnapshot(agent);
+      const t = snapshot.forModel.account_last_14_days;
+      await done({ summary: `Synced 14 days: ${t.spend} spent, ${t.impressions} impressions, ${t.booked_calls} booked calls`, evidence: t });
     }
 
+    await syncCampaignSwitch(agent, runId);
     const spend = await enforceSpendState(agent, snapshot, runId);
     if (spend === "paused") {
       await finish(runId, agent.id, { summary: "Ads are paused, so Migz made no changes." });
+      await emit({ agentId: agent.id, runId, step: "finished", tier: "code", summary: "Ads are paused, so Migz made no changes." });
       return { runId, status: "paused" as const };
     }
 
@@ -287,16 +250,71 @@ export async function runMigz(
       snapshot = await buildSnapshot(agent);
     }
 
-    const { summary, usage } = await decide(agent, snapshot, runId, opts.createMessage ?? defaultCreateMessage);
-    await finish(runId, agent.id, { summary, input_tokens: usage.input, output_tokens: usage.output });
+    const budget = await monthlyBudget(agent.id, agent.migz_model_budget_cents ?? 3000);
+    const team = { runId, budget, createMessage };
+    const audited = await audit(agent, snapshot, team);
+    await runScout({ agentId: agent.id, ...team });
+    const routines = await runRoutines(agent, snapshot, team);
+
+    // Phase extensions (experiments, vision, routines) add context and reasons to run
+    const teamContext: Record<string, unknown> = {
+      open_audit_findings: audited.findings.slice(0, 10).map((f) => ({ check: f.check, severity: f.severity, summary: f.summary })),
+      model_budget_this_month: `$${budget.spentUsd.toFixed(2)} of $${budget.limitUsd.toFixed(2)}`,
+    };
+    Object.assign(teamContext, routines.context);
+    const extraReasons: string[] = [...routines.reasons];
+    const extraTools: ExtraTool[] = [...READ_TOOLS];
+    for (const ext of extensions) {
+      if (ext.tools) extraTools.push(...ext.tools);
+      if (ext.context) {
+        const out = await ext.context(agent, snapshot);
+        Object.assign(teamContext, out.context);
+        extraReasons.push(...out.reasons);
+      }
+    }
+
+    const reasons = materialChanges({
+      trigger,
+      snapshot,
+      previous: (agent.migz_gate_state as GateState | null) ?? null,
+      lastOperatorAt: agent.migz_last_operator_at ?? null,
+      auditMaterial: audited.material,
+      experimentsReady: 0,
+      routinesDue: [],
+    }).concat(extraReasons);
+
+    if (!reasons.length) {
+      await emit({ agentId: agent.id, runId, step: "skipped", tier: "code", summary: "skipped: quiet (nothing material changed since the last review)", evidence: gateState(snapshot) });
+      await supabaseAdmin
+        .from("migz_runs")
+        .update({ status: "skipped", skipped_reason: "quiet", summary: "Nothing material changed, so Migz skipped the review.", finished_at: new Date().toISOString(), cost_usd: await cost() })
+        .eq("id", runId);
+      await supabaseAdmin.from("agents").update({ migz_last_run_at: new Date().toISOString() }).eq("id", agent.id);
+      return { runId, status: "skipped" as const };
+    }
+    await emit({ agentId: agent.id, runId, step: "triaging", tier: "code", summary: `Full review: ${reasons.join("; ")}`, evidence: { reasons } });
+    for (const ext of extensions) if (ext.beforeReview) await ext.beforeReview(agent, team);
+
+    const ctx = await buildEvalContext(agent, snapshot);
+    const result = await runOperator({ agent, snapshot, runId, budget, createMessage, ctx }, extraTools, { teamContext, reasons });
+    const summary = result.summary ? await writeFeed(result.summary, { agentId: agent.id, runId, budget, createMessage }) : "";
+
+    const now = new Date().toISOString();
+    await finish(runId, agent.id, { summary, model: result.executor, input_tokens: result.usage.input, output_tokens: result.usage.output, cost_usd: await cost() });
+    // Remember the account as this review left it, so its own changes don't trigger the next one
+    const after = await buildSnapshot(agent);
+    await supabaseAdmin.from("agents").update({ migz_last_operator_at: now, migz_gate_state: gateState(after) }).eq("id", agent.id);
+    await emit({ agentId: agent.id, runId, step: "finished", tier: "code", summary: summary || "Review finished", evidence: { advisor_calls: result.advisorCalls, executor: result.executor, degraded: result.degraded } });
     return { runId, status: "succeeded" as const, summary };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     await supabaseAdmin
       .from("migz_runs")
-      .update({ status: "failed", error: message.slice(0, 1000), finished_at: new Date().toISOString() })
+      .update({ status: "failed", error: message.slice(0, 1000), finished_at: new Date().toISOString(), cost_usd: await cost() })
       .eq("id", runId);
-    await supabaseAdmin.from("agents").update({ migz_last_run_at: new Date().toISOString() }).eq("id", agent.id);
+    await emit({ agentId: agent.id, runId, step: "finished", tier: "code", summary: `Review failed: ${message.slice(0, 200)}` });
+    // Failed reviews don't count toward the 6-hour schedule or the 1-hour "Review now" cooldown,
+    // so a fixed setup problem (bad key, missing asset) can be retried right away.
     return { runId, status: "failed" as const, error: message };
   }
 }

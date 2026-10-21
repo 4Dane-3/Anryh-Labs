@@ -241,6 +241,8 @@ export async function createAd(
   return res.id;
 }
 
+type ActionStat = { action_type: string; value: string };
+
 export type AdInsightRow = {
   ad_id: string;
   adset_id: string;
@@ -249,8 +251,42 @@ export type AdInsightRow = {
   spend?: string;
   impressions?: string;
   clicks?: string;
-  actions?: { action_type: string; value: string }[];
+  reach?: string;
+  frequency?: string;
+  inline_link_clicks?: string;
+  actions?: ActionStat[];
+  video_play_actions?: ActionStat[];
+  video_thruplay_watched_actions?: ActionStat[];
+  video_p25_watched_actions?: ActionStat[];
+  video_p50_watched_actions?: ActionStat[];
+  video_p75_watched_actions?: ActionStat[];
+  video_p100_watched_actions?: ActionStat[];
+  video_avg_time_watched_actions?: ActionStat[];
 };
+
+export type PlacementInsightRow = AdInsightRow & { publisher_platform: string; platform_position: string };
+
+// 3-second views come back as actions[action_type=video_view]; the video_* fields are lists of
+// {action_type: "video_view", value}. Field names checked against the Insights API (v25.0).
+const AD_FIELDS = [
+  "ad_id",
+  "adset_id",
+  "campaign_id",
+  "spend",
+  "impressions",
+  "clicks",
+  "reach",
+  "frequency",
+  "inline_link_clicks",
+  "actions",
+  "video_play_actions",
+  "video_thruplay_watched_actions",
+  "video_p25_watched_actions",
+  "video_p50_watched_actions",
+  "video_p75_watched_actions",
+  "video_p100_watched_actions",
+  "video_avg_time_watched_actions",
+].join(",");
 
 /** Daily, per-ad insights for a date range (inclusive, account timezone). */
 export async function getAdInsights(account: string, since: string, until: string) {
@@ -258,9 +294,28 @@ export async function getAdInsights(account: string, since: string, until: strin
     level: "ad",
     time_increment: 1,
     time_range: { since, until },
-    fields: "ad_id,adset_id,campaign_id,spend,impressions,clicks,actions",
+    fields: AD_FIELDS,
     limit: 500,
   });
+}
+
+/** Daily, per-ad results split by where the ad ran (Facebook Feed, Instagram Reels, ...). */
+export async function getPlacementInsights(account: string, since: string, until: string) {
+  return graphAll<PlacementInsightRow>(`${account}/insights`, {
+    level: "ad",
+    time_increment: 1,
+    time_range: { since, until },
+    breakdowns: "publisher_platform,platform_position",
+    fields: "ad_id,spend,impressions,inline_link_clicks,actions,video_thruplay_watched_actions",
+    limit: 500,
+  });
+}
+
+/** Sums an action list, optionally for one action_type. */
+export function actionValue(list: ActionStat[] | undefined, type?: string) {
+  return (list ?? [])
+    .filter((a) => !type || a.action_type === type)
+    .reduce((s, a) => s + (Number(a.value) || 0), 0);
 }
 
 /** Meta-attributed "Schedule" conversions in an insights row (pixel + CAPI events). */

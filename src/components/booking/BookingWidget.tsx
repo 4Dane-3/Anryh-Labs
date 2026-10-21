@@ -80,6 +80,25 @@ export function BookingWidget({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug]);
 
+  // Count one visit per browser session, tagged with the ad that sent it
+  useEffect(() => {
+    if (preview) return;
+    try {
+      const key = `visit:${slug}`;
+      if (sessionStorage.getItem(key)) return;
+      sessionStorage.setItem(key, "1");
+    } catch {
+      // storage blocked: still count the visit
+    }
+    const params = new URLSearchParams(window.location.search);
+    fetch(`/api/agents/${slug}/visit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ utm_source: params.get("utm_source"), utm_content: params.get("utm_content") }),
+      keepalive: true,
+    }).catch(() => {});
+  }, [slug, preview]);
+
   const days = useMemo(() => {
     if (!slots || !tz) return [];
     const map = new Map<string, string[]>();

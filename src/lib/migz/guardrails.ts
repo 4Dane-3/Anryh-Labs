@@ -16,6 +16,7 @@ export type AdState = {
   status: string;
   impressions: number; // last 14 days
   spend_cents: number; // last 14 days
+  thruplays?: number; // last 14 days
 };
 
 export type AdSetState = {
@@ -150,3 +151,28 @@ export function checkCopy(...texts: (string | null | undefined)[]) {
   }
   return problems.size ? `Ad copy breaks insurance ad rules: ${[...problems].join("; ")}. Rewrite it.` : null;
 }
+
+// Market examples are inspiration only: refuse copy that lifts a run of 6+ words from the swipe file.
+export const COPY_RUN_WORDS = 6;
+
+const words = (t: string) => t.toLowerCase().replace(/[^a-z0-9' ]+/g, " ").split(/\s+/).filter(Boolean);
+
+export function checkNotCopied(texts: (string | null | undefined)[], swipeTexts: string[]) {
+  const runs = new Set<string>();
+  for (const s of swipeTexts) {
+    const w = words(s);
+    for (let i = 0; i + COPY_RUN_WORDS <= w.length; i++) runs.add(w.slice(i, i + COPY_RUN_WORDS).join(" "));
+  }
+  if (!runs.size) return null;
+  for (const t of texts) {
+    if (!t) continue;
+    const w = words(t);
+    for (let i = 0; i + COPY_RUN_WORDS <= w.length; i++) {
+      const run = w.slice(i, i + COPY_RUN_WORDS).join(" ");
+      if (runs.has(run)) return `"${run}" is lifted from a market example. Swipe-file ads are inspiration only; write it in your own words.`;
+    }
+  }
+  return null;
+}
+
+export const MAX_COPY_VARIANTS = 2;

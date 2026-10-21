@@ -50,3 +50,14 @@ export async function requireAgent(): Promise<Agent> {
   if (!agent) redirect("/login");
   return agent;
 }
+
+/** Anryh Labs staff (by verified email in ANRYH_ADMIN_EMAILS), who can set per-agent AI budgets. */
+export async function isAnryhAdmin() {
+  const admins = (process.env.ANRYH_ADMIN_EMAILS ?? "").split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
+  if (!admins.length) return false;
+  const supabase = await createSupabaseServer();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  return !!user?.email && !!user.email_confirmed_at && admins.includes(user.email.toLowerCase());
+}

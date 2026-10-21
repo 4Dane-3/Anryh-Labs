@@ -1,7 +1,7 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
-import { setDailyBudget, setPlacements, setStatus } from "@/lib/meta/ads";
+import { createAd, createAdCreative, setDailyBudget, setPlacements, setStatus, videoState } from "@/lib/meta/ads";
 import { MetaApiError } from "@/lib/meta/graph";
 import { enqueueGeneration, enqueueLaunch } from "@/lib/migz/creative-jobs";
 import type { ActionPayload } from "@/lib/migz/tools";
@@ -60,6 +60,8 @@ export async function applyPayload(agent: Agent, payload: ActionPayload, actionI
         });
         return { ok: true, result: { creative_job_id: jobId } };
       }
+      case "write_copy_variants":
+        return { ok: true, result: { ad_ids: await launchCopyVariants(agent, payload) } };
       case "hold":
         return { ok: true, result: {} };
     }
@@ -68,4 +70,55 @@ export async function applyPayload(agent: Agent, payload: ActionPayload, actionI
       e instanceof MetaApiError ? `Meta: ${e.userMessage ?? e.message}` : e instanceof Error ? e.message : String(e);
     return { ok: false, error: message.slice(0, 500) };
   }
+}
+
+const appUrl = () => (process.env.APP_URL || "http://localhost:3000").replace(/\/$/, "");
+
+/** New ads in the same ad set reusing the source ad's Meta media with new copy. Returns the new ad ids. */
+async function launchCopyVariants(agent: Agent, payload: Extract<ActionPayload, { tool: "write_copy_variants" }>) {
+  const { data: source } = await supabaseAdmin
+    .from("ads")
+    .select("adset_id, creative_id, name, creatives(kind, meta_video_id, meta_image_hash)")
+    .eq("agent_id", agent.id)
+    .eq("meta_ad_id", payload.source_ad_id)
+    .single();
+  const creative = source?.creatives as unknown as { kind: string; meta_video_id: string | null; meta_image_hash: string | null } | null;
+  if (!source || !creative) throw new Error("The source ad is gone.");
+  let media: Parameters<typeof createAdCreative>[1]["media"];
+  if (creative.kind === "video" && creative.meta_video_id) {
+    const state = await videoState(creative.meta_video_id);
+    if (!state.thumbnail) throw new Error("Meta has no thumbnail for that video yet.");
+    media = { kind: "video", videoId: creative.meta_video_id, thumbnailUrl: state.thumbnail };
+  } else if (creative.meta_image_hash) {
+    media = { kind: "image", imageHash: creative.meta_image_hash };
+  } else throw new Error("The source creative has no Meta media to reuse.");
+
+  const account = agent.meta_ad_account_id!;
+  const ids: string[] = [];
+  for (const [i, v] of payload.variants.entries()) {
+    const name = `${source.name.replace(/ · copy [A-Z]$/, "")} · copy ${String.fromCharCode(66 + i)}`.slice(0, 100);
+    const metaCreativeId = await createAdCreative(account, {
+      name,
+      pageId: agent.meta_page_id!,
+      instagramId: agent.meta_instagram_id,
+      link: `${appUrl()}/${agent.slug}`,
+      primaryText: v.primary_text,
+      headline: v.headline,
+      media,
+    });
+    const adId = await createAd(account, { name, adsetId: payload.adset_id, creativeId: metaCreativeId, status: "ACTIVE" });
+    await supabaseAdmin.from("ads").insert({
+      agent_id: agent.id,
+      adset_id: source.adset_id,
+      creative_id: source.creative_id,
+      meta_ad_id: adId,
+      meta_creative_id: metaCreativeId,
+      name,
+      status: "ACTIVE",
+      primary_text: v.primary_text,
+      headline: v.headline,
+    });
+    ids.push(adId);
+  }
+  return ids;
 }

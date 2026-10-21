@@ -17,6 +17,7 @@ import {
   checkGeneration,
   checkLaunchTarget,
   checkPauseAd,
+  MAX_COPY_VARIANTS,
   checkPlacements,
   checkResumeAd,
   type GuardContext,
@@ -139,6 +140,26 @@ export const MIGZ_TOOLS: Anthropic.Beta.BetaTool[] = [
     primary_text: { type: "string" },
     headline: { type: "string" },
   }),
+  tool(
+    "write_copy_variants",
+    `Test new primary text and headline on an existing creative: creates up to ${MAX_COPY_VARIANTS} new ads in the same ad set reusing the source ad's video or image. Use when people watch but don't click.`,
+    {
+      source_ad_id: { type: "string" },
+      variants: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            primary_text: { type: "string", description: "Under 300 characters." },
+            headline: { type: "string", description: "Under 40 characters." },
+          },
+          required: ["primary_text", "headline"],
+          additionalProperties: false,
+        },
+        description: `1 to ${MAX_COPY_VARIANTS} variants.`,
+      },
+    },
+  ),
   tool("hold", "Record a deliberate decision not to change something, e.g. while ad sets are learning or results are steady. Use once per review at most.", {
     kind: { type: "string", enum: ["budget", "creative", "audience", "other"] },
   }),
@@ -153,9 +174,12 @@ export type ActionPayload =
   | { tool: "generate_video" | "new_hook_variant"; brief: CreativeBrief; launch_adset_id: string | null; parent_creative_id: string | null }
   | { tool: "generate_image"; brief: ImageBrief; launch_adset_id: string | null; parent_creative_id: null }
   | { tool: "launch_creative"; creative_id: string; adset_id: string; primary_text: string; headline: string }
+  | { tool: "write_copy_variants"; source_ad_id: string; adset_id: string; variants: { primary_text: string; headline: string }[] }
   | { tool: "hold" };
 
 export type EvalContext = GuardContext & {
+  /** Ad id -> its ad set, for ads whose creative already has Meta media (video id / image hash) to reuse. */
+  reusableAds?: Map<string, string>;
   /** Ads whose creative has a Migz brief, for hook variants. */
   scriptedAds: Map<string, { creative_id: string; script: CreativeBrief; meta_adset_id: string }>;
   libraryCreativeIds: Set<string>;
@@ -176,6 +200,7 @@ const KIND: Record<ActionPayload["tool"], string> = {
   new_hook_variant: "creative",
   generate_image: "creative",
   launch_creative: "creative",
+  write_copy_variants: "creative",
   hold: "other",
 };
 
@@ -309,6 +334,17 @@ export function evaluate(name: string, raw: unknown, ctx: EvalContext): Evaluate
       const err = checkLaunchTarget(ctx, adsetId) ?? checkCopy(primaryText, headline);
       return err ? fail(err) : done({ tool: "launch_creative", creative_id: creativeId, adset_id: adsetId, primary_text: primaryText, headline });
     }
+    case "write_copy_variants": {
+      const sourceId = str(input.source_ad_id, 40);
+      const adsetId = ctx.reusableAds?.get(sourceId);
+      if (!adsetId) return fail("That ad's creative can't be reused (no uploaded Meta media); pick a live ad Migz launched.");
+      const variants = (Array.isArray(input.variants) ? input.variants : [])
+        .map((v: { primary_text?: unknown; headline?: unknown }) => ({ primary_text: str(v?.primary_text, 500), headline: str(v?.headline, 60) }))
+        .filter((v) => v.primary_text && v.headline);
+      if (variants.length < 1 || variants.length > MAX_COPY_VARIANTS) return fail(`Give 1 to ${MAX_COPY_VARIANTS} variants, each with primary text and a headline.`);
+      const err = checkLaunchTarget(ctx, adsetId) ?? checkCopy(...variants.flatMap((v) => [v.primary_text, v.headline]));
+      return err ? fail(err) : done({ tool: "write_copy_variants", source_ad_id: sourceId, adset_id: adsetId, variants });
+    }
     case "hold": {
       const kind = ["budget", "creative", "audience", "other"].includes(String(input.kind)) ? String(input.kind) : "other";
       return done({ tool: "hold" }, kind);
@@ -337,6 +373,8 @@ export function recheck(payload: ActionPayload, ctx: EvalContext): string | null
       return ctx.libraryCreativeIds.has(payload.creative_id)
         ? checkLaunchTarget(ctx, payload.adset_id)
         : "That creative is no longer waiting to launch.";
+    case "write_copy_variants":
+      return ctx.reusableAds?.has(payload.source_ad_id) ? checkLaunchTarget(ctx, payload.adset_id) : "That ad can no longer be reused.";
     case "hold":
       return null;
   }

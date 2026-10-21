@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
 import { getRequestStatus, submitImage, submitVideo } from "@/lib/higgsfield";
 import { createAd, createAdCreative, uploadImage, uploadVideo, videoState } from "@/lib/meta/ads";
+import { MetaApiError } from "@/lib/meta/graph";
 import { briefLabel, isImageBrief, type AnyBrief, type CreativeBrief } from "@/lib/migz/brief";
 
 // Creative jobs move through stages, advanced by the creatives cron (every 10 min) and the
@@ -284,7 +285,13 @@ export async function advanceJob(job: Job) {
 
     return job.stage;
   } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
+    // Meta's top-level message is often just "Invalid parameter"; its user message says what's wrong
+    const message =
+      e instanceof MetaApiError
+        ? `Meta: ${e.userMessage ?? e.message}`
+        : e instanceof Error
+          ? e.message
+          : String(e);
     await update(job.id, { stage: "failed", error: message.slice(0, 500) });
     if (job.creative_id) await supabaseAdmin.from("creatives").update({ status: "rejected", review_note: message.slice(0, 200) }).eq("id", job.creative_id);
     return "failed";
