@@ -236,11 +236,12 @@ try {
       const r = lastToolResults(p);
       assert.ok(r[0].is_error && /Consult the advisor/.test(r[0].content), r[0].content);
       // full history must replay the encrypted advice later: the assistant turn is kept verbatim
-      return { advisor: true, content: [...advisorBlocks(), toolUse("generate_video", video), toolUse("generate_image", image), toolUse("search_history", { query: "mortgage protection video" })] };
+      return { advisor: true, content: [...advisorBlocks(), toolUse("generate_video", video), toolUse("generate_image", image), toolUse("search_history", { query: "mortgage protection video" }), toolUse("generate_video", { ...video, concept: "A second video", title: "Second video" })] };
     }
     const r = lastToolResults(p);
     assert.match(r[0].content, /^Proposed/); assert.match(r[1].content, /^Proposed/);
     assert.match(r[2].content, /nothing relevant|No matching history/);
+    assert.ok(r[3].is_error && /1 video this review/.test(r[3].content), r[3].content);
     const hist = JSON.stringify(p.messages);
     assert.ok(hist.includes("ENCRYPTED-ADVICE"), "advisor result is replayed unchanged");
     return { content: [text("Proposed a video and an image.")] };

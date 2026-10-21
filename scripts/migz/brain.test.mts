@@ -133,6 +133,16 @@ assert.ok(strictN <= MAX_STRICT_TOOLS, `${strictN} strict tools; the API rejects
 assert.equal(new Set(everyTool.map((t) => t.name)).size, everyTool.length, "tool names are unique");
 ok(`${everyTool.length} tools offered, ${strictN} strict (limit ${MAX_STRICT_TOOLS}); names unique`);
 
+// creative caps: 3 per review, but only 1 video
+const { checkGeneration } = await import("@/lib/migz/guardrails");
+const gc = (o: object) => ({ now: new Date(), dailyCapCents: 3000, adsets: [], actionsThisRun: 0, generationsThisRun: 0, openGenerations: 0, ...o });
+assert.equal(checkGeneration(gc({}), "video"), null);
+assert.match(checkGeneration(gc({ videosThisRun: 1, generationsThisRun: 1 }), "video")!, /1 video this review/);
+assert.equal(checkGeneration(gc({ videosThisRun: 1, generationsThisRun: 1 }), "image"), null);
+assert.equal(checkGeneration(gc({ videosThisRun: 1, generationsThisRun: 2 }), "image"), null);
+assert.match(checkGeneration(gc({ videosThisRun: 1, generationsThisRun: 3 }), "image")!, /3 creatives/);
+ok("creative caps: 3 per review, 1 video, images fill the rest");
+
 // topics
 const { cleanFocus } = await import("@/lib/migz/topics");
 assert.deepEqual(cleanFocus(["final_expense", "bogus", "final_expense", "term_life", "policy_review", "whole_life"]), ["final_expense", "term_life", "policy_review"]);

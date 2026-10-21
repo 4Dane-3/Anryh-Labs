@@ -270,7 +270,7 @@ export function evaluate(name: string, raw: unknown, ctx: EvalContext): Evaluate
       return err ? fail(err) : done({ tool: "set_placements", adset_id: adsetId, placements: [...new Set(placements)] });
     }
     case "generate_video": {
-      const gen = checkGeneration(ctx);
+      const gen = checkGeneration(ctx, "video");
       if (gen) return fail(gen);
       const brief: CreativeBrief = {
         concept: str(input.concept, 200),
@@ -334,7 +334,7 @@ export function evaluate(name: string, raw: unknown, ctx: EvalContext): Evaluate
       return done({ tool: "generate_image", brief, launch_adset_id: launchId, parent_creative_id: null });
     }
     case "new_hook_variant": {
-      const gen = checkGeneration(ctx);
+      const gen = checkGeneration(ctx, "video");
       if (gen) return fail(gen);
       const source = ctx.scriptedAds.get(str(input.source_ad_id, 40));
       if (!source) return fail("That ad has no Migz video brief to reuse; use generate_video instead.");
@@ -392,7 +392,7 @@ export function recheck(payload: ActionPayload, ctx: EvalContext): string | null
     case "generate_video":
     case "generate_image":
     case "new_hook_variant":
-      return checkGeneration(ctx) ?? (payload.launch_adset_id ? checkLaunchTarget(ctx, payload.launch_adset_id) : null);
+      return checkGeneration(ctx, payload.tool === "generate_image" ? "image" : "video") ?? (payload.launch_adset_id ? checkLaunchTarget(ctx, payload.launch_adset_id) : null);
     case "launch_creative":
       return ctx.libraryCreativeIds.has(payload.creative_id)
         ? checkLaunchTarget(ctx, payload.adset_id)

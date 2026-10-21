@@ -3,7 +3,8 @@
 // Each check returns null when allowed, or a reason the model can read and adapt to.
 
 export const MAX_ACTIONS_PER_RUN = 6;
-export const MAX_GENERATIONS_PER_RUN = 2;
+export const MAX_GENERATIONS_PER_RUN = 3;
+export const MAX_VIDEOS_PER_RUN = 1; // videos are the expensive ones; images (4:5 feed, 9:16 story) fill the rest
 export const MAX_OPEN_GENERATIONS = 6;
 export const MIN_ADSET_BUDGET_CENTS = 500;
 export const MAX_BUDGET_CHANGE = 0.3; // per action; bigger jumps destabilise delivery
@@ -34,6 +35,7 @@ export type GuardContext = {
   adsets: AdSetState[];
   actionsThisRun: number;
   generationsThisRun: number;
+  videosThisRun?: number;
   openGenerations: number;
 };
 
@@ -120,9 +122,11 @@ export function checkLaunchTarget(ctx: GuardContext, adsetId: string) {
   return null;
 }
 
-export function checkGeneration(ctx: GuardContext) {
+export function checkGeneration(ctx: GuardContext, kind: "image" | "video" = "image") {
   if (ctx.generationsThisRun >= MAX_GENERATIONS_PER_RUN)
     return `Already started ${MAX_GENERATIONS_PER_RUN} creatives this review, the most per review.`;
+  if (kind === "video" && (ctx.videosThisRun ?? 0) >= MAX_VIDEOS_PER_RUN)
+    return `Already started ${MAX_VIDEOS_PER_RUN} video this review, the most per review (videos cost the most). Make a 4:5 feed image or a 9:16 Stories/Reels image instead.`;
   if (ctx.openGenerations >= MAX_OPEN_GENERATIONS)
     return `${ctx.openGenerations} creatives are still being made; wait for those before starting more.`;
   return null;
