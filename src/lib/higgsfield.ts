@@ -1,5 +1,5 @@
 import "server-only";
-import { HOOK_SECONDS, imagePrompt, type CreativeBrief, type ImageBrief } from "@/lib/migz/brief";
+import { HOOK_SECONDS, imagePrompt, scenePrompt, type CreativeBrief, type ImageBrief } from "@/lib/migz/brief";
 
 // Higgsfield API (https://docs.higgsfield.ai): async generation. Submit -> store request_id and
 // status_url -> poll or receive a webhook -> download the output (URLs are kept ~7 days, so we
@@ -7,8 +7,16 @@ import { HOOK_SECONDS, imagePrompt, type CreativeBrief, type ImageBrief } from "
 const BASE = "https://api.higgsfield.ai";
 // Kling 3.0 Standard text-to-video: 9:16 output and multi-shot prompts (hook shot + body shots)
 const TEXT_TO_VIDEO = process.env.HF_TEXT_TO_VIDEO_PATH || "/kling-video/v3.0/std/text-to-video";
-// Ideogram 4.0: strong at rendering on-image text, supports 4:5 and 9:16
-const TEXT_TO_IMAGE = process.env.HF_TEXT_TO_IMAGE_PATH || "/ideogram/v4.0";
+// Models by job (override any path with an env var, no code change):
+//  - 4:5 feed images (they carry on-image text): HF_FEED_IMAGE_PATH. Ideogram 4.0 until a Nano Banana
+//    endpoint is configured; Higgsfield's API docs don't list Nano Banana 2 Lite, so find its path in
+//    the console's model page and set it. HF_FEED_IMAGE_BODY (JSON) adds that model's extra options.
+//  - 9:16 Stories/Reels images: Soul Cinema, photo only (it isn't used for text), 720p so the free
+//    generations go further.
+//  - 9:16 reel video: Kling 3.0 Standard.
+// Read at call time so a changed env var takes effect without a restart in tests.
+const feedImagePath = () => process.env.HF_FEED_IMAGE_PATH || process.env.HF_TEXT_TO_IMAGE_PATH || "/ideogram/v4.0";
+const storyImagePath = () => process.env.HF_STORY_IMAGE_PATH || "/higgsfield-ai/soul/cinema";
 
 export type HiggsfieldStatus = "queued" | "in_progress" | "completed" | "failed" | "nsfw" | "canceled";
 
@@ -73,17 +81,40 @@ export async function submitVideo(brief: CreativeBrief, opts: SubmitOptions) {
   );
 }
 
-/** Submits a still image ad with its text lines laid out on it (see imagePrompt). */
-export async function submitImage(brief: ImageBrief, opts: SubmitOptions) {
-  return submit(
-    TEXT_TO_IMAGE,
-    {
+/** Which model and request body a still image uses. Pure, so routing is testable. */
+export function imageRequest(brief: ImageBrief): { path: string; body: Record<string, unknown>; model: "soul_cinema" | "ideogram" | "feed_other" } {
+  if (brief.aspect_ratio === "9:16") {
+    return {
+      path: storyImagePath(),
+      model: "soul_cinema",
+      body: { prompt: scenePrompt(brief).slice(0, 2048), aspect_ratio: "9:16", resolution: "720p", enhance_prompt: false, batch_size: 1 },
+    };
+  }
+  const feedPath = feedImagePath();
+  const isIdeogram = feedPath.includes("ideogram");
+  let extra: Record<string, unknown> = {};
+  try {
+    extra = process.env.HF_FEED_IMAGE_BODY ? (JSON.parse(process.env.HF_FEED_IMAGE_BODY) as Record<string, unknown>) : {};
+  } catch {
+    throw new Error("HF_FEED_IMAGE_BODY must be valid JSON");
+  }
+  return {
+    path: feedPath,
+    model: isIdeogram ? "ideogram" : "feed_other",
+    body: {
       prompt: imagePrompt(brief).slice(0, 2048),
       aspect_ratio: brief.aspect_ratio,
-      rendering_speed: "QUALITY", // slower, but text comes out cleaner
+      // Ideogram's slower mode renders text more cleanly; other models take their options from HF_FEED_IMAGE_BODY
+      ...(isIdeogram ? { rendering_speed: "QUALITY" } : {}),
+      ...extra,
     },
-    opts,
-  );
+  };
+}
+
+/** Submits a still image ad: 4:5 with its text lines (feed model), or a text-free 9:16 photo (Soul Cinema). */
+export async function submitImage(brief: ImageBrief, opts: SubmitOptions) {
+  const req = imageRequest(brief);
+  return submit(req.path, req.body, opts);
 }
 
 export async function getRequestStatus(statusUrl: string) {

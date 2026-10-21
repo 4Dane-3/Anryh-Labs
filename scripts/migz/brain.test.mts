@@ -139,6 +139,31 @@ assert.deepEqual(cleanFocus(["final_expense", "bogus", "final_expense", "term_li
 assert.deepEqual(cleanFocus(null), []);
 ok("ad focus: known topics only, no repeats, at most 3, order kept");
 
+// Higgsfield model routing for stills
+process.env.HF_API_KEY_ID = "x"; process.env.HF_API_KEY_SECRET = "y";
+const { imageRequest } = await import("@/lib/higgsfield");
+const { evaluate: evalTool } = await import("@/lib/migz/tools");
+const img = { format: "image" as const, concept: "c", scene: "A mother on a porch swing", style: "golden hour", overlay_lines: ["Protect their peace."], button_text: "Book a free call", aspect_ratio: "4:5" as const, primary_text: "p", headline: "h" };
+const feed = imageRequest(img);
+assert.equal(feed.path, "/ideogram/v4.0"); assert.equal(feed.body.aspect_ratio, "4:5"); assert.match(String(feed.body.prompt), /"Protect their peace\."/); assert.equal(feed.body.rendering_speed, "QUALITY");
+const story = imageRequest({ ...img, aspect_ratio: "9:16", overlay_lines: [], button_text: null });
+assert.equal(story.path, "/higgsfield-ai/soul/cinema"); assert.equal(story.model, "soul_cinema");
+assert.deepEqual([story.body.aspect_ratio, story.body.resolution, story.body.batch_size, story.body.enhance_prompt], ["9:16", "720p", 1, false]);
+assert.match(String(story.body.prompt), /No text, no letters/); assert.ok(!/Protect their peace/.test(String(story.body.prompt)));
+const gctx = { now: new Date("2026-10-20T12:00:00Z"), dailyCapCents: 3000, actionsThisRun: 0, generationsThisRun: 0, openGenerations: 0, adsets: [{ meta_adset_id: "A", status: "ACTIVE", daily_budget_cents: 2000, learning_status: "SUCCESS", last_edited_at: "2026-10-01T00:00:00Z", ads: [] }], scriptedAds: new Map(), libraryCreativeIds: new Set<string>() };
+const imgBase = { concept: "c", scene: "s", style: "st", primary_text: "Protect your family today.", headline: "Book a free call", launch_adset_id: null, title: "t", reason: "r" };
+assert.equal(evalTool("generate_image", { ...imgBase, overlay_lines: ["Protect their peace."], button_text: null, aspect_ratio: "4:5" }, gctx).ok, true);
+assert.equal(evalTool("generate_image", { ...imgBase, overlay_lines: [], button_text: null, aspect_ratio: "9:16" }, gctx).ok, true);
+const bad = evalTool("generate_image", { ...imgBase, overlay_lines: ["Text here"], button_text: null, aspect_ratio: "9:16" }, gctx);
+assert.ok(!bad.ok && /photos made without text/.test((bad as { error: string }).error));
+assert.equal(evalTool("generate_image", { ...imgBase, overlay_lines: [], button_text: null, aspect_ratio: "4:5" }, gctx).ok, false, "4:5 still needs its text lines");
+process.env.HF_FEED_IMAGE_PATH = "/some/nano-banana-lite"; process.env.HF_FEED_IMAGE_BODY = '{"resolution":"1k"}';
+const swapped = imageRequest(img);
+assert.equal(swapped.path, "/some/nano-banana-lite"); assert.equal(swapped.model, "feed_other");
+assert.deepEqual([swapped.body.aspect_ratio, swapped.body.resolution, "rendering_speed" in swapped.body], ["4:5", "1k", false]);
+delete process.env.HF_FEED_IMAGE_PATH; delete process.env.HF_FEED_IMAGE_BODY;
+ok("stills route by format: 4:5 → feed model with text (swappable by env), 9:16 → Soul Cinema 720p photo-only; text rules enforced in tool validation");
+
 // frames
 assert.deepEqual(frameTimes(15), [0, 1, 2, 3, 6, 9, 12]);
 assert.deepEqual(frameTimes(2), [0, 1]);
