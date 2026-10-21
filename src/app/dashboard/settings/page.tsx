@@ -1,7 +1,7 @@
-import { isAnryhAdmin, requireAgent, devAgentSlug } from "@/lib/auth";
+import { isAnryhAdmin, requireAgent } from "@/lib/auth";
 import { integrations } from "@/lib/integrations";
 import { PageHeader, Panel, PanelHeader } from "@/components/dashboard/ui";
-import { MigzModeForm, ModelBudgetForm, NotificationSettings, PasswordForm } from "@/components/dashboard/SettingsForms";
+import { MigzModeForm, ModelBudgetForm, NotificationSettings } from "@/components/dashboard/SettingsForms";
 import { cn } from "@/lib/utils";
 
 const SERVICES = [
@@ -19,7 +19,7 @@ export default async function SettingsPage() {
 
   return (
     <>
-      <PageHeader title="Settings" description="Notifications, your timezone and your account." />
+      <PageHeader title="Settings" description="Notifications and your timezone. You sign in with an emailed link, so there is no password to manage." />
       <div className="grid gap-3 lg:grid-cols-5">
         <div className="space-y-3 lg:col-span-3">
           <MigzModeForm mode={agent.migz_mode} />
@@ -31,7 +31,6 @@ export default async function SettingsPage() {
               digest_hour: agent.digest_hour,
             }}
           />
-          <PasswordForm email={agent.email} devLogin={!!devAgentSlug()} />
         </div>
 
         <Panel className="h-fit lg:col-span-2">
