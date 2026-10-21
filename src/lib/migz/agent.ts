@@ -322,7 +322,15 @@ export async function runMigz(
       return { runId, status: "skipped" as const };
     }
     await emit({ agentId: agent.id, runId, step: "triaging", tier: "code", summary: `Full review: ${reasons.join("; ")}`, evidence: { reasons } });
-    for (const ext of extensions) if (ext.beforeReview) await ext.beforeReview(agent, team);
+    // Optional prep (like reading new creatives' frames) must never stop the review itself
+    for (const ext of extensions) {
+      if (!ext.beforeReview) continue;
+      try {
+        await ext.beforeReview(agent, team);
+      } catch (e) {
+        await emit({ agentId: agent.id, runId, step: "watching", tier: "code", summary: `Skipped reading new creatives: ${e instanceof Error ? e.message.slice(0, 160) : "error"}` });
+      }
+    }
 
     const ctx = await buildEvalContext(agent, snapshot);
     const result = await runOperator({ agent, snapshot, runId, budget, createMessage, ctx }, extraTools, { teamContext, reasons });

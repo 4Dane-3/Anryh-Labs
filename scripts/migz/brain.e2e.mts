@@ -497,6 +497,7 @@ try {
   assert.ok(board.experiments.some((e) => e.status === "concluded")); assert.ok(board.learnings.length >= 3);
   ok(`events polled incrementally; cost by tier $${board.cost.totalUsd.toFixed(4)}; ${board.scorecards.length} scorecards; experiments + learnings present`);
 
+  await db.from("agents").update({ migz_model_budget_cents: 3000 }).eq("id", AGENT_ID); // back to the normal tiers after step 7
   // ===== 8b =====
   step("8b. Campaign end date: ads pause after the last day, and resume when it's extended");
   const ymd = (d: number) => new Date(Date.now() + d * 86_400_000).toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
@@ -525,7 +526,7 @@ try {
   await db.from("ad_sets").update({ status: "PAUSED" }).eq("agent_id", AGENT_ID);
   await db.from("agents").update({ migz_last_run_at: null }).eq("id", AGENT_ID);
   operatorScript = () => ({ content: [text("Test mode: held.")] });
-  await run("manual");
+  assert.equal((await run("manual")).status, "succeeded");
   const { data: cTest } = await db.from("ad_campaigns").select("status").eq("agent_id", AGENT_ID).single();
   assert.equal(cTest!.status, "PAUSED");
   assert.equal(meta.adsetStatus, "PAUSED", "test mode doesn't touch the ad set");
@@ -572,7 +573,8 @@ try {
     return { content: [text("Built the final-expense image paused.")] };
   };
   const adsBefore = new Set(meta.ads.keys());
-  await run("manual");
+  const buildRun = await run("manual");
+  assert.equal(buildRun.status, "succeeded", JSON.stringify(buildRun));
   for (const rid of hf.status.keys()) hf.status.set(rid, "completed");
   await advanceOpenJobs(Date.now() + 60_000);
   const builtIds = [...meta.ads.keys()].filter((id) => !adsBefore.has(id));
