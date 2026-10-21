@@ -133,13 +133,12 @@ assert.ok(strictN <= MAX_STRICT_TOOLS, `${strictN} strict tools; the API rejects
 assert.equal(new Set(everyTool.map((t) => t.name)).size, everyTool.length, "tool names are unique");
 ok(`${everyTool.length} tools offered, ${strictN} strict (limit ${MAX_STRICT_TOOLS}); names unique`);
 
-// test mode: ads can be launched into a paused ad set; otherwise a paused ad set is refused
+// launch targets: a paused ad set is refused (creatives wait in the library until it's on)
 const { checkLaunchTarget } = await import("@/lib/migz/guardrails");
 const pausedCtx = (o: object) => ({ now: new Date(), dailyCapCents: 3000, actionsThisRun: 0, generationsThisRun: 0, openGenerations: 0, adsets: [{ meta_adset_id: "A", status: "PAUSED", daily_budget_cents: 2000, learning_status: null, last_edited_at: "2026-10-01T00:00:00Z", ads: [] }], ...o });
 assert.match(checkLaunchTarget(pausedCtx({}), "A")!, /PAUSED/);
-assert.equal(checkLaunchTarget(pausedCtx({ testMode: true }), "A"), null);
-assert.match(checkLaunchTarget(pausedCtx({ testMode: true, adsets: [{ ...pausedCtx({}).adsets[0], status: "DELETED" }] }), "A")!, /DELETED/);
-ok("launch targets: a paused ad set is refused, except in test mode");
+assert.equal(checkLaunchTarget(pausedCtx({ adsets: [{ ...pausedCtx({}).adsets[0], status: "ACTIVE" }] }), "A"), null);
+ok("launch targets: a paused ad set is refused, so creatives wait in the library");
 
 // campaign plan helpers
 const { endDate, campaignEnded, daysLeft, estimate, DURATIONS } = await import("@/lib/campaign");
