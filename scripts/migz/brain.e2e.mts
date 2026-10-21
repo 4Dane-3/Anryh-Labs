@@ -76,6 +76,8 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     if (path === "vid_1/thumbnails") return json({ data: [{ uri: "https://cdn.test/thumb.jpg", is_preferred: true }] });
     if (path.startsWith("ad_") && method === "POST") { meta.ads.set(path, body.status); return json({ success: true }); }
     if (/^cmp_\d+$/.test(path)) return json({ success: true });
+    if (/^adset_\d+$/.test(path) && method === "GET")
+      return json({ id: path, status: "ACTIVE", daily_budget: String(meta.otherBudgets.get(path) ?? 0), targeting: { geo_locations: {} } });
     if (/^adset_\d+$/.test(path) && method === "POST") { if (body.daily_budget) meta.otherBudgets.set(path, Number(body.daily_budget)); return json({ success: true }); }
     if (path === "pixel_1/events") return json({ events_received: 1 });
     throw new Error(`Unexpected Meta call: ${method} ${path}`);
@@ -533,19 +535,20 @@ try {
   await db.from("agents").update({ migz_last_run_at: null }).eq("id", AGENT_ID);
   operatorScript = () => ({ content: [text("Test mode: held.")] });
   assert.equal((await run("manual")).status, "succeeded");
-  const { data: cTest } = await db.from("ad_campaigns").select("status").eq("agent_id", AGENT_ID).single();
-  assert.equal(cTest!.status, "PAUSED");
+  const { data: cTest } = await db.from("ad_campaigns").select("status").eq("agent_id", AGENT_ID);
+  assert.ok(cTest!.length && cTest!.every((c) => c.status === "PAUSED"));
   assert.equal(meta.adsetStatus, "PAUSED", "test mode doesn't touch the ad set");
   process.env.MIGZ_TEST_MODE = "0";
   await db.from("agents").update({ migz_last_run_at: null }).eq("id", AGENT_ID);
   await run("manual");
-  const { data: cLive } = await db.from("ad_campaigns").select("status").eq("agent_id", AGENT_ID).single();
-  assert.equal(cLive!.status, "ACTIVE");
+  const { data: cLive } = await db.from("ad_campaigns").select("status").eq("agent_id", AGENT_ID);
+  assert.ok(cLive!.every((c) => c.status === "ACTIVE"));
   assert.equal(meta.adsetStatus, "ACTIVE", "the paused ad set was switched on with the campaign");
   const { data: liveSets } = await db.from("ad_sets").select("status").eq("agent_id", AGENT_ID);
   assert.ok(liveSets!.every((x) => x.status === "ACTIVE"));
-  const { data: goLive } = await db.from("ad_actions").select("detail").eq("agent_id", AGENT_ID).eq("tool", "system_test_mode").order("created_at", { ascending: false }).limit(1).single();
-  assert.match(goLive!.detail, /switched on too/);
+  // One go-live entry per campaign (two since the focus change in 5b); the one whose ad set was paused says so
+  const { data: goLive } = await db.from("ad_actions").select("detail").eq("agent_id", AGENT_ID).eq("tool", "system_test_mode").order("created_at", { ascending: false }).limit(2);
+  assert.ok(goLive!.some((a) => /switched on too/.test(a.detail)), JSON.stringify(goLive));
   // An agent who paused their own ads is never switched on by this
   await db.from("agents").update({ ads_paused: true, migz_last_run_at: null }).eq("id", AGENT_ID);
   process.env.MIGZ_TEST_MODE = "1";
@@ -611,8 +614,10 @@ try {
 
   // ===== 8f =====
   step("8f. The plan: one campaign per focus while the budget covers them, extras follow the focus order; 7 days of results before revisions");
-  const { data: firstCampaign } = await db.from("ad_campaigns").select("topic").eq("agent_id", AGENT_ID).single();
-  assert.equal(firstCampaign!.topic, "final_expense", "$10/day = one campaign, on the main focus");
+  // $10/day started one final-expense campaign; switching the focus to income protection (5b) added one for it
+  const { data: beforePlan } = await db.from("ad_campaigns").select("topic").eq("agent_id", AGENT_ID).order("created_at");
+  assert.deepEqual(beforePlan!.map((c) => c.topic), ["final_expense", "income_protection"]);
+  await db.from("wallet_transactions").insert({ agent_id: AGENT_ID, kind: "deposit", amount_cents: 56_000, status: "completed", description: "e2e test funds for the 4-campaign plan" });
   await db.from("agents").update({ daily_budget_cents: 4000, ad_focus: ["final_expense", "mortgage_protection", "income_protection"], migz_mode: "approve", migz_last_run_at: null }).eq("id", AGENT_ID);
   operatorScript = () => ({ content: [text("Plan set up.")] });
   assert.equal((await run("manual")).status, "succeeded");
@@ -623,7 +628,7 @@ try {
   assert.ok([...meta.otherBudgets.values()].every((b) => b === 1000));
   assert.ok(planned!.some((c) => / B · /.test(c.name)), "the second final-expense campaign is labelled B");
   const { data: setupLog } = await db.from("ad_actions").select("title").eq("agent_id", AGENT_ID).eq("tool", "system_setup").order("created_at", { ascending: false }).limit(1).single();
-  assert.equal(setupLog!.title, "Set up 3 campaigns");
+  assert.equal(setupLog!.title, "Set up 2 campaigns", "only the missing slots are built");
   const snapPlan = await buildSnapshot((await getAgent()) as never);
   assert.match(JSON.stringify(snapPlan.forModel.campaigns.map((c) => c.serves_topic)), /mortgage_protection \(Mortgage protection\)/);
   // A campaign that started today is collecting results: pauses and budget moves are refused until day 8
