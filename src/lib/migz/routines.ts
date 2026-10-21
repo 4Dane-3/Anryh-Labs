@@ -156,7 +156,7 @@ export async function runRoutines(agent: Agent, snapshot: Snapshot, team: Team, 
     const thin = snapshot.guardAdsets.filter((s) => s.status === "ACTIVE" && s.daily_budget_cents < 1000 && snapshot.guardAdsets.length > 1);
     context.weekly_review = {
       winners: board.slice(0, 2).map((r) => ({ ad_id: r.ad, ...present(r.d) })),
-      losers: board.slice(-2).filter((r) => board.length > 2).map((r) => ({ ad_id: r.ad, ...present(r.d) })),
+      losers: (board.length > 2 ? board.slice(-2) : []).map((r) => ({ ad_id: r.ad, ...present(r.d) })),
       scale_candidates: scale.map((s) => ({ adset_id: s.meta_adset_id, note: "Winner outside learning: scale in steps of at most 30%." })),
       consolidation_candidates: thin.map((s) => ({ adset_id: s.meta_adset_id, note: "Under $10/day: too thin to exit learning; consider merging." })),
       attribution_note: "Results from the last 24 hours are incomplete (attribution delay).",
