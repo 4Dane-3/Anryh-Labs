@@ -19,8 +19,6 @@ export function SiteHeader() {
     <header className="sb-head">
       <div className="sb-head__in">
         <Link href="/" className="sb-mark">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/anryh-mark.png" alt="" width={32} height={32} className="sb-mark__img" />
           anryh labs
         </Link>
         <nav className="sb-nav" aria-label="main">
