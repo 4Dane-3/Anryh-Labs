@@ -51,7 +51,7 @@ export async function getBrainBoard(agent: Agent) {
     supabaseAdmin.from("swipe_files").select("id, source_url, advertiser, notes, traits, added_by, created_at").or(`agent_id.is.null,agent_id.eq.${agent.id}`).order("created_at", { ascending: false }).limit(12),
     supabaseAdmin.from("model_calls").select("tier, task, cost_usd, input_tokens, output_tokens, cache_read_tokens").eq("agent_id", agent.id).gte("created_at", monthStart),
     buildSnapshot(agent),
-    supabaseAdmin.from("ads").select("meta_ad_id, name, status, adset_id, creatives(kind, hook, traits)").eq("agent_id", agent.id).eq("status", "ACTIVE"),
+    supabaseAdmin.from("ads").select("meta_ad_id, name, status, adset_id, creatives(kind, hook, traits, script)").eq("agent_id", agent.id).eq("status", "ACTIVE"),
   ]);
 
   const byTier = { haiku: 0, sonnet: 0, opus: 0 } as Record<"haiku" | "sonnet" | "opus", number>;
@@ -84,7 +84,7 @@ export async function getBrainBoard(agent: Agent) {
   for (const ad of ads.data ?? []) {
     const m = snapshot.adMetrics.get(ad.meta_ad_id);
     const set = snapshot.guardAdsets.find((s) => s.ads.some((a) => a.meta_ad_id === ad.meta_ad_id));
-    const c = ad.creatives as { kind?: string; hook?: string; traits?: { angle?: string; hook_type?: string } } | null;
+    const c = ad.creatives as { kind?: string; hook?: string; traits?: { angle?: string; hook_type?: string }; script?: { topic?: string } } | null;
     const d = m?.d14;
     scorecards.push({
       ad_id: ad.meta_ad_id,
@@ -102,6 +102,7 @@ export async function getBrainBoard(agent: Agent) {
         ? ladder({ hook_rate: d.hook_rate, hold_rate: d.hold_rate, link_ctr: d.link_ctr, visit_to_booking: d.visit_to_booking, frequency: d.frequency, impressions: d.impressions, visits: d.visits }, setAvg.get(set.meta_adset_id)!, m!.fatigue.signals)
         : { rung: "too_early", read: "No results yet." },
       traits: c?.traits ? { angle: c.traits.angle, hook_type: c.traits.hook_type } : null,
+      topic: c?.script?.topic ?? null,
     });
   }
   scorecards.sort((a, b) => b.impressions - a.impressions);
@@ -112,6 +113,8 @@ export async function getBrainBoard(agent: Agent) {
     learnings: learnings.data ?? [],
     swipes: swipes.data ?? [],
     scorecards,
+    focus: snapshot.focus,
+    liveByTopic: snapshot.forModel.live_ads_by_topic as Record<string, number>,
     cost: {
       month: DateTime.now().toFormat("LLLL"),
       byTier,

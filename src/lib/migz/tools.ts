@@ -22,6 +22,7 @@ import {
   checkResumeAd,
   type GuardContext,
 } from "@/lib/migz/guardrails";
+import { isTopic, TOPIC_KEYS } from "@/lib/migz/topics";
 
 // The actions Migz can take, as Claude tools. Every call is validated (shape, guardrails, ad copy
 // rules) before anything happens; a rejected call returns the reason so Claude can adapt.
@@ -83,6 +84,11 @@ export const MIGZ_TOOLS: Anthropic.Beta.BetaTool[] = [
     `Have Higgsfield make a new 9:16 video ad: one ${HOOK_SECONDS}-second hook shot, then 1-3 body shots (total ${MAX_VIDEO_SECONDS}s max). Use for new angles, or when the agent has no creatives. Shots show relatable scenes (families, homes, everyday moments); never depict a specific real person or the agent.`,
     {
       concept: { type: "string", description: "The angle in one line, e.g. 'Mortgage protection for new homeowners'." },
+      topic: {
+        type: "string",
+        enum: [...TOPIC_KEYS, "other"],
+        description: "The advertising topic this creative serves. Use the agent's ad focus unless there's a clear reason not to.",
+      },
       style: { type: "string", description: "Visual direction for every shot, e.g. 'warm natural light, handheld, documentary feel'." },
       hook_line: { type: "string", description: "The opening idea in words; it also starts the primary text." },
       hook_shot: { type: "string", description: `Prompt for the first ${HOOK_SECONDS} seconds; must stop the scroll.` },
@@ -110,6 +116,11 @@ export const MIGZ_TOOLS: Anthropic.Beta.BetaTool[] = [
     `Have Higgsfield make a still image ad: a candid lifestyle photo with ${MAX_OVERLAY_LINES === 3 ? "1 to 3" : `up to ${MAX_OVERLAY_LINES}`} short lines of text laid out above the people, plus an optional button-shaped label. Cheaper and faster than video, so it's a good way to test a message; run images alongside videos rather than instead of them. The text layout and spelling instructions are added for you; describe only the photo and the words.`,
     {
       concept: { type: "string", description: "The angle in one line, e.g. 'Peace of mind for young parents'." },
+      topic: {
+        type: "string",
+        enum: [...TOPIC_KEYS, "other"],
+        description: "The advertising topic this creative serves. Use the agent's ad focus unless there's a clear reason not to.",
+      },
       scene: {
         type: "string",
         description:
@@ -255,6 +266,7 @@ export function evaluate(name: string, raw: unknown, ctx: EvalContext): Evaluate
       if (gen) return fail(gen);
       const brief: CreativeBrief = {
         concept: str(input.concept, 200),
+        ...(isTopic(input.topic) ? { topic: input.topic } : {}),
         style: str(input.style, 300),
         hook_line: str(input.hook_line, 200),
         hook_shot: str(input.hook_shot, 500),
@@ -284,6 +296,7 @@ export function evaluate(name: string, raw: unknown, ctx: EvalContext): Evaluate
       const brief: ImageBrief = {
         format: "image",
         concept: str(input.concept, 200),
+        ...(isTopic(input.topic) ? { topic: input.topic } : {}),
         scene: str(input.scene, 1000),
         style: str(input.style, 300),
         overlay_lines: lines,

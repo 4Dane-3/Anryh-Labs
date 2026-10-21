@@ -39,6 +39,7 @@ export type Agent = {
   migz_last_fatigue_at: string | null;
   migz_last_weekly_at: string | null;
   migz_gate_state: unknown;
+  ad_focus?: string[]; // topic keys, most important first (missing before the ad_focus migration)
 };
 
 export type Booking = {

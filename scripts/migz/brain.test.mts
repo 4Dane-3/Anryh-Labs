@@ -94,7 +94,7 @@ ok("only tool calls after a successful (encrypted) advisor result count as advis
 const snap = (impr: number, book: number, status = "ACTIVE") => ({
   adMetrics: new Map([["a", { t: { d14: { ...emptyTotals(), impressions: impr, booked_calls: book, spend_cents: 100 } } }]]),
   guardAdsets: [{ meta_adset_id: "A", status: "ACTIVE", daily_budget_cents: 2000, ads: [{ meta_ad_id: "a", status }] }],
-  forModel: { creatives_not_running: [] }, openGenerations: 0,
+  forModel: { creatives_not_running: [] }, openGenerations: 0, focus: [],
 }) as never;
 const prev = gateState(snap(5000, 2));
 const base = { trigger: "schedule" as const, previous: prev, lastOperatorAt: new Date(Date.now() - 3 * 3600_000).toISOString(), auditMaterial: false, experimentsReady: 0, routinesDue: [] };
@@ -105,6 +105,9 @@ assert.match(materialChanges({ ...base, snapshot: snap(5000, 2, "DISAPPROVED") }
 assert.match(materialChanges({ ...base, trigger: "manual", snapshot: snap(5000, 2) }).join(), /requested/);
 assert.match(materialChanges({ ...base, lastOperatorAt: new Date(Date.now() - 30 * 3600_000).toISOString(), snapshot: snap(5000, 2) }).join(), /daily check/);
 assert.match(materialChanges({ ...base, auditMaterial: true, snapshot: snap(5000, 2) }).join(), /audit/);
+const focused = (focus: string) => ({ ...(snap(5000, 2) as object), focus: focus ? focus.split(",") : [] }) as never;
+assert.deepEqual(materialChanges({ ...base, previous: gateState(focused("final_expense")), snapshot: focused("final_expense") }), []);
+assert.match(materialChanges({ ...base, previous: gateState(focused("final_expense")), snapshot: focused("mortgage_protection,final_expense") }).join(), /ad focus/);
 ok("quiet gate: skips small changes; runs on bookings, 1,000+ impressions, status changes, manual, daily, audit");
 
 // routines cadence
@@ -118,6 +121,12 @@ assert.equal(parseExamples('notes <examples>{"examples":[{"source_url":"https://
 assert.equal(parseExamples("no tags").length, 0);
 assert.deepEqual(keywords("Did a final expense hook ever lose?"), ["did", "final", "expense", "hook", "lose"]);
 ok("scout example parsing and librarian keywords");
+
+// topics
+const { cleanFocus } = await import("@/lib/migz/topics");
+assert.deepEqual(cleanFocus(["final_expense", "bogus", "final_expense", "term_life", "policy_review", "whole_life"]), ["final_expense", "term_life", "policy_review"]);
+assert.deepEqual(cleanFocus(null), []);
+ok("ad focus: known topics only, no repeats, at most 3, order kept");
 
 // frames
 assert.deepEqual(frameTimes(15), [0, 1, 2, 3, 6, 9, 12]);

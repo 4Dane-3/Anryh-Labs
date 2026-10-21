@@ -7,6 +7,7 @@ import type { AdSetState } from "@/lib/migz/guardrails";
 import { LOOKBACK_DAYS } from "@/lib/migz/sync";
 import { briefLabel, isImageBrief, type AnyBrief } from "@/lib/migz/brief";
 import { addRow, derive, emptyTotals, fatigue, present, type Totals } from "@/lib/migz/metrics";
+import { cleanFocus, TOPICS } from "@/lib/migz/topics";
 
 /**
  * Everything Migz needs for one review: the campaign tree with 14-day and 3-day results per ad,
@@ -154,6 +155,15 @@ export async function buildSnapshot(agent: Agent) {
     return present(derive(t));
   };
 
+  // What the agent wants advertised, and how much of what's live serves each topic
+  const focus = cleanFocus(agent.ad_focus);
+  const liveByTopic = new Map<string, number>();
+  for (const a of ads.data ?? []) {
+    if (a.status !== "ACTIVE") continue;
+    const topic = ((a.creatives as { script?: { topic?: string } } | null)?.script?.topic) ?? "untagged";
+    liveByTopic.set(topic, (liveByTopic.get(topic) ?? 0) + 1);
+  }
+
   const forModel = {
     agent: {
       name: agent.full_name,
@@ -168,6 +178,17 @@ export async function buildSnapshot(agent: Agent) {
         : "off",
       today: today.toISODate(),
     },
+    ad_focus: focus.length
+      ? focus.map((key, i) => ({
+          topic: key,
+          priority: i === 0 ? "main focus" : `focus ${i + 1}`,
+          label: TOPICS[key].label,
+          what_to_sell: TOPICS[key].pitch,
+          angle_notes: TOPICS[key].angle,
+          live_ads_on_this_topic: liveByTopic.get(key) ?? 0,
+        }))
+      : "not set: choose from the proven angles",
+    live_ads_by_topic: Object.fromEntries(liveByTopic),
     account_last_14_days: present(derive(totals)),
     campaigns: (campaigns.data ?? []).map((c) => ({
       campaign_id: c.meta_campaign_id,
@@ -250,6 +271,7 @@ export async function buildSnapshot(agent: Agent) {
     guardAdsets,
     openGenerations: (jobs.data ?? []).filter((j) => j.stage === "generating").length,
     hasCampaign: (campaigns.data ?? []).length > 0,
+    focus,
     balanceCents: balance,
   };
 }
