@@ -122,6 +122,17 @@ assert.equal(parseExamples("no tags").length, 0);
 assert.deepEqual(keywords("Did a final expense hook ever lose?"), ["did", "final", "expense", "hook", "lose"]);
 ok("scout example parsing and librarian keywords");
 
+// strict tool budget: Anthropic rejects the request when too many strict schemas are compiled together
+const { MIGZ_TOOLS: coreTools, MAX_STRICT_TOOLS } = await import("@/lib/migz/tools");
+const { EXPERIMENT_TOOLS: expTools } = await import("@/lib/migz/experiments");
+const { READ_TOOLS: readTools } = await import("@/lib/migz/team/tools");
+const { diagnoseCreativeTool: diagTool } = await import("@/lib/migz/vision");
+const everyTool = [...coreTools, ...[...readTools, ...expTools, diagTool].map((t) => t.def)];
+const strictN = everyTool.filter((t) => (t as { strict?: boolean }).strict).length;
+assert.ok(strictN <= MAX_STRICT_TOOLS, `${strictN} strict tools; the API rejects too many`);
+assert.equal(new Set(everyTool.map((t) => t.name)).size, everyTool.length, "tool names are unique");
+ok(`${everyTool.length} tools offered, ${strictN} strict (limit ${MAX_STRICT_TOOLS}); names unique`);
+
 // topics
 const { cleanFocus } = await import("@/lib/migz/topics");
 assert.deepEqual(cleanFocus(["final_expense", "bogus", "final_expense", "term_life", "policy_review", "whole_life"]), ["final_expense", "term_life", "policy_review"]);
