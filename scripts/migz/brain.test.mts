@@ -133,6 +133,25 @@ assert.ok(strictN <= MAX_STRICT_TOOLS, `${strictN} strict tools; the API rejects
 assert.equal(new Set(everyTool.map((t) => t.name)).size, everyTool.length, "tool names are unique");
 ok(`${everyTool.length} tools offered, ${strictN} strict (limit ${MAX_STRICT_TOOLS}); names unique`);
 
+// campaign plan helpers
+const { endDate, campaignEnded, daysLeft, estimate, DURATIONS } = await import("@/lib/campaign");
+const { DateTime: DT } = await import("luxon");
+assert.equal(endDate("2026-10-21", 30), "2026-11-19"); // the start day counts as day 1
+assert.equal(endDate("2026-10-21", 1), "2026-10-21");
+assert.equal(endDate("2026-10-21", 0), null); assert.equal(endDate("2026-10-21", null), null);
+const noon = DT.fromISO("2026-11-19T18:00:00Z");
+assert.equal(campaignEnded("2026-11-19", "America/Chicago", noon), false, "the last day still runs");
+assert.equal(campaignEnded("2026-11-18", "America/Chicago", noon), true);
+assert.equal(campaignEnded(null, "America/Chicago", noon), false);
+assert.equal(campaignEnded("2026-11-19", "America/Los_Angeles", DT.fromISO("2026-11-20T07:30:00Z")), false, "timezone of the agent, not the server");
+assert.equal(daysLeft("2026-11-21", "America/Chicago", noon), 3);
+assert.equal(daysLeft("2026-11-18", "America/Chicago", noon), 0);
+const est = estimate(2000, 30, 45_000);
+assert.deepEqual([est.totalCents, est.coveredDays, est.fullyFunded, est.shortfallCents], [60_000, 22, false, 15_000]);
+assert.deepEqual([estimate(2000, 0, 5000).totalCents, estimate(2000, 14, 28_000).fullyFunded], [null, true]);
+assert.ok(DURATIONS.some((d) => d.days === 0), "ongoing is offered");
+ok("campaign plan: end date, end check in the agent's timezone, days left, cost estimate");
+
 // creative caps: 3 per review, but only 1 video
 const { checkGeneration } = await import("@/lib/migz/guardrails");
 const gc = (o: object) => ({ now: new Date(), dailyCapCents: 3000, adsets: [], actionsThisRun: 0, generationsThisRun: 0, openGenerations: 0, ...o });

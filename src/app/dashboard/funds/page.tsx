@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { DateTime } from "luxon";
 import { requireAgent } from "@/lib/auth";
 import { integrations } from "@/lib/integrations";
@@ -29,6 +30,12 @@ export default async function FundsPage() {
         title="Ad funds"
         description="Money you add here pays for your Meta ads. Migz AI spends it where it books the most calls, and pauses your ads before the balance runs out."
       />
+
+      {!agent.onboarding_completed_at && (
+        <p className="mb-6 rounded-lg border border-line bg-ink-raised px-4 py-3 text-[13px] text-fg-muted">
+          New here? <Link href="/dashboard/start" className="font-medium text-brand hover:underline">Start here</Link> walks you through funds, your daily budget and how long to run, step by step.
+        </p>
+      )}
 
       {!integrations.stripe && (
         <div className="mb-6">

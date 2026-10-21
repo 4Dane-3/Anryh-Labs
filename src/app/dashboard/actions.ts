@@ -12,6 +12,10 @@ import { syncAgent } from "@/lib/migz/sync";
 import { defaultCreateMessage, monthlyBudget } from "@/lib/migz/router";
 import { traitSwipe } from "@/lib/migz/team/scout";
 import { cleanFocus } from "@/lib/migz/topics";
+import { DURATIONS, endDate, MAX_DAILY_CENTS, MIN_DAILY_CENTS } from "@/lib/campaign";
+import { setupBlockers } from "@/lib/dashboard/setup";
+import type { Agent } from "@/lib/booking/data";
+import { DateTime } from "luxon";
 import { recheck, type ActionPayload } from "@/lib/migz/tools";
 import { STEP_TITLES, type IntakeQuestion, type QuestionKind } from "@/lib/booking/questions";
 
@@ -236,6 +240,7 @@ const US_STATES = new Set(
 
 export async function updateProfile(input: {
   full_name: string;
+  title?: string;
   headline: string;
   bio: string;
   license_number: string;
@@ -252,6 +257,7 @@ export async function updateProfile(input: {
     .from("agents")
     .update({
       full_name,
+      ...(input.title !== undefined ? { title: clean(input.title, 80) || null } : {}),
       headline: clean(input.headline, 140) || null,
       bio: clean(input.bio, 1200) || null,
       license_number: clean(input.license_number, 40) || null,
@@ -534,5 +540,67 @@ export async function setAdFocus(topics: string[]): Promise<Result> {
   const { error } = await supabaseAdmin.from("agents").update({ ad_focus: cleanFocus(topics) }).eq("id", agent.id);
   if (error) return fail("Couldn't save your ad focus. If this keeps happening, the ad focus migration may not have run yet.");
   revalidatePath("/dashboard", "layout");
+  return { ok: true };
+}
+
+// ---------- Start here ----------
+
+const PLAN_DAYS: number[] = DURATIONS.map((d) => d.days);
+
+/** The campaign plan: what to promote, how long it runs, and the daily budget. */
+export async function savePlan(input: { topics: string[]; days: number; dailyCents: number }): Promise<Result> {
+  const agent = await requireAgent();
+  if (!PLAN_DAYS.includes(input.days)) return fail("Pick how long the campaign should run.");
+  if (!Number.isInteger(input.dailyCents) || input.dailyCents < MIN_DAILY_CENTS || input.dailyCents > MAX_DAILY_CENTS)
+    return fail(`Daily budget must be between $${MIN_DAILY_CENTS / 100} and $${MAX_DAILY_CENTS / 100}.`);
+  const topics = cleanFocus(input.topics);
+  if (!topics.length) return fail("Choose at least one thing to promote.");
+
+  const update: Record<string, unknown> = { ad_focus: topics, campaign_days: input.days, daily_budget_cents: input.dailyCents };
+  // A campaign already running keeps its start day; the new length moves its end day
+  if (agent.campaign_started_on) update.campaign_ends_on = endDate(agent.campaign_started_on, input.days);
+  const { error } = await supabaseAdmin.from("agents").update(update).eq("id", agent.id);
+  if (error) return fail("Couldn't save your plan. If this keeps happening, the setup migration may not have run yet.");
+  revalidatePath("/dashboard", "layout");
+  return { ok: true };
+}
+
+export async function setCreativeMode(mode: "upload" | "ai" | "both"): Promise<Result> {
+  const agent = await requireAgent();
+  if (!["upload", "ai", "both"].includes(mode)) return fail("Choose how you want your creatives made.");
+  const { error } = await supabaseAdmin.from("agents").update({ creative_mode: mode }).eq("id", agent.id);
+  if (error) return fail("Couldn't save that choice.");
+  revalidatePath("/dashboard", "layout");
+  return { ok: true };
+}
+
+/** Finishes setup: stamps the campaign's dates, and starts Migz's first review in the background. */
+export async function launchCampaign(): Promise<Result> {
+  const agent = await requireAgent();
+  if (!migzReadyFor(agent)) return fail("Your ad account isn't linked yet. Anryh Labs links it for you; you'll be able to start as soon as it's done.");
+  const blockers = await setupBlockers(agent);
+  if (blockers.length) return fail(blockers[0]);
+
+  const today = DateTime.now().setZone(agent.timezone).toISODate()!;
+  const { error } = await supabaseAdmin
+    .from("agents")
+    .update({
+      campaign_started_on: today,
+      campaign_ends_on: endDate(today, agent.campaign_days),
+      onboarding_completed_at: new Date().toISOString(),
+      ads_paused: false,
+      migz_mode: agent.migz_mode === "off" ? "approve" : agent.migz_mode,
+      migz_last_run_at: null,
+      migz_last_operator_at: null,
+    })
+    .eq("id", agent.id);
+  if (error) return fail("Couldn't start your campaign. Please try again.");
+  revalidatePath("/dashboard", "layout");
+
+  // The first review takes a minute or more: it runs after this response, and the page shows it live
+  const fresh = (await supabaseAdmin.from("agents").select("*").eq("id", agent.id).single()).data as Agent;
+  after(async () => {
+    await runMigz(fresh, { trigger: "manual" }).catch((e) => console.error("first review crashed", e));
+  });
   return { ok: true };
 }

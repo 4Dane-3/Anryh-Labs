@@ -5,6 +5,7 @@ import { CalendarCheck, MessageCircle, SearchCheck, ShieldCheck, Star } from "lu
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { getAgentBySlug } from "@/lib/booking/data";
 import { BookingWidget } from "@/components/booking/BookingWidget";
+import { DEFAULT_TITLE } from "@/lib/campaign";
 
 export const dynamic = "force-dynamic";
 
@@ -88,7 +89,7 @@ export default async function AgentPage({ params, searchParams }: Props) {
             )}
             <div>
               <h1 className="text-2xl font-bold sm:text-3xl">{agent.full_name}</h1>
-              <p className="text-slate-500">Licensed life insurance agent</p>
+              <p className="text-slate-500">{agent.title || DEFAULT_TITLE}</p>
             </div>
           </div>
 

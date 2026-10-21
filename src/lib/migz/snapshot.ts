@@ -8,6 +8,7 @@ import { LOOKBACK_DAYS } from "@/lib/migz/sync";
 import { briefLabel, isImageBrief, type AnyBrief } from "@/lib/migz/brief";
 import { addRow, derive, emptyTotals, fatigue, present, type Totals } from "@/lib/migz/metrics";
 import { cleanFocus, TOPICS } from "@/lib/migz/topics";
+import { daysLeft } from "@/lib/campaign";
 
 /**
  * Everything Migz needs for one review: the campaign tree with 14-day and 3-day results per ad,
@@ -203,6 +204,11 @@ export async function buildSnapshot(agent: Agent) {
         ? "on: campaigns stay paused so nothing delivers or spends; build and launch ads as normal, and don't ask the agent to turn the campaign on"
         : "off",
       today: today.toISODate(),
+      campaign: agent.campaign_ends_on
+        ? { runs_until: agent.campaign_ends_on, days_left: daysLeft(agent.campaign_ends_on, agent.timezone), note: "The agent chose this length. Pace tests so winners are found with time left to benefit; don't start long tests near the end." }
+        : agent.campaign_days === 0
+          ? "ongoing (no end date)"
+          : "no end date set",
       creative_generation: (outOfCredits ?? 0) > 0
         ? "unavailable: the video and image generator is out of credits. Don't start new creatives; launch existing library creatives or adjust what's running, and say in your summary that new creatives are waiting on credits."
         : "available",

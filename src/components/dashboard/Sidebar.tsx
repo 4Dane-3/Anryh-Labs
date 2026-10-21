@@ -14,6 +14,7 @@ import {
   LogOut,
   Menu,
   PanelsTopLeft,
+  Rocket,
   Settings,
   Users,
   Wallet,
@@ -37,13 +38,37 @@ const NAV = [
 
 type AgentSummary = { name: string; slug: string; photoUrl: string | null };
 
-function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
+function NavLinks({ onNavigate, setupDone }: { onNavigate?: () => void; setupDone: boolean }) {
   const pathname = usePathname();
   const isActive = (href: string) =>
     href === "/dashboard" ? pathname === href : pathname.startsWith(href);
+  const onStart = pathname.startsWith("/dashboard/start");
 
   return (
     <nav className="space-y-0.5">
+      {!setupDone && (
+        <Link
+          href="/dashboard/start"
+          onClick={onNavigate}
+          className={cn(
+            "mb-2 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition-[background-color,transform] active:scale-[0.99]",
+            onStart ? "bg-brand text-brand-fg" : "bg-brand/90 text-brand-fg hover:bg-brand",
+          )}
+        >
+          <Rocket className="size-4" />
+          Start here
+        </Link>
+      )}
+      {setupDone && (
+        <Link
+          href="/dashboard/start"
+          onClick={onNavigate}
+          className={cn("relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors", onStart ? "text-fg" : "text-fg-muted hover:text-fg")}
+        >
+          <Rocket className={cn("size-4", onStart && "text-brand")} />
+          Setup
+        </Link>
+      )}
       {NAV.map(({ href, label, icon: Icon }) => {
         const active = isActive(href);
         return (
@@ -126,7 +151,7 @@ function AgentFooter({ agent, devLogin }: { agent: AgentSummary; devLogin: boole
   );
 }
 
-export function Sidebar({ agent, devLogin }: { agent: AgentSummary; devLogin: boolean }) {
+export function Sidebar({ agent, devLogin, setupDone }: { agent: AgentSummary; devLogin: boolean; setupDone: boolean }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
 
@@ -153,7 +178,7 @@ export function Sidebar({ agent, devLogin }: { agent: AgentSummary; devLogin: bo
           <span className="text-sm font-semibold">Agent dashboard</span>
         </div>
         <div className="flex-1">
-          <NavLinks />
+          <NavLinks setupDone={setupDone} />
         </div>
         <AgentFooter agent={agent} devLogin={devLogin} />
       </aside>
@@ -200,7 +225,7 @@ export function Sidebar({ agent, devLogin }: { agent: AgentSummary; devLogin: bo
                 </button>
               </div>
               <div className="flex-1">
-                <NavLinks onNavigate={() => setOpen(false)} />
+                <NavLinks onNavigate={() => setOpen(false)} setupDone={setupDone} />
               </div>
               <AgentFooter agent={agent} devLogin={devLogin} />
             </motion.aside>

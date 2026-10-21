@@ -2,7 +2,9 @@ import Link from "next/link";
 import "@/components/site/site.css";
 import { SiteEffects } from "@/components/site/SiteEffects";
 
-export const CONTACT_EMAIL = "anryhlabs@gmail.com";
+import { CONTACT_EMAIL } from "@/lib/contact";
+
+export { CONTACT_EMAIL };
 export const DEMO_MAILTO = `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent("invite request: migz")}`;
 
 export function SiteShell({ children }: { children: React.ReactNode }) {
