@@ -3,7 +3,7 @@ import "@/components/site/site.css";
 import { SiteEffects } from "@/components/site/SiteEffects";
 
 export const CONTACT_EMAIL = "anryhlabs@gmail.com";
-export const DEMO_MAILTO = `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent("demo request: migz ai ad automation")}`;
+export const DEMO_MAILTO = `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent("invite request: migz")}`;
 
 export function SiteShell({ children }: { children: React.ReactNode }) {
   return (
@@ -30,7 +30,7 @@ export function SiteHeader() {
           </Link>
           <Link href="/contact">help</Link>
           <a href={DEMO_MAILTO} className="sb-cta">
-            book a demo
+            reach out
           </a>
         </nav>
       </div>

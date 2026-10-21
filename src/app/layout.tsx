@@ -4,7 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "anryh labs · ai ad automation for insurance agents",
   description:
-    "migz, the ai media buyer from anryh labs, launches and tunes meta ads for independent life insurance agents so more prospects book a call.",
+    "migz, the ai media buyer from anryh labs, runs your whole meta campaign: it reads the analytics and fixes what holds results back so more prospects book a call. invite only.",
 };
 
 export default function RootLayout({

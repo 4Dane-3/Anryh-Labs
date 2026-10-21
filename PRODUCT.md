@@ -32,7 +32,7 @@ Insurance advertising rules apply: no guarantees of approval, rates or savings, 
 
 ## Brand Commitments
 
-Name: anryh labs, always lowercase. The AI is Migz AI. Contact: anryhlabs@gmail.com. The primary action is to book a demo (opens an email). The user asked for a white look on the marketing site and for it to feel alive, with real motion and graphics, and not look like generated AI sites. The site speaks in lowercase.
+Name: anryh labs, always lowercase. The AI is Migz AI. Contact: anryhlabs@gmail.com. The product is invite only. The primary action is “reach out” (opens an email to request an invite). Migz runs the whole campaign, reading analytics and fixing budget, placements, creative and copy (not audience targeting); creatives are one lever among several. The user asked for a white look on the marketing site and for it to feel alive, with real motion and graphics, and not look like generated AI sites. The site speaks in lowercase.
 
 ## Evidence on Hand
 

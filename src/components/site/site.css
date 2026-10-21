@@ -1100,3 +1100,73 @@
 .sb-sec .hs__tag {
   color: color-mix(in oklab, currentColor 62%, transparent);
 }
+
+/* diagnose */
+.dg {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--sb-gutter);
+}
+.dg__row {
+  background: var(--sb-s1);
+  border-radius: 20px;
+  padding: clamp(20px, 2.4vw, 36px);
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1.2fr) minmax(0, 1.2fr) minmax(0, 0.8fr);
+  gap: 16px clamp(16px, 2.6vw, 48px);
+  align-items: start;
+}
+.dg__lever {
+  justify-self: start;
+  background: var(--sb-ink);
+  color: #fff;
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-weight: 700;
+  font-size: 15px;
+}
+.sb-sec .dg__k {
+  font-size: 14px;
+  color: var(--sb-muted);
+  margin-bottom: 6px;
+}
+.sb-sec .dg__num {
+  font-weight: 700;
+  font-size: clamp(22px, 2.2vw, 32px);
+  letter-spacing: -0.025em;
+  color: var(--sb-ink);
+}
+.dg__from {
+  color: var(--sb-muted);
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+}
+.dg__to {
+  background: var(--sb-accent);
+  border-radius: 8px;
+  padding: 0 8px;
+}
+@media (max-width: 1000px) {
+  .dg__row {
+    grid-template-columns: 1fr 1fr;
+  }
+  .dg__lever {
+    grid-column: 1 / -1;
+  }
+}
+@media (max-width: 600px) {
+  .dg__row {
+    grid-template-columns: 1fr;
+  }
+}
+.sb-close .sb-note,
+.sb-invite {
+  margin-top: 14px;
+  font-size: 15px;
+  color: var(--sb-muted);
+}
+.sb-close .sb-invite {
+  color: var(--sb-ink);
+}

@@ -5,7 +5,7 @@ import { CONTACT_EMAIL } from "@/components/site/SiteChrome";
 
 const inputClass = "sb-input";
 
-const TOPICS = ["general question", "booking a demo", "my ads", "billing", "my data"];
+const TOPICS = ["general question", "requesting an invite", "my ads", "billing", "my data"];
 
 /** Opens the visitor's email app with the message addressed to us, so help goes straight to our inbox. */
 export function ContactForm() {
