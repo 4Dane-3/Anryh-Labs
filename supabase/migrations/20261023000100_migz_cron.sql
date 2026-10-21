@@ -3,6 +3,10 @@
 --   agent-migz-review:     hourly; the endpoint reviews each agent at most every 6 hours
 --   agent-creative-jobs:   every 10 minutes; advances Higgsfield generations and Meta uploads
 
+-- These are also created by the digest migration; repeating them lets this file run on its own.
+create extension if not exists pg_cron;
+create extension if not exists pg_net;
+
 select cron.schedule(
   'agent-migz-review',
   '15 * * * *',
