@@ -33,6 +33,12 @@ export type Agent = {
   meta_instagram_id: string | null;
   migz_mode: "off" | "approve" | "auto";
   migz_last_run_at: string | null;
+  migz_model_budget_cents: number;
+  migz_last_operator_at: string | null;
+  migz_last_daily_at: string | null;
+  migz_last_fatigue_at: string | null;
+  migz_last_weekly_at: string | null;
+  migz_gate_state: unknown;
 };
 
 export type Booking = {

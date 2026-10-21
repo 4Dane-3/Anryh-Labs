@@ -102,7 +102,8 @@ alter table public.agents
   add column migz_last_operator_at timestamptz,
   add column migz_last_daily_at timestamptz,
   add column migz_last_fatigue_at timestamptz,
-  add column migz_last_weekly_at timestamptz;
+  add column migz_last_weekly_at timestamptz,
+  add column migz_gate_state jsonb; -- what the account looked like at the last full review (quiet-run gate)
 
 -- 8. Creative traits from the vision tier
 alter table public.creatives

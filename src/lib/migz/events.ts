@@ -67,13 +67,15 @@ export async function begin(e: EventInput) {
     .select("id")
     .single();
   const id = data?.id as number | undefined;
-  return async (end: { summary?: string; evidence?: Record<string, unknown>; inputTokens?: number; outputTokens?: number } = {}) => {
+  return async (end: { summary?: string; evidence?: Record<string, unknown>; inputTokens?: number; outputTokens?: number; tier?: Tier; model?: string | null } = {}) => {
     if (!id) return;
     await supabaseAdmin
       .from("migz_events")
       .update({
         ...(end.summary ? { summary: end.summary.slice(0, 400) } : {}),
         ...(end.evidence ? { evidence: end.evidence } : {}),
+        ...(end.tier ? { tier: end.tier } : {}),
+        ...(end.model ? { model: end.model } : {}),
         input_tokens: end.inputTokens ?? 0,
         output_tokens: end.outputTokens ?? 0,
         finished_at: new Date().toISOString(),
