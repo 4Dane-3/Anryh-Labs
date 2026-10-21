@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowUpRight,
+  BrainCircuit,
   CalendarDays,
   Film,
   Gauge,
@@ -26,6 +27,7 @@ const NAV = [
   { href: "/dashboard", label: "Overview", icon: Gauge },
   { href: "/dashboard/calendar", label: "Calendar", icon: CalendarDays },
   { href: "/dashboard/clients", label: "Clients", icon: Users },
+  { href: "/dashboard/brain", label: "Migz brain", icon: BrainCircuit },
   { href: "/dashboard/funds", label: "Ad funds", icon: Wallet },
   { href: "/dashboard/creatives", label: "Creatives", icon: Film },
   { href: "/dashboard/landing", label: "My page", icon: PanelsTopLeft },

@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { setMigzMode, updateSettings } from "@/app/dashboard/actions";
+import { setMigzMode, setModelBudget, updateSettings } from "@/app/dashboard/actions";
 import { createSupabaseBrowser } from "@/lib/supabase-browser";
 import { Button, Label, Panel, PanelHeader, inputClass } from "@/components/dashboard/ui";
 
@@ -226,6 +226,40 @@ export function MigzModeForm({ mode }: { mode: "off" | "approve" | "auto" }) {
           );
         })}
         {error && <p className="text-[13px] text-bad">{error}</p>}
+      </div>
+    </Panel>
+  );
+}
+
+/** Anryh Labs staff only: the monthly AI (model) budget for this agent. */
+export function ModelBudgetForm({ cents }: { cents: number }) {
+  const router = useRouter();
+  const [value, setValue] = useState(String(cents / 100));
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+  const save = () =>
+    startTransition(async () => {
+      setError(null);
+      const res = await setModelBudget(Math.round(Number(value) * 100));
+      if (!res.ok) return setError(res.error);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
+      router.refresh();
+    });
+  return (
+    <Panel>
+      <PanelHeader title="AI budget (Anryh Labs only)" description="Monthly cap on Migz's model costs for this agent. Over it, Migz moves work to cheaper models instead of stopping." />
+      <div className="px-5 py-5">
+        <Label htmlFor="model-budget">Dollars per month</Label>
+        <div className="flex gap-2">
+          <input id="model-budget" inputMode="decimal" className={inputClass} value={value} onChange={(e) => setValue(e.target.value)} />
+          <Button onClick={save} disabled={pending}>Save</Button>
+        </div>
+        <div className="mt-2 flex items-center gap-3">
+          {error && <p className="text-[13px] text-bad">{error}</p>}
+          <Saved show={saved} />
+        </div>
       </div>
     </Panel>
   );

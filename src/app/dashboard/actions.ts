@@ -2,12 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { requireAgent } from "@/lib/auth";
+import { isAnryhAdmin, requireAgent } from "@/lib/auth";
 import { integrations, migzReadyFor } from "@/lib/integrations";
 import { buildEvalContext, runMigz } from "@/lib/migz/agent";
 import { applyPayload } from "@/lib/migz/executor";
 import { buildSnapshot } from "@/lib/migz/snapshot";
 import { syncAgent } from "@/lib/migz/sync";
+import { defaultCreateMessage, monthlyBudget } from "@/lib/migz/router";
+import { traitSwipe } from "@/lib/migz/team/scout";
 import { recheck, type ActionPayload } from "@/lib/migz/tools";
 import { STEP_TITLES, type IntakeQuestion, type QuestionKind } from "@/lib/booking/questions";
 
@@ -479,4 +481,44 @@ export async function runMigzNow(): Promise<Result & { summary?: string }> {
   revalidatePath("/dashboard", "layout");
   if (run.status === "failed") return fail(`Migz couldn't finish this review: ${run.error}`);
   return { ok: true, summary: run.status === "succeeded" ? run.summary : "Ads are paused, so Migz made no changes." };
+}
+
+// ---------- Migz brain ----------
+
+/** An outside ad the agent wants Migz to learn from. Haiku tags it from the link and notes. */
+export async function addSwipe(input: { url: string; advertiser: string; notes: string }): Promise<Result> {
+  const agent = await requireAgent();
+  const notes = clean(input.notes, 1000);
+  const url = clean(input.url, 500);
+  if (!notes) return fail("Describe what the ad does and why you like it.");
+  if (url && !/^https?:\/\//i.test(url)) return fail("Links need to start with http:// or https://");
+  const { data, error } = await supabaseAdmin
+    .from("swipe_files")
+    .insert({ agent_id: agent.id, source_url: url || null, advertiser: clean(input.advertiser, 120) || null, notes, added_by: "agent" })
+    .select("id")
+    .single();
+  if (error || !data) return fail("Couldn't save that example.");
+  if (process.env.ANTHROPIC_API_KEY) {
+    const budget = await monthlyBudget(agent.id, agent.migz_model_budget_cents ?? 3000);
+    await traitSwipe(data.id, { agentId: agent.id, runId: null, budget, createMessage: defaultCreateMessage }).catch(() => null);
+  }
+  revalidatePath("/dashboard/brain");
+  return { ok: true };
+}
+
+export async function deleteSwipe(id: string): Promise<Result> {
+  const agent = await requireAgent();
+  await supabaseAdmin.from("swipe_files").delete().eq("id", id).eq("agent_id", agent.id);
+  revalidatePath("/dashboard/brain");
+  return { ok: true };
+}
+
+/** Monthly AI budget per agent: Anryh Labs admins only (ANRYH_ADMIN_EMAILS). */
+export async function setModelBudget(cents: number): Promise<Result> {
+  const agent = await requireAgent();
+  if (!(await isAnryhAdmin())) return fail("Only Anryh Labs can change the AI budget.");
+  if (!Number.isInteger(cents) || cents < 0 || cents > 100_000) return fail("Enter a budget between $0 and $1,000.");
+  await supabaseAdmin.from("agents").update({ migz_model_budget_cents: cents }).eq("id", agent.id);
+  revalidatePath("/dashboard", "layout");
+  return { ok: true };
 }

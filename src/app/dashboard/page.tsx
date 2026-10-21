@@ -15,15 +15,18 @@ import { StatTile } from "@/components/dashboard/StatTile";
 import { BarChart } from "@/components/dashboard/BarChart";
 import { Badge, EmptyState, NotConnected, PageHeader, Panel, PanelHeader } from "@/components/dashboard/ui";
 import { MigzPanel } from "@/components/dashboard/MigzPanel";
+import { BrainWidget } from "@/components/dashboard/brain/BrainWidget";
+import { getBrainLive } from "@/lib/migz/brain";
 
 export default async function OverviewPage() {
   const agent = await requireAgent();
-  const [metrics, balance, upcoming, actions, proposals] = await Promise.all([
+  const [metrics, balance, upcoming, actions, proposals, brain] = await Promise.all([
     getDailyMetrics(agent, 30),
     getBalanceCents(agent.id),
     getUpcomingBookings(agent.id, 5),
     getAdActions(agent.id, 6),
     getProposedActions(agent.id),
+    getBrainLive(agent),
   ]);
   const recentlyRan =
     !!agent.migz_last_run_at && DateTime.now().diff(DateTime.fromISO(agent.migz_last_run_at), "hours").hours < 1;
@@ -168,6 +171,12 @@ export default async function OverviewPage() {
             </EmptyState>
           )}
         </Panel>
+
+        {migzReadyFor(agent) && (
+          <div className="lg:col-span-2">
+            <BrainWidget initial={brain} />
+          </div>
+        )}
 
         <Panel className="lg:col-span-2">
           <MigzPanel
