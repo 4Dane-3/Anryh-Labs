@@ -12,6 +12,7 @@ import { runOperator, type ExtraTool } from "@/lib/migz/operator";
 import { defaultCreateMessage, monthlyBudget, type Budget, type CreateMessage } from "@/lib/migz/router";
 import { EXPERIMENT_TOOLS, experimentContext } from "@/lib/migz/experiments";
 import { diagnoseCreativeTool, watchNewCreatives } from "@/lib/migz/vision";
+import { runRoutines } from "@/lib/migz/routines";
 import { audit } from "@/lib/migz/team/auditor";
 import { writeFeed } from "@/lib/migz/team/clerk";
 import { runScout } from "@/lib/migz/team/scout";
@@ -253,13 +254,15 @@ export async function runMigz(
     const team = { runId, budget, createMessage };
     const audited = await audit(agent, snapshot, team);
     await runScout({ agentId: agent.id, ...team });
+    const routines = await runRoutines(agent, snapshot, team);
 
     // Phase extensions (experiments, vision, routines) add context and reasons to run
     const teamContext: Record<string, unknown> = {
       open_audit_findings: audited.findings.slice(0, 10).map((f) => ({ check: f.check, severity: f.severity, summary: f.summary })),
       model_budget_this_month: `$${budget.spentUsd.toFixed(2)} of $${budget.limitUsd.toFixed(2)}`,
     };
-    const extraReasons: string[] = [];
+    Object.assign(teamContext, routines.context);
+    const extraReasons: string[] = [...routines.reasons];
     const extraTools: ExtraTool[] = [...READ_TOOLS];
     for (const ext of extensions) {
       if (ext.tools) extraTools.push(...ext.tools);
