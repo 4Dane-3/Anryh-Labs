@@ -40,6 +40,12 @@ export type Agent = {
   migz_last_weekly_at: string | null;
   migz_gate_state: unknown;
   ad_focus?: string[]; // topic keys, most important first (missing before the ad_focus migration)
+  title?: string | null; // job title on the booking page (null = default)
+  campaign_days?: number | null;
+  campaign_started_on?: string | null;
+  campaign_ends_on?: string | null;
+  creative_mode?: "upload" | "ai" | "both" | null;
+  onboarding_completed_at?: string | null;
 };
 
 export type Booking = {

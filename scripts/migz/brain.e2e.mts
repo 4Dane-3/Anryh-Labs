@@ -497,6 +497,27 @@ try {
   assert.ok(board.experiments.some((e) => e.status === "concluded")); assert.ok(board.learnings.length >= 3);
   ok(`events polled incrementally; cost by tier $${board.cost.totalUsd.toFixed(4)}; ${board.scorecards.length} scorecards; experiments + learnings present`);
 
+  // ===== 8b =====
+  step("8b. Campaign end date: ads pause after the last day, and resume when it's extended");
+  const ymd = (d: number) => new Date(Date.now() + d * 86_400_000).toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+  await db.from("agents").update({ campaign_ends_on: ymd(-1), migz_last_run_at: null }).eq("id", AGENT_ID);
+  modelAllowed = false;
+  const endedRun = await run("manual");
+  assert.equal(endedRun.status, "paused", JSON.stringify(endedRun));
+  assert.equal(meta.adsetStatus, "PAUSED");
+  const { data: endAction } = await db.from("ad_actions").select("title, detail").eq("agent_id", AGENT_ID).eq("tool", "system_pause").order("created_at", { ascending: false }).limit(1).single();
+  assert.equal(endAction!.title, "Your campaign has ended"); assert.match(endAction!.detail, /Start here/);
+  modelAllowed = true;
+  operatorScript = () => ({ content: [text("Resumed after the campaign was extended.")] });
+  await db.from("agents").update({ campaign_ends_on: ymd(10), migz_last_run_at: null }).eq("id", AGENT_ID);
+  const resumed = await run("manual");
+  assert.equal(resumed.status, "succeeded", JSON.stringify(resumed));
+  assert.equal(meta.adsetStatus, "ACTIVE");
+  const snapAfter = await buildSnapshot((await getAgent()) as never);
+  assert.equal((snapAfter.forModel.agent.campaign as { days_left: number }).days_left, 11);
+  await db.from("agents").update({ campaign_ends_on: null, migz_last_run_at: null }).eq("id", AGENT_ID);
+  ok("ended campaign paused ads with a clear message (no AI call), extending it resumed them, and Migz sees the days left");
+
   // ===== 9 =====
   step("9. Slack: morning digest section, and failure alerts to staff (once per distinct error)");
   const { migzDigestSection } = await import("@/lib/migz/slack");

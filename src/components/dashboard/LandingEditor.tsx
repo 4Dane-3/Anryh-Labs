@@ -14,10 +14,12 @@ import {
 import { uploadToSignedUrl } from "@/lib/dashboard/upload";
 import { initials } from "@/lib/dashboard/format";
 import { Badge, Button, EmptyState, Label, Panel, PanelHeader, Switch, Tabs, inputClass } from "@/components/dashboard/ui";
+import { DEFAULT_TITLE } from "@/lib/campaign";
 import { cn } from "@/lib/utils";
 
-type Profile = {
+export type Profile = {
   full_name: string;
+  title: string;
   headline: string;
   bio: string;
   license_number: string;
@@ -58,7 +60,7 @@ function SavedNote({ show, children = "Saved" }: { show: boolean; children?: Rea
 
 // ---------- Profile ----------
 
-function ProfileForm({ profile, onSaved }: { profile: Profile; onSaved: () => void }) {
+export function ProfileForm({ profile, onSaved }: { profile: Profile; onSaved: () => void }) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
   const [form, setForm] = useState(profile);
@@ -178,6 +180,19 @@ function ProfileForm({ profile, onSaved }: { profile: Profile; onSaved: () => vo
               onChange={(e) => set("license_number", e.target.value)}
             />
           </div>
+        </div>
+
+        <div>
+          <Label htmlFor="title">Your title</Label>
+          <input
+            id="title"
+            className={inputClass}
+            maxLength={80}
+            placeholder={DEFAULT_TITLE}
+            value={form.title}
+            onChange={(e) => set("title", e.target.value)}
+          />
+          <p className="mt-1 text-[12px] text-fg-faint">Shown under your name on your page. Leave it blank to use &ldquo;{DEFAULT_TITLE}&rdquo;.</p>
         </div>
 
         <div>

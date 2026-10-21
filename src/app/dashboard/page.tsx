@@ -50,6 +50,21 @@ export default async function OverviewPage() {
         description="How your ads performed over the last 30 days, and what's coming up. Migz AI runs your ads and tunes them as results come in."
       />
 
+      {!agent.onboarding_completed_at && (
+        <Link
+          href="/dashboard/start"
+          className="mb-6 flex items-center gap-4 rounded-xl border border-brand/40 bg-brand/[0.08] px-5 py-4 transition-colors hover:bg-brand/[0.12]"
+        >
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold text-fg">Finish setting up to start your first campaign</span>
+            <span className="block text-[13px] text-fg-muted">Profile, booking page, funds, plan and creatives. About 10 minutes.</span>
+          </span>
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-brand px-3 py-1.5 text-[13px] font-semibold text-brand-fg">
+            Start here <ArrowRight className="size-3.5" />
+          </span>
+        </Link>
+      )}
+
       {!integrations.meta && (
         <div className="mb-6">
           <NotConnected service="Meta">

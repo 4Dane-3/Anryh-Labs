@@ -6,6 +6,7 @@ import { isImageBrief, type AnyBrief, type CreativeBrief } from "@/lib/migz/brie
 import { buildSnapshot, type Snapshot } from "@/lib/migz/snapshot";
 import { syncAgent } from "@/lib/migz/sync";
 import { begin, emit } from "@/lib/migz/events";
+import { campaignEnded } from "@/lib/campaign";
 import { gateState, materialChanges, type GateState } from "@/lib/migz/gate";
 import { MODELS } from "@/lib/migz/models";
 import { runOperator, type ExtraTool } from "@/lib/migz/operator";
@@ -92,8 +93,10 @@ export async function buildEvalContext(agent: Agent, snapshot: Snapshot): Promis
 async function enforceSpendState(agent: Agent, snapshot: Snapshot, runId: string) {
   const active = snapshot.guardAdsets.filter((a) => a.status === "ACTIVE");
   const lowBalance = snapshot.balanceCents < agent.daily_budget_cents;
+  // The agent chose how long the campaign runs; after its last day, ads stop
+  const ended = campaignEnded(agent.campaign_ends_on, agent.timezone);
 
-  if ((agent.ads_paused || lowBalance) && active.length) {
+  if ((agent.ads_paused || lowBalance || ended) && active.length) {
     for (const adset of active) await setStatus(adset.meta_adset_id, "PAUSED");
     await supabaseAdmin
       .from("ad_sets")
@@ -101,10 +104,12 @@ async function enforceSpendState(agent: Agent, snapshot: Snapshot, runId: string
       .in("meta_adset_id", active.map((a) => a.meta_adset_id));
     await logAction(agent.id, {
       kind: "pause",
-      title: agent.ads_paused ? "Paused your ads" : "Paused ads: balance is low",
+      title: agent.ads_paused ? "Paused your ads" : ended ? "Your campaign has ended" : "Paused ads: balance is low",
       detail: agent.ads_paused
         ? "You turned ads off. They'll stay paused until you turn them back on."
-        : `Your balance ($${(snapshot.balanceCents / 100).toFixed(2)}) can't cover a day at $${(agent.daily_budget_cents / 100).toFixed(2)}/day. Add funds to resume.`,
+        : ended
+          ? `Your campaign was set to run until ${agent.campaign_ends_on}, so Migz paused your ads. To keep going, extend it on the Start here page.`
+          : `Your balance ($${(snapshot.balanceCents / 100).toFixed(2)}) can't cover a day at $${(agent.daily_budget_cents / 100).toFixed(2)}/day. Add funds to resume.`,
       status: "applied",
       tool: "system_pause",
       payload: { adset_ids: active.map((a) => a.meta_adset_id) },
@@ -113,7 +118,7 @@ async function enforceSpendState(agent: Agent, snapshot: Snapshot, runId: string
     return "paused";
   }
 
-  if (!agent.ads_paused && !lowBalance) {
+  if (!agent.ads_paused && !lowBalance && !ended) {
     const { data: last } = await supabaseAdmin
       .from("ad_actions")
       .select("tool, payload")
@@ -142,7 +147,7 @@ async function enforceSpendState(agent: Agent, snapshot: Snapshot, runId: string
       return "resumed";
     }
   }
-  return agent.ads_paused || lowBalance ? "paused" : "ok";
+  return agent.ads_paused || lowBalance || ended ? "paused" : "ok";
 }
 
 /** Keeps campaigns paused in test mode; switches them on the first review after test mode is removed. */

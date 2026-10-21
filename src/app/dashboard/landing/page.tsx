@@ -36,6 +36,7 @@ export default async function LandingPage({
         slug={agent.slug}
         profile={{
           full_name: agent.full_name,
+          title: agent.title ?? "",
           headline: agent.headline ?? "",
           bio: agent.bio ?? "",
           license_number: agent.license_number ?? "",

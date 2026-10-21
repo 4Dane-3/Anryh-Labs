@@ -18,6 +18,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       <Sidebar
         agent={{ name: agent.full_name, slug: agent.slug, photoUrl: agent.photo_url }}
         devLogin={!!devAgentSlug()}
+        setupDone={!!agent.onboarding_completed_at}
       />
       <main className="mx-auto w-full max-w-6xl px-4 pb-16 pt-6 sm:px-8 lg:pt-10">{children}</main>
     </div>
