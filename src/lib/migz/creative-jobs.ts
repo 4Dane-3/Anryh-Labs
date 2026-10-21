@@ -5,6 +5,7 @@ import type { Agent } from "@/lib/booking/data";
 import { getRequestStatus, submitImage, submitVideo } from "@/lib/higgsfield";
 import { createAd, createAdCreative, uploadImage, uploadVideo, videoState } from "@/lib/meta/ads";
 import { MetaApiError } from "@/lib/meta/graph";
+import { isTestMode } from "@/lib/migz/test-mode";
 import { alertCreativeFailed } from "@/lib/migz/slack";
 import { briefLabel, isImageBrief, type AnyBrief, type CreativeBrief } from "@/lib/migz/brief";
 
@@ -180,6 +181,7 @@ async function loadAgent(agentId: string): Promise<Agent> {
 async function createLiveAd(job: Job, agent: Agent, media: Parameters<typeof createAdCreative>[1]["media"]) {
   const account = agent.meta_ad_account_id!;
   const name = `Migz · ${briefLabel(job.brief)}`.slice(0, 100);
+  const held = isTestMode(); // test mode: build the ad paused so it can be previewed but never deliver
   const metaCreativeId = await createAdCreative(account, {
     name,
     pageId: agent.meta_page_id!,
@@ -193,7 +195,7 @@ async function createLiveAd(job: Job, agent: Agent, media: Parameters<typeof cre
     name,
     adsetId: job.launch_adset_id!,
     creativeId: metaCreativeId,
-    status: "ACTIVE",
+    status: held ? "PAUSED" : "ACTIVE",
   });
 
   const { data: adset } = await supabaseAdmin
@@ -209,7 +211,8 @@ async function createLiveAd(job: Job, agent: Agent, media: Parameters<typeof cre
       meta_ad_id: metaAdId,
       meta_creative_id: metaCreativeId,
       name,
-      status: "ACTIVE",
+      status: held ? "PAUSED" : "ACTIVE",
+      held_by_test_mode: held,
       primary_text: job.brief.primary_text,
       headline: job.brief.headline,
     });

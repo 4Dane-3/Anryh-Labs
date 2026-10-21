@@ -497,6 +497,7 @@ try {
   assert.ok(board.experiments.some((e) => e.status === "concluded")); assert.ok(board.learnings.length >= 3);
   ok(`events polled incrementally; cost by tier $${board.cost.totalUsd.toFixed(4)}; ${board.scorecards.length} scorecards; experiments + learnings present`);
 
+  await db.from("agents").update({ migz_model_budget_cents: 3000 }).eq("id", AGENT_ID); // back to the normal tiers after step 7
   // ===== 8b =====
   step("8b. Campaign end date: ads pause after the last day, and resume when it's extended");
   const ymd = (d: number) => new Date(Date.now() + d * 86_400_000).toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
@@ -525,7 +526,7 @@ try {
   await db.from("ad_sets").update({ status: "PAUSED" }).eq("agent_id", AGENT_ID);
   await db.from("agents").update({ migz_last_run_at: null }).eq("id", AGENT_ID);
   operatorScript = () => ({ content: [text("Test mode: held.")] });
-  await run("manual");
+  assert.equal((await run("manual")).status, "succeeded");
   const { data: cTest } = await db.from("ad_campaigns").select("status").eq("agent_id", AGENT_ID).single();
   assert.equal(cTest!.status, "PAUSED");
   assert.equal(meta.adsetStatus, "PAUSED", "test mode doesn't touch the ad set");
@@ -553,6 +554,42 @@ try {
   operatorScript = () => ({ content: [text("Back on.")] });
   await run("manual");
   ok("leaving test mode switched on the campaign and its paused ad set; an agent-paused account stays paused");
+
+  // ===== 8d =====
+  step("8d. Test mode builds the finished ad paused in Meta; going live switches it on");
+  process.env.MIGZ_TEST_MODE = "1";
+  meta.adsetStatus = "PAUSED";
+  await db.from("ad_sets").update({ status: "PAUSED" }).eq("agent_id", AGENT_ID);
+  await db.from("ad_campaigns").update({ status: "PAUSED" }).eq("agent_id", AGENT_ID);
+  await db.from("agents").update({ migz_mode: "auto", migz_last_run_at: null }).eq("id", AGENT_ID);
+  const heldImage = { concept: "Final expense", topic: "final_expense", scene: "A grandmother and granddaughter at a kitchen table, afternoon light", style: "warm golden hour", overlay_lines: ["Plan ahead for them."], button_text: "Book a free call", aspect_ratio: "4:5", primary_text: "A small plan now spares your family a big bill later. A free call walks you through it.", headline: "Plan ahead", launch_adset_id: "adset_1", title: "Built a final-expense image", reason: "No final-expense ad yet." };
+  operatorCalls = 0;
+  operatorScript = (p, call) => {
+    if (call === 1) {
+      assert.match(JSON.stringify(snapshotOf(p).agent.test_mode), /built paused/);
+      return { advisor: true, content: [...advisorBlocks(), toolUse("generate_image", heldImage)] };
+    }
+    assert.match(lastToolResults(p)[0].content, /^Done/, lastToolResults(p)[0].content);
+    return { content: [text("Built the final-expense image paused.")] };
+  };
+  const adsBefore = new Set(meta.ads.keys());
+  const buildRun = await run("manual");
+  assert.equal(buildRun.status, "succeeded", JSON.stringify(buildRun));
+  for (const rid of hf.status.keys()) hf.status.set(rid, "completed");
+  await advanceOpenJobs(Date.now() + 60_000);
+  const builtIds = [...meta.ads.keys()].filter((id) => !adsBefore.has(id));
+  assert.equal(builtIds.length, 1, "one finished ad exists in Meta");
+  assert.equal(meta.ads.get(builtIds[0]), "PAUSED", "built paused: previewable, can't deliver");
+  const { data: heldRow } = await db.from("ads").select("status, held_by_test_mode").eq("meta_ad_id", builtIds[0]).single();
+  assert.deepEqual([heldRow!.status, heldRow!.held_by_test_mode], ["PAUSED", true]);
+  process.env.MIGZ_TEST_MODE = "0";
+  await db.from("agents").update({ migz_last_run_at: null }).eq("id", AGENT_ID);
+  operatorScript = () => ({ content: [text("Live.")] });
+  await run("manual");
+  assert.equal(meta.ads.get(builtIds[0]), "ACTIVE", "the held ad switched on with the campaign");
+  const { data: liveRow } = await db.from("ads").select("status, held_by_test_mode").eq("meta_ad_id", builtIds[0]).single();
+  assert.deepEqual([liveRow!.status, liveRow!.held_by_test_mode], ["ACTIVE", false]);
+  ok("test mode: the ad was built in Meta paused (previewable, can't deliver); leaving test mode switched it on");
 
   // ===== 9 =====
   step("9. Slack: morning digest section, and failure alerts to staff (once per distinct error)");

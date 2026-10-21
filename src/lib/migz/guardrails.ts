@@ -36,6 +36,8 @@ export type GuardContext = {
   actionsThisRun: number;
   generationsThisRun: number;
   videosThisRun?: number;
+  /** MIGZ_TEST_MODE: ads are built paused, so launching into a paused ad set is allowed. */
+  testMode?: boolean;
   openGenerations: number;
 };
 
@@ -118,7 +120,7 @@ export function checkPlacements(ctx: GuardContext, adsetId: string) {
 export function checkLaunchTarget(ctx: GuardContext, adsetId: string) {
   const adset = findAdSet(ctx, adsetId);
   if (!adset) return `No ad set ${adsetId} in this account.`;
-  if (!isActive(adset.status)) return `Ad set ${adsetId} is ${adset.status}.`;
+  if (!isActive(adset.status) && !(ctx.testMode && adset.status === "PAUSED")) return `Ad set ${adsetId} is ${adset.status}.`;
   return null;
 }
 
