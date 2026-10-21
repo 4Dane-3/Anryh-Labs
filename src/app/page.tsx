@@ -20,12 +20,12 @@ export default function Home() {
             <h1 className="sb-h1">
               <span className="line">
                 <span data-line style={line(0)}>
-                  a campaign that
+                  life insurance ads
                 </span>
               </span>
               <span className="line">
                 <span data-line style={line(1)}>
-                  fixes itself.
+                  that fix themselves.
                 </span>
               </span>
             </h1>

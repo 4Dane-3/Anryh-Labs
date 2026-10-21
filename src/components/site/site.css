@@ -1170,3 +1170,23 @@
 .sb-close .sb-invite {
   color: var(--sb-ink);
 }
+
+@media (max-width: 400px) {
+  .bd-ad {
+    gap: 8px;
+    padding-inline: 8px;
+    grid-template-columns: 24px 10px minmax(0, 1fr) auto;
+  }
+  .bd-ad__name {
+    font-size: 14px;
+  }
+  .bd-ad__name .bd-roll {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 400px) {
+  .bd-stage {
+    grid-template-columns: 40px 26px minmax(0, 1fr);
+  }
+}
