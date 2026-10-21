@@ -15,7 +15,7 @@
 
   --sb-margin: clamp(16px, 2.2vw, 32px);
   --sb-gutter: clamp(12px, 1.4vw, 24px);
-  --sb-section: clamp(88px, 11vw, 184px);
+  --sb-section: clamp(56px, 6.5vw, 108px);
 
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-expo: cubic-bezier(0.16, 1, 0.3, 1);
@@ -628,7 +628,7 @@
   line-height: 0.98;
   letter-spacing: -0.04em;
   max-width: 14ch;
-  margin: 0 0 clamp(36px, 5vw, 80px);
+  margin: 0 0 clamp(28px, 3.6vw, 56px);
   text-wrap: balance;
 }
 .sb-sec h3 {
