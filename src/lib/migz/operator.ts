@@ -16,6 +16,7 @@ import { callModel, planTier, textOf, type Budget, type CreateMessage } from "@/
 import type { Snapshot } from "@/lib/migz/snapshot";
 import { precheckCopy } from "@/lib/migz/team/clerk";
 import { evaluate, MIGZ_TOOLS, type ActionPayload, type EvalContext } from "@/lib/migz/tools";
+import { checkNotCopied } from "@/lib/migz/guardrails";
 
 // The operator: Sonnet runs the review loop with tools; Opus is on call through the advisor tool and
 // must be consulted (in code, not just in the prompt) before any spend-affecting action.
@@ -44,7 +45,7 @@ export type ExtraTool = {
   run: (input: Record<string, unknown>, env: OperatorEnv) => Promise<ToolOutcome>;
 };
 
-const COPY_TOOLS = new Set(["generate_video", "generate_image", "new_hook_variant", "launch_creative"]);
+const COPY_TOOLS = new Set(["generate_video", "generate_image", "new_hook_variant", "launch_creative", "write_copy_variants"]);
 
 /** Whether a validated action can change what Meta spends or shows. */
 export function affectsSpend(payload: ActionPayload) {
@@ -67,6 +68,7 @@ function copyOf(payload: ActionPayload): string[] {
     );
   }
   if (payload.tool === "launch_creative") return [payload.primary_text, payload.headline];
+  if (payload.tool === "write_copy_variants") return payload.variants.flatMap((v) => [v.primary_text, v.headline]);
   return [];
 }
 
@@ -126,6 +128,12 @@ export async function runOperator(env: OperatorEnv, extras: ExtraTool[], opts: {
   let holds = 0;
   let advised = false;
   let advisorCalls = 0;
+  const { data: swipes } = await supabaseAdmin
+    .from("swipe_files")
+    .select("notes")
+    .or(`agent_id.is.null,agent_id.eq.${agent.id}`)
+    .limit(200);
+  const swipeTexts = (swipes ?? []).map((s) => s.notes ?? "").filter(Boolean);
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
     const res = await callModel({
@@ -218,6 +226,12 @@ export async function runOperator(env: OperatorEnv, extras: ExtraTool[], opts: {
         continue;
       }
       if (COPY_TOOLS.has(evaluated.payload.tool)) {
+        const lifted = checkNotCopied(copyOf(evaluated.payload), swipeTexts);
+        if (lifted) {
+          await emit({ agentId: agent.id, runId, step: "checking", tier: "code", summary: `Guardrail stopped ${use.name}: copy lifted from a market example` });
+          reply(use.id, { isError: true, content: lifted });
+          continue;
+        }
         const issue = await precheckCopy(copyOf(evaluated.payload), { agentId: agent.id, runId, budget: env.budget, createMessage: env.createMessage });
         if (issue) {
           await emit({ agentId: agent.id, runId, step: "checking", tier: "haiku", model: MODELS.haiku, summary: `Copy check sent back "${evaluated.title}"`, evidence: { issue } });

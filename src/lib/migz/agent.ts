@@ -9,7 +9,9 @@ import { begin, emit } from "@/lib/migz/events";
 import { gateState, materialChanges, type GateState } from "@/lib/migz/gate";
 import { MODELS } from "@/lib/migz/models";
 import { runOperator, type ExtraTool } from "@/lib/migz/operator";
-import { defaultCreateMessage, monthlyBudget, type CreateMessage } from "@/lib/migz/router";
+import { defaultCreateMessage, monthlyBudget, type Budget, type CreateMessage } from "@/lib/migz/router";
+import { EXPERIMENT_TOOLS, experimentContext } from "@/lib/migz/experiments";
+import { diagnoseCreativeTool, watchNewCreatives } from "@/lib/migz/vision";
 import { audit } from "@/lib/migz/team/auditor";
 import { writeFeed } from "@/lib/migz/team/clerk";
 import { runScout } from "@/lib/migz/team/scout";
@@ -24,16 +26,18 @@ export type { CreateMessage } from "@/lib/migz/router";
  */
 export const isTestMode = () => process.env.MIGZ_TEST_MODE === "1";
 
-/** Extra operator tools and team context added by later phases (experiments, creative vision, routines). */
-export type Extension = {
+/** Operator tools and team context beyond the core: experiments, creative vision, pro routines. */
+type Extension = {
   tools?: ExtraTool[];
   /** Adds to the team context the operator reads, and can report reasons to run (e.g. experiments ready). */
   context?: (agent: Agent, snapshot: Snapshot) => Promise<{ context: Record<string, unknown>; reasons: string[] }>;
+  /** Runs once the gate decides a full review is due, before the operator starts. */
+  beforeReview?: (agent: Agent, team: { runId: string; budget: Budget; createMessage: CreateMessage }) => Promise<unknown>;
 };
-const extensions: Extension[] = [];
-export function registerExtension(e: Extension) {
-  extensions.push(e);
-}
+const extensions: Extension[] = [
+  { tools: EXPERIMENT_TOOLS, context: experimentContext },
+  { tools: [diagnoseCreativeTool], beforeReview: watchNewCreatives },
+];
 
 async function logAction(agentId: string, row: Record<string, unknown>) {
   const { data } = await supabaseAdmin
@@ -47,12 +51,16 @@ async function logAction(agentId: string, row: Record<string, unknown>) {
 export async function buildEvalContext(agent: Agent, snapshot: Snapshot): Promise<EvalContext> {
   const { data: scripted } = await supabaseAdmin
     .from("ads")
-    .select("meta_ad_id, creative_id, ad_sets(meta_adset_id), creatives(script)")
+    .select("meta_ad_id, creative_id, status, ad_sets(meta_adset_id), creatives(script, meta_video_id, meta_image_hash)")
     .eq("agent_id", agent.id)
     .not("creative_id", "is", null);
 
   const scriptedAds = new Map<string, { creative_id: string; script: CreativeBrief; meta_adset_id: string }>();
+  const reusableAds = new Map<string, string>();
   for (const row of scripted ?? []) {
+    const media = row.creatives as { meta_video_id?: string | null; meta_image_hash?: string | null } | null;
+    const set = (row.ad_sets as { meta_adset_id?: string } | null)?.meta_adset_id;
+    if (set && row.status === "ACTIVE" && (media?.meta_video_id || media?.meta_image_hash)) reusableAds.set(row.meta_ad_id, set);
     const script = (row.creatives as { script?: AnyBrief } | null)?.script;
     const adset = row.ad_sets as { meta_adset_id?: string } | null;
     // Only videos have a body to reuse with a new hook
@@ -69,6 +77,7 @@ export async function buildEvalContext(agent: Agent, snapshot: Snapshot): Promis
     generationsThisRun: 0,
     openGenerations: snapshot.openGenerations,
     scriptedAds,
+    reusableAds,
     libraryCreativeIds: new Set(snapshot.forModel.creatives_not_running.map((c) => c.creative_id)),
   };
 }
@@ -281,6 +290,7 @@ export async function runMigz(
       return { runId, status: "skipped" as const };
     }
     await emit({ agentId: agent.id, runId, step: "triaging", tier: "code", summary: `Full review: ${reasons.join("; ")}`, evidence: { reasons } });
+    for (const ext of extensions) if (ext.beforeReview) await ext.beforeReview(agent, team);
 
     const ctx = await buildEvalContext(agent, snapshot);
     const result = await runOperator({ agent, snapshot, runId, budget, createMessage, ctx }, extraTools, { teamContext, reasons });

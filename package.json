@@ -21,6 +21,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "d3": "^7.9.0",
+    "ffmpeg-static": "^5.2.0",
     "framer-motion": "^12.26.2",
     "heic2any": "^0.0.4",
     "lucide-react": "^0.562.0",
