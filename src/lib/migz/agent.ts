@@ -15,6 +15,7 @@ import { applyPayload } from "@/lib/migz/executor";
 import { MIGZ_SYSTEM_PROMPT, reviewMessage } from "@/lib/migz/prompt";
 import { buildSnapshot, type Snapshot } from "@/lib/migz/snapshot";
 import { syncAgent } from "@/lib/migz/sync";
+import { begin, emit } from "@/lib/migz/events";
 import { evaluate, MIGZ_TOOLS, type EvalContext } from "@/lib/migz/tools";
 
 export const MIGZ_MODEL = "claude-opus-5-5";
@@ -303,8 +304,11 @@ export async function runMigz(
   try {
     let snapshot = await buildSnapshot(agent);
     if (snapshot.hasCampaign) {
+      const done = await begin({ agentId: agent.id, runId, step: "syncing", tier: "code", summary: "Pulling results from Meta" });
       await syncAgent(agent);
       snapshot = await buildSnapshot(agent);
+      const t = snapshot.forModel.account_last_14_days;
+      await done({ summary: `Synced 14 days: ${t.spend} spent, ${t.impressions} impressions, ${t.booked_calls} booked calls`, evidence: t });
     }
 
     await syncCampaignSwitch(agent, runId);
@@ -321,6 +325,7 @@ export async function runMigz(
 
     const { summary, usage } = await decide(agent, snapshot, runId, opts.createMessage ?? defaultCreateMessage);
     await finish(runId, agent.id, { summary, input_tokens: usage.input, output_tokens: usage.output });
+    await emit({ agentId: agent.id, runId, step: "finished", tier: "code", summary: summary || "Review finished" });
     return { runId, status: "succeeded" as const, summary };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);

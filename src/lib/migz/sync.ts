@@ -2,7 +2,7 @@ import "server-only";
 import { DateTime } from "luxon";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
-import { getAdInsights, getAdSet, scheduleConversions } from "@/lib/meta/ads";
+import { actionValue, getAdInsights, getAdSet, getPlacementInsights, scheduleConversions } from "@/lib/meta/ads";
 import { graphAll } from "@/lib/meta/graph";
 
 export const LOOKBACK_DAYS = 14;
@@ -29,10 +29,44 @@ export async function syncAgent(agent: Agent) {
         impressions: Number(r.impressions ?? 0),
         clicks: Number(r.clicks ?? 0),
         meta_conversions: scheduleConversions(r),
+        reach: Number(r.reach ?? 0),
+        frequency: Number(r.frequency ?? 0),
+        link_clicks: Number(r.inline_link_clicks ?? 0),
+        video_plays: actionValue(r.video_play_actions),
+        video_3s_views: actionValue(r.actions, "video_view"),
+        thruplays: actionValue(r.video_thruplay_watched_actions),
+        video_p25: actionValue(r.video_p25_watched_actions),
+        video_p50: actionValue(r.video_p50_watched_actions),
+        video_p75: actionValue(r.video_p75_watched_actions),
+        video_p100: actionValue(r.video_p100_watched_actions),
+        // Meta reports average watch time in seconds
+        avg_watch_ms: Math.round(actionValue(r.video_avg_time_watched_actions) * 1000),
+        landing_page_views: actionValue(r.actions, "landing_page_view"),
       })),
       { onConflict: "meta_ad_id,date" },
     );
     if (error) throw new Error(`Couldn't save insights: ${error.message}`);
+  }
+
+  // 1b. The same, split by placement, so placement decisions aren't blind
+  const placements = await getPlacementInsights(account, since, until);
+  if (placements.length) {
+    const { error } = await supabaseAdmin.from("ad_placement_daily").upsert(
+      placements.map((r) => ({
+        agent_id: agent.id,
+        meta_ad_id: r.ad_id,
+        date: r.date_start,
+        publisher_platform: r.publisher_platform,
+        platform_position: r.platform_position,
+        spend_cents: Math.round(Number(r.spend ?? 0) * 100),
+        impressions: Number(r.impressions ?? 0),
+        link_clicks: Number(r.inline_link_clicks ?? 0),
+        video_3s_views: actionValue(r.actions, "video_view"),
+        thruplays: actionValue(r.video_thruplay_watched_actions),
+      })),
+      { onConflict: "meta_ad_id,date,publisher_platform,platform_position" },
+    );
+    if (error) throw new Error(`Couldn't save placement insights: ${error.message}`);
   }
 
   // 2. Ad sets: budget, status, learning phase

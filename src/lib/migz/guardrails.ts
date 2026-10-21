@@ -16,6 +16,7 @@ export type AdState = {
   status: string;
   impressions: number; // last 14 days
   spend_cents: number; // last 14 days
+  thruplays?: number; // last 14 days
 };
 
 export type AdSetState = {
