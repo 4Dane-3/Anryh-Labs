@@ -40,7 +40,14 @@ export function LoginForm({ linkError, noAccount = false }: { linkError: boolean
     });
     setBusy(false);
     if (error) {
-      setError("We couldn't send a link to that email. Check it's the one your account uses.");
+      console.error("sign-in link failed:", error.status, error.code, error.message);
+      // Rate limits are about volume, not the email, so say so instead of blaming the address
+      const limited = error.status === 429 || /rate limit|too many|security purposes/i.test(error.message);
+      setError(
+        limited
+          ? "Too many sign-in emails were sent recently. Wait a few minutes and try again."
+          : "We couldn't send a link to that email. Check it's the one your account uses.",
+      );
       return;
     }
     setSent(true);
