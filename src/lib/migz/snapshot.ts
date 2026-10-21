@@ -173,6 +173,23 @@ export async function buildSnapshot(agent: Agent) {
     .ilike("error", "%out of credits%")
     .gte("created_at", new Date(Date.now() - 12 * 3_600_000).toISOString());
 
+  // What's live and in the works, by format, so the model fills gaps instead of repeating one format
+  const formatOf = (kind?: string, script?: AnyBrief | null) =>
+    kind === "video" ? "reel_video_9x16" : script && isImageBrief(script) ? (script.aspect_ratio === "9:16" ? "story_image_9x16" : "feed_image_4x5") : kind === "image" ? "image_upload" : "unknown";
+  const liveByFormat: Record<string, number> = {};
+  for (const a of ads.data ?? []) {
+    if (a.status !== "ACTIVE") continue;
+    const c = a.creatives as { kind?: string; script?: AnyBrief | null } | null;
+    const f = formatOf(c?.kind, c?.script);
+    liveByFormat[f] = (liveByFormat[f] ?? 0) + 1;
+  }
+  const beingMadeByFormat: Record<string, number> = {};
+  for (const j of jobs.data ?? []) {
+    const b = j.brief as AnyBrief;
+    const f = isImageBrief(b) ? (b.aspect_ratio === "9:16" ? "story_image_9x16" : "feed_image_4x5") : "reel_video_9x16";
+    beingMadeByFormat[f] = (beingMadeByFormat[f] ?? 0) + 1;
+  }
+
   const forModel = {
     agent: {
       name: agent.full_name,
@@ -201,6 +218,11 @@ export async function buildSnapshot(agent: Agent) {
         }))
       : "not set: choose from the proven angles",
     live_ads_by_topic: Object.fromEntries(liveByTopic),
+    creative_mix: {
+      live_ads_by_format: liveByFormat,
+      being_made_by_format: beingMadeByFormat,
+      target: "each ad set runs 4:5 feed images, 9:16 Stories/Reels images and 9:16 reel videos; images are cheap, videos are limited to 1 new one per review",
+    },
     account_last_14_days: present(derive(totals)),
     campaigns: (campaigns.data ?? []).map((c) => ({
       campaign_id: c.meta_campaign_id,

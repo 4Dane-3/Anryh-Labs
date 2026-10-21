@@ -244,6 +244,7 @@ export async function runOperator(env: OperatorEnv, extras: ExtraTool[], opts: {
       if (["generate_video", "generate_image", "new_hook_variant"].includes(evaluated.payload.tool)) {
         env.ctx.generationsThisRun++;
         env.ctx.openGenerations++;
+        if (evaluated.payload.tool !== "generate_image") env.ctx.videosThisRun = (env.ctx.videosThisRun ?? 0) + 1;
       }
       const base = { kind: evaluated.kind, title: evaluated.title, detail: evaluated.detail, tool: evaluated.payload.tool, payload: evaluated.payload, run_id: runId };
       const creative = ["generate_video", "generate_image", "new_hook_variant"].includes(evaluated.payload.tool);

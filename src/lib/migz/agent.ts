@@ -77,6 +77,7 @@ export async function buildEvalContext(agent: Agent, snapshot: Snapshot): Promis
     adsets: snapshot.guardAdsets,
     actionsThisRun: 0,
     generationsThisRun: 0,
+    videosThisRun: 0,
     openGenerations: snapshot.openGenerations,
     scriptedAds,
     reusableAds,
