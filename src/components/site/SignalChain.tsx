@@ -5,7 +5,7 @@ const STEPS = [
   { title: "meta learns", body: "migz tells meta who booked, so it shows the next ad to more people like them." },
 ];
 
-const ROW = 156; // px per step; the drawing and the text rows share it
+const ROW = 132; // px per step; the drawing and the text rows share it
 const X = 72;
 const R = 30;
 
