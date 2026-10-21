@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { CONTACT_EMAIL, SiteFooter, SiteHeader, SiteShell } from "@/components/site/SiteChrome";
 
 export const metadata: Metadata = {
@@ -191,6 +192,13 @@ export default function PrivacyPage() {
                 (settings &amp; privacy → business integrations). when access is removed, we delete the meta data we
                 received for that agent within 30 days. we may keep records we are legally required to retain, such as
                 billing records.
+              </p>
+              <p>
+                you can also use our{" "}
+                <Link href="/data-deletion" className="font-medium text-slate-900 underline">
+                  data deletion page
+                </Link>
+                , which has a ready-to-send request.
               </p>
             </section>
 
