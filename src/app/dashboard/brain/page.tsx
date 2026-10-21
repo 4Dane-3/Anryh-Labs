@@ -5,7 +5,8 @@ import { PageHeader } from "@/components/dashboard/ui";
 
 export const dynamic = "force-dynamic";
 
-export default async function BrainPage() {
+export default async function BrainPage({ searchParams }: { searchParams: Promise<{ started?: string }> }) {
+  const { started } = await searchParams;
   const agent = await requireAgent();
   const [live, board] = await Promise.all([getBrainLive(agent), getBrainBoard(agent)]);
   return (
@@ -14,7 +15,7 @@ export default async function BrainPage() {
         title="Migz brain"
         description="How Migz runs your ads: Sonnet leads each review, a Haiku crew audits and researches, and Opus advises before anything that touches your spend. Everything here comes from real activity."
       />
-      <BrainView initial={live} board={JSON.parse(JSON.stringify(board))} agentId={agent.id} />
+      <BrainView initial={live} board={JSON.parse(JSON.stringify(board))} agentId={agent.id} justStarted={started === "1"} />
     </>
   );
 }

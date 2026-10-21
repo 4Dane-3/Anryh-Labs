@@ -164,6 +164,15 @@ export async function buildSnapshot(agent: Agent) {
     liveByTopic.set(topic, (liveByTopic.get(topic) ?? 0) + 1);
   }
 
+  // If Higgsfield recently refused for lack of credits, tell the model so it doesn't burn actions retrying
+  const { count: outOfCredits } = await supabaseAdmin
+    .from("creative_jobs")
+    .select("id", { count: "exact", head: true })
+    .eq("agent_id", agent.id)
+    .eq("stage", "failed")
+    .ilike("error", "%out of credits%")
+    .gte("created_at", new Date(Date.now() - 12 * 3_600_000).toISOString());
+
   const forModel = {
     agent: {
       name: agent.full_name,
@@ -177,6 +186,9 @@ export async function buildSnapshot(agent: Agent) {
         ? "on: campaigns stay paused so nothing delivers or spends; build and launch ads as normal, and don't ask the agent to turn the campaign on"
         : "off",
       today: today.toISODate(),
+      creative_generation: (outOfCredits ?? 0) > 0
+        ? "unavailable: the video and image generator is out of credits. Don't start new creatives; launch existing library creatives or adjust what's running, and say in your summary that new creatives are waiting on credits."
+        : "available",
     },
     ad_focus: focus.length
       ? focus.map((key, i) => ({

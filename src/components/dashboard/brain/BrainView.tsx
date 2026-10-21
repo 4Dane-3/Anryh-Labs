@@ -39,9 +39,9 @@ function useNow() {
   return now;
 }
 
-export function BrainView({ initial, board, agentId }: { initial: BrainLive; board: Board; agentId: string }) {
+export function BrainView({ initial, board, agentId, justStarted = false }: { initial: BrainLive; board: Board; agentId: string; justStarted?: boolean }) {
   const [demo, setDemo] = useState(false);
-  const live = useBrainLive(initial, demo);
+  const live = useBrainLive(initial, demo, justStarted);
   const now = useNow();
   const graph = useMemo(() => deriveGraph(live, now), [live, now]);
   void agentId;
