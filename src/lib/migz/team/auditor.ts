@@ -49,7 +49,7 @@ export async function runChecks(agent: Agent, snapshot: Snapshot): Promise<RawFi
   const monthStart = DateTime.now().setZone(agent.timezone).startOf("month");
 
   const [{ data: ads }, { data: insights7 }, { data: bookings7 }, { data: monthSpend }, { data: visits }] = await Promise.all([
-    supabaseAdmin.from("ads").select("meta_ad_id, name, status, adset_id, creatives(hook, source)").eq("agent_id", agent.id),
+    supabaseAdmin.from("ads").select("meta_ad_id, name, status, adset_id, creative_id, creatives(hook, source)").eq("agent_id", agent.id),
     supabaseAdmin.from("ad_insights_daily").select("meta_conversions").eq("agent_id", agent.id).gte("date", since7.toISODate()!),
     supabaseAdmin.from("bookings").select("attribution").eq("agent_id", agent.id).gte("created_at", since7.toUTC().toISO()!),
     supabaseAdmin.from("ad_insights_daily").select("spend_cents").eq("agent_id", agent.id).gte("date", monthStart.toISODate()!),
@@ -116,14 +116,18 @@ export async function runChecks(agent: Agent, snapshot: Snapshot): Promise<RawFi
     if (live.length > 6)
       out.push({ check: "competing_ads", subject: s.meta_adset_id, severity: "warn", facts: `${live.length} live ads share ad set ${s.meta_adset_id}; budget is spread too thin for any to get a fair read.`, evidence: { adset_id: s.meta_adset_id, live: live.length } });
   }
-  const hooks = new Map<string, string[]>();
+  // Different creatives with the same hook compete; copy variants of one creative are deliberate tests
+  const hooks = new Map<string, { ids: string[]; creatives: Set<string> }>();
   for (const ad of (ads ?? []).filter((a) => a.status === "ACTIVE")) {
     const hook = ((ad.creatives as { hook?: string } | null)?.hook ?? "").trim().toLowerCase();
     if (!hook) continue;
-    hooks.set(`${ad.adset_id}|${hook}`, [...(hooks.get(`${ad.adset_id}|${hook}`) ?? []), ad.meta_ad_id]);
+    const entry = hooks.get(`${ad.adset_id}|${hook}`) ?? { ids: [], creatives: new Set<string>() };
+    entry.ids.push(ad.meta_ad_id);
+    entry.creatives.add(ad.creative_id ?? ad.meta_ad_id);
+    hooks.set(`${ad.adset_id}|${hook}`, entry);
   }
-  for (const [key, ids] of hooks)
-    if (ids.length > 1)
+  for (const [key, { ids, creatives }] of hooks)
+    if (creatives.size > 1)
       out.push({ check: "competing_ads", subject: `hook:${key}`, severity: "info", facts: `${ids.length} live ads in one ad set use the same hook "${key.split("|")[1]}"; they compete for the same people.`, evidence: { ad_ids: ids } });
 
   // 8. Naming convention: "Migz · <concept>" for our ads, "Upload · ..." or "Migz · Agent upload" for uploads
@@ -179,7 +183,9 @@ export async function audit(agent: Agent, snapshot: Snapshot, ctx: { runId: stri
     .from("audit_findings")
     .select("check_name, subject, severity, summary")
     .eq("agent_id", agent.id)
-    .eq("status", "open");
+    .eq("status", "open")
+    // Only the auditor's own checks: routines file and resolve theirs (fatigue, spend anomalies)
+    .in("check_name", [...AUDIT_CHECKS]);
   const key = (f: { check_name?: string; check?: string; subject: string }) => `${f.check_name ?? f.check}|${f.subject}`;
   const prev = new Map((existing ?? []).map((f) => [key(f), f]));
   const changed = raw.some((f) => prev.get(key(f))?.severity !== f.severity) || prev.size !== raw.length;

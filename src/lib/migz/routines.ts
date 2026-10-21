@@ -31,6 +31,14 @@ export function routinesDue(agent: Pick<Agent, "migz_last_daily_at" | "migz_last
   };
 }
 
+/** Closes this routine's open findings whose subject isn't in `keep`. */
+async function resolveOthers(agentId: string, check: string, keep: string[]) {
+  const { data } = await supabaseAdmin.from("audit_findings").select("subject").eq("agent_id", agentId).eq("check_name", check).eq("status", "open");
+  const stale = (data ?? []).map((f) => f.subject).filter((s) => !keep.includes(s));
+  if (stale.length)
+    await supabaseAdmin.from("audit_findings").update({ status: "resolved", resolved_at: new Date().toISOString() }).eq("agent_id", agentId).eq("check_name", check).in("subject", stale);
+}
+
 async function upsertFinding(agentId: string, f: { check: string; subject: string; severity: "info" | "warn" | "critical"; summary: string; evidence: Record<string, unknown> }) {
   await supabaseAdmin.from("audit_findings").upsert(
     { agent_id: agentId, check_name: f.check, subject: f.subject, severity: f.severity, summary: f.summary, evidence: f.evidence, status: "open", last_seen: new Date().toISOString(), resolved_at: null },
@@ -128,7 +136,9 @@ export async function runRoutines(agent: Agent, snapshot: Snapshot, team: Team, 
     const prior = [...days].filter(([d]) => d < yesterday).map(([, v]) => v);
     const avg = prior.length ? prior.reduce((s, v) => s + v, 0) / prior.length : 0;
     const y = days.get(yesterday) ?? 0;
-    if (avg > 0 && (y > avg * 1.6 || y < avg * 0.4)) {
+    const anomaly = avg > 0 && (y > avg * 1.6 || y < avg * 0.4);
+    await resolveOthers(agent.id, "spend_anomaly", anomaly ? [yesterday] : []);
+    if (anomaly) {
       await upsertFinding(agent.id, {
         check: "spend_anomaly",
         subject: yesterday,
@@ -143,6 +153,7 @@ export async function runRoutines(agent: Agent, snapshot: Snapshot, team: Team, 
 
   if (due.fatigue) {
     const queue = scoreboard(snapshot).filter((r) => r.fatigue.score >= FATIGUE_THRESHOLD);
+    await resolveOthers(agent.id, "fatigue", queue.map((r) => r.ad));
     for (const r of queue)
       await upsertFinding(agent.id, { check: "fatigue", subject: r.ad, severity: "warn", summary: `Ad ${r.ad} is fatiguing: ${r.fatigue.signals.join("; ")}.`, evidence: { score: r.fatigue.score, signals: r.fatigue.signals } });
     context.creative_refresh_queue = queue.map((r) => ({ ad_id: r.ad, fatigue_score: r.fatigue.score, signals: r.fatigue.signals }));
