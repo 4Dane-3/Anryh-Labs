@@ -4,6 +4,7 @@ import { requireAgent } from "@/lib/auth";
 import { integrations } from "@/lib/integrations";
 import { getBalanceCents, getTransactions } from "@/lib/dashboard/queries";
 import { getActiveBatch } from "@/lib/dashboard/batches";
+import { stripeTestMode } from "@/lib/stripe";
 import { usd } from "@/lib/dashboard/format";
 import { AddFunds, BudgetControls } from "@/components/dashboard/FundsControls";
 import { Badge, EmptyState, NotConnected, PageHeader, Panel, PanelHeader } from "@/components/dashboard/ui";
@@ -17,8 +18,8 @@ const KIND_LABEL: Record<string, string> = {
   adjustment: "Adjustment",
 };
 
-export default async function FundsPage() {
-  const agent = await requireAgent();
+export default async function FundsPage({ searchParams }: { searchParams: Promise<{ deposit?: string }> }) {
+  const [agent, { deposit }] = await Promise.all([requireAgent(), searchParams]);
   const [balance, transactions, batch] = await Promise.all([
     getBalanceCents(agent.id),
     getTransactions(agent.id),
@@ -36,6 +37,20 @@ export default async function FundsPage() {
       {!agent.onboarding_completed_at && (
         <p className="mb-6 rounded-lg border border-line bg-ink-raised px-4 py-3 text-[13px] text-fg-muted">
           New here? <Link href="/dashboard/start" className="font-medium text-brand hover:underline">Start here</Link> walks you through funds and your first campaign batch, step by step.
+        </p>
+      )}
+
+      {deposit === "success" && (
+        <p className="mb-6 rounded-lg border border-good/30 bg-good/10 px-4 py-3 text-[13px] text-fg">
+          Payment received. Your balance updates as soon as Stripe confirms it, usually within a few seconds; refresh if it hasn&apos;t yet.
+        </p>
+      )}
+      {deposit === "canceled" && (
+        <p className="mb-6 rounded-lg border border-line bg-ink-raised px-4 py-3 text-[13px] text-fg-muted">No payment was made. You can add funds whenever you&apos;re ready.</p>
+      )}
+      {integrations.stripe && stripeTestMode() && (
+        <p className="mb-6 rounded-lg border border-brand/30 bg-brand/[0.06] px-4 py-3 text-[13px] text-fg-muted">
+          Payments are in Stripe test mode: no real money moves. Pay with card 4242 4242 4242 4242, any future date and any CVC.
         </p>
       )}
 

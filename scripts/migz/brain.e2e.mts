@@ -709,6 +709,29 @@ try {
   await db.from("agents").update({ campaign_ends_on: null, campaign_started_on: null, migz_last_run_at: null }).eq("id", AGENT_ID);
   ok("batch applied (1 campaign kept at $20/day, 3 retired), 2-card carousel built through Higgsfield and Meta with live Brain steps, batch closed with results");
 
+  // ===== 8h =====
+  step("8h. The agent changes their licensed states: ads re-target in Meta right away; with no states left, ads pause");
+  const { retargetNow } = await import("@/lib/migz/agent");
+  const { data: setsInPlay } = await db.from("ad_sets").select("meta_adset_id, ad_campaigns!inner(retired_at)").eq("agent_id", AGENT_ID).is("ad_campaigns.retired_at", null);
+  const callsBefore = meta.calls.length;
+  await db.from("agents").update({ licensed_states: ["FL", "TX"] }).eq("id", AGENT_ID);
+  const retargeted = await retargetNow((await getAgent()) as never);
+  assert.equal(retargeted, setsInPlay!.length, "every ad set in play was re-targeted");
+  const targetingPosts = meta.calls.slice(callsBefore).filter((c) => c.method === "POST" && /^adset_\d+$/.test(c.path) && c.body.targeting);
+  assert.ok(targetingPosts.length >= 1);
+  const regions = (JSON.parse(String(targetingPosts.at(-1)!.body.targeting)) as { geo_locations: { regions: { key: string }[] } }).geo_locations.regions.map((r) => r.key).sort();
+  assert.deepEqual(regions, ["region_Florida", "region_Texas"]);
+  const { data: logged } = await db.from("ad_actions").select("title").eq("agent_id", AGENT_ID).eq("tool", "system_targeting").order("created_at", { ascending: false }).limit(1).single();
+  assert.equal(logged!.title, "Updated your ads to your licensed states");
+  assert.equal(await retargetNow((await getAgent()) as never), 0, "already matching: nothing to do");
+  await db.from("ad_sets").update({ status: "ACTIVE" }).eq("agent_id", AGENT_ID);
+  await db.from("agents").update({ licensed_states: [] }).eq("id", AGENT_ID);
+  assert.ok(((await retargetNow((await getAgent()) as never)) ?? 0) > 0);
+  const { count: stillLive } = await db.from("ad_sets").select("id", { count: "exact", head: true }).eq("agent_id", AGENT_ID).eq("status", "ACTIVE");
+  assert.equal(stillLive, 0, "no licensed states = no ads running");
+  await db.from("agents").update({ licensed_states: ["FL", "GA", "TX"], migz_last_run_at: null }).eq("id", AGENT_ID);
+  ok("new states pushed to Meta immediately (FL, TX); removing every state paused all ads");
+
   // ===== 9 =====
   step("9. Slack: morning digest section, and failure alerts to staff (once per distinct error)");
   const { migzDigestSection } = await import("@/lib/migz/slack");

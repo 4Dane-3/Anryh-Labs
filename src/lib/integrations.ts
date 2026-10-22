@@ -1,5 +1,6 @@
 import "server-only";
 import type { Agent } from "@/lib/booking/data";
+import { stripeReady } from "@/lib/stripe";
 
 // Integration switches. Each turns on when its keys are present; the dashboard shows a
 // "not connected" state until then.
@@ -12,8 +13,8 @@ export const integrations = {
   higgsfield: Boolean(process.env.HF_API_KEY_ID && process.env.HF_API_KEY_SECRET),
   /** Claude, the model behind Migz's decisions. */
   claude: Boolean(process.env.ANTHROPIC_API_KEY),
-  /** Stripe: Checkout for "Add funds", webhook writes deposits to wallet_transactions. */
-  stripe: Boolean(process.env.STRIPE_SECRET_KEY),
+  /** Stripe: Checkout for "Add funds", webhook writes deposits to wallet_transactions (live keys only on Production). */
+  stripe: stripeReady(),
   /** Slack bot for booking alerts and the morning digest. */
   slack: Boolean(process.env.SLACK_BOT_TOKEN),
 };
