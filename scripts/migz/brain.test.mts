@@ -411,6 +411,26 @@ assert.match((evalTool("generate_video", { ...goodVideo, voiceover: null }, gctx
 assert.match((evalTool("generate_video", { ...goodVideo, voiceover: "   " }, gctx) as { error: string }).error, /Every video needs a voiceover/, "blank narration doesn't count");
 ok("videos: continuity rules on every video and shot, time jumps must say how people aged (planted tree refused); a required off-screen voiceover, 40 words max, same copy rules");
 
+// Narration: the voice is laid over the video with the bundled ffmpeg
+const { mixNarration } = await import("@/lib/migz/narration");
+const fsx = await import("node:fs");
+const mixDir = fsx.mkdtempSync(`${process.env.TMPDIR ?? "/tmp/"}migz-mix-`);
+execFileSync(ff, ["-loglevel", "error", "-f", "lavfi", "-i", "testsrc=duration=4:size=320x568:rate=24", "-f", "lavfi", "-i", "anoisesrc=d=4:a=0.002", "-shortest", "-pix_fmt", "yuv420p", "-c:a", "aac", "-y", `${mixDir}/v.mp4`]);
+execFileSync(ff, ["-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=700:duration=2", "-y", `${mixDir}/short.mp3`]);
+execFileSync(ff, ["-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=700:duration=10", "-y", `${mixDir}/long.mp3`]);
+const { spawnSync } = await import("node:child_process");
+const report = (file: string) => spawnSync(ff, ["-hide_banner", "-i", file, "-af", "highpass=f=300,lowpass=f=3400,volumedetect", "-f", "null", "-"], { encoding: "utf8" }).stderr;
+for (const voice of ["short", "long"]) {
+  const out = await mixNarration(fsx.readFileSync(`${mixDir}/v.mp4`), fsx.readFileSync(`${mixDir}/${voice}.mp3`));
+  fsx.writeFileSync(`${mixDir}/${voice}-out.mp4`, out!);
+  const r = report(`${mixDir}/${voice}-out.mp4`);
+  const secs = Number((r.match(/Duration: 00:00:([\d.]+)/) ?? [])[1]);
+  assert.ok(Math.abs(secs - 4) < 0.15, `${voice} voice: output keeps the video's length (${secs}s)`);
+  assert.match(r, /Video: h264/); assert.match(r, /Audio: aac/);
+  assert.ok(Number((r.match(/max_volume: (-?[\d.]+) dB/) ?? [])[1]) > -20, `${voice} voice is audible over the scene`);
+}
+ok("narration: the voice is mixed over the video with the picture untouched; a voice longer than the video is sped up and cut to fit");
+
 // Stripe keys: live keys only ever on Vercel Production
 const { stripeKey } = await import("@/lib/stripe");
 const keyEnv = { main: process.env.STRIPE_SECRET_KEY, test: process.env.STRIPE_TEST_SECRET_KEY, vercel: process.env.VERCEL_ENV };
