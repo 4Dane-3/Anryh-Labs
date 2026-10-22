@@ -11,8 +11,11 @@ import { buildSnapshot } from "@/lib/migz/snapshot";
 import { syncAgent } from "@/lib/migz/sync";
 import { defaultCreateMessage, monthlyBudget } from "@/lib/migz/router";
 import { traitSwipe } from "@/lib/migz/team/scout";
-import { cleanFocus } from "@/lib/migz/topics";
-import { DURATIONS, endDate, MAX_DAILY_CENTS, MAX_DEPOSIT_CENTS, MIN_DAILY_CENTS, MIN_DEPOSIT_CENTS } from "@/lib/campaign";
+import { cleanFocus, type TopicKey } from "@/lib/migz/topics";
+import { endDate, MAX_DEPOSIT_CENTS, MIN_DEPOSIT_CENTS } from "@/lib/campaign";
+import { batchOptions, bestTopic, findOption, MIN_BATCH_CENTS, outcomeEstimate, type BatchOption, type BatchOptionKey } from "@/lib/batch";
+import { closeEndedBatch, getBatchHistory, getOpenBatch, recommendWithMigz } from "@/lib/dashboard/batches";
+import { getBalanceCents } from "@/lib/dashboard/queries";
 import { setupBlockers } from "@/lib/dashboard/setup";
 import type { Agent } from "@/lib/booking/data";
 import { DateTime } from "luxon";
@@ -108,19 +111,6 @@ export async function saveWorkingHours(input: HoursInput): Promise<Result> {
 }
 
 // ---------- Ad funds ----------
-
-export async function updateDailyBudget(cents: number): Promise<Result> {
-  const agent = await requireAgent();
-  if (!Number.isInteger(cents) || cents < 500 || cents > 100_000)
-    return fail("Daily budget must be between $5 and $1,000.");
-  const { error } = await supabaseAdmin
-    .from("agents")
-    .update({ daily_budget_cents: cents })
-    .eq("id", agent.id);
-  if (error) return fail("Couldn't update your budget.");
-  revalidatePath("/dashboard", "layout");
-  return { ok: true };
-}
 
 export async function setAdsPaused(paused: boolean): Promise<Result> {
   const agent = await requireAgent();
@@ -427,7 +417,7 @@ export async function decideMigzAction(actionId: string, decision: "approve" | "
   const agent = await requireAgent();
   const { data: action } = await supabaseAdmin
     .from("ad_actions")
-    .select("id, status, payload, created_at")
+    .select("id, status, payload, created_at, title")
     .eq("id", actionId)
     .eq("agent_id", agent.id)
     .maybeSingle();
@@ -462,7 +452,7 @@ export async function decideMigzAction(actionId: string, decision: "approve" | "
     return fail(`This can't go ahead anymore: ${blocked}`);
   }
 
-  const applied = await applyPayload(agent, payload, actionId);
+  const applied = await applyPayload(agent, payload, actionId, { title: action.title ?? undefined });
   await supabaseAdmin
     .from("ad_actions")
     .update(
@@ -551,27 +541,130 @@ export async function setAdFocus(topics: string[]): Promise<Result> {
   return { ok: true };
 }
 
-// ---------- Start here ----------
+// ---------- Campaign batches ----------
 
-const PLAN_DAYS: number[] = DURATIONS.map((d) => d.days);
+export type BatchPlanResult =
+  | {
+      ok: true;
+      options: BatchOption[];
+      recommended: { key: BatchOptionKey; reason: string; by: "migz" | "rules" };
+      estimate: ReturnType<typeof outcomeEstimate>;
+      balanceCents: number;
+    }
+  | { ok: false; error: string };
 
-/** The campaign plan: what to promote, how long it runs, and the daily budget. */
-export async function savePlan(input: { topics: string[]; days: number; dailyCents: number }): Promise<Result> {
+/** The ways Migz could spend a batch, and which one it recommends for this agent (from their own history). */
+export async function planBatch(budgetCents: number, topics?: string[]): Promise<BatchPlanResult> {
   const agent = await requireAgent();
-  if (!PLAN_DAYS.includes(input.days)) return fail("Pick how long the campaign should run.");
-  if (!Number.isInteger(input.dailyCents) || input.dailyCents < MIN_DAILY_CENTS || input.dailyCents > MAX_DAILY_CENTS)
-    return fail(`Daily budget must be between $${MIN_DAILY_CENTS / 100} and $${MAX_DAILY_CENTS / 100}.`);
-  const topics = cleanFocus(input.topics);
-  if (!topics.length) return fail("Choose at least one thing to promote.");
+  const focus = cleanFocus(topics ?? agent.ad_focus);
+  if (!focus.length) return { ok: false, error: "Choose what you want to promote first." };
+  if (!Number.isInteger(budgetCents) || budgetCents < MIN_BATCH_CENTS)
+    return { ok: false, error: `The smallest batch is $${MIN_BATCH_CENTS / 100} of ad spend (a $${MIN_DEPOSIT_CENTS / 100} deposit after the fee).` };
+  if (budgetCents > MAX_DEPOSIT_CENTS) return { ok: false, error: `The largest batch is $${(MAX_DEPOSIT_CENTS / 100).toLocaleString("en-US")}.` };
+  const history = await getBatchHistory(agent);
+  const options = batchOptions(budgetCents, focus, bestTopic(history));
+  const [recommended, balanceCents] = await Promise.all([
+    recommendWithMigz(agent, { budgetCents, focus, options, history }),
+    getBalanceCents(agent.id),
+  ]);
+  return { ok: true, options, recommended, estimate: outcomeEstimate(budgetCents, history), balanceCents };
+}
 
-  const update: Record<string, unknown> = { ad_focus: topics, campaign_days: input.days, daily_budget_cents: input.dailyCents };
-  // A campaign already running keeps its start day; the new length moves its end day
-  if (agent.campaign_started_on) update.campaign_ends_on = endDate(agent.campaign_started_on, input.days);
-  const { error } = await supabaseAdmin.from("agents").update(update).eq("id", agent.id);
-  if (error) return fail("Couldn't save your plan. If this keeps happening, the setup migration may not have run yet.");
+type BatchChoice = { budgetCents: number; option: string; recommended?: string | null; reason?: string | null };
+
+/** Re-derives the chosen option on the server (never trusting the client's numbers). */
+async function resolveChoice(agent: Agent, input: BatchChoice, focus: TopicKey[]) {
+  if (!Number.isInteger(input.budgetCents) || input.budgetCents < MIN_BATCH_CENTS || input.budgetCents > MAX_DEPOSIT_CENTS) return null;
+  const history = await getBatchHistory(agent);
+  const chosen = findOption(input.budgetCents, focus, input.option, bestTopic(history));
+  if (!chosen) return null;
+  return {
+    agent_id: agent.id,
+    budget_cents: input.budgetCents,
+    option: chosen.key,
+    campaigns: chosen.campaigns.map((t) => t ?? ""),
+    days: chosen.days,
+    daily_cents: chosen.dailyCents,
+    recommended_option: ["focused", "balanced", "spread"].includes(input.recommended ?? "") ? input.recommended : null,
+    reason: clean(input.reason, 400) || null,
+  };
+}
+
+/** Starts a batch: sets the daily spend and dates it implies, then Migz reviews in the background. */
+async function activateBatch(agent: Agent, batchId: string, row: { days: number; daily_cents: number }) {
+  const today = DateTime.now().setZone(agent.timezone).toISODate()!;
+  const ends = endDate(today, row.days);
+  await supabaseAdmin
+    .from("campaign_batches")
+    .update({ status: "active", starts_on: today, ends_on: ends, started_at: new Date().toISOString(), applied_at: null })
+    .eq("id", batchId);
+  const { error } = await supabaseAdmin
+    .from("agents")
+    .update({
+      daily_budget_cents: row.daily_cents,
+      campaign_days: row.days,
+      campaign_started_on: today,
+      campaign_ends_on: ends,
+      ads_paused: false,
+      migz_mode: agent.migz_mode === "off" ? "approve" : agent.migz_mode,
+      migz_last_run_at: null,
+      migz_last_operator_at: null,
+    })
+    .eq("id", agent.id);
+  if (error) throw new Error("Couldn't start the batch.");
+  const fresh = (await supabaseAdmin.from("agents").select("*").eq("id", agent.id).single()).data as Agent;
+  after(async () => {
+    await runMigz(fresh, { trigger: "manual" }).catch((e) => console.error("batch review crashed", e));
+  });
+}
+
+/** "Start campaign batch" on the overview: the agent's money, Migz's plan, live right away. */
+export async function startBatch(input: BatchChoice): Promise<Result> {
+  const agent = await requireAgent();
+  if (!agent.onboarding_completed_at) return fail("Finish setting up first: Start here walks you through it.");
+  if (!migzReadyFor(agent)) return fail("Your ad account isn't linked yet. Anryh Labs links it for you.");
+  await closeEndedBatch(agent);
+  const open = await getOpenBatch(agent.id);
+  if (open?.status === "active") return fail(`Your current batch runs until ${open.ends_on}. You can start the next one when it ends.`);
+  const focus = cleanFocus(agent.ad_focus);
+  if (!focus.length) return fail("Choose what you want to promote on the Setup page first.");
+  const balance = await getBalanceCents(agent.id);
+  if (input.budgetCents > balance)
+    return fail(`Your ad balance is $${(balance / 100).toFixed(2)}. Add funds, or choose a batch of $${(balance / 100).toFixed(0)} or less.`);
+  const row = await resolveChoice(agent, input, focus);
+  if (!row) return fail("That plan doesn't fit this budget. Pick one of the options shown.");
+
+  if (open) await supabaseAdmin.from("campaign_batches").update({ status: "canceled" }).eq("id", open.id);
+  const { data: batch, error } = await supabaseAdmin.from("campaign_batches").insert({ ...row, status: "planned" }).select("id").single();
+  if (error || !batch) return fail("Couldn't start the batch. If this keeps happening, the batches migration may not have run yet.");
+  try {
+    await activateBatch(agent, batch.id, row);
+  } catch (e) {
+    return fail(e instanceof Error ? e.message : "Couldn't start the batch.");
+  }
   revalidatePath("/dashboard", "layout");
   return { ok: true };
 }
+
+/** Setup: what to promote and the first batch. It starts with "Start my campaign". */
+export async function saveBatchPlan(input: BatchChoice & { topics: string[] }): Promise<Result> {
+  const agent = await requireAgent();
+  const focus = cleanFocus(input.topics);
+  if (!focus.length) return fail("Choose at least one thing to promote.");
+  const open = await getOpenBatch(agent.id);
+  if (open?.status === "active") return fail("A batch is already running. Start the next one from the Overview when it ends.");
+  const row = await resolveChoice(agent, input, focus);
+  if (!row) return fail("That plan doesn't fit this budget. Pick one of the options shown.");
+  const { error: focusError } = await supabaseAdmin.from("agents").update({ ad_focus: focus }).eq("id", agent.id);
+  if (focusError) return fail("Couldn't save what you want to promote.");
+  if (open) await supabaseAdmin.from("campaign_batches").delete().eq("id", open.id).eq("status", "planned");
+  const { error } = await supabaseAdmin.from("campaign_batches").insert({ ...row, status: "planned" });
+  if (error) return fail("Couldn't save your plan. If this keeps happening, the batches migration may not have run yet.");
+  revalidatePath("/dashboard", "layout");
+  return { ok: true };
+}
+
+// ---------- Start here ----------
 
 export async function setCreativeMode(mode: "upload" | "ai" | "both"): Promise<Result> {
   const agent = await requireAgent();
@@ -582,33 +675,25 @@ export async function setCreativeMode(mode: "upload" | "ai" | "both"): Promise<R
   return { ok: true };
 }
 
-/** Finishes setup: stamps the campaign's dates, and starts Migz's first review in the background. */
+/** Finishes setup: starts the planned batch, and Migz's first review runs in the background. */
 export async function launchCampaign(): Promise<Result> {
   const agent = await requireAgent();
   if (!migzReadyFor(agent)) return fail("Your ad account isn't linked yet. Anryh Labs links it for you; you'll be able to start as soon as it's done.");
   const blockers = await setupBlockers(agent);
   if (blockers.length) return fail(blockers[0]);
+  const planned = await getOpenBatch(agent.id);
+  if (!planned || planned.status !== "planned") return fail("Choose your first batch in step 4.");
+  const balance = await getBalanceCents(agent.id);
+  if (planned.budget_cents > balance)
+    return fail(`Your batch is $${(planned.budget_cents / 100).toFixed(2)} but your ad balance is $${(balance / 100).toFixed(2)}. Add funds or choose a smaller batch.`);
 
-  const today = DateTime.now().setZone(agent.timezone).toISODate()!;
-  const { error } = await supabaseAdmin
-    .from("agents")
-    .update({
-      campaign_started_on: today,
-      campaign_ends_on: endDate(today, agent.campaign_days),
-      onboarding_completed_at: new Date().toISOString(),
-      ads_paused: false,
-      migz_mode: agent.migz_mode === "off" ? "approve" : agent.migz_mode,
-      migz_last_run_at: null,
-      migz_last_operator_at: null,
-    })
-    .eq("id", agent.id);
+  const { error } = await supabaseAdmin.from("agents").update({ onboarding_completed_at: new Date().toISOString() }).eq("id", agent.id);
   if (error) return fail("Couldn't start your campaign. Please try again.");
+  try {
+    await activateBatch(agent, planned.id, planned);
+  } catch (e) {
+    return fail(e instanceof Error ? e.message : "Couldn't start your campaign. Please try again.");
+  }
   revalidatePath("/dashboard", "layout");
-
-  // The first review takes a minute or more: it runs after this response, and the page shows it live
-  const fresh = (await supabaseAdmin.from("agents").select("*").eq("id", agent.id).single()).data as Agent;
-  after(async () => {
-    await runMigz(fresh, { trigger: "manual" }).catch((e) => console.error("first review crashed", e));
-  });
   return { ok: true };
 }

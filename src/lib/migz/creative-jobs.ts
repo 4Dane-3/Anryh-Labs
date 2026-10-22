@@ -7,7 +7,8 @@ import { createAd, createAdCreative, uploadImage, uploadVideo, videoState } from
 import { MetaApiError } from "@/lib/meta/graph";
 import { isTestMode } from "@/lib/migz/test-mode";
 import { alertCreativeFailed } from "@/lib/migz/slack";
-import { briefLabel, isImageBrief, type AnyBrief, type CreativeBrief } from "@/lib/migz/brief";
+import { briefLabel, cardBrief, isCarouselBrief, isImageBrief, isVideoBrief, type AnyBrief, type CreativeBrief } from "@/lib/migz/brief";
+import { closeEvent, openEvent } from "@/lib/migz/events";
 
 // Creative jobs move through stages, advanced by the creatives cron (every 10 min) and the
 // Higgsfield webhook:  generating -> stored -> meta_processing -> launched   (or failed)
@@ -28,7 +29,29 @@ type Job = {
   creative_id: string | null;
   launch_adset_id: string | null;
   attempts: number;
+  event_id?: number | null; // the Brain step open while this job works (Higgsfield, then Meta)
+  parts?: CardPart[] | null; // carousels: one generation per card
 };
+
+type CardPart = { request_id: string; status_url: string; creative_id: string | null };
+
+const kindOf = (brief: AnyBrief) => (isCarouselBrief(brief) ? "carousel" : isImageBrief(brief) ? "image" : "video");
+
+/** Opens the job's live Brain step (closing any previous one) so the Brain shows who's working on it. */
+async function openJobEvent(job: Job, e: { step: "drafting" | "acting"; tier: "higgsfield" | "code"; summary: string }, runId: string | null = null) {
+  await closeEvent(job.event_id);
+  const id = await openEvent({ agentId: job.agent_id, runId, ...e });
+  job.event_id = id;
+  // Separate write: a missing column (before the migration) must never block the job's own progress
+  await supabaseAdmin.from("creative_jobs").update({ event_id: id }).eq("id", job.id);
+}
+
+async function closeJobEvent(job: Job, summary: string) {
+  if (!job.event_id) return;
+  await closeEvent(job.event_id, { summary });
+  job.event_id = null;
+  await supabaseAdmin.from("creative_jobs").update({ event_id: null }).eq("id", job.id);
+}
 
 export function webhookToken(jobId: string) {
   return createHmac("sha256", process.env.CRON_SECRET ?? "").update(`hf:${jobId}`).digest("hex");
@@ -60,6 +83,7 @@ export async function enqueueGeneration(input: {
   parentCreativeId?: string | null;
   launchAdsetId?: string | null;
   actionId?: string | null;
+  runId?: string | null;
 }) {
   const { data: job, error } = await supabaseAdmin
     .from("creative_jobs")
@@ -80,10 +104,25 @@ export async function enqueueGeneration(input: {
       ? `${base}/api/webhooks/higgsfield?job=${job.id}&token=${webhookToken(job.id)}`
       : null;
     const opts = { idempotencyKey: job.id, webhookUrl };
-    const { requestId, statusUrl } = isImageBrief(input.brief)
-      ? await submitImage(input.brief, opts)
-      : await submitVideo(input.brief, opts);
-    await update(job.id, { provider_request_id: requestId, status_url: statusUrl });
+    if (isCarouselBrief(input.brief)) {
+      // Each card is its own square still; the job is "generated" once every card is back
+      const parts: CardPart[] = [];
+      for (const i of input.brief.cards.keys()) {
+        const r = await submitImage(cardBrief(input.brief, i), { ...opts, idempotencyKey: `${job.id}-${i}` });
+        parts.push({ request_id: r.requestId, status_url: r.statusUrl, creative_id: null });
+      }
+      await update(job.id, { provider_request_id: parts[0].request_id, status_url: parts[0].status_url, parts });
+    } else {
+      const { requestId, statusUrl } = isImageBrief(input.brief)
+        ? await submitImage(input.brief, opts)
+        : await submitVideo(input.brief, opts);
+      await update(job.id, { provider_request_id: requestId, status_url: statusUrl });
+    }
+    await openJobEvent(
+      { id: job.id, agent_id: input.agentId, event_id: null } as Job,
+      { step: "drafting", tier: "higgsfield", summary: `Making a ${kindOf(input.brief)}: ${briefLabel(input.brief)}`.slice(0, 200) },
+      input.runId ?? null,
+    );
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     await update(job.id, { stage: "failed", error: message });
@@ -135,22 +174,25 @@ export async function enqueueLaunch(input: {
 const IMAGE_TYPES: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" };
 
 /** Copies a finished generation into our Storage (Higgsfield only keeps outputs ~7 days). */
-async function storeGenerated(job: Job, mediaUrl: string) {
-  const image = isImageBrief(job.brief);
+async function storeGenerated(job: Job, mediaUrl: string, card?: { index: number; parentId: string | null }) {
+  const image = !isVideoBrief(job.brief);
   const res = await fetch(mediaUrl);
   if (!res.ok) throw new Error(`Couldn't download the generated ${image ? "image" : "video"} (${res.status})`);
   const bytes = Buffer.from(await res.arrayBuffer());
 
   const headerType = res.headers.get("content-type")?.split(";")[0].trim() ?? "";
   const mime = image ? (IMAGE_TYPES[headerType] ? headerType : "image/png") : "video/mp4";
-  const path = `${job.agent_id}/migz/${job.id}.${image ? IMAGE_TYPES[mime] : "mp4"}`;
+  const path = `${job.agent_id}/migz/${job.id}${card ? `-${card.index}` : ""}.${image ? IMAGE_TYPES[mime] : "mp4"}`;
 
   const { error: uploadError } = await supabaseAdmin.storage
     .from("creatives")
     .upload(path, bytes, { contentType: mime, upsert: true });
   if (uploadError) throw new Error(`Couldn't store the ${image ? "image" : "video"}: ${uploadError.message}`);
 
-  const label = briefLabel(job.brief);
+  const brief = job.brief;
+  const label = card && isCarouselBrief(brief)
+    ? `${briefLabel(cardBrief(brief, card.index))} (card ${card.index + 1} of ${brief.cards.length})`
+    : briefLabel(brief);
   const { data: creative, error } = await supabaseAdmin
     .from("creatives")
     .insert({
@@ -162,7 +204,7 @@ async function storeGenerated(job: Job, mediaUrl: string) {
       size_bytes: bytes.length,
       status: job.launch_adset_id ? "in_review" : "submitted",
       source: "migz",
-      parent_creative_id: job.parent_creative_id,
+      parent_creative_id: card ? card.parentId : job.parent_creative_id, // a carousel's second card points at its first
       hook: label,
       script: job.brief,
     })
@@ -224,6 +266,32 @@ async function createLiveAd(job: Job, agent: Agent, media: Parameters<typeof cre
 /** Moves one job forward as far as it can go right now. Safe to call repeatedly. */
 export async function advanceJob(job: Job) {
   try {
+    if (job.stage === "generating" && isCarouselBrief(job.brief)) {
+      const parts = job.parts ?? [];
+      if (parts.length !== job.brief.cards.length) throw new Error("This carousel is missing its card generations");
+      let waiting = false;
+      for (const [i, part] of parts.entries()) {
+        if (part.creative_id) continue;
+        const status = await getRequestStatus(part.status_url);
+        if (status.status === "queued" || status.status === "in_progress") {
+          waiting = true;
+          continue;
+        }
+        if (status.status !== "completed" || !status.imageUrl)
+          throw new Error(status.status === "nsfw" ? "Higgsfield's moderation rejected a carousel card" : `Carousel card ${i + 1}: generation ${status.status}${status.error ? `: ${status.error}` : ""}`);
+        part.creative_id = await storeGenerated(job, status.imageUrl, { index: i, parentId: parts[0].creative_id });
+        await update(job.id, { parts });
+      }
+      if (waiting) {
+        if (job.attempts + 1 >= MAX_ATTEMPTS) throw new Error("Generation took too long");
+        await update(job.id, { attempts: job.attempts + 1 });
+        return "waiting";
+      }
+      job = { ...job, stage: "stored", creative_id: parts[0].creative_id, parts };
+      await update(job.id, { stage: "stored", creative_id: parts[0].creative_id, attempts: 0 });
+      await closeJobEvent(job, `Made a carousel: ${briefLabel(job.brief)}`.slice(0, 200));
+    }
+
     if (job.stage === "generating") {
       if (!job.status_url) throw new Error("Job has no Higgsfield status URL");
       const status = await getRequestStatus(job.status_url);
@@ -243,6 +311,7 @@ export async function advanceJob(job: Job) {
       const creativeId = await storeGenerated(job, mediaUrl);
       job = { ...job, stage: "stored", creative_id: creativeId };
       await update(job.id, { stage: "stored", creative_id: creativeId, attempts: 0 });
+      await closeJobEvent(job, `Made a ${kindOf(job.brief)}: ${briefLabel(job.brief)}`.slice(0, 200));
     }
 
     if (job.stage === "stored") {
@@ -254,6 +323,27 @@ export async function advanceJob(job: Job) {
         .eq("id", job.creative_id!)
         .single();
       if (!creative) throw new Error("Creative not found");
+      await openJobEvent(job, { step: "acting", tier: "code", summary: `${creative.kind === "image" ? "Building" : "Uploading the video for"} the ad in Meta: ${briefLabel(job.brief)}`.slice(0, 200) });
+
+      if (isCarouselBrief(job.brief)) {
+        const brief = job.brief;
+        const ids = (job.parts ?? []).map((p) => p.creative_id).filter((id): id is string => !!id);
+        if (ids.length !== brief.cards.length) throw new Error("This carousel is missing a card");
+        const cards: { imageHash: string; headline: string }[] = [];
+        for (const [i, id] of ids.entries()) {
+          const { data: row } = await supabaseAdmin.from("creatives").select("storage_path").eq("id", id).single();
+          if (!row) throw new Error(`Carousel card ${i + 1} is missing`);
+          const { data: file, error } = await supabaseAdmin.storage.from("creatives").download(row.storage_path);
+          if (error || !file) throw new Error(`Couldn't read carousel card ${i + 1} from storage`);
+          const hash = await uploadImage(agent.meta_ad_account_id!, Buffer.from(await file.arrayBuffer()), `${job.id}-${i}`);
+          await supabaseAdmin.from("creatives").update({ meta_image_hash: hash }).eq("id", id);
+          cards.push({ imageHash: hash, headline: brief.cards[i].headline });
+        }
+        await createLiveAd(job, agent, { kind: "carousel", cards });
+        await supabaseAdmin.from("creatives").update({ status: "live" }).in("id", ids);
+        await closeJobEvent(job, `Carousel built in Meta: ${briefLabel(job.brief)}`.slice(0, 200));
+        return "launched";
+      }
 
       if (creative.kind === "image") {
         const { data: file, error } = await supabaseAdmin.storage.from("creatives").download(creative.storage_path);
@@ -261,6 +351,7 @@ export async function advanceJob(job: Job) {
         const hash = await uploadImage(agent.meta_ad_account_id!, Buffer.from(await file.arrayBuffer()), job.id);
         await supabaseAdmin.from("creatives").update({ meta_image_hash: hash }).eq("id", job.creative_id!);
         await createLiveAd(job, agent, { kind: "image", imageHash: hash });
+        await closeJobEvent(job, `Ad built in Meta: ${briefLabel(job.brief)}`.slice(0, 200));
         return "launched";
       }
 
@@ -291,6 +382,7 @@ export async function advanceJob(job: Job) {
         return "waiting";
       }
       await createLiveAd(job, agent, { kind: "video", videoId: creative.meta_video_id, thumbnailUrl: state.thumbnail });
+      await closeJobEvent(job, `Ad built in Meta: ${briefLabel(job.brief)}`.slice(0, 200));
       return "launched";
     }
 
@@ -304,6 +396,7 @@ export async function advanceJob(job: Job) {
           ? e.message
           : String(e);
     await update(job.id, { stage: "failed", error: message.slice(0, 500) });
+    await closeJobEvent(job, `Failed: ${message}`.slice(0, 200)).catch(() => {});
     try {
       const { data: owner } = await supabaseAdmin.from("agents").select("slug").eq("id", job.agent_id).single();
       await alertCreativeFailed(job.agent_id, owner?.slug ?? "unknown", job.id, message);

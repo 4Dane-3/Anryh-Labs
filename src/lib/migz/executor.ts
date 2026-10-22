@@ -5,17 +5,29 @@ import { createAd, createAdCreative, setDailyBudget, setPlacements, setStatus, v
 import { MetaApiError } from "@/lib/meta/graph";
 import { isTestMode } from "@/lib/migz/test-mode";
 import { enqueueGeneration, enqueueLaunch } from "@/lib/migz/creative-jobs";
+import { metaStep } from "@/lib/migz/events";
 import type { ActionPayload } from "@/lib/migz/tools";
 
 export type ApplyResult = { ok: true; result: Record<string, unknown> } | { ok: false; error: string };
 
-/** Carries out one validated action on Meta (or queues it) and keeps our mirror in step. */
-export async function applyPayload(agent: Agent, payload: ActionPayload, actionId: string | null): Promise<ApplyResult> {
+/**
+ * Carries out one validated action on Meta (or queues it) and keeps our mirror in step. Meta work runs
+ * as an open Brain step (the Meta node is lit while it happens); generations open their own Higgsfield
+ * step that stays lit until the creative is made.
+ */
+export async function applyPayload(
+  agent: Agent,
+  payload: ActionPayload,
+  actionId: string | null,
+  opts: { runId?: string | null; title?: string } = {},
+): Promise<ApplyResult> {
   const now = new Date().toISOString();
+  const inMeta = <T,>(work: () => Promise<T>) =>
+    metaStep({ agentId: agent.id, runId: opts.runId ?? null, summary: opts.title ?? "Making a change in Meta" }, work);
   try {
     switch (payload.tool) {
       case "adjust_daily_budget": {
-        await setDailyBudget(payload.adset_id, payload.cents);
+        await inMeta(() => setDailyBudget(payload.adset_id, payload.cents));
         await supabaseAdmin
           .from("ad_sets")
           .update({ daily_budget_cents: payload.cents, last_edited_at: now, updated_at: now })
@@ -25,12 +37,12 @@ export async function applyPayload(agent: Agent, payload: ActionPayload, actionI
       case "pause_ad":
       case "resume_ad": {
         const status = payload.tool === "pause_ad" ? "PAUSED" : "ACTIVE";
-        await setStatus(payload.ad_id, status);
+        await inMeta(() => setStatus(payload.ad_id, status));
         await supabaseAdmin.from("ads").update({ status, updated_at: now }).eq("meta_ad_id", payload.ad_id);
         return { ok: true, result: { status } };
       }
       case "set_placements": {
-        await setPlacements(payload.adset_id, payload.placements);
+        await inMeta(() => setPlacements(payload.adset_id, payload.placements));
         await supabaseAdmin
           .from("ad_sets")
           .update({ placements: payload.placements, last_edited_at: now, updated_at: now })
@@ -39,6 +51,7 @@ export async function applyPayload(agent: Agent, payload: ActionPayload, actionI
       }
       case "generate_video":
       case "generate_image":
+      case "generate_carousel":
       case "new_hook_variant": {
         const jobId = await enqueueGeneration({
           agentId: agent.id,
@@ -46,6 +59,7 @@ export async function applyPayload(agent: Agent, payload: ActionPayload, actionI
           parentCreativeId: payload.parent_creative_id,
           launchAdsetId: payload.launch_adset_id,
           actionId,
+          runId: opts.runId ?? null,
         });
         return { ok: true, result: { creative_job_id: jobId } };
       }
@@ -62,7 +76,7 @@ export async function applyPayload(agent: Agent, payload: ActionPayload, actionI
         return { ok: true, result: { creative_job_id: jobId } };
       }
       case "write_copy_variants":
-        return { ok: true, result: { ad_ids: await launchCopyVariants(agent, payload) } };
+        return { ok: true, result: { ad_ids: await inMeta(() => launchCopyVariants(agent, payload)) } };
       case "hold":
         return { ok: true, result: {} };
     }

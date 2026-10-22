@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { setAdsPaused, startDeposit, updateDailyBudget } from "@/app/dashboard/actions";
+import { setAdsPaused, startDeposit } from "@/app/dashboard/actions";
 import { usd } from "@/lib/dashboard/format";
 import {
   adSpendCents,
@@ -13,7 +13,7 @@ import {
   MIN_DEPOSIT_CENTS,
   TEST_DAYS,
 } from "@/lib/campaign";
-import { Button, Label, Switch, inputClass } from "@/components/dashboard/ui";
+import { Button, Switch, inputClass } from "@/components/dashboard/ui";
 import { cn } from "@/lib/utils";
 
 // Deposits that fund 2, 3, 4 and 6 campaigns at $10/day for two weeks, after the fee
@@ -103,26 +103,12 @@ export function AddFunds() {
   );
 }
 
-export function BudgetControls({ dailyBudgetCents, paused }: { dailyBudgetCents: number; paused: boolean }) {
+/** Daily spend comes from the agent's campaign batch (Migz plans it); the agent can still pause everything. */
+export function BudgetControls({ dailyBudgetCents, paused, batchLabel }: { dailyBudgetCents: number; paused: boolean; batchLabel: string | null }) {
   const router = useRouter();
-  const [dollars, setDollars] = useState(String(dailyBudgetCents / 100));
   const [isPaused, setIsPaused] = useState(paused);
-  const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-
-  const cents = Math.round(Number(dollars) * 100);
-  const dirty = cents !== dailyBudgetCents;
-
-  const save = () =>
-    startTransition(async () => {
-      setError(null);
-      const res = await updateDailyBudget(cents);
-      if (!res.ok) return setError(res.error);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 1500);
-      router.refresh();
-    });
 
   const togglePause = (v: boolean) =>
     startTransition(async () => {
@@ -138,35 +124,11 @@ export function BudgetControls({ dailyBudgetCents, paused }: { dailyBudgetCents:
   return (
     <div className="space-y-5 px-5 py-5">
       <div>
-        <Label htmlFor="budget">Per day</Label>
-        <div className="flex gap-2">
-          <div className="relative flex-1">
-            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-fg-faint">$</span>
-            <input
-              id="budget"
-              inputMode="decimal"
-              className={`${inputClass} pl-7 tabular-nums`}
-              value={dollars}
-              onChange={(e) => setDollars(e.target.value.replace(/[^0-9.]/g, ""))}
-            />
-          </div>
-          <Button onClick={save} disabled={pending || !dirty}>
-            {saved ? "Saved" : "Save"}
-          </Button>
-        </div>
-        <input
-          type="range"
-          min={5}
-          max={200}
-          step={5}
-          aria-label="Daily budget slider"
-          value={Math.min(200, Math.max(5, Number(dollars) || 5))}
-          onChange={(e) => setDollars(e.target.value)}
-          className="mt-4 w-full accent-[var(--color-brand)]"
-        />
+        <p className="text-3xl font-semibold tracking-tight tabular-nums">{batchLabel ? `${usd(dailyBudgetCents)}/day` : "—"}</p>
         <p className="mt-2 text-[13px] text-fg-muted">
-          About {usd(cents * 30)} a month. Migz may spend a little more on strong days and less on slow ones, but it
-          averages out to this.
+          {batchLabel
+            ? `Set by your ${batchLabel}. Migz may spend a little more on strong days and less on slow ones, but it stays within the batch.`
+            : "Your daily spend is set when you start a campaign batch from the Overview."}
         </p>
       </div>
 

@@ -151,6 +151,15 @@ export async function setPlacements(adsetId: string, placements: Placement[]) {
   await graph("POST", adsetId, { targeting: { ...targeting, ...placementTargeting(placements) } });
 }
 
+/** Re-targets an ad set to a set of states, keeping the rest of its targeting (placements etc.). */
+export async function setStates(adsetId: string, states: string[]) {
+  const regions = await stateRegionKeys(states);
+  if (!regions.length) throw new Error("No licensed states to target.");
+  const current = await getAdSet(adsetId);
+  const targeting = { ...(current.targeting ?? {}) };
+  await graph("POST", adsetId, { targeting: { ...targeting, geo_locations: { regions } } });
+}
+
 export async function setStatus(objectId: string, status: "ACTIVE" | "PAUSED") {
   await graph("POST", objectId, { status });
 }
@@ -190,12 +199,29 @@ export async function createAdCreative(
     link: string;
     primaryText: string;
     headline: string;
-    media: { kind: "video"; videoId: string; thumbnailUrl: string } | { kind: "image"; imageHash: string };
+    media:
+      | { kind: "video"; videoId: string; thumbnailUrl: string }
+      | { kind: "image"; imageHash: string }
+      | { kind: "carousel"; cards: { imageHash: string; headline: string }[] };
   },
 ) {
   const callToAction = { type: process.env.META_CTA_TYPE || "BOOK_NOW", value: { link: input.link } };
+  const page = { page_id: input.pageId, ...(input.instagramId ? { instagram_user_id: input.instagramId } : {}) };
   const objectStorySpec =
-    input.media.kind === "video"
+    input.media.kind === "carousel"
+      ? {
+          ...page,
+          link_data: {
+            link: input.link,
+            message: input.primaryText,
+            // Each card links to the booking page; keep the cards in the order Migz wrote them
+            child_attachments: input.media.cards.map((c) => ({ link: input.link, image_hash: c.imageHash, name: c.headline, call_to_action: callToAction })),
+            multi_share_optimized: false,
+            multi_share_end_card: false,
+            call_to_action: callToAction,
+          },
+        }
+      : input.media.kind === "video"
       ? {
           page_id: input.pageId,
           ...(input.instagramId ? { instagram_user_id: input.instagramId } : {}),

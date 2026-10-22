@@ -17,17 +17,33 @@ import { Badge, EmptyState, NotConnected, PageHeader, Panel, PanelHeader } from 
 import { MigzPanel } from "@/components/dashboard/MigzPanel";
 import { BrainWidget } from "@/components/dashboard/brain/BrainWidget";
 import { getBrainLive } from "@/lib/migz/brain";
+import { closeEndedBatch, getBatchProgress, getOpenBatch, getRecentBatches } from "@/lib/dashboard/batches";
+import { BatchCard } from "@/components/dashboard/batch/BatchCard";
+import { StartBatchButton } from "@/components/dashboard/batch/StartBatch";
 
 export default async function OverviewPage() {
   const agent = await requireAgent();
-  const [metrics, balance, upcoming, actions, proposals, brain] = await Promise.all([
+  // A batch past its last day is closed (with its results) before the page reads it
+  await closeEndedBatch(agent).catch(() => null);
+  const [metrics, balance, upcoming, actions, proposals, brain, openBatch, pastBatches] = await Promise.all([
     getDailyMetrics(agent, 30),
     getBalanceCents(agent.id),
     getUpcomingBookings(agent.id, 5),
     getAdActions(agent.id, 6),
     getProposedActions(agent.id),
     getBrainLive(agent),
+    getOpenBatch(agent.id),
+    getRecentBatches(agent.id, 4),
   ]);
+  const activeBatch = openBatch?.status === "active" ? openBatch : null;
+  const batchProgress = activeBatch ? await getBatchProgress(agent, activeBatch) : null;
+  const batchBlocked = !agent.onboarding_completed_at
+    ? "Finish setting up first"
+    : !migzReadyFor(agent)
+      ? "Your ad account isn't linked yet"
+      : activeBatch
+        ? `Your batch runs until ${activeBatch.ends_on}`
+        : null;
   const recentlyRan =
     !!agent.migz_last_operator_at && DateTime.now().diff(DateTime.fromISO(agent.migz_last_operator_at), "minutes").minutes < 10;
 
@@ -48,6 +64,7 @@ export default async function OverviewPage() {
       <PageHeader
         title={`${greeting}, ${firstName}`}
         description="How your ads performed over the last 30 days, and what's coming up. Migz AI runs your ads and tunes them as results come in."
+        action={<StartBatchButton balanceCents={balance} disabledReason={batchBlocked} />}
       />
 
       {!agent.onboarding_completed_at && (
@@ -139,6 +156,27 @@ export default async function OverviewPage() {
 
       <div className="mt-3 grid gap-3 lg:grid-cols-5">
         <Panel className="lg:col-span-3">
+          <MigzPanel
+            connected={migzReadyFor(agent)}
+            mode={agent.migz_mode}
+            recentlyRan={recentlyRan}
+            proposals={proposals}
+            actions={actions}
+          />
+        </Panel>
+        <Panel className="lg:col-span-2">
+          <BatchCard
+            active={activeBatch}
+            planned={openBatch?.status === "planned" ? openBatch : null}
+            progress={batchProgress}
+            past={pastBatches}
+            timezone={agent.timezone}
+          />
+        </Panel>
+      </div>
+
+      <div className="mt-3 grid gap-3 lg:grid-cols-5">
+        <Panel className="lg:col-span-3">
           <PanelHeader
             title="Upcoming calls"
             action={
@@ -192,16 +230,6 @@ export default async function OverviewPage() {
             <BrainWidget initial={brain} />
           </div>
         )}
-
-        <Panel className="lg:col-span-2">
-          <MigzPanel
-            connected={migzReadyFor(agent)}
-            mode={agent.migz_mode}
-            recentlyRan={recentlyRan}
-            proposals={proposals}
-            actions={actions}
-          />
-        </Panel>
       </div>
     </>
   );

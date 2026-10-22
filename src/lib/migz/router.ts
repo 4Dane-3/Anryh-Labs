@@ -19,7 +19,8 @@ export type Task =
   | "feed" // Haiku: activity-feed and Slack wording
   | "creative_traits" // Sonnet vision: structured traits from frames
   | "operator" // Sonnet: runs the review with tools; Opus advises through the advisor tool
-  | "memo"; // Opus: weekly strategy memo
+  | "memo" // Opus: weekly strategy memo
+  | "batch_plan"; // Sonnet: recommends how to spend a new campaign batch
 
 const TASK_TIER: Record<Task, ModelTier> = {
   audit: "haiku",
@@ -31,6 +32,7 @@ const TASK_TIER: Record<Task, ModelTier> = {
   creative_traits: "sonnet",
   operator: "sonnet",
   memo: "opus",
+  batch_plan: "sonnet",
 };
 
 export type Budget = { limitUsd: number; spentUsd: number; ratio: number };

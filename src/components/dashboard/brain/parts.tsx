@@ -4,7 +4,7 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { DateTime } from "luxon";
 import type { BrainEvent, BrainLive } from "@/lib/migz/brain-types";
 import { TIER } from "@/components/dashboard/brain/model";
-import type { GraphState } from "@/components/dashboard/brain/state";
+import { openEvents, type GraphState } from "@/components/dashboard/brain/state";
 import { cn } from "@/lib/utils";
 
 /** True state, never invented: running now, or last reviewed X ago and next in Y. */
@@ -17,6 +17,16 @@ export function StatusLine({ live, demo }: { live: BrainLive; demo: boolean }) {
         <span className="size-1.5 animate-pulse rounded-full bg-brand" />
         {demo ? "sample run" : "reviewing now"}
         {latest && <span className="truncate text-fg-muted">· {latest.summary}</span>}
+      </p>
+    );
+  // Background work outside a review: a creative being made, an ad being built in Meta
+  const working = openEvents(live).at(-1);
+  if (working)
+    return (
+      <p className="flex items-center gap-2 font-mono text-[12px] text-fg">
+        <span className="size-1.5 animate-pulse rounded-full" style={{ backgroundColor: TIER[working.tier].color }} />
+        working
+        <span className="truncate text-fg-muted">· {working.summary}</span>
       </p>
     );
   const when = last?.finished_at ?? last?.started_at;

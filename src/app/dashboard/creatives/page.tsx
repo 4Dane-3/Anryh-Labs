@@ -2,7 +2,7 @@ import { DateTime } from "luxon";
 import { requireAgent } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { integrations } from "@/lib/integrations";
-import { briefLabel, isImageBrief, type AnyBrief } from "@/lib/migz/brief";
+import { briefLabel, isVideoBrief, type AnyBrief } from "@/lib/migz/brief";
 import { NotConnected, PageHeader } from "@/components/dashboard/ui";
 import { CreativesManager, type Creative, type GeneratingJob } from "@/components/dashboard/CreativesManager";
 
@@ -65,7 +65,7 @@ export default async function CreativesPage() {
   const generating: GeneratingJob[] = (jobs ?? []).map((j) => ({
     id: j.id,
     stage: j.stage,
-    format: isImageBrief(j.brief as AnyBrief) ? "image" : "video",
+    format: isVideoBrief(j.brief as AnyBrief) ? "video" : "image", // carousels are made of images
     hook: briefLabel(j.brief as AnyBrief),
   }));
 
