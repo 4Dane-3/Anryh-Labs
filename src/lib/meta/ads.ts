@@ -256,8 +256,9 @@ export async function createAdCreative(
   const res = await graph<{ id: string }>("POST", `${account}/adcreatives`, {
     name: input.name,
     object_story_spec: objectStorySpec,
-    // Meta fills these macros per ad; the landing page stores them, so bookings are attributed per ad
-    url_tags: "utm_source=meta&utm_medium=paid&utm_campaign={{campaign.id}}&utm_content={{ad.id}}",
+    // Meta fills these macros per ad; the landing page stores them, so bookings are attributed per ad and placement
+    // utm_term carries where the ad was shown (e.g. Instagram_Reels), so bookings are attributed per platform too
+    url_tags: "utm_source=meta&utm_medium=paid&utm_campaign={{campaign.id}}&utm_content={{ad.id}}&utm_term={{placement}}",
   });
   return res.id;
 }

@@ -10,6 +10,7 @@ import { addRow, derive, emptyTotals, fatigue, present, type Totals } from "@/li
 import { cleanFocus, TOPICS } from "@/lib/migz/topics";
 import { daysLeft, REVISE_AFTER_DAYS } from "@/lib/campaign";
 import { getActiveBatch } from "@/lib/dashboard/batches";
+import { emptyPlatformStats, platformOf, PLATFORMS, strongerPlatform, type PlatformStats } from "@/lib/migz/platforms";
 
 /**
  * Everything Migz needs for one review: the campaign tree with 14-day and 3-day results per ad,
@@ -118,12 +119,64 @@ export async function buildSnapshot(agent: Agent) {
     placementsBySet.set(setId, bySet);
   }
 
+  // Facebook vs Instagram per ad set: spend from Meta's placement breakdown, booked calls from the placement
+  // each booking's link carried (utm_term). Bookings from ads made before that tag existed are "untracked".
+  const platformsBySet = new Map<string, PlatformStats>();
+  const statsFor = (setId: string) => {
+    const st = platformsBySet.get(setId) ?? emptyPlatformStats();
+    platformsBySet.set(setId, st);
+    return st;
+  };
+  for (const p of placementRows.data ?? []) {
+    const setId = adsetOfAd.get(p.meta_ad_id);
+    const platform = platformOf(p.publisher_platform);
+    if (!setId || !platform) continue;
+    const t = statsFor(setId)[platform];
+    t.spendCents += p.spend_cents;
+    t.impressions += p.impressions;
+    t.linkClicks += p.link_clicks;
+  }
+  const untrackedBySet = new Map<string, number>();
+  for (const b of bookings.data ?? []) {
+    const attr = (b.attribution as Record<string, string>) ?? {};
+    const setId = attr.utm_content ? adsetOfAd.get(attr.utm_content) : undefined;
+    if (!setId) continue;
+    const platform = platformOf(attr.utm_term);
+    if (platform) statsFor(setId)[platform].bookedCalls += 1;
+    else untrackedBySet.set(setId, (untrackedBySet.get(setId) ?? 0) + 1);
+  }
+  const accountPlatforms = emptyPlatformStats();
+  for (const st of platformsBySet.values())
+    for (const pl of PLATFORMS) for (const k of ["spendCents", "impressions", "linkClicks", "bookedCalls"] as const) accountPlatforms[pl][k] += st[pl][k];
+  const presentPlatforms = (st: PlatformStats, untracked: number) => {
+    const row = (pl: (typeof PLATFORMS)[number]) => {
+      const t = st[pl];
+      return {
+        spend: `$${(t.spendCents / 100).toFixed(2)}`,
+        impressions: t.impressions,
+        link_ctr: t.impressions ? `${((t.linkClicks / t.impressions) * 100).toFixed(2)}%` : "n/a",
+        booked_calls: t.bookedCalls,
+        cost_per_booked_call: t.bookedCalls ? `$${(t.spendCents / t.bookedCalls / 100).toFixed(2)}` : "n/a",
+      };
+    };
+    const better = strongerPlatform(st);
+    return {
+      facebook: row("facebook"),
+      instagram: row("instagram"),
+      ...(untracked ? { booked_calls_without_a_placement: untracked } : {}),
+      focus: better
+        ? `${better} books calls clearly cheaper on enough data: focusing this ad set on ${better} is allowed (it restarts learning)`
+        : "no clear winner yet: keep automatic placements",
+    };
+  };
+
   const guardAdsets: AdSetState[] = (adsets.data ?? []).map((s) => ({
     meta_adset_id: s.meta_adset_id,
     status: s.status,
     daily_budget_cents: s.daily_budget_cents,
     learning_status: s.learning_status,
     last_edited_at: s.last_edited_at,
+    platforms: platformsBySet.get(s.id) ?? emptyPlatformStats(),
     ads: (ads.data ?? [])
       .filter((a) => a.adset_id === s.id)
       .map((a) => ({
@@ -269,6 +322,7 @@ export async function buildSnapshot(agent: Agent) {
       target: "each ad set runs 4:5 feed images, 9:16 Stories/Reels images and 9:16 reel videos; images are cheap, videos are limited to 1 new one per review. A 2-card carousel is an option when a message works as two beats",
     },
     account_last_14_days: present(derive(totals)),
+    platform_split_last_14_days: presentPlatforms(accountPlatforms, [...untrackedBySet.values()].reduce((a, b) => a + b, 0)),
     campaigns: (campaigns.data ?? []).map((c) => ({
       campaign_id: c.meta_campaign_id,
       name: c.name,
@@ -285,6 +339,7 @@ export async function buildSnapshot(agent: Agent) {
           last_changed: DateTime.fromISO(s.last_edited_at).toRelative({ base: DateTime.now() }),
           placements: s.placements.length ? s.placements : "automatic (Advantage+)",
           ad_set_average_last_14_days: adsetAverage(s.id),
+          results_by_platform_last_14_days: presentPlatforms(platformsBySet.get(s.id) ?? emptyPlatformStats(), untrackedBySet.get(s.id) ?? 0),
           results_by_placement_last_14_days: [...(placementsBySet.get(s.id) ?? new Map<string, Totals>())]
             .sort((x, y) => y[1].spend_cents - x[1].spend_cents)
             .slice(0, 8)

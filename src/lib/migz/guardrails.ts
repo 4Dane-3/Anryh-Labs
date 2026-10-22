@@ -1,3 +1,5 @@
+import { checkPlatformFocus, type PlatformStats } from "@/lib/migz/platforms";
+
 // Hard limits on what Migz may do, enforced in code on every action (the model is told about them,
 // but never trusted to follow them). Pure functions so they can be unit-tested.
 // Each check returns null when allowed, or a reason the model can read and adapt to.
@@ -26,6 +28,8 @@ export type AdSetState = {
   daily_budget_cents: number;
   learning_status: string | null;
   last_edited_at: string;
+  /** Facebook vs Instagram, last 14 days (for focusing an ad set on one platform). */
+  platforms?: PlatformStats;
   ads: AdState[];
 };
 
@@ -124,14 +128,15 @@ export function checkResumeAd(ctx: GuardContext, adId: string) {
   return null;
 }
 
-export function checkPlacements(ctx: GuardContext, adsetId: string) {
+export function checkPlacements(ctx: GuardContext, adsetId: string, placements: string[] = []) {
   const wait = revisionWait(ctx);
   if (wait) return wait;
   const adset = findAdSet(ctx, adsetId);
   if (!adset) return `No ad set ${adsetId} in this account.`;
   const learning = learningReason(adset, ctx.now);
   if (learning) return `Ad set ${adsetId} shouldn't be edited yet: ${learning}.`;
-  return null;
+  // Dropping Facebook or Instagram entirely needs booked-call evidence (see platforms.ts)
+  return checkPlatformFocus(adset.platforms, placements);
 }
 
 export function checkLaunchTarget(ctx: GuardContext, adsetId: string) {
