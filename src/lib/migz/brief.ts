@@ -19,6 +19,7 @@ export type CreativeBrief = {
   cast?: string; // the same people in every shot, e.g. "a woman in her late 30s and her two kids, about 6 and 9"
   setting?: string; // one real place the story stays in, e.g. "a real suburban home with a sunlit kitchen"
   mood?: string; // the emotional arc and what never appears, e.g. "grief turning into gratitude; hopeful, never dark"
+  voiceover?: string | null; // optional off-screen narration over the footage (nobody on screen speaks)
 };
 
 export type ImageBrief = {
@@ -98,6 +99,26 @@ export const VIDEO_REALISM =
   "Natural, candid behaviour: people are absorbed in what they're doing, with small genuine smiles and real emotion. No exaggerated or forced laughing, no one looks into the camera, no long stares or eye contact held between people, no talking or lip movement. Realistic faces, hands and body proportions; slow, smooth, unhurried motion.";
 const SHOT_REALISM = "Candid and natural, small genuine smiles, nobody looks at the camera, no talking.";
 
+/**
+ * Story continuity, also added to every video. A model left alone will plant a sapling in one shot and show
+ * it fully grown in the next while the family hasn't aged a day.
+ */
+export const VIDEO_CONTINUITY =
+  "Continuity: time moves forward only where a shot says so (e.g. 'years later'), and then everything ages together: the people look visibly older, children have grown, trees and gardens have grown. Otherwise nothing changes between shots: the same people with the same faces, age, hair and clothes, the same season and place, and every object stays as it was left (a sapling stays a sapling).";
+const SHOT_CONTINUITY = "Same people, same age and clothes as the other shots unless this shot says time has passed.";
+
+// Narration for a 15-second video: about 2.5 words a second, so it fits without rushing
+export const MAX_VOICEOVER_WORDS = 40;
+
+/** A shot that jumps forward in time but never says how anyone aged (the planted-tree-grows problem). */
+export function timeJumpWithoutAging(shot: string) {
+  const jumps = /\b(years?|decades?|months?|seasons?)\s+(later|pass|go by|have passed|on)\b|\b(fully|now)\s+grown\b|\btime\s+(passes|skip)/i.test(shot);
+  if (!jumps) return false;
+  // Word stems on purpose: "teen" covers teenager, "graduat" covers graduation
+  const aged = /\b(older|aged|ageing|aging|grown[- ]up|teen|graduat|adult|grey|gray|wrinkl|retire|grandchild|grandkid|grandparent|\d{1,2}[- ]year[- ]old|in (?:his|her|their) (?:\d0s|twenties|thirties|forties|fifties|sixties|seventies))/i.test(shot);
+  return !aged;
+}
+
 /** Shot timings in seconds: the hook, then each body shot in order. */
 function shotTimings(brief: CreativeBrief) {
   const lengths = [HOOK_SECONDS, ...brief.body_shots.map((b) => b.duration)];
@@ -121,6 +142,10 @@ export function videoPrompt(brief: CreativeBrief) {
     brief.cast ? `The same people appear throughout: ${clean(brief.cast)}.` : "",
     ...shots.map((shot, i) => `Shot ${i + 1} (${times[i].from}–${times[i].to}s): ${clean(shot)}`),
     brief.mood ? `Mood: ${clean(brief.mood)}` : "",
+    VIDEO_CONTINUITY,
+    brief.voiceover
+      ? `Voiceover: an off-screen narrator with a warm, calm, natural voice says: "${clean(brief.voiceover)}" The narration plays over the footage; no one on screen speaks or moves their lips.`
+      : "No narration and no dialogue: natural ambient sound only.",
     VIDEO_REALISM,
   ]
     .filter(Boolean)
@@ -133,7 +158,7 @@ export function shotPrompts(brief: CreativeBrief) {
   const shots = [brief.hook_shot, ...brief.body_shots.map((b) => b.prompt)];
   const cast = brief.cast ? ` Same people: ${clean(brief.cast).slice(0, 140)}.` : "";
   return shots.map((shot, i) => {
-    const tail = `${cast} ${clean(brief.style)}. ${SHOT_REALISM}`;
+    const tail = `${cast} ${clean(brief.style)}. ${SHOT_REALISM} ${SHOT_CONTINUITY}`;
     return { prompt: `${clean(shot).slice(0, 512 - tail.length - 2)}.${tail}`.slice(0, 512), duration: times[i].len };
   });
 }

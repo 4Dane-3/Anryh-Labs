@@ -4,6 +4,8 @@ import { PLACEMENTS, type Placement } from "@/lib/meta/ads";
 import {
   CAROUSEL_CARDS,
   HOOK_SECONDS,
+  MAX_VOICEOVER_WORDS,
+  timeJumpWithoutAging,
   MAX_BUTTON_CHARS,
   MAX_CARD_LINES,
   MAX_OVERLAY_LINE_CHARS,
@@ -102,6 +104,10 @@ export const MIGZ_TOOLS: Anthropic.Beta.BetaTool[] = [
       cast: { type: "string", description: "The same people in every shot, with ages and a detail or two so they stay consistent, e.g. 'a woman in her late 30s with shoulder-length brown hair; her son about 6 and daughter about 9'. 1 to 3 people per shot." },
       setting: { type: "string", description: "One real place the story stays in, e.g. 'a real suburban home: sunlit kitchen, front porch, living room mantel'." },
       mood: { type: "string", description: "The emotional arc and what must never appear, e.g. 'grief turning into gratitude and relief; hopeful, never dark; no funerals, hospitals or caskets'." },
+      voiceover: {
+        type: "string",
+        description: `Optional narration by an off-screen narrator over the footage (nobody on screen talks), up to ${MAX_VOICEOVER_WORDS} words, e.g. 'She never had to choose between the house and the kids' future. He made sure of that.' Empty for ambient sound only.`,
+      },
       hook_line: { type: "string", description: "The opening idea in words; it also starts the primary text." },
       hook_shot: { type: "string", description: `Shot 1, the first ${HOOK_SECONDS} seconds: a close, specific moment that stops the scroll (who, what they're holding or doing, the light). E.g. 'Close-up at dawn: the woman sits alone at the kitchen table holding a man's wristwatch, eyes wet; she hears small footsteps and looks toward the hallway.'` },
       body_shots: { type: "array", items: shotSchema, description: "1 to 3 shots." },
@@ -112,6 +118,9 @@ export const MIGZ_TOOLS: Anthropic.Beta.BetaTool[] = [
         description: "Ad set to launch it into once ready, or null to keep it in the creative library.",
       },
     },
+    // Not strict: this is the largest schema, and strict tools share one grammar with a size limit.
+    // evaluate() checks every field of every call anyway.
+    false,
   ),
   tool(
     "new_hook_variant",
@@ -267,7 +276,7 @@ function validateBrief(brief: CreativeBrief) {
     return "Each body shot needs a prompt and a whole-number duration of 2 to 6 seconds.";
   const total = HOOK_SECONDS + brief.body_shots.reduce((s, b) => s + b.duration, 0);
   if (total > MAX_VIDEO_SECONDS) return `The video would be ${total}s; keep it to ${MAX_VIDEO_SECONDS}s including the ${HOOK_SECONDS}s hook.`;
-  return checkCopy(brief.hook_line, brief.primary_text, brief.headline);
+  return checkCopy(brief.hook_line, brief.primary_text, brief.headline, brief.voiceover);
 }
 
 /** Validates one tool call against the current state. Also used to re-check proposals at approval time. */
@@ -328,6 +337,17 @@ export function evaluate(name: string, raw: unknown, ctx: EvalContext): Evaluate
       // The short-film standard: the same people in one place, with a stated mood (see videoPrompt)
       if (!brief.cast || !brief.setting || !brief.mood)
         return fail("A video needs a cast (the same people in every shot), a setting (one real place) and a mood (the emotional arc and what never appears).");
+      const voiceover = typeof input.voiceover === "string" ? str(input.voiceover, 400) : "";
+      if (voiceover) {
+        const words = voiceover.split(/\s+/).filter(Boolean).length;
+        if (words > MAX_VOICEOVER_WORDS) return fail(`The voiceover is ${words} words; keep it to ${MAX_VOICEOVER_WORDS} so it fits 15 seconds without rushing.`);
+        brief.voiceover = voiceover;
+      }
+      // Continuity: a time jump has to say how the people aged, or the model shows a grown tree next to an unchanged family
+      const shots = [brief.hook_shot, ...brief.body_shots.map((b) => b.prompt)];
+      const jumpAt = shots.findIndex(timeJumpWithoutAging);
+      if (jumpAt >= 0)
+        return fail(`Shot ${jumpAt + 1} jumps forward in time but doesn't say how the people have aged. Either keep the story in one stretch of time, or say it plainly (e.g. "Years later, the daughter is a teenager in a graduation gown and her mother has grey in her hair").`);
       const err = validateBrief(brief);
       if (err) return fail(err);
       const launchId = typeof input.launch_adset_id === "string" && input.launch_adset_id ? input.launch_adset_id : null;
