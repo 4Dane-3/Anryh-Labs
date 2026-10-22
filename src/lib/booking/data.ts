@@ -47,6 +47,7 @@ export type Agent = {
   creative_mode?: "upload" | "ai" | "both" | null;
   onboarding_completed_at?: string | null;
   required_intake_steps?: number[]; // steps whose questions must be answered before booking
+  stripe_customer_id?: string | null; // saved from the first paid deposit
 };
 
 export type Booking = {
