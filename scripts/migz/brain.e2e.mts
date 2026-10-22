@@ -19,6 +19,7 @@ Object.assign(process.env, {
   SLACK_BOT_TOKEN: "xoxb-fake",
   ANRYH_ALERT_SLACK_ID: "U_ADMIN",
   MIGZ_TEST_MODE: "0",
+  ELEVENLABS_API_KEY: "el-fake",
 });
 // supabase-js wants a WebSocket for realtime on Node 20; we never use realtime
 (globalThis as { WebSocket?: unknown }).WebSocket ??= class {};
@@ -44,7 +45,17 @@ const meta = {
 const slack: { channel: string; text: string; blocks?: unknown[] }[] = [];
 const hf = { status: new Map<string, string>(), submitted: [] as { path: string; body: Record<string, unknown> }[] };
 const PNG = Buffer.from("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8cfc0f00f0004ff01fe0b52c93c0000000049454e44ae426082", "hex");
-const MP4 = Buffer.from("000000186674797069736f6d0000020069736f6d69736f32", "hex");
+// A real 3-second clip (picture + quiet scene sound) and a real "voice" (a speech-band tone), made with the
+// bundled ffmpeg, so narration is mixed for real in the pipeline
+const { execFileSync: runFfmpeg } = await import("node:child_process");
+const { readFileSync: readMedia, mkdtempSync } = await import("node:fs");
+const FFMPEG = (await import("ffmpeg-static")).default as unknown as string;
+const mediaDir = mkdtempSync(`${process.env.TMPDIR ?? "/tmp/"}migz-e2e-`);
+runFfmpeg(FFMPEG, ["-loglevel", "error", "-f", "lavfi", "-i", "testsrc=duration=3:size=360x640:rate=24", "-f", "lavfi", "-i", "anoisesrc=d=3:a=0.002", "-shortest", "-pix_fmt", "yuv420p", "-c:a", "aac", "-y", `${mediaDir}/clip.mp4`]);
+runFfmpeg(FFMPEG, ["-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=700:duration=2", "-y", `${mediaDir}/voice.mp3`]);
+const MP4 = readMedia(`${mediaDir}/clip.mp4`);
+const VOICE = readMedia(`${mediaDir}/voice.mp3`);
+const elevenlabs: { text: string; voice: string }[] = [];
 
 const json = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status, headers: { "content-type": "application/json" } });
 
@@ -102,6 +113,11 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 
   if (url.host === "app.test") return new Response("<html>ok</html>", { status: 200 });
   if (url.host === "slack.com") { slack.push(JSON.parse(String(init?.body))); return json({ ok: true }); }
+  if (url.host === "api.elevenlabs.io") {
+    assert.equal((init?.headers as Record<string, string>)?.["xi-api-key"], "el-fake");
+    elevenlabs.push({ text: JSON.parse(String(init?.body)).text, voice: url.pathname.split("/").pop()! });
+    return new Response(VOICE, { headers: { "content-type": "audio/mpeg" } });
+  }
   if (url.host === "cdn.test") {
     return url.pathname.endsWith(".png")
       ? new Response(PNG, { headers: { "content-type": "image/png" } })
@@ -337,7 +353,20 @@ try {
   assert.match(String(videoSubmit.body.prompt), /The same people appear throughout: a dad in his late 30s/);
   assert.match(String(videoSubmit.body.prompt), /no one looks into the camera/);
   assert.ok((videoSubmit.body.multi_prompt as { prompt: string }[]).every((sh) => /nobody looks at the camera/.test(sh.prompt)));
-  ok(`live: ${videoAd.meta_ad_id} (video, sent to Higgsfield as a short film with the realism rules), ${imageAd.meta_ad_id} (image)`);
+  // The narrator: ElevenLabs spoke the brief's voiceover and it was mixed over the stored video
+  assert.equal(elevenlabs.length, 1, "one voiceover spoken");
+  assert.match(elevenlabs[0].text, /^He thought about who keeps the house/);
+  const { data: storedVideo } = await db.from("creatives").select("storage_path").eq("agent_id", AGENT_ID).eq("kind", "video").order("created_at").limit(1).single();
+  const { data: videoFile } = await db.storage.from("creatives").download(storedVideo!.storage_path);
+  const { writeFileSync: writeMedia } = await import("node:fs");
+  writeMedia(`${mediaDir}/stored.mp4`, Buffer.from(await videoFile!.arrayBuffer()));
+  // ffmpeg reports levels on stderr
+  const { spawnSync } = await import("node:child_process");
+  const levels = spawnSync(FFMPEG, ["-hide_banner", "-i", `${mediaDir}/stored.mp4`, "-vn", "-af", "highpass=f=300,lowpass=f=3400,volumedetect", "-f", "null", "-"], { encoding: "utf8" }).stderr;
+  const maxVol = Number((levels.match(/max_volume: (-?[\d.]+) dB/) ?? [])[1]);
+  assert.ok(maxVol > -20, `the stored video carries the narrator (speech-band peak ${maxVol} dB)`);
+  assert.equal(slack.filter((m) => m.channel === "U_ADMIN" && /Narration failed/.test(m.text)).length, 0, "no narration failures");
+  ok(`live: ${videoAd.meta_ad_id} (video, sent to Higgsfield as a short film with the realism rules, narrated by ElevenLabs and mixed over the footage), ${imageAd.meta_ad_id} (image)`);
   void firstVideoJob;
 
   // ===== 3 =====

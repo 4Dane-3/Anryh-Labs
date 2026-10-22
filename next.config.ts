@@ -5,11 +5,14 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: __dirname,
   },
-  // Migz pulls frames from video ads on the server with a bundled ffmpeg binary
+  // Migz pulls frames from video ads and mixes narration on the server with a bundled ffmpeg binary
   serverExternalPackages: ["ffmpeg-static"],
   outputFileTracingIncludes: {
     "/api/cron/migz": ["./node_modules/ffmpeg-static/ffmpeg"],
     "/dashboard/**": ["./node_modules/ffmpeg-static/ffmpeg"],
+    // Finished videos get their narration mixed in wherever a creative job is advanced
+    "/api/cron/creatives": ["./node_modules/ffmpeg-static/ffmpeg"],
+    "/api/webhooks/higgsfield": ["./node_modules/ffmpeg-static/ffmpeg"],
   },
   // Retired pages: send old links somewhere useful
   async redirects() {

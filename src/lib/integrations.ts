@@ -9,6 +9,8 @@ export const integrations = {
   meta: Boolean(process.env.META_SYSTEM_USER_TOKEN),
   /** Pixel used for SCHEDULE optimization and Conversions API events. */
   metaPixel: Boolean(process.env.META_PIXEL_ID),
+  /** ElevenLabs: speaks the narrator's voiceover laid over Migz videos. */
+  elevenlabs: Boolean(process.env.ELEVENLABS_API_KEY),
   /** Higgsfield video generation for Migz-made creatives. */
   higgsfield: Boolean(process.env.HF_API_KEY_ID && process.env.HF_API_KEY_SECRET),
   /** Claude, the model behind Migz's decisions. */
