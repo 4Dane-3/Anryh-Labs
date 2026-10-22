@@ -55,9 +55,8 @@ export const HOOK_SECONDS = 3;
 export const MAX_VIDEO_SECONDS = 15;
 export const MAX_OVERLAY_LINES = 3;
 
-// Which Higgsfield model makes which still: 4:5 feed images go to the feed image model (they carry
-// the on-image text), 9:16 Stories/Reels images go to Soul Cinema (photo only, no text).
-export const textOnImage = (brief: { aspect_ratio: ImageBrief["aspect_ratio"] }) => brief.aspect_ratio !== "9:16";
+// Every still carries its message on the image (1-3 short lines): an ad with no words on it gives the
+// viewer nothing to stop for, so 9:16 Stories/Reels images get text too.
 export const MAX_OVERLAY_LINE_CHARS = 40;
 export const MAX_BUTTON_CHARS = 24;
 
@@ -95,15 +94,6 @@ export function briefLabel(brief: AnyBrief) {
 
 // Quotes inside the text would break the prompt's "exactly as written" quoting
 const clean = (s: string) => s.replace(/["“”]/g, "").trim();
-
-/** The photo-only prompt for 9:16 stills (Soul Cinema): same casting and mood, no text of any kind. */
-export function scenePrompt(brief: ImageBrief) {
-  return [
-    `A ${clean(brief.style)} photo for a life insurance ad, 9:16 vertical. ${clean(brief.scene)}`,
-    "Genuine, candid expressions, unposed, natural light. Composed for a phone screen with the people in the lower two-thirds and open, softly blurred background above.",
-    "No text, no letters, no numbers, no logos, no watermarks, no signs or documents.",
-  ].join("\n");
-}
 
 /**
  * The image prompt: one consistent layout so every Migz image ad reads well on a phone. People in

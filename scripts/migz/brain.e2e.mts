@@ -423,10 +423,10 @@ try {
       const snap = snapshotOf(p);
       assert.equal(snap.ad_focus[0].topic, "income_protection");
       assert.equal(snap.ad_focus[0].live_ads_on_this_topic, 0);
-      return { content: [toolUse("generate_image", story(["Text on a 9:16 image"])), toolUse("generate_image", story([]))] };
+      return { content: [toolUse("generate_image", story([])), toolUse("generate_image", story(["What if the paycheck stopped?"]))] };
     }
     const r = lastToolResults(p);
-    assert.ok(r[0].is_error && /photos made without text/.test(r[0].content), r[0].content);
+    assert.ok(r[0].is_error && /Every image carries its message/.test(r[0].content), r[0].content);
     assert.match(r[1].content, /^Done/, r[1].content);
     return { content: [text("Started a Stories image for the new focus.")] };
   };
@@ -434,10 +434,10 @@ try {
   assert.equal(res.status, "succeeded", JSON.stringify(res));
   const newSubmits = hf.submitted.slice(submittedBefore);
   assert.equal(newSubmits.length, 1);
-  assert.equal(newSubmits[0].path, "/higgsfield-ai/soul/cinema");
-  assert.deepEqual([newSubmits[0].body.aspect_ratio, newSubmits[0].body.resolution], ["9:16", "720p"]);
-  assert.ok(!/Text on a 9:16/.test(String(newSubmits[0].body.prompt)) && /No text/.test(String(newSubmits[0].body.prompt)));
-  ok("focus change triggered a review; the lead saw the new focus; a 9:16 image went to Soul Cinema 720p without text, and text on a 9:16 image was refused");
+  assert.equal(newSubmits[0].path, "/ideogram/v4.0");
+  assert.equal(newSubmits[0].body.aspect_ratio, "9:16");
+  assert.match(String(newSubmits[0].body.prompt), /"What if the paycheck stopped\?"/);
+  ok("focus change triggered a review; the lead saw the new focus; a 9:16 image went to the text model with its line on it, and an image with no words was refused");
 
   // ===== 6 =====
   step("6. Experiment reaches its sample → verdict and learning");

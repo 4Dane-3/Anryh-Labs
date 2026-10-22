@@ -9,7 +9,6 @@ import {
   MAX_OVERLAY_LINE_CHARS,
   MAX_OVERLAY_LINES,
   MAX_VIDEO_SECONDS,
-  textOnImage,
   type CarouselBrief,
   type CreativeBrief,
   type ImageBrief,
@@ -123,7 +122,7 @@ export const MIGZ_TOOLS: Anthropic.Beta.BetaTool[] = [
   ),
   tool(
     "generate_image",
-    `Have Higgsfield make a still image ad. 4:5 (Facebook and Instagram feeds): a candid lifestyle photo with 1 to ${MAX_OVERLAY_LINES} short lines of text laid out above the people, plus an optional button-shaped label; the text layout and spelling instructions are added for you. 9:16 (Stories and Reels slides): a photo only, made by a different model that doesn't render text, so leave overlay_lines empty and set button_text to null; the message lives in the primary text and headline. Cheaper and faster than video, so it's a good way to test a message; run images alongside videos rather than instead of them.`,
+    `Have Higgsfield make a still image ad: a candid lifestyle photo with 1 to ${MAX_OVERLAY_LINES} short lines of text laid out above the people (every image carries its message on it, a hook or a phrase), plus an optional button-shaped label; the text layout and spelling instructions are added for you. 4:5 for Facebook and Instagram feeds, 9:16 for Stories and Reels. Cheaper and faster than video, so it's a good way to test a message; run images alongside videos rather than instead of them.`,
     {
       concept: { type: "string", description: "The angle in one line, e.g. 'Peace of mind for young parents'." },
       topic: {
@@ -140,7 +139,7 @@ export const MIGZ_TOOLS: Anthropic.Beta.BetaTool[] = [
       overlay_lines: {
         type: "array",
         items: { type: "string" },
-        description: `For 4:5: 1 to ${MAX_OVERLAY_LINES} short lines shown on the image, each under ${MAX_OVERLAY_LINE_CHARS} characters, read top to bottom. E.g. ["Prepare for the worst.", "Protect their peace.", "Get life insurance."]. For 9:16: an empty list (these images carry no text).`,
+        description: `1 to ${MAX_OVERLAY_LINES} short lines shown on the image (required for every image), each under ${MAX_OVERLAY_LINE_CHARS} characters, read top to bottom. E.g. ["Prepare for the worst.", "Protect their peace.", "Get life insurance."].`,
       },
       button_text: {
         type: ["string", "null"],
@@ -350,11 +349,8 @@ export function evaluate(name: string, raw: unknown, ctx: EvalContext): Evaluate
       };
       if (!brief.scene || !brief.style || !brief.primary_text || !brief.headline)
         return fail("An image needs a scene, a style, primary text and a headline.");
-      if (!textOnImage(brief)) {
-        if (lines.length || button)
-          return fail("9:16 Stories/Reels images are photos made without text. Leave overlay_lines empty and button_text null, and put the message in the primary text and headline.");
-      } else if (lines.length < 1 || lines.length > MAX_OVERLAY_LINES)
-        return fail(`Use 1 to ${MAX_OVERLAY_LINES} lines of text on the image.`);
+      if (lines.length < 1 || lines.length > MAX_OVERLAY_LINES)
+        return fail(`Every image carries its message: use 1 to ${MAX_OVERLAY_LINES} lines of text on it (a hook or a short phrase).`);
       const long = lines.find((l) => l.length > MAX_OVERLAY_LINE_CHARS);
       if (long) return fail(`"${long}" is too long for the image; keep each line under ${MAX_OVERLAY_LINE_CHARS} characters.`);
       if (button && button.length > MAX_BUTTON_CHARS)
