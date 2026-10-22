@@ -734,7 +734,7 @@ try {
 
   // ===== 8i =====
   step("8i. Two processes advance the same creative job at once (webhook + cron): one ad, not two");
-  const { data: dupSet } = await db.from("ad_sets").select("meta_adset_id").eq("agent_id", AGENT_ID).eq("status", "ACTIVE").limit(1).single();
+  const { data: dupSet } = await db.from("ad_sets").select("meta_adset_id").eq("agent_id", AGENT_ID).limit(1).single(); // (8h left them paused; the launcher doesn't need one active)
   const { data: dupCreative } = await db.from("creatives").insert({ agent_id: AGENT_ID, kind: "image", storage_path: `${AGENT_ID}/migz/dup-${Date.now()}.png`, file_name: "Migz · duplicate guard", mime_type: "image/png", size_bytes: PNG.length, status: "in_review", source: "migz", hook: "dup" }).select("id, storage_path").single();
   await db.storage.from("creatives").upload(dupCreative!.storage_path, PNG, { contentType: "image/png" });
   const { data: dupJob } = await db.from("creative_jobs").insert({ agent_id: AGENT_ID, stage: "stored", creative_id: dupCreative!.id, launch_adset_id: dupSet!.meta_adset_id, brief: { format: "image", concept: "dup", scene: "s", style: "s", overlay_lines: ["One ad only."], button_text: null, aspect_ratio: "4:5", primary_text: "A free call walks you through it.", headline: "One ad" } }).select("id").single();
