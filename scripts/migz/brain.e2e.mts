@@ -41,7 +41,7 @@ const meta = {
   adsets: 0,
   otherBudgets: new Map<string, number>(), // daily budgets of ad sets after adset_1
 };
-const slack: { channel: string; text: string }[] = [];
+const slack: { channel: string; text: string; blocks?: unknown[] }[] = [];
 const hf = { status: new Map<string, string>(), submitted: [] as { path: string; body: Record<string, unknown> }[] };
 const PNG = Buffer.from("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8cfc0f00f0004ff01fe0b52c93c0000000049454e44ae426082", "hex");
 const MP4 = Buffer.from("000000186674797069736f6d0000020069736f6d69736f32", "hex");
@@ -287,11 +287,14 @@ try {
   const { data: memoLearnings } = await db.from("learnings").select("source").eq("agent_id", AGENT_ID).eq("source", "memo");
   assert.equal(memoLearnings!.length, 1);
   const toAgent = slack.filter((m) => m.channel === "U_TEST");
-  assert.equal(toAgent.length, 2, JSON.stringify(slack.map((m) => [m.channel, m.text.slice(0, 40)])));
+  assert.equal(toAgent.length, 3, JSON.stringify(slack.map((m) => [m.channel, m.text.slice(0, 40)])));
+  assert.ok(toAgent.some((m) => /Migz set up your campaign/.test(m.text) && /FL, GA, TX/.test(JSON.stringify(m.blocks))), "campaign set up, with the states it targets");
   assert.ok(toAgent.some((m) => /Your week/.test(m.text)), "weekly report");
-  assert.ok(toAgent.some((m) => /waiting for your OK/.test(m.text) && /Launched a mortgage-protection video/.test(m.text)), "proposal nudge lists the changes");
+  const summaryMsg = toAgent.find((m) => /waiting for your OK/.test(m.text))!;
+  assert.match(summaryMsg.text, /Launched a mortgage-protection video/, "review summary lists the proposals");
+  assert.match(JSON.stringify(summaryMsg.blocks), /dashboard\/brain#approvals/, "with a button to approve them in the Brain");
   assert.equal(slack.filter((m) => m.channel === "U_ADMIN").length, 0, "no staff alert on a healthy run");
-  ok("2 proposals; scout filed 1 shared swipe example (when due); memo saved a learning; Slack: weekly report and a nudge listing the 2 proposals");
+  ok("2 proposals; scout filed 1 shared swipe example (when due); memo saved a learning; Slack: campaign set up, weekly report, and a review summary with the 2 proposals and an approve button");
 
   // ===== 2–3 =====
   step("2. Approve, generate and launch");
@@ -684,6 +687,9 @@ try {
   assert.equal(mpSetRow!.daily_budget_cents, 2000, "the batch's one campaign gets its whole $20/day");
   const { data: batchLog } = await db.from("ad_actions").select("title").eq("agent_id", AGENT_ID).eq("tool", "system_setup").order("created_at", { ascending: false }).limit(1).single();
   assert.equal(batchLog!.title, "Set up your $280 batch");
+  const setupSlack = slack.filter((m) => m.channel === "U_TEST" && /campaign batch is set up/.test(m.text)).at(-1)!;
+  assert.match(setupSlack.text, /Your \$280 campaign batch is set up: Mortgage protection/);
+  assert.match(JSON.stringify(setupSlack.blocks), /Migz is running it automatically/, "auto mode says so");
   // Higgsfield is working on both cards: the Brain shows it with an open step, outside any review
   // (other jobs may still be generating too; this checks the carousel's own step)
   const { data: openHf } = await db.from("migz_events").select("summary").eq("agent_id", AGENT_ID).eq("tier", "higgsfield").is("finished_at", null).like("summary", "Making a carousel%");
@@ -692,6 +698,13 @@ try {
   await advanceOpenJobs(Date.now() + 60_000);
   const carouselAds = [...meta.ads.keys()].filter((id) => !adsBeforeBatch.has(id));
   assert.equal(carouselAds.length, 1, "one carousel ad built");
+  // The agent gets a preview of the live ad in Slack: both cards, the copy and a Book now button
+  const liveSlack = slack.filter((m) => m.channel === "U_TEST" && /Your new ad is live/.test(m.text)).at(-1)!;
+  assert.ok(liveSlack, "ad live message sent");
+  const liveBlocks = liveSlack.blocks as { type: string; image_url?: string }[];
+  assert.equal(liveBlocks.filter((b) => b.type === "image").length, 2, "both carousel cards in the preview");
+  assert.ok(liveBlocks.filter((b) => b.type === "image").every((b) => /^https:\/\/.+\/storage\/v1\/object\/sign\//.test(b.image_url!)), "cards are signed links Slack can load");
+  assert.match(JSON.stringify(liveBlocks), /Book now/); assert.match(JSON.stringify(liveBlocks), /Who keeps paying the mortgage/);
   const lastCreative = meta.calls.filter((c) => c.method === "POST" && c.path.endsWith("/adcreatives")).at(-1)!;
   const spec = JSON.parse(String(lastCreative.body.object_story_spec)) as { link_data: { child_attachments: { name: string; image_hash: string }[] } };
   assert.deepEqual(spec.link_data.child_attachments.map((c) => c.name), ["Your first home", "Protect it"]);
@@ -802,7 +815,9 @@ try {
   const failRun3 = () => getAgent().then((a) => runMigz(a as never, { trigger: "manual", createMessage: (async () => { throw new Error("401 authentication_error: different"); }) as never }));
   await failRun3();
   assert.equal(adminMsgs().length, 2, "a different error alerts");
-  assert.equal(slack.filter((m) => m.channel === "U_TEST").length, 0, "the agent isn't paged about our outages");
+  // (real updates, like campaigns built before the model call failed, still reach them)
+  const toAgentNow = slack.filter((m) => m.channel === "U_TEST").map((m) => m.text);
+  assert.ok(!toAgentNow.some((t) => /fail|outage|error|authentication/i.test(t)), `the agent isn't paged about our outages: ${JSON.stringify(toAgentNow)}`);
   ok("review failure alerts staff once per distinct error and never pages the agent");
 
   console.log("\nALL BRAIN E2E STEPS PASSED");

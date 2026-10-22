@@ -5,7 +5,7 @@ import type { Agent } from "@/lib/booking/data";
 import { sendSlackMessage } from "@/lib/slack";
 
 // Slack for Migz, in two voices:
-//  - the agent: a "what Migz did" section in their morning digest, and a nudge when changes wait on them
+//  - the agent: a "what Migz did" section in their morning digest (live updates are in notify.ts)
 //  - Anryh Labs staff (ANRYH_ALERT_SLACK_ID, a user or channel id): alerts when something broke
 // Alerts are de-duplicated from migz_events so a failing cron doesn't spam every hour.
 
@@ -60,20 +60,6 @@ export async function alertCriticalFindings(agent: Pick<Agent, "id" | "slug" | "
   if (!fresh.length) return;
   const lines = fresh.map((f) => `• ${esc(f.summary)}`).join("\n");
   await alertAdmin(`*Critical Migz finding* for \`${agent.slug}\`\n${lines}`);
-}
-
-/** After a review in ask-first mode: nudge the agent when new proposals are waiting. */
-export async function nudgeProposals(agent: Pick<Agent, "id" | "slack_user_id" | "full_name">, runId: string) {
-  if (!agent.slack_user_id || !process.env.SLACK_BOT_TOKEN) return;
-  const { data } = await supabaseAdmin.from("ad_actions").select("title").eq("agent_id", agent.id).eq("run_id", runId).eq("status", "proposed");
-  if (!data?.length) return;
-  const base = (process.env.APP_URL || "").replace(/\/$/, "");
-  const list = data.slice(0, 5).map((a) => `• ${esc(a.title)}`).join("\n");
-  const link = base ? `\n<${base}/dashboard|Review and approve in your dashboard>` : "";
-  await sendSlackMessage(
-    agent.slack_user_id,
-    `:bulb: *Migz has ${data.length} change${data.length === 1 ? "" : "s"} waiting for your OK*\n${list}${link}\n_Proposals expire after 48 hours if you don't act._`,
-  ).catch(() => {});
 }
 
 /** The "what Migz did" block for the morning digest: yesterday's results, actions and anything waiting. */

@@ -587,7 +587,11 @@ export async function planBatch(budgetCents: number, topics?: string[]): Promise
   return { ok: true, options, recommended, estimate: outcomeEstimate(budgetCents, history), balanceCents };
 }
 
-type BatchChoice = { budgetCents: number; option: string; recommended?: string | null; reason?: string | null };
+type BatchChoice = { budgetCents: number; option: string; recommended?: string | null; reason?: string | null; autoRun?: boolean };
+
+/** The mode a batch runs in: the agent's choice when they made one, otherwise what they had (never "off"). */
+const modeFor = (agent: Agent, autoRun: boolean | undefined) =>
+  autoRun === undefined ? (agent.migz_mode === "off" ? "approve" : agent.migz_mode) : autoRun ? "auto" : "approve";
 
 /** Re-derives the chosen option on the server (never trusting the client's numbers). */
 async function resolveChoice(agent: Agent, input: BatchChoice, focus: TopicKey[]) {
@@ -608,7 +612,7 @@ async function resolveChoice(agent: Agent, input: BatchChoice, focus: TopicKey[]
 }
 
 /** Starts a batch: sets the daily spend and dates it implies, then Migz reviews in the background. */
-async function activateBatch(agent: Agent, batchId: string, row: { days: number; daily_cents: number }) {
+async function activateBatch(agent: Agent, batchId: string, row: { days: number; daily_cents: number }, mode: "approve" | "auto") {
   const today = DateTime.now().setZone(agent.timezone).toISODate()!;
   const ends = endDate(today, row.days);
   await supabaseAdmin
@@ -623,7 +627,7 @@ async function activateBatch(agent: Agent, batchId: string, row: { days: number;
       campaign_started_on: today,
       campaign_ends_on: ends,
       ads_paused: false,
-      migz_mode: agent.migz_mode === "off" ? "approve" : agent.migz_mode,
+      migz_mode: mode,
       migz_last_run_at: null,
       migz_last_operator_at: null,
     })
@@ -655,7 +659,7 @@ export async function startBatch(input: BatchChoice): Promise<Result> {
   const { data: batch, error } = await supabaseAdmin.from("campaign_batches").insert({ ...row, status: "planned" }).select("id").single();
   if (error || !batch) return fail("Couldn't start the batch. If this keeps happening, the batches migration may not have run yet.");
   try {
-    await activateBatch(agent, batch.id, row);
+    await activateBatch(agent, batch.id, row, modeFor(agent, input.autoRun));
   } catch (e) {
     return fail(e instanceof Error ? e.message : "Couldn't start the batch.");
   }
@@ -672,7 +676,8 @@ export async function saveBatchPlan(input: BatchChoice & { topics: string[] }): 
   if (open?.status === "active") return fail("A batch is already running. Start the next one from the Overview when it ends.");
   const row = await resolveChoice(agent, input, focus);
   if (!row) return fail("That plan doesn't fit this budget. Pick one of the options shown.");
-  const { error: focusError } = await supabaseAdmin.from("agents").update({ ad_focus: focus }).eq("id", agent.id);
+  // The run mode chosen with the plan applies once the batch starts (nothing runs before that)
+  const { error: focusError } = await supabaseAdmin.from("agents").update({ ad_focus: focus, migz_mode: modeFor(agent, input.autoRun) }).eq("id", agent.id);
   if (focusError) return fail("Couldn't save what you want to promote.");
   if (open) await supabaseAdmin.from("campaign_batches").delete().eq("id", open.id).eq("status", "planned");
   const { error } = await supabaseAdmin.from("campaign_batches").insert({ ...row, status: "planned" });
@@ -707,7 +712,7 @@ export async function launchCampaign(): Promise<Result> {
   const { error } = await supabaseAdmin.from("agents").update({ onboarding_completed_at: new Date().toISOString() }).eq("id", agent.id);
   if (error) return fail("Couldn't start your campaign. Please try again.");
   try {
-    await activateBatch(agent, planned.id, planned);
+    await activateBatch(agent, planned.id, planned, modeFor(agent, undefined));
   } catch (e) {
     return fail(e instanceof Error ? e.message : "Couldn't start your campaign. Please try again.");
   }

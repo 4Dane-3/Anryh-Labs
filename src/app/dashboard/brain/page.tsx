@@ -2,20 +2,27 @@ import { requireAgent } from "@/lib/auth";
 import { getBrainBoard, getBrainLive } from "@/lib/migz/brain";
 import { BrainView } from "@/components/dashboard/brain/BrainView";
 import { PageHeader } from "@/components/dashboard/ui";
+import { getProposedActions } from "@/lib/dashboard/queries";
 
 export const dynamic = "force-dynamic";
 
 export default async function BrainPage({ searchParams }: { searchParams: Promise<{ started?: string }> }) {
   const { started } = await searchParams;
   const agent = await requireAgent();
-  const [live, board] = await Promise.all([getBrainLive(agent), getBrainBoard(agent)]);
+  const [live, board, proposals] = await Promise.all([getBrainLive(agent), getBrainBoard(agent), getProposedActions(agent.id)]);
   return (
     <>
       <PageHeader
         title="Migz brain"
         description="How Migz runs your ads: Sonnet leads each review, a Haiku crew audits and researches, and Opus advises before anything that touches your spend. Everything here comes from real activity."
       />
-      <BrainView initial={live} board={JSON.parse(JSON.stringify(board))} agentId={agent.id} justStarted={started === "1"} />
+      <BrainView
+        initial={live}
+        board={JSON.parse(JSON.stringify(board))}
+        agentId={agent.id}
+        justStarted={started === "1"}
+        approvals={agent.migz_mode === "approve" || proposals.length ? JSON.parse(JSON.stringify(proposals)) : null}
+      />
     </>
   );
 }

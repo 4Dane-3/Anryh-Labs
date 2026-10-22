@@ -5,6 +5,7 @@ import type { Agent } from "@/lib/booking/data";
 import { isTopic, TOPICS, type TopicKey } from "@/lib/migz/topics";
 import { recommendOption, type BatchHistory, type BatchOption, type BatchOptionKey } from "@/lib/batch";
 import { callModel, defaultCreateMessage, jsonOf, monthlyBudget, planTier, type CreateMessage } from "@/lib/migz/router";
+import { notifyBatchEnded } from "@/lib/migz/notify";
 
 export type Batch = {
   id: string;
@@ -124,7 +125,14 @@ export async function closeEndedBatch(agent: Agent) {
   if (DateTime.now().setZone(agent.timezone).toISODate()! <= batch.ends_on) return null;
   const r = await results(agent, batch.starts_on, batch.ends_on);
   const result = { spent_cents: r.spentCents, booked_calls: r.bookedCalls };
-  await supabaseAdmin.from("campaign_batches").update({ status: "ended", ended_at: new Date().toISOString(), result }).eq("id", batch.id).eq("status", "active");
+  // Only the caller that actually flips it to "ended" tells the agent (the page and a review can race)
+  const { data: closed } = await supabaseAdmin
+    .from("campaign_batches")
+    .update({ status: "ended", ended_at: new Date().toISOString(), result })
+    .eq("id", batch.id)
+    .eq("status", "active")
+    .select("id");
+  if (closed?.length) await notifyBatchEnded(agent, { budgetCents: batch.budget_cents, spentCents: r.spentCents, bookedCalls: r.bookedCalls });
   return { ...batch, status: "ended" as const, result };
 }
 

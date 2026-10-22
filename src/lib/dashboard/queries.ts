@@ -82,6 +82,7 @@ export type MigzAction = {
   status: "proposed" | "applied" | "rejected" | "failed" | "expired";
   created_at: string;
   result: { error?: string } | null;
+  payload?: unknown; // proposals carry what they'd do, for the preview
 };
 
 export async function getAdActions(agentId: string, limit = 8): Promise<MigzAction[]> {
@@ -98,7 +99,7 @@ export async function getAdActions(agentId: string, limit = 8): Promise<MigzActi
 export async function getProposedActions(agentId: string): Promise<MigzAction[]> {
   const { data } = await supabaseAdmin
     .from("ad_actions")
-    .select("id, kind, title, detail, status, created_at, result")
+    .select("id, kind, title, detail, status, created_at, result, payload")
     .eq("agent_id", agentId)
     .eq("status", "proposed")
     .order("created_at", { ascending: false });

@@ -32,7 +32,7 @@ export default async function StartPage() {
         balanceCents={state.balanceCents}
         stripeConnected={integrations.stripe}
         connected={migzReadyFor(agent)}
-        plan={{ topics: agent.ad_focus ?? [], batch: state.batch }}
+        plan={{ topics: agent.ad_focus ?? [], batch: state.batch, autoRun: agent.migz_mode === "auto" }}
         creativeMode={agent.creative_mode ?? null}
         creativeCount={state.creativeCount}
         contactEmail={CONTACT_EMAIL}
