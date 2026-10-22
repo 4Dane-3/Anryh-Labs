@@ -244,7 +244,7 @@ try {
   operatorScript = (p, call) => {
     const snap = snapshotOf(p);
     const adsetId = snap.campaigns[0].ad_sets[0].adset_id;
-    const video = { concept: "Mortgage protection", topic: "mortgage_protection", style: "warm natural light", hook_line: "Is your family covered if something happens to you?", hook_shot: "A dad pauses at the door", body_shots: [{ prompt: "Family dinner", duration: 4 }], primary_text: "Is your family covered if something happens to you? Let's make sure.", headline: "Book a free call", launch_adset_id: adsetId, title: "Launched a mortgage-protection video", reason: "No live ads yet." };
+    const video = { concept: "Mortgage protection", topic: "mortgage_protection", style: "warm natural light", cast: "a dad in his late 30s and his daughter about 7", setting: "a real suburban home", mood: "worry turning into relief; hopeful, never dark", hook_line: "Is your family covered if something happens to you?", hook_shot: "A dad pauses at the door", body_shots: [{ prompt: "Family dinner", duration: 4 }], primary_text: "Is your family covered if something happens to you? Let's make sure.", headline: "Book a free call", launch_adset_id: adsetId, title: "Launched a mortgage-protection video", reason: "No live ads yet." };
     const image = { concept: "Peace of mind", topic: "final_expense", scene: "A mother on a porch swing at sunset", style: "golden hour", overlay_lines: ["Prepare for the worst.", "Protect their peace."], button_text: "Book a free call", aspect_ratio: "4:5", primary_text: "Prepare for the worst, protect their peace.", headline: "Protect their peace", launch_adset_id: adsetId, title: "Launched an image ad", reason: "Cheaper test." };
     if (call === 1) {
       const team = teamOf(p);
@@ -332,7 +332,12 @@ try {
   assert.equal(liveAds!.length, 2);
   const videoAd = liveAds!.find((a) => (a.creatives as { kind: string }).kind === "video")!;
   const imageAd = liveAds!.find((a) => (a.creatives as { kind: string }).kind === "image")!;
-  ok(`live: ${videoAd.meta_ad_id} (video), ${imageAd.meta_ad_id} (image)`);
+  const videoSubmit = hf.submitted.find((x) => x.path.includes("kling"))!;
+  assert.match(String(videoSubmit.body.prompt), /^A \d+-second vertical short film about Mortgage protection/);
+  assert.match(String(videoSubmit.body.prompt), /The same people appear throughout: a dad in his late 30s/);
+  assert.match(String(videoSubmit.body.prompt), /no one looks into the camera/);
+  assert.ok((videoSubmit.body.multi_prompt as { prompt: string }[]).every((sh) => /nobody looks at the camera/.test(sh.prompt)));
+  ok(`live: ${videoAd.meta_ad_id} (video, sent to Higgsfield as a short film with the realism rules), ${imageAd.meta_ad_id} (image)`);
   void firstVideoJob;
 
   // ===== 3 =====

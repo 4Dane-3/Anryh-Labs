@@ -66,7 +66,7 @@ function tool(name: string, description: string, properties: Record<string, unkn
 const shotSchema = {
   type: "object",
   properties: {
-    prompt: { type: "string", description: "What the camera sees in this shot: people, setting, action, mood." },
+    prompt: { type: "string", description: "What the camera sees in this shot: the same people doing one clear, natural action, the place and the light. E.g. 'Her two young kids run into the same sunlit kitchen in pajamas; she wipes her eyes, smiles and pulls them into a tight hug while breakfast cooks.'" },
     duration: { type: "integer", description: "Seconds, 2 to 6." },
   },
   required: ["prompt", "duration"],
@@ -90,7 +90,7 @@ export const MIGZ_TOOLS: Anthropic.Beta.BetaTool[] = [
   }),
   tool(
     "generate_video",
-    `Have Higgsfield make a new 9:16 video ad: one ${HOOK_SECONDS}-second hook shot, then 1-3 body shots (total ${MAX_VIDEO_SECONDS}s max). Use for new angles, or when the agent has no creatives. Shots show relatable scenes (families, homes, everyday moments); never depict a specific real person or the agent.`,
+    `Have Higgsfield make a new 9:16 video ad, written as a short film: one ${HOOK_SECONDS}-second hook shot, then 1-3 body shots (total ${MAX_VIDEO_SECONDS}s max; 3 + 4 + 4 + 4 works well). Tell one small story with an emotional arc, the same people in the same place throughout, and one clear, specific action per shot (who, what they hold or do, where, the light). E.g. a woman in her late 30s at a kitchen table at dawn holding a man's wristwatch, eyes wet, looks up at small footsteps; her two kids run in and she pulls them into a hug; years later her daughter in a graduation gown hugs her on the same porch; she straightens a family photo on the mantel and smiles. Never a specific real person or the agent; never talking to camera. Use for new angles, or when the agent has no creatives.`,
     {
       concept: { type: "string", description: "The angle in one line, e.g. 'Mortgage protection for new homeowners'." },
       topic: {
@@ -98,9 +98,12 @@ export const MIGZ_TOOLS: Anthropic.Beta.BetaTool[] = [
         enum: [...TOPIC_KEYS, "other"],
         description: "The advertising topic this creative serves. Use the agent's ad focus unless there's a clear reason not to.",
       },
-      style: { type: "string", description: "Visual direction for every shot, e.g. 'warm natural light, handheld, documentary feel'." },
+      style: { type: "string", description: "The look for every shot, e.g. 'warm natural light, soft film grain, handheld documentary style, muted earthy colors'." },
+      cast: { type: "string", description: "The same people in every shot, with ages and a detail or two so they stay consistent, e.g. 'a woman in her late 30s with shoulder-length brown hair; her son about 6 and daughter about 9'. 1 to 3 people per shot." },
+      setting: { type: "string", description: "One real place the story stays in, e.g. 'a real suburban home: sunlit kitchen, front porch, living room mantel'." },
+      mood: { type: "string", description: "The emotional arc and what must never appear, e.g. 'grief turning into gratitude and relief; hopeful, never dark; no funerals, hospitals or caskets'." },
       hook_line: { type: "string", description: "The opening idea in words; it also starts the primary text." },
-      hook_shot: { type: "string", description: `Prompt for the first ${HOOK_SECONDS} seconds; must stop the scroll.` },
+      hook_shot: { type: "string", description: `Shot 1, the first ${HOOK_SECONDS} seconds: a close, specific moment that stops the scroll (who, what they're holding or doing, the light). E.g. 'Close-up at dawn: the woman sits alone at the kitchen table holding a man's wristwatch, eyes wet; she hears small footsteps and looks toward the hallway.'` },
       body_shots: { type: "array", items: shotSchema, description: "1 to 3 shots." },
       primary_text: { type: "string", description: "Ad copy above the video, starting with the hook line. Under 300 characters." },
       headline: { type: "string", description: "Short headline under the video, under 40 characters." },
@@ -318,7 +321,13 @@ export function evaluate(name: string, raw: unknown, ctx: EvalContext): Evaluate
         })),
         primary_text: str(input.primary_text, 500),
         headline: str(input.headline, 60),
+        cast: str(input.cast, 300),
+        setting: str(input.setting, 300),
+        mood: str(input.mood, 300),
       };
+      // The short-film standard: the same people in one place, with a stated mood (see videoPrompt)
+      if (!brief.cast || !brief.setting || !brief.mood)
+        return fail("A video needs a cast (the same people in every shot), a setting (one real place) and a mood (the emotional arc and what never appears).");
       const err = validateBrief(brief);
       if (err) return fail(err);
       const launchId = typeof input.launch_adset_id === "string" && input.launch_adset_id ? input.launch_adset_id : null;

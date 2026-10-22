@@ -15,6 +15,10 @@ export type CreativeBrief = {
   body_shots: { prompt: string; duration: number }[];
   primary_text: string;
   headline: string;
+  // The short-film standard (briefs made before it don't have these):
+  cast?: string; // the same people in every shot, e.g. "a woman in her late 30s and her two kids, about 6 and 9"
+  setting?: string; // one real place the story stays in, e.g. "a real suburban home with a sunlit kitchen"
+  mood?: string; // the emotional arc and what never appears, e.g. "grief turning into gratitude; hopeful, never dark"
 };
 
 export type ImageBrief = {
@@ -84,6 +88,54 @@ export function cardBrief(brief: CarouselBrief, i: number): ImageBrief {
 
 export function briefDuration(brief: CreativeBrief) {
   return HOOK_SECONDS + brief.body_shots.reduce((s, b) => s + b.duration, 0);
+}
+
+/**
+ * Added to every video, whatever the brief says. Video models fill gaps with uncanny behaviour (forced
+ * laughing, people staring at each other or the lens, mouths moving); this spells out natural behaviour.
+ */
+export const VIDEO_REALISM =
+  "Natural, candid behaviour: people are absorbed in what they're doing, with small genuine smiles and real emotion. No exaggerated or forced laughing, no one looks into the camera, no long stares or eye contact held between people, no talking or lip movement. Realistic faces, hands and body proportions; slow, smooth, unhurried motion.";
+const SHOT_REALISM = "Candid and natural, small genuine smiles, nobody looks at the camera, no talking.";
+
+/** Shot timings in seconds: the hook, then each body shot in order. */
+function shotTimings(brief: CreativeBrief) {
+  const lengths = [HOOK_SECONDS, ...brief.body_shots.map((b) => b.duration)];
+  let t = 0;
+  return lengths.map((len) => {
+    const from = t;
+    t += len;
+    return { from, to: t, len };
+  });
+}
+
+/**
+ * The whole-video prompt, written like a short-film brief: what it's about, the look and the place, the
+ * same cast throughout, timed shots, the mood, and the realism rules.
+ */
+export function videoPrompt(brief: CreativeBrief) {
+  const times = shotTimings(brief);
+  const shots = [brief.hook_shot, ...brief.body_shots.map((b) => b.prompt)];
+  return [
+    `A ${times.at(-1)!.to}-second vertical short film about ${clean(brief.concept)}. ${clean(brief.style)}${brief.setting ? `, ${clean(brief.setting)}` : ""}. No text, no logos, no captions.`,
+    brief.cast ? `The same people appear throughout: ${clean(brief.cast)}.` : "",
+    ...shots.map((shot, i) => `Shot ${i + 1} (${times[i].from}–${times[i].to}s): ${clean(shot)}`),
+    brief.mood ? `Mood: ${clean(brief.mood)}` : "",
+    VIDEO_REALISM,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/** One prompt per shot (each capped at 512 characters by the model): the action, the same cast, the look. */
+export function shotPrompts(brief: CreativeBrief) {
+  const times = shotTimings(brief);
+  const shots = [brief.hook_shot, ...brief.body_shots.map((b) => b.prompt)];
+  const cast = brief.cast ? ` Same people: ${clean(brief.cast).slice(0, 140)}.` : "";
+  return shots.map((shot, i) => {
+    const tail = `${cast} ${clean(brief.style)}. ${SHOT_REALISM}`;
+    return { prompt: `${clean(shot).slice(0, 512 - tail.length - 2)}.${tail}`.slice(0, 512), duration: times[i].len };
+  });
 }
 
 /** Short label for a brief: the hook for videos, the first text line for images and carousels. */
