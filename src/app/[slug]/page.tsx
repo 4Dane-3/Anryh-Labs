@@ -3,7 +3,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CalendarCheck, MessageCircle, SearchCheck, ShieldCheck, Star } from "lucide-react";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { getAgentBySlug } from "@/lib/booking/data";
+import { getAgentBySlug, getIntakeQuestions } from "@/lib/booking/data";
+import { preBookingQuestions } from "@/lib/booking/questions";
 import { BookingWidget } from "@/components/booking/BookingWidget";
 import { DEFAULT_TITLE } from "@/lib/campaign";
 
@@ -55,12 +56,16 @@ export default async function AgentPage({ params, searchParams }: Props) {
   // Embedded in the agent's dashboard: show the real page, but booking is switched off
   const preview = query?.preview === "1";
 
-  const { data: testimonials } = await supabaseAdmin
-    .from("testimonials")
-    .select("id, author_name, author_detail, quote, rating")
-    .eq("agent_id", agent.id)
-    .eq("published", true)
-    .order("sort");
+  const [{ data: testimonials }, questions] = await Promise.all([
+    supabaseAdmin
+      .from("testimonials")
+      .select("id, author_name, author_detail, quote, rating")
+      .eq("agent_id", agent.id)
+      .eq("published", true)
+      .order("sort"),
+    getIntakeQuestions(agent.id),
+  ]);
+  const requiredSteps = agent.required_intake_steps ?? [];
 
   const firstName = agent.full_name.split(" ")[0];
   const initials = agent.full_name
@@ -164,7 +169,13 @@ export default async function AgentPage({ params, searchParams }: Props) {
             <p className="mb-5 mt-1 text-sm text-slate-500">
               Pick a time that works for you.
             </p>
-            <BookingWidget slug={agent.slug} firstName={firstName} preview={preview} />
+            <BookingWidget
+              slug={agent.slug}
+              firstName={firstName}
+              preview={preview}
+              questions={preBookingQuestions(questions, requiredSteps)}
+              requiredSteps={requiredSteps}
+            />
           </div>
         </aside>
       </main>

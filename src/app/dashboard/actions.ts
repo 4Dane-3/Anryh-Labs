@@ -12,7 +12,7 @@ import { syncAgent } from "@/lib/migz/sync";
 import { defaultCreateMessage, monthlyBudget } from "@/lib/migz/router";
 import { traitSwipe } from "@/lib/migz/team/scout";
 import { cleanFocus } from "@/lib/migz/topics";
-import { DURATIONS, endDate, MAX_DAILY_CENTS, MIN_DAILY_CENTS } from "@/lib/campaign";
+import { DURATIONS, endDate, MAX_DAILY_CENTS, MAX_DEPOSIT_CENTS, MIN_DAILY_CENTS, MIN_DEPOSIT_CENTS } from "@/lib/campaign";
 import { setupBlockers } from "@/lib/dashboard/setup";
 import type { Agent } from "@/lib/booking/data";
 import { DateTime } from "luxon";
@@ -136,11 +136,12 @@ export async function setAdsPaused(paused: boolean): Promise<Result> {
 /** Starts a Stripe Checkout session for an ad-funds deposit. Needs Stripe keys. */
 export async function startDeposit(cents: number): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
   await requireAgent();
-  if (!Number.isInteger(cents) || cents < 2500 || cents > 1_000_000)
-    return { ok: false, error: "Deposits must be between $25 and $10,000." };
+  if (!Number.isInteger(cents) || cents < MIN_DEPOSIT_CENTS || cents > MAX_DEPOSIT_CENTS)
+    return { ok: false, error: `Deposits must be between $${MIN_DEPOSIT_CENTS / 100} and $${(MAX_DEPOSIT_CENTS / 100).toLocaleString("en-US")}.` };
   if (!integrations.stripe)
     return { ok: false, error: "Payments aren't connected yet, so funds can't be added. This will work once Stripe is set up." };
-  // Stripe Checkout goes here once STRIPE_SECRET_KEY is set; the webhook records the deposit.
+  // Stripe Checkout goes here once STRIPE_SECRET_KEY is set; the webhook records the deposit (+cents) and
+  // the fee (-(cents - adSpendCents(cents))) as two wallet rows, so the balance shows only the ad spend.
   return { ok: false, error: "Stripe checkout isn't built yet." };
 }
 
@@ -320,9 +321,12 @@ export async function deleteTestimonial(id: string): Promise<Result> {
 
 const KINDS: QuestionKind[] = ["short_text", "long_text", "choice", "date"];
 
-export async function saveQuestions(questions: IntakeQuestion[]): Promise<Result> {
+export async function saveQuestions(questions: IntakeQuestion[], requiredSteps: number[] = []): Promise<Result> {
   const agent = await requireAgent();
   if (!Array.isArray(questions) || questions.length > 40) return fail("You can have up to 40 questions.");
+  const steps = Array.isArray(requiredSteps)
+    ? [...new Set(requiredSteps.filter((s) => Number.isInteger(s) && s >= 1 && s <= 4))].sort()
+    : [];
 
   const keys = new Set<string>();
   const rows = [];
@@ -350,6 +354,7 @@ export async function saveQuestions(questions: IntakeQuestion[]): Promise<Result
       hidden_when_key: q.hidden_when_key || null,
       hidden_when_value: q.hidden_when_key ? clean(q.hidden_when_value, 80) || null : null,
       enabled: q.enabled !== false,
+      required: q.required === true,
     });
   }
 
@@ -364,7 +369,9 @@ export async function saveQuestions(questions: IntakeQuestion[]): Promise<Result
   }
 
   const { error } = await supabaseAdmin.from("intake_questions").upsert(rows, { onConflict: "agent_id,key" });
-  if (error) return fail("Couldn't save your questions.");
+  if (error) return fail("Couldn't save your questions. If this keeps happening, the required-questions migration may not have run yet.");
+  const { error: stepsError } = await supabaseAdmin.from("agents").update({ required_intake_steps: steps }).eq("id", agent.id);
+  if (stepsError) return fail("Couldn't save your required steps.");
 
   const { data: existing } = await supabaseAdmin.from("intake_questions").select("key").eq("agent_id", agent.id);
   const removed = (existing ?? []).map((r) => r.key).filter((k) => !keys.has(k));
@@ -380,6 +387,7 @@ export async function resetQuestions(): Promise<Result> {
   const agent = await requireAgent();
   const { error } = await supabaseAdmin.from("intake_questions").delete().eq("agent_id", agent.id);
   if (error) return fail("Couldn't reset your questions.");
+  await supabaseAdmin.from("agents").update({ required_intake_steps: [] }).eq("id", agent.id);
   revalidatePath("/dashboard/questions");
   return { ok: true };
 }

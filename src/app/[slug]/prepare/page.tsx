@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { getBookingByToken, getIntakeQuestions } from "@/lib/booking/data";
-import type { IntakeAnswers } from "@/lib/booking/questions";
+import { preBookingQuestions, type IntakeAnswers } from "@/lib/booking/questions";
 import { PrepareFlow } from "@/components/booking/PrepareFlow";
 
 export const dynamic = "force-dynamic";
@@ -49,6 +49,7 @@ export default async function PreparePage({ params, searchParams }: Props) {
         questions={questions.filter((q) => q.enabled)}
         initial={initial}
         completed={!!intake?.completed_at}
+        answeredAtBooking={preBookingQuestions(questions, agent.required_intake_steps ?? []).map((q) => q.key)}
         justBooked={justBooked === "1"}
       />
     </div>

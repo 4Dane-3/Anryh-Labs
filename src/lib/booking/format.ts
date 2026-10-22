@@ -31,14 +31,23 @@ export function intakeLines(answers: IntakeAnswers, zone: string, order: string[
   });
 }
 
-export function newBookingMessage(agent: Agent, p: Prospect) {
+export function newBookingMessage(
+  agent: Agent,
+  p: Prospect,
+  opts: { intake?: IntakeAnswers; order?: string[]; moreToAsk?: boolean } = {},
+) {
   const when = DateTime.fromISO(p.starts_at, { zone: agent.timezone }).toFormat(
     "ccc, LLL d 'at' h:mm a ZZZZ",
   );
+  // Answers to the agent's required questions arrive with the booking
+  const lines = opts.intake ? intakeLines(opts.intake, agent.timezone, opts.order) : [];
   return [
     `:calendar: *New call booked* — ${when}`,
     `*${esc(p.name)}* · ${formatPhone(p.phone)} · ${esc(p.email)}`,
-    `They'll be asked to fill in prep questions. You'll get another message when they do.`,
+    ...lines.map((l) => `• ${l}`),
+    ...(opts.moreToAsk === false
+      ? []
+      : [`They'll be asked to fill in ${lines.length ? "the optional prep questions" : "prep questions"}. You'll get another message when they do.`]),
   ].join("\n");
 }
 

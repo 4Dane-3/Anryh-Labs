@@ -5,18 +5,31 @@ import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { setAdsPaused, startDeposit, updateDailyBudget } from "@/app/dashboard/actions";
 import { usd } from "@/lib/dashboard/format";
+import {
+  adSpendCents,
+  CAMPAIGN_DAILY_CENTS,
+  depositFor,
+  FEE_RATE,
+  MIN_DEPOSIT_CENTS,
+  TEST_DAYS,
+} from "@/lib/campaign";
 import { Button, Label, Switch, inputClass } from "@/components/dashboard/ui";
 import { cn } from "@/lib/utils";
 
-const PRESETS = [100_00, 250_00, 500_00, 1000_00];
+// Deposits that fund 2, 3, 4 and 6 campaigns at $10/day for two weeks, after the fee
+const PRESETS = [2, 3, 4, 6].map((n) => ({ campaigns: n, cents: depositFor(n * CAMPAIGN_DAILY_CENTS * TEST_DAYS) }));
 
 export function AddFunds() {
-  const [amount, setAmount] = useState<number>(250_00);
+  const [amount, setAmount] = useState<number>(MIN_DEPOSIT_CENTS);
   const [custom, setCustom] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   const cents = custom ? Math.round(Number(custom.replace(/[^0-9.]/g, "")) * 100) : amount;
+  const tooSmall = cents > 0 && cents < MIN_DEPOSIT_CENTS;
+  const forAds = adSpendCents(cents);
+  // Two-week campaigns at $10/day this deposit pays for
+  const funds = Math.floor(forAds / (CAMPAIGN_DAILY_CENTS * TEST_DAYS));
 
   const go = () =>
     startTransition(async () => {
@@ -32,20 +45,21 @@ export function AddFunds() {
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {PRESETS.map((p) => (
           <button
-            key={p}
+            key={p.cents}
             type="button"
             onClick={() => {
-              setAmount(p);
+              setAmount(p.cents);
               setCustom("");
             }}
             className={cn(
-              "rounded-lg border px-3 py-2.5 text-sm font-medium tabular-nums transition-colors",
-              !custom && amount === p
+              "rounded-lg border px-3 py-2 text-left transition-colors",
+              !custom && amount === p.cents
                 ? "border-brand bg-brand/10 text-fg"
                 : "border-line text-fg-muted hover:border-line-strong hover:text-fg",
             )}
           >
-            {usd(p)}
+            <span className="block text-sm font-medium tabular-nums">{usd(p.cents)}</span>
+            <span className="block text-[11px] text-fg-faint">{p.campaigns} campaigns</span>
           </button>
         ))}
       </div>
@@ -55,16 +69,23 @@ export function AddFunds() {
           <input
             inputMode="decimal"
             aria-label="Custom amount"
-            placeholder="Other amount"
+            placeholder={`Other amount (min ${usd(MIN_DEPOSIT_CENTS)})`}
             className={`${inputClass} pl-7`}
             value={custom}
             onChange={(e) => setCustom(e.target.value)}
           />
         </div>
-        <Button variant="primary" onClick={go} disabled={pending || !cents || cents < 0}>
+        <Button variant="primary" onClick={go} disabled={pending || !cents || cents < 0 || tooSmall}>
           {pending ? "Starting…" : `Add ${cents > 0 ? usd(cents) : "funds"}`}
         </Button>
       </div>
+      <p className={cn("mt-3 text-[13px]", tooSmall ? "text-bad" : "text-fg-muted")}>
+        {tooSmall
+          ? `The minimum is ${usd(MIN_DEPOSIT_CENTS)}: enough for 2 campaigns at $10/day for 2 weeks.`
+          : cents > 0
+            ? `${usd(forAds)} goes to your ads, ${usd(cents - forAds, { cents: (cents - forAds) % 100 !== 0 })} is the Anryh Labs fee (${FEE_RATE * 100}%). That runs ${funds} campaign${funds === 1 ? "" : "s"} at $10/day for 2 weeks.`
+            : null}
+      </p>
       <AnimatePresence>
         {message && (
           <motion.p

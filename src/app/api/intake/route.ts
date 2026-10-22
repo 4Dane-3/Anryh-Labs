@@ -2,6 +2,7 @@ import { after } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { getBookingByToken, getIntakeQuestions } from "@/lib/booking/data";
 import { parseAnswers } from "@/lib/booking/validate";
+import { isHidden, preBookingQuestions, type IntakeAnswers } from "@/lib/booking/questions";
 import { intakeCompletedMessage } from "@/lib/booking/format";
 import { sendSlackMessage } from "@/lib/slack";
 
@@ -20,16 +21,24 @@ export async function POST(req: Request) {
 
   const { data: existing } = await supabaseAdmin
     .from("intake_responses")
-    .select("completed_at")
+    .select("answers, completed_at")
     .eq("booking_id", booking.id)
     .maybeSingle();
 
   const now = new Date().toISOString();
   const alreadyCompleted = existing?.completed_at ?? null;
 
+  // Required answers were given at booking: an edit here can change them but never blank them
+  const answers: IntakeAnswers = { ...parsed.data };
+  const previous = (existing?.answers ?? {}) as IntakeAnswers;
+  const values = Object.fromEntries(Object.entries(answers).map(([k, a]) => [k, a.value]));
+  for (const q of preBookingQuestions(questions, booking.agents.required_intake_steps ?? [])) {
+    if (!answers[q.key] && previous[q.key] && !isHidden(q, values)) answers[q.key] = previous[q.key];
+  }
+
   const { error } = await supabaseAdmin.from("intake_responses").upsert({
     booking_id: booking.id,
-    answers: parsed.data,
+    answers,
     submitted_at: now,
     completed_at: alreadyCompleted ?? (final ? now : null),
   });
@@ -54,7 +63,7 @@ export async function POST(req: Request) {
               phone: booking.phone,
               starts_at: booking.starts_at,
             },
-            parsed.data,
+            answers,
           ),
         );
       } catch (e) {

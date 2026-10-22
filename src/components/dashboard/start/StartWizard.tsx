@@ -9,7 +9,20 @@ import { launchCampaign, savePlan, setCreativeMode } from "@/app/dashboard/actio
 import { AddFunds } from "@/components/dashboard/FundsControls";
 import { ProfileForm, type Profile } from "@/components/dashboard/LandingEditor";
 import { Button, Label, Panel, inputClass } from "@/components/dashboard/ui";
-import { BUDGETS, DURATIONS, estimate } from "@/lib/campaign";
+import {
+  allocateCampaigns,
+  BUDGETS,
+  campaignCount,
+  CAMPAIGN_DAILY_CENTS,
+  depositFor,
+  DURATIONS,
+  estimate,
+  MIN_CAMPAIGNS,
+  MIN_DAILY_CENTS,
+  MIN_DEPOSIT_CENTS,
+  perCampaignCents,
+  REVISE_AFTER_DAYS,
+} from "@/lib/campaign";
 import { usd } from "@/lib/dashboard/format";
 import { cleanFocus, MAX_FOCUS, TOPIC_KEYS, TOPICS, type TopicKey } from "@/lib/migz/topics";
 import { cn } from "@/lib/utils";
@@ -33,7 +46,7 @@ type Props = {
 const TITLES: Record<string, { title: string; blurb: string }> = {
   profile: { title: "Your profile", blurb: "Your name, photo and a short bio. People see this before they book." },
   page: { title: "Your booking page", blurb: "The hours you take calls, and a look at the page your ads send people to." },
-  funds: { title: "Add funds", blurb: "Money for your Meta ads. Migz spends it where it books the most calls." },
+  funds: { title: "Add funds", blurb: `Money for your Meta ads. The minimum is ${usd(MIN_DEPOSIT_CENTS)}: 2 campaigns at $10 a day for 2 weeks.` },
   plan: { title: "Plan your campaign", blurb: "What to promote, how long to run, and how much to spend each day." },
   creatives: { title: "Videos and images", blurb: "Let Migz make your ads' videos and photos, or bring your own." },
 };
@@ -121,7 +134,10 @@ function PlanStep({ plan, balanceCents, onSaved }: { plan: Props["plan"]; balanc
     <div className="space-y-6">
       <div>
         <Label>What do you want to promote?</Label>
-        <p className="mb-2 text-[12px] text-fg-faint">Pick up to {MAX_FOCUS}. The first one is your main focus, and Migz makes most of your ads about it.</p>
+        <p className="mb-2 text-[12px] text-fg-faint">
+          Pick up to {MAX_FOCUS}, in order. Each gets its own campaign while your budget covers it, and extra campaigns go to your
+          main focus first.
+        </p>
         <div className="grid gap-2 sm:grid-cols-2">
           {TOPIC_KEYS.map((k) => {
             const rank = topics.indexOf(k);
@@ -210,8 +226,8 @@ function PlanStep({ plan, balanceCents, onSaved }: { plan: Props["plan"]; balanc
           <span className="text-[13px] text-fg-muted">a day</span>
         </div>
         <p className="mt-2 text-[13px] text-fg-muted">
-          {dailyCents < 500
-            ? "The minimum is $5 a day."
+          {dailyCents < MIN_DAILY_CENTS
+            ? `The minimum is ${usd(MIN_DAILY_CENTS, { cents: false })} a day: ${MIN_CAMPAIGNS} campaigns at ${usd(CAMPAIGN_DAILY_CENTS, { cents: false })} each.`
             : days === null
               ? "Pick a length to see the total."
               : est.totalCents !== null
@@ -219,6 +235,10 @@ function PlanStep({ plan, balanceCents, onSaved }: { plan: Props["plan"]; balanc
                 : `It runs until you stop it. Your balance covers ${est.coveredDays} day${est.coveredDays === 1 ? "" : "s"} at this rate.`}
         </p>
       </div>
+
+      {topics.length > 0 && dailyCents >= MIN_DAILY_CENTS && days !== null && (
+        <MigzPlan topics={topics} dailyCents={dailyCents} days={days} balanceCents={balanceCents} />
+      )}
 
       <div className="flex items-center gap-3">
         <Button variant="primary" onClick={save} disabled={pending || !topics.length || days === null}>
@@ -228,6 +248,63 @@ function PlanStep({ plan, balanceCents, onSaved }: { plan: Props["plan"]; balanc
         {saved && <span className="text-[13px] text-good">Saved</span>}
         {error && <span className="text-[13px] text-bad">{error}</span>}
       </div>
+    </div>
+  );
+}
+
+/** "Mortgage protection and Final expense", "Final expense (2 campaigns), Mortgage protection and ..." */
+function listTopics(slots: TopicKey[]) {
+  const counts = new Map<TopicKey, number>();
+  for (const t of slots) counts.set(t, (counts.get(t) ?? 0) + 1);
+  const parts = [...counts].map(([t, n]) => (n > 1 ? `${TOPICS[t].label} (${n} campaigns)` : TOPICS[t].label));
+  return parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0];
+}
+
+/** What Migz will do with this plan, in plain words, so the agent knows what to expect before saving. */
+function MigzPlan({ topics, dailyCents, days, balanceCents }: { topics: TopicKey[]; dailyCents: number; days: number; balanceCents: number }) {
+  const count = campaignCount(dailyCents);
+  const slots = allocateCampaigns(topics, count) as TopicKey[];
+  const each = perCampaignCents(dailyCents, count);
+  const left = topics.filter((t) => !slots.includes(t));
+  const doubled = topics.filter((t) => slots.filter((x) => x === t).length > 1);
+  const length = DURATIONS.find((d) => d.days === days)?.label.toLowerCase() ?? `${days} days`;
+  const totalCents = days ? dailyCents * days : null;
+  const covered = estimate(dailyCents, days, balanceCents);
+
+  const steps = [
+    `Make ${count} campaign${count === 1 ? "" : "s"}: ${listTopics(slots)}, at ${usd(each, { cents: each % 100 !== 0 })} a day each.`,
+    days ? `Run them for ${length}.` : "Run them until you stop them.",
+    `Days 1–${REVISE_AFTER_DAYS}: build ads for every campaign and collect results. No changes while the data comes in.`,
+    `After ${REVISE_AFTER_DAYS} days of results: compare the campaigns and revise what's underperforming, like hooks, copy and budget between campaigns.`,
+    days === 14
+      ? "Days 8–14: check whether those changes actually improved results."
+      : "Then keep checking whether each change actually improved results, and revise again where it didn't.",
+  ];
+
+  return (
+    <div className="rounded-lg border border-brand/30 bg-brand/[0.05] px-4 py-4">
+      <p className="text-sm font-semibold text-fg">Migz&apos;s plan</p>
+      <ol className="mt-2 space-y-1.5">
+        {steps.map((text, i) => (
+          <li key={i} className="flex gap-2.5 text-[13px] leading-snug text-fg-muted">
+            <span className="mt-px font-mono text-[11px] text-brand">{i + 1}</span>
+            <span>{text}</span>
+          </li>
+        ))}
+      </ol>
+      {(left.length > 0 || doubled.length > 0) && (
+        <p className="mt-3 text-[12px] text-fg-faint">
+          {left.length > 0
+            ? `Your budget covers ${count} campaign${count === 1 ? "" : "s"}, so Migz starts with your top ${count === 1 ? "focus" : count}. Add ${usd(left.length * CAMPAIGN_DAILY_CENTS, { cents: false })} a day to cover ${listTopics(left)} too.`
+            : `${listTopics(doubled)} get${doubled.length === 1 ? "s" : ""} a second campaign so Migz can compare two approaches.`}
+        </p>
+      )}
+      {totalCents !== null && (
+        <p className="mt-3 border-t border-brand/20 pt-3 text-[12px] text-fg-muted">
+          {usd(totalCents)} of ad spend over {length} ({usd(depositFor(totalCents))} to add, with the 20% fee).{" "}
+          {covered.fullyFunded ? "Your balance covers it." : `Your balance covers ${covered.coveredDays} day${covered.coveredDays === 1 ? "" : "s"}.`}
+        </p>
+      )}
     </div>
   );
 }
@@ -348,7 +425,7 @@ export function StartWizard(props: Props) {
             </Link>
             <Link href="/dashboard/questions" className="rounded-lg border border-line px-4 py-3 transition-colors hover:border-line-strong hover:bg-white/[0.03]">
               <span className="block text-sm font-medium text-fg">Your questions</span>
-              <span className="mt-1 block text-[12px] text-fg-muted">What you ask people after they book. Optional.</span>
+              <span className="mt-1 block text-[12px] text-fg-muted">What you ask people. Make any of them required before booking.</span>
             </Link>
             <a href={`/${props.slug}`} target="_blank" rel="noreferrer" className="rounded-lg border border-line px-4 py-3 transition-colors hover:border-line-strong hover:bg-white/[0.03]">
               <span className="flex items-center gap-1 text-sm font-medium text-fg">View your page <ArrowUpRight className="size-3.5" /></span>

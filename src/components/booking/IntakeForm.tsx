@@ -85,14 +85,16 @@ function Choice({
   );
 }
 
-function QuestionField({
+export function QuestionField({
   question,
   value,
   onChange,
+  required = false,
 }: {
   question: IntakeQuestion;
   value: string;
   onChange: (v: string) => void;
+  required?: boolean;
 }) {
   const id = `q-${question.key}`;
   const placeholder = question.placeholder ?? undefined;
@@ -149,6 +151,12 @@ function QuestionField({
         className="mb-1.5 block text-sm font-medium text-slate-700"
       >
         {question.label}
+        {required && (
+          <span className="ml-1 text-red-600" aria-hidden="true">
+            *
+          </span>
+        )}
+        {required && <span className="sr-only"> (required)</span>}
       </label>
       {control}
     </div>
@@ -161,15 +169,19 @@ export function IntakeForm({
   questions,
   initial,
   completed,
+  answeredAtBooking = [],
 }: {
   token: string;
   agentFirstName: string;
   questions: IntakeQuestion[];
   initial: Record<string, string>;
   completed: boolean;
+  /** Required questions they answered before booking: kept in the saved answers, not asked again. */
+  answeredAtBooking?: string[];
 }) {
   const reduceMotion = useReducedMotion();
-  const steps = activeSteps(questions);
+  const shown = questions.filter((q) => !answeredAtBooking.includes(q.key));
+  const steps = activeSteps(shown);
   const [values, setValues] = useState<Record<string, string>>(initial);
   const [index, setIndex] = useState(0);
   const [dir, setDir] = useState(1);
@@ -180,7 +192,7 @@ export function IntakeForm({
 
   const step = steps[index];
   const isLast = index === steps.length - 1;
-  const stepQuestions = questions
+  const stepQuestions = shown
     .filter((q) => q.step === step && !isHidden(q, values))
     .sort((a, b) => a.sort - b.sort);
 

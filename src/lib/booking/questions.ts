@@ -14,6 +14,7 @@ export type IntakeQuestion = {
   hidden_when_key: string | null;
   hidden_when_value: string | null;
   enabled: boolean;
+  required: boolean; // asked before the booking is confirmed
 };
 
 /** Stored answers: a label snapshot travels with each value so old answers survive question edits. */
@@ -54,6 +55,7 @@ const q = (
   hidden_when_key: null,
   hidden_when_value: null,
   enabled: true,
+  required: false,
   ...extra,
 });
 
@@ -106,6 +108,38 @@ export function isHidden(question: IntakeQuestion, values: Record<string, string
   return (
     !!question.hidden_when_key &&
     values[question.hidden_when_key] === question.hidden_when_value
+  );
+}
+
+/** Required on its own, or because the agent made its whole step required. */
+export function isRequired(question: IntakeQuestion, requiredSteps: readonly number[]) {
+  return question.enabled && (question.required || requiredSteps.includes(question.step));
+}
+
+/**
+ * What the booking widget asks before "Confirm booking": the required questions, plus any question
+ * one of them depends on (its show/hide condition needs that answer). In step and sort order.
+ */
+export function preBookingQuestions(questions: IntakeQuestion[], requiredSteps: readonly number[]) {
+  const keys = new Set(questions.filter((q) => isRequired(q, requiredSteps)).map((q) => q.key));
+  for (const q of questions) {
+    if (keys.has(q.key) && q.hidden_when_key) keys.add(q.hidden_when_key);
+  }
+  return questions
+    .filter((q) => q.enabled && keys.has(q.key))
+    .sort((a, b) => a.step - b.step || a.sort - b.sort);
+}
+
+/** The first required, visible question left blank, or null when everything required is answered. */
+export function missingRequired(
+  questions: IntakeQuestion[],
+  requiredSteps: readonly number[],
+  values: Record<string, string>,
+) {
+  return (
+    questions.find(
+      (q) => isRequired(q, requiredSteps) && !isHidden(q, values) && !(values[q.key] ?? "").trim(),
+    ) ?? null
   );
 }
 

@@ -215,4 +215,39 @@ assert.deepEqual(frames!.map((x) => x.t), [0, 1, 2, 3, 6, 9]);
 assert.ok(frames!.every((x) => x.jpeg[0] === 0xff && x.jpeg[1] === 0xd8));
 ok("real ffmpeg pulls JPEG frames at 0/1/2/3s then every 3s from a 10s clip");
 
+// campaign plan + funds
+const { allocateCampaigns, campaignCount, campaignLabels, perCampaignCents, adSpendCents, depositFor, MIN_DEPOSIT_CENTS, MIN_AD_BALANCE_CENTS } = await import("@/lib/campaign");
+assert.deepEqual([campaignCount(2000), campaignCount(3000), campaignCount(4500), campaignCount(500), campaignCount(100_000)], [2, 3, 4, 1, 6]);
+const three = ["final_expense", "mortgage_protection", "income_protection"] as const;
+assert.deepEqual(allocateCampaigns(three, 2), ["final_expense", "mortgage_protection"], "budget for 2: the top 2 focuses");
+assert.deepEqual(allocateCampaigns(three, 3), [...three], "budget for 3 with 3 focuses: one each, no doubling up");
+assert.deepEqual(allocateCampaigns(three, 4), ["final_expense", "mortgage_protection", "income_protection", "final_expense"], "4: the main focus gets the second");
+assert.deepEqual(allocateCampaigns(three, 5).filter((t) => t === "mortgage_protection").length, 2, "5: then focus 2");
+assert.deepEqual(allocateCampaigns(["final_expense"], 2), ["final_expense", "final_expense"]);
+assert.deepEqual(allocateCampaigns([], 2), [null, null]);
+assert.deepEqual(campaignLabels(allocateCampaigns(three, 4)), ["Final expense A", "Mortgage protection", "Income protection", "Final expense B"]);
+assert.equal(perCampaignCents(2500, 2), 1250);
+assert.equal(adSpendCents(MIN_DEPOSIT_CENTS), 28_000); assert.equal(MIN_AD_BALANCE_CENTS, 28_000);
+assert.equal(depositFor(28_000), 35_000); assert.equal(depositFor(42_000), 52_500);
+ok("$10/day per campaign; one per focus while the budget covers them, extras follow the focus order; $350 deposit = $280 of ads after the 20% fee");
+
+// required questions
+const { missingRequired, preBookingQuestions, DEFAULT_QUESTIONS } = await import("@/lib/booking/questions");
+const qs = DEFAULT_QUESTIONS.map((q) => (q.key === "policy_description" ? { ...q, required: true } : q));
+assert.deepEqual(preBookingQuestions(qs, []).map((q) => q.key), ["existing_coverage", "policy_description"], "a required question brings the question it depends on");
+assert.equal(missingRequired(qs, [], { existing_coverage: "Yes" })?.key, "policy_description");
+assert.equal(missingRequired(qs, [], { existing_coverage: "No" }), null, "hidden by another answer = not required");
+assert.deepEqual(preBookingQuestions(DEFAULT_QUESTIONS, [1]).map((q) => q.key), ["date_of_birth", "gender", "marital_status", "nicotine"]);
+assert.equal(missingRequired(DEFAULT_QUESTIONS, [1], { date_of_birth: "1980-01-01", gender: "Male", marital_status: "Single" })?.key, "nicotine");
+assert.equal(missingRequired(DEFAULT_QUESTIONS.map((q) => ({ ...q, enabled: q.key !== "nicotine" })), [1], { date_of_birth: "1980-01-01", gender: "Male", marital_status: "Single" }), null, "turned-off questions are never required");
+ok("required questions and required steps: asked before booking with what they depend on; hidden or turned-off ones aren't required");
+
+// first week of a campaign collects results: no revisions
+const { checkPauseAd: pauseCheck, checkPlacements: placementCheck } = await import("@/lib/migz/guardrails");
+const early = { ...gctx, revisionsFrom: new Date("2026-10-22T05:00:00Z") };
+assert.match(pauseCheck(early, "a") ?? "", /revisions .* start on 2026-10-22/);
+assert.match(placementCheck(early, "A") ?? "", /first week/);
+assert.equal(placementCheck({ ...gctx, revisionsFrom: new Date("2026-10-19T05:00:00Z") }, "A"), null);
+ok("pauses, budget and placement edits wait for the campaign's first 7 days of results");
+
 console.log(`\nALL ${n} UNIT GROUPS PASSED`);

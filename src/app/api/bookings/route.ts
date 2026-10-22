@@ -1,7 +1,8 @@
 import { after } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { getAgentBySlug, getOpenSlots } from "@/lib/booking/data";
-import { parseBooking } from "@/lib/booking/validate";
+import { getAgentBySlug, getIntakeQuestions, getOpenSlots } from "@/lib/booking/data";
+import { parseAnswers, parseBooking } from "@/lib/booking/validate";
+import { missingRequired, preBookingQuestions, type IntakeAnswers } from "@/lib/booking/questions";
 import { CONSENT_TEXT } from "@/lib/booking/constants";
 import { newBookingMessage } from "@/lib/booking/format";
 import { sendSlackMessage } from "@/lib/slack";
@@ -20,6 +21,20 @@ export async function POST(req: Request) {
   const input = parsed.data;
   const agent = await getAgentBySlug(input.slug);
   if (!agent) return Response.json({ error: "Agent not found." }, { status: 404 });
+
+  // Questions the agent made required are answered before the booking exists, never after
+  const questions = await getIntakeQuestions(agent.id);
+  const requiredSteps = agent.required_intake_steps ?? [];
+  const asked = preBookingQuestions(questions, requiredSteps);
+  let answers: IntakeAnswers = {};
+  if (asked.length) {
+    const parsedAnswers = parseAnswers(body?.answers, asked);
+    if (!parsedAnswers.ok) return Response.json({ error: parsedAnswers.error }, { status: 400 });
+    answers = parsedAnswers.data;
+    const values = Object.fromEntries(Object.entries(answers).map(([k, a]) => [k, a.value]));
+    const missing = missingRequired(asked, requiredSteps, values);
+    if (missing) return Response.json({ error: `Please answer "${missing.label}" to book.` }, { status: 400 });
+  }
 
   // Only accept times that are genuinely open right now (never trust the client's clock or list)
   const open = await getOpenSlots(agent);
@@ -60,6 +75,16 @@ export async function POST(req: Request) {
     return Response.json({ error: "Something went wrong. Please try again." }, { status: 500 });
   }
 
+  // Save the required answers with the booking. If those were the only questions, the intake is done.
+  const moreToAsk = questions.some((q) => q.enabled && !asked.includes(q));
+  if (Object.keys(answers).length) {
+    const now = new Date().toISOString();
+    const { error: intakeError } = await supabaseAdmin
+      .from("intake_responses")
+      .insert({ booking_id: booking.id, answers, submitted_at: now, completed_at: moreToAsk ? null : now });
+    if (intakeError) console.error("required answers insert failed", intakeError);
+  }
+
   if (agent.slack_user_id) {
     after(async () => {
       try {
@@ -70,7 +95,7 @@ export async function POST(req: Request) {
             email: input.email,
             phone: input.phone,
             starts_at: input.startsAt,
-          }),
+          }, { intake: answers, order: questions.map((q) => q.key), moreToAsk }),
         );
       } catch (e) {
         console.error("slack notify failed", e);

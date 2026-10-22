@@ -80,6 +80,7 @@ function QuestionCard({
   onMove,
   canUp,
   canDown,
+  stepRequired,
 }: {
   question: IntakeQuestion;
   all: IntakeQuestion[];
@@ -90,6 +91,7 @@ function QuestionCard({
   onMove: (dir: -1 | 1) => void;
   canUp: boolean;
   canDown: boolean;
+  stepRequired: boolean;
 }) {
   const drag = useDragControls();
   const set = <K extends keyof IntakeQuestion>(k: K, v: IntakeQuestion[K]) => onChange({ ...question, [k]: v });
@@ -121,6 +123,7 @@ function QuestionCard({
           <p className="mt-0.5 flex items-center gap-2 text-[12px] text-fg-faint">
             {KIND_LABELS[question.kind]}
             {question.kind === "choice" && ` · ${question.options.join(", ")}`}
+            {question.enabled && (question.required || stepRequired) && <Badge className="ml-1">Required</Badge>}
             {conditionTarget && (
               <Badge className="ml-1">Hidden if {conditionTarget.label.slice(0, 24)} = {question.hidden_when_value}</Badge>
             )}
@@ -210,6 +213,23 @@ function QuestionCard({
                 </div>
               </div>
 
+              <label className="flex items-start gap-2 text-[13px] text-fg-muted">
+                <Switch
+                  label="Required before booking"
+                  checked={question.required || stepRequired}
+                  disabled={stepRequired}
+                  onChange={(v) => set("required", v)}
+                />
+                <span>
+                  Required before booking
+                  <span className="block text-[12px] text-fg-faint">
+                    {stepRequired
+                      ? "The whole step is required, so this question is too."
+                      : "People answer it before they can confirm their call. If it's hidden by another answer, it's skipped."}
+                  </span>
+                </span>
+              </label>
+
               {question.kind === "choice" && (
                 <div>
                   <Label>Choices</Label>
@@ -287,16 +307,30 @@ function QuestionCard({
   );
 }
 
-export function QuestionsEditor({ initial, usingDefaults }: { initial: IntakeQuestion[]; usingDefaults: boolean }) {
+export function QuestionsEditor({
+  initial,
+  initialRequiredSteps,
+  usingDefaults,
+}: {
+  initial: IntakeQuestion[];
+  initialRequiredSteps: number[];
+  usingDefaults: boolean;
+}) {
   const router = useRouter();
   const [questions, setQuestions] = useState(initial);
   const [saved, setSaved] = useState(initial);
+  const [requiredSteps, setRequiredSteps] = useState(initialRequiredSteps);
+  const [savedSteps, setSavedSteps] = useState(initialRequiredSteps);
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [pending, startTransition] = useTransition();
 
-  const dirty = JSON.stringify(questions) !== JSON.stringify(saved);
+  const dirty =
+    JSON.stringify(questions) !== JSON.stringify(saved) ||
+    JSON.stringify([...requiredSteps].sort()) !== JSON.stringify([...savedSteps].sort());
+  const toggleStep = (step: number, on: boolean) =>
+    setRequiredSteps((cur) => (on ? [...new Set([...cur, step])] : cur.filter((s) => s !== step)));
   const byStep = (step: number) => questions.filter((q) => q.step === step);
 
   const replace = (key: string, next: IntakeQuestion) =>
@@ -339,6 +373,7 @@ export function QuestionsEditor({ initial, usingDefaults }: { initial: IntakeQue
       hidden_when_key: null,
       hidden_when_value: null,
       enabled: true,
+      required: false,
     };
     reorderStep(step, [...byStep(step), q]);
     setOpenKey(q.key);
@@ -354,9 +389,10 @@ export function QuestionsEditor({ initial, usingDefaults }: { initial: IntakeQue
   const save = () =>
     startTransition(async () => {
       setError(null);
-      const res = await saveQuestions(questions);
+      const res = await saveQuestions(questions, requiredSteps);
       if (!res.ok) return setError(res.error);
       setSaved(questions);
+      setSavedSteps(requiredSteps);
       router.refresh();
     });
 
@@ -375,7 +411,8 @@ export function QuestionsEditor({ initial, usingDefaults }: { initial: IntakeQue
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <p className="text-[13px] text-fg-muted">
           {usingDefaults && !dirty ? "You're using the standard questions. " : ""}
-          Turn a question off to stop asking it without deleting it.
+          Turn a question off to stop asking it without deleting it. Required questions are asked before the booking is
+          confirmed; the rest are optional and asked after.
         </p>
         {confirmReset ? (
           <div className="flex items-center gap-2 text-[13px]">
@@ -402,12 +439,23 @@ export function QuestionsEditor({ initial, usingDefaults }: { initial: IntakeQue
           const list = byStep(step);
           return (
             <section key={title}>
-              <div className="mb-3 flex items-baseline justify-between">
+              <div className="mb-3 flex items-center justify-between gap-3">
                 <h2 className="text-sm font-semibold">
                   <span className="mr-2 text-fg-faint">Step {step}</span>
                   {title}
                 </h2>
-                {list.every((q) => !q.enabled) && <span className="text-[12px] text-fg-faint">Skipped. Nothing to ask</span>}
+                {list.every((q) => !q.enabled) ? (
+                  <span className="text-[12px] text-fg-faint">Skipped. Nothing to ask</span>
+                ) : (
+                  <label className="flex items-center gap-2 text-[12px] text-fg-muted">
+                    Required step
+                    <Switch
+                      label={`Make step ${step} required before booking`}
+                      checked={requiredSteps.includes(step)}
+                      onChange={(v) => toggleStep(step, v)}
+                    />
+                  </label>
+                )}
               </div>
               <Reorder.Group axis="y" values={list} onReorder={(order) => reorderStep(step, order)} className="space-y-2">
                 {list.map((q, idx) => (
@@ -422,6 +470,7 @@ export function QuestionsEditor({ initial, usingDefaults }: { initial: IntakeQue
                     onMove={(dir) => move(step, q.key, dir)}
                     canUp={idx > 0}
                     canDown={idx < list.length - 1}
+                    stepRequired={requiredSteps.includes(step)}
                   />
                 ))}
               </Reorder.Group>
@@ -455,6 +504,7 @@ export function QuestionsEditor({ initial, usingDefaults }: { initial: IntakeQue
                 variant="ghost"
                 onClick={() => {
                   setQuestions(saved);
+                  setRequiredSteps(savedSteps);
                   setError(null);
                 }}
               >

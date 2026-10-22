@@ -38,6 +38,8 @@ export type GuardContext = {
   videosThisRun?: number;
   /** Fewer new creatives than usual this review (e.g. 1 while checking whether generator credits are back). */
   maxGenerations?: number;
+  /** Start of the revision phase (campaign start + 7 days). Before it, no pauses, budget or placement edits. */
+  revisionsFrom?: Date | null;
   /** MIGZ_TEST_MODE: ads are built paused, so launching into a paused ad set is allowed. */
   testMode?: boolean;
   openGenerations: number;
@@ -71,7 +73,16 @@ export function learningReason(adset: AdSetState, now: Date) {
   return null;
 }
 
+/** The plan the agent signed up for: the first 7 days collect results; revisions start after. */
+export function revisionWait(ctx: GuardContext) {
+  if (!ctx.revisionsFrom || ctx.now >= ctx.revisionsFrom) return null;
+  const date = ctx.revisionsFrom.toISOString().slice(0, 10);
+  return `The campaign is still collecting its first week of results; revisions (pausing ads, moving budget, changing placements) start on ${date}. Build and launch creative now, and hold everything else until then.`;
+}
+
 export function checkBudgetChange(ctx: GuardContext, adsetId: string, newCents: number) {
+  const wait = revisionWait(ctx);
+  if (wait) return wait;
   const adset = findAdSet(ctx, adsetId);
   if (!adset) return `No ad set ${adsetId} in this account.`;
   if (!isActive(adset.status)) return `Ad set ${adsetId} is ${adset.status}; budget changes only apply to active ad sets.`;
@@ -91,6 +102,8 @@ export function checkBudgetChange(ctx: GuardContext, adsetId: string, newCents: 
 }
 
 export function checkPauseAd(ctx: GuardContext, adId: string) {
+  const wait = revisionWait(ctx);
+  if (wait) return wait;
   const found = findAd(ctx, adId);
   if (!found) return `No ad ${adId} in this account.`;
   const { adset, ad } = found;
@@ -112,6 +125,8 @@ export function checkResumeAd(ctx: GuardContext, adId: string) {
 }
 
 export function checkPlacements(ctx: GuardContext, adsetId: string) {
+  const wait = revisionWait(ctx);
+  if (wait) return wait;
   const adset = findAdSet(ctx, adsetId);
   if (!adset) return `No ad set ${adsetId} in this account.`;
   const learning = learningReason(adset, ctx.now);
