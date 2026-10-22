@@ -791,6 +791,37 @@ try {
   assert.equal(released!.claimed_at, null, "the claim is released when the run ends");
   ok("three simultaneous advances of one job: one launched it, the others stepped aside, one ad exists, claim released");
 
+  // ===== 8j =====
+  step("8j. Facebook vs Instagram: ads carry the placement, bookings are split by platform, and Migz sees which books cheaper");
+  const creativesPosted = meta.calls.filter((c) => c.method === "POST" && c.path.endsWith("/adcreatives"));
+  assert.ok(creativesPosted.length && creativesPosted.every((c) => String(c.body.url_tags).includes("utm_term={{placement}}")), "every ad link carries Meta's placement macro");
+  const platformAd = carouselAds[0];
+  const todayPl = DTB.now().setZone("America/Chicago").toISODate()!;
+  await db.from("ad_placement_daily").insert([
+    { agent_id: AGENT_ID, meta_ad_id: platformAd, date: todayPl, publisher_platform: "facebook", platform_position: "feed", spend_cents: 10_000, impressions: 5000, link_clicks: 40 },
+    { agent_id: AGENT_ID, meta_ad_id: platformAd, date: todayPl, publisher_platform: "instagram", platform_position: "instagram_reels", spend_cents: 10_000, impressions: 6000, link_clicks: 70 },
+  ]);
+  const terms = [...Array(8).fill("Instagram_Reels"), "Facebook_Mobile_Feed", null];
+  for (const [i, term] of terms.entries()) {
+    const at = new Date(Date.now() + (3 + i) * 86_400_000);
+    const { data: b } = await db.from("bookings").insert({ agent_id: AGENT_ID, starts_at: at.toISOString(), ends_at: new Date(at.getTime() + 1_800_000).toISOString(), name: "E2E Platform", email: "e2e-platform@example.com", phone: "+15555550113", consent_text: "test", attribution: { utm_source: "meta", utm_content: platformAd, ...(term ? { utm_term: term } : {}) } }).select("id").single();
+    testBookingIds.push(b!.id);
+  }
+  const snapPl = await buildSnapshot((await getAgent()) as never);
+  const setWithAd = snapPl.forModel.campaigns.flatMap((c) => c.ad_sets).find((x) => (x.ads as { ad_id: string }[]).some((a) => a.ad_id === platformAd))!;
+  const byPlatform = setWithAd.results_by_platform_last_14_days as { instagram: { booked_calls: number; cost_per_booked_call: string }; facebook: { booked_calls: number; cost_per_booked_call: string }; booked_calls_without_a_placement?: number; focus: string };
+  assert.deepEqual([byPlatform.instagram.booked_calls, byPlatform.instagram.cost_per_booked_call], [8, "$12.50"]);
+  assert.deepEqual([byPlatform.facebook.booked_calls, byPlatform.facebook.cost_per_booked_call], [1, "$100.00"]);
+  assert.equal(byPlatform.booked_calls_without_a_placement, 1, "a booking from an older link is counted as untracked, not guessed");
+  assert.match(byPlatform.focus, /instagram books calls clearly cheaper/);
+  assert.equal((snapPl.forModel.platform_split_last_14_days as { instagram: { booked_calls: number } }).instagram.booked_calls, 8);
+  const ctxPl = await buildEvalContext((await getAgent()) as never, snapPl);
+  const guardSet = ctxPl.adsets.find((x) => x.meta_adset_id === setWithAd.adset_id)!;
+  const { checkPlatformFocus: focusCheck } = await import("@/lib/migz/platforms");
+  assert.equal(focusCheck(guardSet.platforms, ["instagram_feed", "instagram_reels", "instagram_stories"]), null, "the guardrail sees the same numbers and allows an Instagram focus");
+  assert.match(focusCheck(guardSet.platforms, ["facebook_feed", "facebook_reels"]) ?? "", /Not enough evidence to drop instagram/, "but not a Facebook focus");
+  ok("ad links carry the placement; 8 Instagram vs 1 Facebook booking at $12.50 vs $100 each; Migz and the guardrail both see Instagram as the cheaper platform");
+
   // ===== 9 =====
   step("9. Slack: morning digest section, and failure alerts to staff (once per distinct error)");
   const { migzDigestSection } = await import("@/lib/migz/slack");

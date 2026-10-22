@@ -338,6 +338,25 @@ assert.match(setupMsg.text, /Your \$280 campaign batch is set up/); assert.match
 assert.match(sb.batchEndedMessage({ budgetCents: 28_000, spentCents: 25_000, bookedCalls: 10, dashboardUrl: "u" }).text, /10 booked calls from \$250/);
 ok("Slack: ad-live preview (page, copy, both carousel cards, Book now), escaped copy, review summary with approvals link, batch set up / ended; silent when nothing happened");
 
+// Facebook vs Instagram: focus only on clear booked-call evidence
+const { platformOf, checkPlatformFocus, strongerPlatform } = await import("@/lib/migz/platforms");
+assert.deepEqual(["Instagram_Reels", "Facebook_Mobile_Feed", "instagram", "facebook", "Messenger_Inbox", undefined].map(platformOf), ["instagram", "facebook", "instagram", "facebook", null, null]);
+const st = (fbSpend: number, fbCalls: number, igSpend: number, igCalls: number) => ({ facebook: { spendCents: fbSpend, impressions: 0, linkClicks: 0, bookedCalls: fbCalls }, instagram: { spendCents: igSpend, impressions: 0, linkClicks: 0, bookedCalls: igCalls } });
+const igOnly = ["instagram_feed", "instagram_reels", "instagram_stories"];
+assert.equal(checkPlatformFocus(st(10_000, 2, 10_000, 8), igOnly), null, "IG: 8 calls at $12.50 vs FB $50: focus allowed");
+assert.equal(strongerPlatform(st(10_000, 2, 10_000, 8)), "instagram");
+assert.match(checkPlatformFocus(st(10_000, 2, 6_000, 4), igOnly) ?? "", /needs at least 5/, "too few calls on the kept side");
+assert.match(checkPlatformFocus(st(3_000, 0, 10_000, 8), igOnly) ?? "", /at least \$40\.00 of spend/, "the other side barely ran");
+assert.match(checkPlatformFocus(st(10_000, 7, 9_000, 8), igOnly) ?? "", /25% cheaper/, "$11.25 vs $14.29 isn't a clear win");
+assert.equal(checkPlatformFocus(st(10_000, 0, 10_000, 8), igOnly), null, "FB $100 with no bookings vs IG $12.50 each: allowed");
+assert.equal(checkPlatformFocus(st(0, 0, 0, 0), []), null, "back to automatic is always allowed");
+assert.equal(checkPlatformFocus(st(0, 0, 0, 0), ["facebook_reels", "instagram_reels"]), null, "narrowing positions on both platforms isn't a platform focus");
+const { checkPlacements: placementGuard } = await import("@/lib/migz/guardrails");
+const focusCtx = { ...gctx, adsets: [{ ...gctx.adsets[0], platforms: st(10_000, 7, 9_000, 8) }] };
+assert.match(placementGuard(focusCtx, "A", igOnly) ?? "", /Not enough evidence to drop facebook/);
+assert.equal(placementGuard({ ...gctx, adsets: [{ ...gctx.adsets[0], platforms: st(10_000, 1, 10_000, 9) }] }, "A", igOnly), null);
+ok("platforms: Instagram/Facebook from Meta's placement tags; dropping one needs 5+ calls, $40 each side and 25% cheaper calls; automatic and both-platform narrowing stay allowed");
+
 // Stripe keys: live keys only ever on Vercel Production
 const { stripeKey } = await import("@/lib/stripe");
 const keyEnv = { main: process.env.STRIPE_SECRET_KEY, test: process.env.STRIPE_TEST_SECRET_KEY, vercel: process.env.VERCEL_ENV };

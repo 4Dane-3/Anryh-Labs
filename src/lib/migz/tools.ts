@@ -84,7 +84,7 @@ export const MIGZ_TOOLS: Anthropic.Beta.BetaTool[] = [
   tool("resume_ad", "Turn a paused ad back on.", {
     ad_id: { type: "string" },
   }),
-  tool("set_placements", "Set where an ad set's ads appear. An empty list means automatic (Advantage+) placements, usually the best default. Not allowed while learning.", {
+  tool("set_placements", "Set where an ad set's ads appear. An empty list means automatic (Advantage+) placements, usually the best default. Not allowed while learning. Keeping only Facebook or only Instagram needs that platform to book calls clearly cheaper (see results_by_platform_last_14_days); the system checks.", {
     adset_id: { type: "string" },
     placements: { type: "array", items: { type: "string", enum: PLACEMENTS } },
   }),
@@ -300,7 +300,7 @@ export function evaluate(name: string, raw: unknown, ctx: EvalContext): Evaluate
       const placements = (Array.isArray(input.placements) ? input.placements : []).filter((p): p is Placement =>
         PLACEMENTS.includes(p as Placement),
       );
-      const err = checkPlacements(ctx, adsetId);
+      const err = checkPlacements(ctx, adsetId, placements);
       return err ? fail(err) : done({ tool: "set_placements", adset_id: adsetId, placements: [...new Set(placements)] });
     }
     case "generate_video": {
@@ -454,7 +454,7 @@ export function recheck(payload: ActionPayload, ctx: EvalContext): string | null
     case "resume_ad":
       return checkResumeAd(ctx, payload.ad_id);
     case "set_placements":
-      return checkPlacements(ctx, payload.adset_id);
+      return checkPlacements(ctx, payload.adset_id, payload.placements);
     case "generate_video":
     case "generate_image":
     case "generate_carousel":
