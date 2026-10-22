@@ -650,6 +650,11 @@ try {
   const { data: mpCampaign } = await db.from("ad_campaigns").select("id, ad_sets(meta_adset_id)").eq("agent_id", AGENT_ID).eq("topic", "mortgage_protection").single();
   const mpSet = (mpCampaign!.ad_sets as { meta_adset_id: string }[])[0].meta_adset_id;
   const endsOn = todayCT.plus({ days: 13 }).toISODate()!;
+  // Spend earlier steps logged for today would count toward a batch that starts today; start it clean
+  await db.from("ad_insights_daily").delete().eq("agent_id", AGENT_ID).gte("date", todayCT.toISODate()!);
+  const beforeToday = (r: Record<string, unknown>) => String(r.date_start) < todayCT.toISODate()!;
+  meta.insights = meta.insights.filter(beforeToday); // the simulated Meta would otherwise re-send them
+  meta.placements = meta.placements.filter(beforeToday);
   const { data: batchRow, error: batchError } = await db.from("campaign_batches").insert({ agent_id: AGENT_ID, status: "active", budget_cents: 28_000, option: "focused", campaigns: ["mortgage_protection"], days: 14, daily_cents: 2000, starts_on: todayCT.toISODate(), ends_on: endsOn, reason: "e2e" }).select("id").single();
   if (batchError) throw batchError;
   await db.from("agents").update({ daily_budget_cents: 2000, campaign_started_on: todayCT.toISODate(), campaign_ends_on: endsOn, migz_mode: "auto", migz_last_run_at: null }).eq("id", AGENT_ID);
@@ -696,6 +701,30 @@ try {
   assert.equal(stillOpen!.length, 0, "every step closed once the work was done");
   const { data: built } = await db.from("migz_events").select("summary").eq("agent_id", AGENT_ID).like("summary", "Carousel built in Meta%");
   assert.equal(built!.length, 1);
+  // Meta was told to stop the batch's ad set itself at the end of its last day
+  const endTimes = meta.calls.filter((c) => c.method === "POST" && c.path === mpSet && c.body.end_time).map((c) => String(c.body.end_time));
+  assert.ok(endTimes.some((t) => t.startsWith(`${endsOn}T23:59:59`)), JSON.stringify(endTimes));
+  // Spend runs ahead ($200 of $280 by day 1): Migz paces the budget down so Meta's 25% swings can't go over
+  await db.from("ad_insights_daily").insert({ agent_id: AGENT_ID, meta_ad_id: carouselAds[0], date: todayCT.toISODate(), spend_cents: 20_000, impressions: 1000, clicks: 10 });
+  await db.from("agents").update({ migz_last_run_at: null }).eq("id", AGENT_ID);
+  operatorScript = (p) => {
+    assert.match(JSON.stringify(p.messages), /batch_pacing/);
+    return { content: [text("Held.")] };
+  };
+  assert.equal((await run("manual")).status, "succeeded");
+  const { data: pacedSet } = await db.from("ad_sets").select("daily_budget_cents").eq("meta_adset_id", mpSet).single();
+  assert.equal(pacedSet!.daily_budget_cents, Math.floor(8000 / 14), "$80 left over 14 days: $5.71/day");
+  const { data: paceLog } = await db.from("ad_actions").select("title, detail").eq("agent_id", AGENT_ID).eq("tool", "system_pace").order("created_at", { ascending: false }).limit(1).single();
+  assert.equal(paceLog!.title, "Paced your batch to stay within $280.00"); assert.match(paceLog!.detail, /25% over/);
+  // Spend reaches the budget: ads pause early rather than go over, with no model call
+  await db.from("ad_insights_daily").update({ spend_cents: 27_800 }).eq("meta_ad_id", carouselAds[0]).eq("date", todayCT.toISODate());
+  await db.from("agents").update({ migz_last_run_at: null }).eq("id", AGENT_ID);
+  modelAllowed = false;
+  assert.equal((await run("manual")).status, "paused");
+  modelAllowed = true;
+  const { data: usedLog } = await db.from("ad_actions").select("title").eq("agent_id", AGENT_ID).eq("tool", "system_pause").order("created_at", { ascending: false }).limit(1).single();
+  assert.equal(usedLog!.title, "Your batch budget is used up");
+
   // The batch's last day passes: ads pause and the batch is closed with what it did
   const yesterday = todayCT.minus({ days: 1 }).toISODate()!;
   await db.from("campaign_batches").update({ ends_on: yesterday }).eq("id", batchRow!.id);
@@ -707,7 +736,7 @@ try {
   const { data: endedBatch } = await db.from("campaign_batches").select("status, result").eq("id", batchRow!.id).single();
   assert.equal(endedBatch!.status, "ended"); assert.ok(endedBatch!.result && typeof (endedBatch!.result as { spent_cents: number }).spent_cents === "number");
   await db.from("agents").update({ campaign_ends_on: null, campaign_started_on: null, migz_last_run_at: null }).eq("id", AGENT_ID);
-  ok("batch applied (1 campaign kept at $20/day, 3 retired), 2-card carousel built through Higgsfield and Meta with live Brain steps, batch closed with results");
+  ok("batch applied (1 campaign kept at $20/day, 3 retired, Meta end time set), 2-card carousel built with live Brain steps, spend paced down then paused at the budget, batch closed with results");
 
   // ===== 8h =====
   step("8h. The agent changes their licensed states: ads re-target in Meta right away; with no states left, ads pause");

@@ -2,7 +2,8 @@ import "server-only";
 import { DateTime } from "luxon";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
-import { createAdSet, createCampaign, getAdSet, setDailyBudget, setStates, setStatus, stateRegionKeys } from "@/lib/meta/ads";
+import { createAdSet, createCampaign, getAdSet, setDailyBudget, setEndTime, setStates, setStatus, stateRegionKeys } from "@/lib/meta/ads";
+import { batchEndTime, pacedDailyCents } from "@/lib/batch";
 import { isCarouselBrief, isVideoBrief, type AnyBrief, type CreativeBrief } from "@/lib/migz/brief";
 import { buildSnapshot, type Snapshot } from "@/lib/migz/snapshot";
 import { syncAgent } from "@/lib/migz/sync";
@@ -99,11 +100,11 @@ export async function buildEvalContext(agent: Agent, snapshot: Snapshot): Promis
  * Safety switch that runs before any AI decision: pause every ad set if the agent paused ads or the
  * balance can't cover a day of spend; resume what this switch paused once that's fixed.
  */
-async function enforceSpendState(agent: Agent, snapshot: Snapshot, runId: string) {
+async function enforceSpendState(agent: Agent, snapshot: Snapshot, runId: string, budgetUsed = false) {
   const active = snapshot.guardAdsets.filter((a) => a.status === "ACTIVE");
   const lowBalance = snapshot.balanceCents < agent.daily_budget_cents;
-  // The agent chose how long the campaign runs; after its last day, ads stop
-  const ended = campaignEnded(agent.campaign_ends_on, agent.timezone);
+  // The agent chose how long the campaign runs; after its last day (or once its budget is spent), ads stop
+  const ended = campaignEnded(agent.campaign_ends_on, agent.timezone) || budgetUsed;
 
   if ((agent.ads_paused || lowBalance || ended) && active.length) {
     await metaStep({ agentId: agent.id, runId, summary: "Pausing your ad sets" }, async () => {
@@ -115,10 +116,12 @@ async function enforceSpendState(agent: Agent, snapshot: Snapshot, runId: string
       .in("meta_adset_id", active.map((a) => a.meta_adset_id));
     await logAction(agent.id, {
       kind: "pause",
-      title: agent.ads_paused ? "Paused your ads" : ended ? "Your campaign batch has ended" : "Paused ads: balance is low",
+      title: agent.ads_paused ? "Paused your ads" : budgetUsed ? "Your batch budget is used up" : ended ? "Your campaign batch has ended" : "Paused ads: balance is low",
       detail: agent.ads_paused
         ? "You turned ads off. They'll stay paused until you turn them back on."
-        : ended
+        : budgetUsed
+          ? "This batch has spent its budget, so Migz paused your ads a little early rather than go over. Anything left stays in your balance for the next batch."
+          : ended
           ? `Your campaign batch ran until ${agent.campaign_ends_on}, so Migz paused your ads. To keep going, start your next batch from the Overview.`
           : `Your balance ($${(snapshot.balanceCents / 100).toFixed(2)}) can't cover a day at $${(agent.daily_budget_cents / 100).toFixed(2)}/day. Add funds to resume.`,
       status: "applied",
@@ -253,6 +256,8 @@ async function syncCampaignPlan(agent: Agent, runId: string, batch: Batch | null
   const kept = applying ? claimed.length : (existing ?? []).filter((c) => !c.retired_at).length;
   const budget = Math.max(MIN_ADSET_BUDGET_CENTS, perCampaignCents(agent.daily_budget_cents, kept + missing.length));
   const campaignStatus = isTestMode() ? "PAUSED" : "ACTIVE";
+  // Meta stops delivery itself at the end of the batch's last day, even if our reviews stop running
+  const endTime = batch?.ends_on ? batchEndTime(batch.ends_on, agent.timezone) : null;
   const adsetName = `${agent.licensed_states.join(", ")} · adults 18+`;
   const now = () => new Date().toISOString();
 
@@ -271,8 +276,14 @@ async function syncCampaignPlan(agent: Agent, runId: string, batch: Batch | null
     // Campaigns the plan keeps get their share of the daily spend
     const keptIds = applying ? claimed.map((c) => c.id) : (existing ?? []).filter((c) => !c.retired_at).map((c) => c.id);
     if (keptIds.length) {
-      const { data: sets } = await supabaseAdmin.from("ad_sets").select("id, meta_adset_id, daily_budget_cents").in("campaign_id", keptIds).neq("status", "DELETED");
+      const { data: sets } = await supabaseAdmin.from("ad_sets").select("id, meta_adset_id, daily_budget_cents, status").in("campaign_id", keptIds).neq("status", "DELETED");
       for (const set of sets ?? []) {
+        if (applying && endTime) await setEndTime(set.meta_adset_id, endTime);
+        // A new batch brings back ad sets the last one paced off (the agent's own pause still wins)
+        if (applying && set.status === "PAUSED" && !agent.ads_paused) {
+          await setStatus(set.meta_adset_id, "ACTIVE");
+          await supabaseAdmin.from("ad_sets").update({ status: "ACTIVE", updated_at: now() }).eq("id", set.id);
+        }
         if (set.daily_budget_cents === budget) continue;
         await setDailyBudget(set.meta_adset_id, budget);
         await supabaseAdmin.from("ad_sets").update({ daily_budget_cents: budget, last_edited_at: now(), updated_at: now() }).eq("id", set.id);
@@ -291,6 +302,7 @@ async function syncCampaignPlan(agent: Agent, runId: string, batch: Batch | null
         states: agent.licensed_states,
         placements: [],
         status: "ACTIVE",
+        endTime,
       });
       const { data: campaign } = await supabaseAdmin
         .from("ad_campaigns")
@@ -322,6 +334,73 @@ async function syncCampaignPlan(agent: Agent, runId: string, batch: Batch | null
       : `${made.join(", ")}. Each targets adults in ${agent.licensed_states.join(", ")} at ${perDay}, optimized for booked calls${existing?.length ? `; your other campaigns moved to ${perDay} so the total stays within your daily budget` : ""}. Ads go live as creatives are approved.`,
     status: "applied",
     tool: "system_setup",
+    run_id: runId,
+  });
+  return true;
+}
+
+type Pacing = { budgetCents: number; spentCents: number; daysLeft: number; dailyCapCents: number; budgetUsed: boolean };
+
+/** How the active batch is spending against its budget, and the daily cap that keeps it inside (pacedDailyCents). */
+export async function batchPacing(agent: Agent, batch: Batch | null): Promise<Pacing | null> {
+  if (!batch?.starts_on || !batch.ends_on) return null;
+  const { data } = await supabaseAdmin
+    .from("ad_insights_daily")
+    .select("spend_cents")
+    .eq("agent_id", agent.id)
+    .gte("date", batch.starts_on)
+    .lte("date", batch.ends_on);
+  const spentCents = (data ?? []).reduce((s, r) => s + r.spend_cents, 0);
+  const today = DateTime.now().setZone(agent.timezone).startOf("day");
+  const daysLeft = Math.max(0, Math.round(DateTime.fromISO(batch.ends_on, { zone: agent.timezone }).diff(today, "days").days) + 1);
+  const dailyCapCents = pacedDailyCents({ budgetCents: batch.budget_cents, spentCents, daysLeft, plannedDailyCents: batch.daily_cents });
+  // Below one ad set's minimum there's nothing sensible left to run: the budget is used up
+  return { budgetCents: batch.budget_cents, spentCents, daysLeft, dailyCapCents, budgetUsed: dailyCapCents < MIN_ADSET_BUDGET_CENTS };
+}
+
+/**
+ * Brings the live ad sets' daily budgets down to the paced cap when they're above it, keeping Migz's
+ * split between them. If the cap can't give every ad set the $5 minimum, the smallest are paused.
+ * Only ever lowers budgets: an underspent batch just leaves money in the balance.
+ */
+async function paceBudgets(agent: Agent, runId: string, pacing: Pacing) {
+  const { data } = await supabaseAdmin
+    .from("ad_sets")
+    .select("id, meta_adset_id, daily_budget_cents, ad_campaigns!inner(retired_at)")
+    .eq("agent_id", agent.id)
+    .eq("status", "ACTIVE")
+    .is("ad_campaigns.retired_at", null);
+  const live = data ?? [];
+  const total = live.reduce((s, x) => s + x.daily_budget_cents, 0);
+  if (!live.length || total <= pacing.dailyCapCents) return false;
+
+  const keep = Math.max(1, Math.min(live.length, Math.floor(pacing.dailyCapCents / MIN_ADSET_BUDGET_CENTS)));
+  const ranked = [...live].sort((a, b) => b.daily_budget_cents - a.daily_budget_cents);
+  const kept = ranked.slice(0, keep);
+  const dropped = ranked.slice(keep);
+  const keptTotal = kept.reduce((s, x) => s + x.daily_budget_cents, 0);
+  const next = kept.map((x) => ({ ...x, cents: Math.max(MIN_ADSET_BUDGET_CENTS, Math.floor((x.daily_budget_cents * pacing.dailyCapCents) / keptTotal)) }));
+  const now = new Date().toISOString();
+
+  await metaStep({ agentId: agent.id, runId, summary: "Pacing your batch so it can't go over budget" }, async () => {
+    for (const x of next) {
+      if (x.cents === x.daily_budget_cents) continue;
+      await setDailyBudget(x.meta_adset_id, x.cents);
+      await supabaseAdmin.from("ad_sets").update({ daily_budget_cents: x.cents, last_edited_at: now, updated_at: now }).eq("id", x.id);
+    }
+    for (const x of dropped) {
+      await setStatus(x.meta_adset_id, "PAUSED");
+      await supabaseAdmin.from("ad_sets").update({ status: "PAUSED", updated_at: now }).eq("id", x.id);
+    }
+  });
+  const usd = (c: number) => `$${(c / 100).toFixed(2)}`;
+  await logAction(agent.id, {
+    kind: "budget",
+    title: `Paced your batch to stay within ${usd(pacing.budgetCents)}`,
+    detail: `${usd(pacing.spentCents)} spent with ${pacing.daysLeft} day${pacing.daysLeft === 1 ? "" : "s"} left. Meta can spend up to 25% over a daily budget on any day, so Migz set your campaigns to ${usd(next.reduce((s, x) => s + x.cents, 0))}/day in total${dropped.length ? ` and paused ${dropped.length} smaller ad set${dropped.length === 1 ? "" : "s"}` : ""}. Anything left over stays in your balance.`,
+    status: "applied",
+    tool: "system_pace",
+    payload: { daily_cap_cents: pacing.dailyCapCents, adset_ids: live.map((x) => x.meta_adset_id) },
     run_id: runId,
   });
   return true;
@@ -430,15 +509,18 @@ export async function runMigz(
     }
 
     await syncCampaignSwitch(agent, runId);
-    const spend = await enforceSpendState(agent, snapshot, runId);
+    const batch = await getActiveBatch(agent.id);
+    const pacing = await batchPacing(agent, batch);
+    const spend = await enforceSpendState(agent, snapshot, runId, pacing?.budgetUsed ?? false);
     if (spend === "paused") {
       await finish(runId, agent.id, { summary: "Ads are paused, so Migz made no changes." });
       await emit({ agentId: agent.id, runId, step: "finished", tier: "code", summary: "Ads are paused, so Migz made no changes." });
       return { runId, status: "paused" as const };
     }
 
-    if (await syncCampaignPlan(agent, runId, await getActiveBatch(agent.id))) snapshot = await buildSnapshot(agent);
+    if (await syncCampaignPlan(agent, runId, batch)) snapshot = await buildSnapshot(agent);
     if (await syncTargeting(agent, runId)) snapshot = await buildSnapshot(agent);
+    if (pacing && (await paceBudgets(agent, runId, pacing))) snapshot = await buildSnapshot(agent);
 
     const budget = await monthlyBudget(agent.id, agent.migz_model_budget_cents ?? 3000);
     const team = { runId, budget, createMessage };
@@ -449,6 +531,17 @@ export async function runMigz(
 
     // Phase extensions (experiments, vision, routines) add context and reasons to run
     const teamContext: Record<string, unknown> = {
+      ...(pacing
+        ? {
+            batch_pacing: {
+              budget: `$${(pacing.budgetCents / 100).toFixed(2)}`,
+              spent_so_far: `$${(pacing.spentCents / 100).toFixed(2)}`,
+              days_left: pacing.daysLeft,
+              most_all_campaigns_may_spend_per_day_now: `$${(pacing.dailyCapCents / 100).toFixed(2)}`,
+              why: "Meta can spend up to 25% over a daily budget on any day. The system paces budgets (harder in the last 7 days) so the batch can't finish over budget, and refuses budget changes above this cap.",
+            },
+          }
+        : {}),
       open_audit_findings: audited.findings.slice(0, 10).map((f) => ({ check: f.check, severity: f.severity, summary: f.summary })),
       model_budget_this_month: `$${budget.spentUsd.toFixed(2)} of $${budget.limitUsd.toFixed(2)}`,
     };
@@ -495,6 +588,8 @@ export async function runMigz(
     }
 
     const ctx = await buildEvalContext(agent, snapshot);
+    // Budget changes can never take the batch's campaigns above the paced cap
+    if (pacing) ctx.dailyCapCents = Math.min(ctx.dailyCapCents, pacing.dailyCapCents);
     const result = await runOperator({ agent, snapshot, runId, budget, createMessage, ctx }, extraTools, { teamContext, reasons });
     const summary = result.summary ? await writeFeed(result.summary, { agentId: agent.id, runId, budget, createMessage }) : "";
 

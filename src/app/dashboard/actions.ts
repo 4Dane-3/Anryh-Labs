@@ -5,7 +5,7 @@ import { after } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { isAnryhAdmin, requireAgent } from "@/lib/auth";
 import { integrations, migzReadyFor } from "@/lib/integrations";
-import { buildEvalContext, retargetNow, runMigz } from "@/lib/migz/agent";
+import { batchPacing, buildEvalContext, retargetNow, runMigz } from "@/lib/migz/agent";
 import { applyPayload } from "@/lib/migz/executor";
 import { buildSnapshot } from "@/lib/migz/snapshot";
 import { syncAgent } from "@/lib/migz/sync";
@@ -14,7 +14,7 @@ import { traitSwipe } from "@/lib/migz/team/scout";
 import { cleanFocus, type TopicKey } from "@/lib/migz/topics";
 import { endDate, MAX_DEPOSIT_CENTS, MIN_DEPOSIT_CENTS } from "@/lib/campaign";
 import { batchOptions, bestTopic, findOption, MIN_BATCH_CENTS, outcomeEstimate, type BatchOption, type BatchOptionKey } from "@/lib/batch";
-import { closeEndedBatch, getBatchHistory, getOpenBatch, recommendWithMigz } from "@/lib/dashboard/batches";
+import { closeEndedBatch, getActiveBatch, getBatchHistory, getOpenBatch, recommendWithMigz } from "@/lib/dashboard/batches";
 import { getBalanceCents } from "@/lib/dashboard/queries";
 import { checkoutReturnBase, createDepositCheckout } from "@/lib/stripe";
 import { setupBlockers } from "@/lib/dashboard/setup";
@@ -455,6 +455,9 @@ export async function decideMigzAction(actionId: string, decision: "approve" | "
   await syncAgent(agent);
   const snapshot = await buildSnapshot(agent);
   const ctx = await buildEvalContext(agent, snapshot);
+  // Same paced cap as the review: approving a budget change can't take the batch over budget either
+  const pacing = await batchPacing(agent, await getActiveBatch(agent.id));
+  if (pacing) ctx.dailyCapCents = Math.min(ctx.dailyCapCents, pacing.dailyCapCents);
   const payload = action.payload as ActionPayload;
   const blocked = recheck(payload, ctx);
   if (blocked) {

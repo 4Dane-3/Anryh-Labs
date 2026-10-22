@@ -5,6 +5,7 @@ import {
   MIN_AD_BALANCE_CENTS,
   TEST_DAYS,
 } from "@/lib/campaign";
+import { DateTime } from "luxon";
 import { TOPICS, type TopicKey } from "@/lib/migz/topics";
 
 // Campaign batches: the agent says how much to put in, Migz lays out ways to spend it. Pure helpers
@@ -145,4 +146,33 @@ export function outcomeEstimate(budgetCents: number, history: BatchHistory) {
 /** Re-derives the option the agent picked, so the server never trusts the client's numbers. */
 export function findOption(budgetCents: number, focus: TopicKey[], key: string, best: TopicKey | null = null) {
   return batchOptions(budgetCents, focus, best).find((o) => o.key === key) ?? null;
+}
+
+// ---------- Staying inside the batch ----------
+
+/**
+ * Meta may spend up to 25% more than an ad set's daily budget on a given day, evening it out over the
+ * week. Mid-batch that averages away; in the last week there's no time left to even out, so a batch
+ * paced at exactly budget/days could finish over. Migz plans for it (pacedDailyCents) and Meta stops
+ * delivery itself at the batch's end time (batchEndTime).
+ */
+export const META_DAILY_FLEX = 0.25;
+export const FINAL_STRETCH_DAYS = 7;
+
+/**
+ * The most the batch's campaigns may be set to spend per day right now so the batch can't go over its
+ * budget even if Meta runs 25% hot. Never above the plan. 0 means the budget is used up: stop.
+ * - Before the last week: what's left spread evenly (Meta's weekly averaging keeps spend near this).
+ * - In the last week: what's left assuming every remaining day runs 25% over.
+ */
+export function pacedDailyCents(input: { budgetCents: number; spentCents: number; daysLeft: number; plannedDailyCents: number }) {
+  const remaining = input.budgetCents - input.spentCents;
+  if (remaining <= 0 || input.daysLeft <= 0) return 0;
+  const flex = input.daysLeft <= FINAL_STRETCH_DAYS ? 1 + META_DAILY_FLEX : 1;
+  return Math.max(0, Math.min(input.plannedDailyCents, Math.floor(remaining / (input.daysLeft * flex))));
+}
+
+/** The moment Meta should stop delivering: the end of the batch's last day, in the agent's timezone. */
+export function batchEndTime(endsOn: string, timezone: string) {
+  return DateTime.fromISO(endsOn, { zone: timezone }).endOf("day").set({ millisecond: 0 }).toISO({ suppressMilliseconds: true })!;
 }
