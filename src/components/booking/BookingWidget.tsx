@@ -96,6 +96,8 @@ export function BookingWidget({
   }
 
   useEffect(() => {
+    // State is only set once the fetch resolves, never synchronously in the effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadSlots();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug]);

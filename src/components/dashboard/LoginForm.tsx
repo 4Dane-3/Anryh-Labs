@@ -22,6 +22,8 @@ export function LoginForm({ linkError, noAccount = false }: { linkError: boolean
   async function signOut() {
     setSigningOut(true);
     await createSupabaseBrowser().auth.signOut();
+    // A full reload on purpose: nothing from the signed-in session survives in memory
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
     window.location.href = "/login";
   }
 
