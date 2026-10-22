@@ -101,6 +101,8 @@ export async function createAdSet(
     states: string[];
     placements: Placement[];
     status: "ACTIVE" | "PAUSED";
+    /** ISO time Meta stops delivery by itself (the batch's last day), so spend ends even if we're down. */
+    endTime?: string | null;
   },
 ) {
   const regions = await stateRegionKeys(input.states);
@@ -123,8 +125,14 @@ export async function createAdSet(
       ...placementTargeting(input.placements),
     },
     status: input.status,
+    ...(input.endTime ? { end_time: input.endTime } : {}),
   });
   return res.id;
+}
+
+/** Sets when Meta stops delivering an ad set. Moving it later restarts a completed ad set. */
+export async function setEndTime(adsetId: string, endTime: string) {
+  await graph("POST", adsetId, { end_time: endTime });
 }
 
 export async function getAdSet(adsetId: string) {

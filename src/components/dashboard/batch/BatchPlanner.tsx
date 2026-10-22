@@ -172,6 +172,9 @@ export function BatchPlanner({
               <li>
                 <span className="mr-2 font-mono text-[11px] text-brand">3</span>Through day {chosen.days}: it checks whether those changes actually brought more booked calls, and keeps what works.
               </li>
+              <li className="pt-1 text-[12px] text-fg-faint">
+                It never goes over {whole(plannedFor)}. Meta can spend up to 25% over a daily budget on a busy day, so Migz paces the last week to leave room, and the ads stop on day {chosen.days} on their own. Anything left over stays in your balance.
+              </li>
             </ol>
           )}
 
