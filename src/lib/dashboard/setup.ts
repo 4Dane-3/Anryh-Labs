@@ -4,6 +4,7 @@ import type { Agent } from "@/lib/booking/data";
 import { cleanFocus } from "@/lib/migz/topics";
 import { getBalanceCents } from "@/lib/dashboard/queries";
 import { MIN_AD_BALANCE_CENTS, MIN_DEPOSIT_CENTS } from "@/lib/campaign";
+import { getOpenBatch, getRecentBatches, type Batch } from "@/lib/dashboard/batches";
 
 // What "Start here" checks. Each step is done or not, with the reason it isn't, so the page and the
 // launch action agree. Only what's needed to run a first campaign.
@@ -22,16 +23,21 @@ export type SetupState = {
   steps: Step[];
   balanceCents: number;
   creativeCount: number;
+  /** The batch planned in setup (or running), shown on the plan step. */
+  batch: Batch | null;
   canLaunch: boolean;
   completed: boolean;
 };
 
 export async function getSetupState(agent: Agent): Promise<SetupState> {
-  const [balanceCents, hours, creatives] = await Promise.all([
+  const [balanceCents, hours, creatives, openBatch, pastBatches] = await Promise.all([
     getBalanceCents(agent.id),
     supabaseAdmin.from("availability_rules").select("id", { count: "exact", head: true }).eq("agent_id", agent.id),
     supabaseAdmin.from("creatives").select("id", { count: "exact", head: true }).eq("agent_id", agent.id).in("status", ["submitted", "in_review", "live"]).eq("source", "upload"),
+    getOpenBatch(agent.id),
+    getRecentBatches(agent.id, 1),
   ]);
+  const batch = openBatch ?? pastBatches[0] ?? null;
   const creativeCount = creatives.count ?? 0;
 
   const profileMissing = !agent.full_name || agent.full_name.trim().length < 2
@@ -48,8 +54,8 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
       : null;
   const planMissing = !cleanFocus(agent.ad_focus).length
     ? "Choose what you want to promote."
-    : agent.campaign_days === null || agent.campaign_days === undefined
-      ? "Choose how long the campaign should run."
+    : !batch
+      ? "Choose how much to put into your first batch, and how Migz should spend it."
       : null;
   const mode = agent.creative_mode ?? null;
   const creativesMissing = !mode
@@ -69,6 +75,7 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
     steps,
     balanceCents,
     creativeCount,
+    batch,
     canLaunch: steps.every((s) => s.done || !s.required),
     completed: !!agent.onboarding_completed_at,
   };

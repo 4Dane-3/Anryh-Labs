@@ -3,6 +3,7 @@ import { DateTime } from "luxon";
 import { requireAgent } from "@/lib/auth";
 import { integrations } from "@/lib/integrations";
 import { getBalanceCents, getTransactions } from "@/lib/dashboard/queries";
+import { getActiveBatch } from "@/lib/dashboard/batches";
 import { usd } from "@/lib/dashboard/format";
 import { AddFunds, BudgetControls } from "@/components/dashboard/FundsControls";
 import { Badge, EmptyState, NotConnected, PageHeader, Panel, PanelHeader } from "@/components/dashboard/ui";
@@ -18,9 +19,10 @@ const KIND_LABEL: Record<string, string> = {
 
 export default async function FundsPage() {
   const agent = await requireAgent();
-  const [balance, transactions] = await Promise.all([
+  const [balance, transactions, batch] = await Promise.all([
     getBalanceCents(agent.id),
     getTransactions(agent.id),
+    getActiveBatch(agent.id),
   ]);
   const daysLeft = agent.daily_budget_cents > 0 ? Math.floor(balance / agent.daily_budget_cents) : null;
 
@@ -33,7 +35,7 @@ export default async function FundsPage() {
 
       {!agent.onboarding_completed_at && (
         <p className="mb-6 rounded-lg border border-line bg-ink-raised px-4 py-3 text-[13px] text-fg-muted">
-          New here? <Link href="/dashboard/start" className="font-medium text-brand hover:underline">Start here</Link> walks you through funds, your daily budget and how long to run, step by step.
+          New here? <Link href="/dashboard/start" className="font-medium text-brand hover:underline">Start here</Link> walks you through funds and your first campaign batch, step by step.
         </p>
       )}
 
@@ -60,8 +62,12 @@ export default async function FundsPage() {
         </Panel>
 
         <Panel className="lg:col-span-2">
-          <PanelHeader title="Daily budget" description="The most your ads can spend in a day." />
-          <BudgetControls dailyBudgetCents={agent.daily_budget_cents} paused={agent.ads_paused} />
+          <PanelHeader title="Daily spend" description="How much your ads spend in a day during a batch." />
+          <BudgetControls
+            dailyBudgetCents={agent.daily_budget_cents}
+            paused={agent.ads_paused}
+            batchLabel={batch ? `$${(batch.budget_cents / 100).toFixed(0)} batch (until ${batch.ends_on})` : null}
+          />
         </Panel>
       </div>
 

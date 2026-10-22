@@ -643,6 +643,71 @@ try {
   await db.from("agents").update({ campaign_started_on: null }).eq("id", AGENT_ID);
   ok("$40/day over 3 focuses = 4 campaigns (2 on the main focus), $10/day each; the first week refuses revisions");
 
+  // ===== 8g =====
+  step("8g. A campaign batch: Migz sets the account up for it, builds a 2-card carousel (Brain lit while it works), and closes the batch with its results");
+  const { DateTime: DTB } = await import("luxon");
+  const todayCT = DTB.now().setZone("America/Chicago");
+  const { data: mpCampaign } = await db.from("ad_campaigns").select("id, ad_sets(meta_adset_id)").eq("agent_id", AGENT_ID).eq("topic", "mortgage_protection").single();
+  const mpSet = (mpCampaign!.ad_sets as { meta_adset_id: string }[])[0].meta_adset_id;
+  const endsOn = todayCT.plus({ days: 13 }).toISODate()!;
+  const { data: batchRow, error: batchError } = await db.from("campaign_batches").insert({ agent_id: AGENT_ID, status: "active", budget_cents: 28_000, option: "focused", campaigns: ["mortgage_protection"], days: 14, daily_cents: 2000, starts_on: todayCT.toISODate(), ends_on: endsOn, reason: "e2e" }).select("id").single();
+  if (batchError) throw batchError;
+  await db.from("agents").update({ daily_budget_cents: 2000, campaign_started_on: todayCT.toISODate(), campaign_ends_on: endsOn, migz_mode: "auto", migz_last_run_at: null }).eq("id", AGENT_ID);
+  const carousel = { concept: "The house, then the plan", topic: "mortgage_protection", style: "warm natural light, candid lifestyle", primary_text: "Who keeps paying the mortgage if you can't? A free call walks you through your options.", launch_adset_id: mpSet, title: "Built a mortgage-protection carousel", reason: "Two beats: the home, then keeping it.",
+    cards: [{ scene: "A young couple on the porch of their first house, keys in hand", overlay_lines: ["The house is yours."], headline: "Your first home" }, { scene: "The same couple at their kitchen table, relaxed, evening light", overlay_lines: ["Keep it that way."], headline: "Protect it" }] };
+  operatorCalls = 0;
+  operatorScript = (p, call) => {
+    if (call === 1) {
+      const snap = snapshotOf(p);
+      assert.equal(snap.campaigns.length, 1, "only the batch's campaign is in play");
+      assert.match(JSON.stringify(snap.agent.batch), /focused/);
+      assert.ok(p.tools!.find((t) => t.name === "generate_carousel"), "carousels offered");
+      return { advisor: true, content: [...advisorBlocks(), toolUse("generate_carousel", carousel)] };
+    }
+    assert.match(lastToolResults(p)[0].content, /^Done/, lastToolResults(p)[0].content);
+    return { content: [text("Built a carousel.")] };
+  };
+  const adsBeforeBatch = new Set(meta.ads.keys());
+  const batchRun = await run("manual");
+  assert.equal(batchRun.status, "succeeded", JSON.stringify(batchRun));
+  const { data: afterBatch } = await db.from("ad_campaigns").select("topic, retired_at, status").eq("agent_id", AGENT_ID);
+  assert.equal(afterBatch!.filter((c) => !c.retired_at).length, 1);
+  assert.equal(afterBatch!.filter((c) => c.retired_at && c.status === "PAUSED").length, 3, "the 3 campaigns the batch doesn't use are paused and retired");
+  const { data: appliedBatch } = await db.from("campaign_batches").select("applied_at").eq("id", batchRow!.id).single();
+  assert.ok(appliedBatch!.applied_at);
+  const { data: mpSetRow } = await db.from("ad_sets").select("daily_budget_cents").eq("meta_adset_id", mpSet).single();
+  assert.equal(mpSetRow!.daily_budget_cents, 2000, "the batch's one campaign gets its whole $20/day");
+  const { data: batchLog } = await db.from("ad_actions").select("title").eq("agent_id", AGENT_ID).eq("tool", "system_setup").order("created_at", { ascending: false }).limit(1).single();
+  assert.equal(batchLog!.title, "Set up your $280 batch");
+  // Higgsfield is working on both cards: the Brain shows it with an open step, outside any review
+  const { data: openHf } = await db.from("migz_events").select("summary").eq("agent_id", AGENT_ID).eq("tier", "higgsfield").is("finished_at", null);
+  assert.equal(openHf!.length, 1); assert.match(openHf![0].summary, /Making a carousel/);
+  for (const rid of hf.status.keys()) hf.status.set(rid, "completed");
+  await advanceOpenJobs(Date.now() + 60_000);
+  const carouselAds = [...meta.ads.keys()].filter((id) => !adsBeforeBatch.has(id));
+  assert.equal(carouselAds.length, 1, "one carousel ad built");
+  const lastCreative = meta.calls.filter((c) => c.method === "POST" && c.path.endsWith("/adcreatives")).at(-1)!;
+  const spec = JSON.parse(String(lastCreative.body.object_story_spec)) as { link_data: { child_attachments: { name: string; image_hash: string }[] } };
+  assert.deepEqual(spec.link_data.child_attachments.map((c) => c.name), ["Your first home", "Protect it"]);
+  const ideogramCalls = hf.submitted.filter((x) => x.path.includes("ideogram") && x.body.aspect_ratio === "1:1");
+  assert.ok(ideogramCalls.length >= 2, "each card made as a square still");
+  const { data: stillOpen } = await db.from("migz_events").select("id").eq("agent_id", AGENT_ID).is("finished_at", null).gte("started_at", T0);
+  assert.equal(stillOpen!.length, 0, "every step closed once the work was done");
+  const { data: built } = await db.from("migz_events").select("summary").eq("agent_id", AGENT_ID).like("summary", "Carousel built in Meta%");
+  assert.equal(built!.length, 1);
+  // The batch's last day passes: ads pause and the batch is closed with what it did
+  const yesterday = todayCT.minus({ days: 1 }).toISODate()!;
+  await db.from("campaign_batches").update({ ends_on: yesterday }).eq("id", batchRow!.id);
+  await db.from("agents").update({ campaign_ends_on: yesterday, migz_last_run_at: null }).eq("id", AGENT_ID);
+  modelAllowed = false;
+  const endRun = await run("manual");
+  modelAllowed = true;
+  assert.equal(endRun.status, "paused");
+  const { data: endedBatch } = await db.from("campaign_batches").select("status, result").eq("id", batchRow!.id).single();
+  assert.equal(endedBatch!.status, "ended"); assert.ok(endedBatch!.result && typeof (endedBatch!.result as { spent_cents: number }).spent_cents === "number");
+  await db.from("agents").update({ campaign_ends_on: null, campaign_started_on: null, migz_last_run_at: null }).eq("id", AGENT_ID);
+  ok("batch applied (1 campaign kept at $20/day, 3 retired), 2-card carousel built through Higgsfield and Meta with live Brain steps, batch closed with results");
+
   // ===== 9 =====
   step("9. Slack: morning digest section, and failure alerts to staff (once per distinct error)");
   const { migzDigestSection } = await import("@/lib/migz/slack");

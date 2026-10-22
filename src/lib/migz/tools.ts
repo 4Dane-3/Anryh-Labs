@@ -2,12 +2,15 @@ import "server-only";
 import type Anthropic from "@anthropic-ai/sdk";
 import { PLACEMENTS, type Placement } from "@/lib/meta/ads";
 import {
+  CAROUSEL_CARDS,
   HOOK_SECONDS,
   MAX_BUTTON_CHARS,
+  MAX_CARD_LINES,
   MAX_OVERLAY_LINE_CHARS,
   MAX_OVERLAY_LINES,
   MAX_VIDEO_SECONDS,
   textOnImage,
+  type CarouselBrief,
   type CreativeBrief,
   type ImageBrief,
 } from "@/lib/migz/brief";
@@ -152,6 +155,36 @@ export const MIGZ_TOOLS: Anthropic.Beta.BetaTool[] = [
       },
     },
   ),
+  tool(
+    "generate_carousel",
+    `Have Higgsfield make a ${CAROUSEL_CARDS}-card carousel ad: square photos people swipe through, each with 1 to ${MAX_CARD_LINES} short lines of text and its own headline. Use it when a message works better as two beats than one image: a problem then the answer, two sides of one topic, or now versus later. Exactly ${CAROUSEL_CARDS} cards (the most allowed). It counts as one creative and launches straight into an ad set.`,
+    {
+      concept: { type: "string", description: "The idea across both cards in one line, e.g. 'What happens to the mortgage vs. what coverage does'." },
+      topic: {
+        type: "string",
+        enum: [...TOPIC_KEYS, "other"],
+        description: "The advertising topic this creative serves. Use the agent's ad focus unless there's a clear reason not to.",
+      },
+      style: { type: "string", description: "One photographic look for both cards, e.g. 'warm natural light, candid documentary lifestyle'." },
+      cards: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            scene: { type: "string", description: "This card's photo: who, where, doing what, the light. Never a specific real person or the agent; don't mention text here." },
+            overlay_lines: { type: "array", items: { type: "string" }, description: `1 to ${MAX_CARD_LINES} short lines on this card, each under ${MAX_OVERLAY_LINE_CHARS} characters.` },
+            headline: { type: "string", description: "This card's headline under the image, under 40 characters." },
+          },
+          required: ["scene", "overlay_lines", "headline"],
+          additionalProperties: false,
+        },
+        description: `Exactly ${CAROUSEL_CARDS} cards, in swipe order.`,
+      },
+      primary_text: { type: "string", description: "Ad copy above the carousel. Under 300 characters." },
+      launch_adset_id: { type: "string", description: "The ad set to launch it into once both cards are made." },
+    },
+    false,
+  ),
   tool("launch_creative", "Launch a creative from creatives_not_running (agent uploads first: real footage of the agent usually performs best) as a new ad.", {
     creative_id: { type: "string" },
     adset_id: { type: "string" },
@@ -192,6 +225,7 @@ export type ActionPayload =
   | { tool: "set_placements"; adset_id: string; placements: Placement[] }
   | { tool: "generate_video" | "new_hook_variant"; brief: CreativeBrief; launch_adset_id: string | null; parent_creative_id: string | null }
   | { tool: "generate_image"; brief: ImageBrief; launch_adset_id: string | null; parent_creative_id: null }
+  | { tool: "generate_carousel"; brief: CarouselBrief; launch_adset_id: string; parent_creative_id: null }
   | { tool: "launch_creative"; creative_id: string; adset_id: string; primary_text: string; headline: string }
   | { tool: "write_copy_variants"; source_ad_id: string; adset_id: string; variants: { primary_text: string; headline: string }[] }
   | { tool: "hold" };
@@ -218,6 +252,7 @@ const KIND: Record<ActionPayload["tool"], string> = {
   generate_video: "creative",
   new_hook_variant: "creative",
   generate_image: "creative",
+  generate_carousel: "creative",
   launch_creative: "creative",
   write_copy_variants: "creative",
   hold: "other",
@@ -333,6 +368,41 @@ export function evaluate(name: string, raw: unknown, ctx: EvalContext): Evaluate
       }
       return done({ tool: "generate_image", brief, launch_adset_id: launchId, parent_creative_id: null });
     }
+    case "generate_carousel": {
+      const gen = checkGeneration(ctx, "image");
+      if (gen) return fail(gen);
+      const rawCards = Array.isArray(input.cards) ? input.cards : [];
+      if (rawCards.length !== CAROUSEL_CARDS) return fail(`A carousel has exactly ${CAROUSEL_CARDS} cards.`);
+      const cards = rawCards.map((c: { scene?: unknown; overlay_lines?: unknown; headline?: unknown }) => ({
+        scene: str(c?.scene, 1000),
+        overlay_lines: (Array.isArray(c?.overlay_lines) ? c.overlay_lines : []).map((l) => str(l, 200)).filter(Boolean),
+        headline: str(c?.headline, 60),
+      }));
+      const brief: CarouselBrief = {
+        format: "carousel",
+        concept: str(input.concept, 200),
+        ...(isTopic(input.topic) ? { topic: input.topic } : {}),
+        style: str(input.style, 300),
+        cards,
+        primary_text: str(input.primary_text, 500),
+        headline: cards[0].headline,
+      };
+      if (!brief.style || !brief.primary_text) return fail("A carousel needs a style and primary text.");
+      for (const [i, c] of cards.entries()) {
+        if (!c.scene || !c.headline) return fail(`Card ${i + 1} needs a scene and a headline.`);
+        if (c.overlay_lines.length < 1 || c.overlay_lines.length > MAX_CARD_LINES) return fail(`Card ${i + 1}: use 1 to ${MAX_CARD_LINES} lines of text.`);
+        const long = c.overlay_lines.find((l) => l.length > MAX_OVERLAY_LINE_CHARS);
+        if (long) return fail(`"${long}" is too long for a card; keep each line under ${MAX_OVERLAY_LINE_CHARS} characters.`);
+        if (c.headline.length > 40) return fail(`Card ${i + 1}'s headline is too long; keep it under 40 characters.`);
+      }
+      const copy = checkCopy(...cards.flatMap((c) => [...c.overlay_lines, c.headline]), brief.primary_text);
+      if (copy) return fail(copy);
+      const launchId = str(input.launch_adset_id, 40);
+      if (!launchId) return fail("Carousels launch straight into an ad set; give launch_adset_id.");
+      const target = checkLaunchTarget(ctx, launchId);
+      if (target) return fail(target);
+      return done({ tool: "generate_carousel", brief, launch_adset_id: launchId, parent_creative_id: null });
+    }
     case "new_hook_variant": {
       const gen = checkGeneration(ctx, "video");
       if (gen) return fail(gen);
@@ -391,8 +461,9 @@ export function recheck(payload: ActionPayload, ctx: EvalContext): string | null
       return checkPlacements(ctx, payload.adset_id);
     case "generate_video":
     case "generate_image":
+    case "generate_carousel":
     case "new_hook_variant":
-      return checkGeneration(ctx, payload.tool === "generate_image" ? "image" : "video") ?? (payload.launch_adset_id ? checkLaunchTarget(ctx, payload.launch_adset_id) : null);
+      return checkGeneration(ctx, payload.tool === "generate_image" || payload.tool === "generate_carousel" ? "image" : "video") ?? (payload.launch_adset_id ? checkLaunchTarget(ctx, payload.launch_adset_id) : null);
     case "launch_creative":
       return ctx.libraryCreativeIds.has(payload.creative_id)
         ? checkLaunchTarget(ctx, payload.adset_id)

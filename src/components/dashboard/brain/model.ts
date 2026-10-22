@@ -43,7 +43,8 @@ export function nodeOf(e: Pick<BrainEvent, "step" | "tier">): NodeId {
     return "clerk";
   }
   if (e.tier === "sonnet") return "sonnet";
-  if (e.step === "acting") return "meta";
+  // Reading results from Meta and making changes there both light the Meta node
+  if (e.step === "acting" || e.step === "syncing") return "meta";
   if (e.step === "remembering" || e.step === "hypothesizing") return "memory";
   if (e.step === "researching") return "scout";
   return "code";
@@ -115,6 +116,6 @@ export const NODE_COPY: Record<NodeId, { title: string; role: string }> = {
   scout: { title: "market", role: "studies other ads" },
   clerk: { title: "clerk", role: "copy check · feed" },
   higgsfield: { title: "Higgsfield", role: "makes creatives" },
-  meta: { title: "Meta", role: "applies changes" },
+  meta: { title: "Meta", role: "reads results · applies changes" },
   memory: { title: "memory", role: "experiments · learnings" },
 };

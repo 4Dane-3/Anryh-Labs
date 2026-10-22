@@ -3,12 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import type { BrainEvent, BrainLive } from "@/lib/migz/brain-types";
 import { DEMO_SCRIPT } from "@/components/dashboard/brain/demo";
+import { isBusy, openEvents } from "@/components/dashboard/brain/state";
 
 const MAX_EVENTS = 120;
 
 /**
- * Real events, polled: every 2.5s while a review runs, every 30s when idle (and paused while the tab
- * is hidden). Demo mode replays a labelled sample run instead and never touches the account's data.
+ * Real events, polled: every 2.5s while any part of Migz is working (a review, or background work like
+ * a generation or a Meta upload), every 15s when idle (and paused while the tab is hidden). Demo mode replays a labelled sample run instead and never touches the account's data.
  */
 export function useBrainLive(initial: BrainLive, demo: boolean, justStarted = false) {
   const [live, setLive] = useState(initial);
@@ -25,7 +26,7 @@ export function useBrainLive(initial: BrainLive, demo: boolean, justStarted = fa
       const cur = state.current;
       if (document.visibilityState === "visible") {
         // Re-read from the oldest still-open step so steps close when they finish
-        const open = cur.events.filter((e) => !e.finished_at && e.run_id === cur.runId).map((e) => e.id);
+        const open = openEvents(cur).map((e) => e.id);
         const after = open.length ? Math.min(...open) - 1 : cur.events.at(-1)?.id ?? 0;
         try {
           const res = await fetch(`/api/dashboard/brain?after=${after}`, { cache: "no-store" });
@@ -41,9 +42,9 @@ export function useBrainLive(initial: BrainLive, demo: boolean, justStarted = fa
           // offline for a moment: try again next tick
         }
       }
-      if (!stopped) timer = setTimeout(tick, state.current.running || Date.now() < fastUntil.current ? 2500 : 30_000);
+      if (!stopped) timer = setTimeout(tick, isBusy(state.current) || Date.now() < fastUntil.current ? 2500 : 15_000);
     };
-    timer = setTimeout(tick, state.current.running || justStarted ? 1500 : 30_000);
+    timer = setTimeout(tick, isBusy(state.current) || justStarted ? 1500 : 15_000);
     return () => {
       stopped = true;
       clearTimeout(timer);

@@ -3,6 +3,7 @@
 // - Video: hook shot + body shots. A winning video's body can be reused with a new hook (same body
 //   shots, new first shot), which is how Migz tests hooks.
 // - Image: a lifestyle photo with 1-3 short lines of text (and an optional button) laid out on it.
+// - Carousel: 2 square cards people swipe through, each a photo with its own text and headline.
 
 export type CreativeBrief = {
   format?: "video"; // briefs stored before image ads existed have no format: they're videos
@@ -24,12 +25,31 @@ export type ImageBrief = {
   style: string; // photographic look
   overlay_lines: string[]; // 1-3 short lines rendered on the image, e.g. "Protect their peace."
   button_text: string | null; // a button-shaped label, e.g. "Book a free call"
-  aspect_ratio: "4:5" | "9:16"; // 4:5 for feeds, 9:16 for Stories and Reels
+  aspect_ratio: "4:5" | "9:16" | "1:1"; // 4:5 for feeds, 9:16 for Stories and Reels, 1:1 for carousel cards
   primary_text: string;
   headline: string;
 };
 
-export type AnyBrief = CreativeBrief | ImageBrief;
+export type CarouselCard = {
+  scene: string; // the photo on this card
+  overlay_lines: string[]; // 1-2 short lines on the card
+  headline: string; // the card's headline under the image
+};
+
+export type CarouselBrief = {
+  format: "carousel";
+  concept: string;
+  topic?: string;
+  style: string; // one photographic look across both cards
+  cards: CarouselCard[]; // exactly CAROUSEL_CARDS, in swipe order
+  primary_text: string;
+  headline: string; // the first card's headline (copy checks and labels use it)
+};
+
+export type AnyBrief = CreativeBrief | ImageBrief | CarouselBrief;
+
+export const CAROUSEL_CARDS = 2;
+export const MAX_CARD_LINES = 2;
 
 export const HOOK_SECONDS = 3;
 export const MAX_VIDEO_SECONDS = 15;
@@ -37,19 +57,40 @@ export const MAX_OVERLAY_LINES = 3;
 
 // Which Higgsfield model makes which still: 4:5 feed images go to the feed image model (they carry
 // the on-image text), 9:16 Stories/Reels images go to Soul Cinema (photo only, no text).
-export const textOnImage = (brief: { aspect_ratio: "4:5" | "9:16" }) => brief.aspect_ratio === "4:5";
+export const textOnImage = (brief: { aspect_ratio: ImageBrief["aspect_ratio"] }) => brief.aspect_ratio !== "9:16";
 export const MAX_OVERLAY_LINE_CHARS = 40;
 export const MAX_BUTTON_CHARS = 24;
 
 export const isImageBrief = (brief: AnyBrief): brief is ImageBrief => brief.format === "image";
+export const isCarouselBrief = (brief: AnyBrief): brief is CarouselBrief => brief.format === "carousel";
+// Briefs stored before images existed have no format: they're videos
+export const isVideoBrief = (brief: AnyBrief): brief is CreativeBrief => !brief.format || brief.format === "video";
+
+/** One carousel card as a square still, made like a feed image (text on the photo, no button). */
+export function cardBrief(brief: CarouselBrief, i: number): ImageBrief {
+  const card = brief.cards[i];
+  return {
+    format: "image",
+    concept: brief.concept,
+    ...(brief.topic ? { topic: brief.topic } : {}),
+    scene: card.scene,
+    style: brief.style,
+    overlay_lines: card.overlay_lines,
+    button_text: null,
+    aspect_ratio: "1:1",
+    primary_text: brief.primary_text,
+    headline: card.headline,
+  };
+}
 
 export function briefDuration(brief: CreativeBrief) {
   return HOOK_SECONDS + brief.body_shots.reduce((s, b) => s + b.duration, 0);
 }
 
-/** Short label for a brief: the hook for videos, the first text line for images. */
+/** Short label for a brief: the hook for videos, the first text line for images and carousels. */
 export function briefLabel(brief: AnyBrief) {
-  return (isImageBrief(brief) ? brief.overlay_lines[0] : brief.hook_line) || brief.concept || "New creative";
+  const first = isImageBrief(brief) ? brief.overlay_lines[0] : isCarouselBrief(brief) ? brief.cards[0]?.overlay_lines[0] : brief.hook_line;
+  return first || brief.concept || "New creative";
 }
 
 // Quotes inside the text would break the prompt's "exactly as written" quoting
@@ -75,7 +116,7 @@ export function imagePrompt(brief: ImageBrief) {
   const button = brief.button_text ? clean(brief.button_text) : null;
 
   return [
-    `A ${clean(brief.style)} photo for a life insurance ad, ${brief.aspect_ratio} vertical. ${clean(brief.scene)}`,
+    `A ${clean(brief.style)} photo for a life insurance ad, ${brief.aspect_ratio === "1:1" ? "1:1 square" : `${brief.aspect_ratio} vertical`}. ${clean(brief.scene)}`,
     "Genuine, candid expressions, unposed. The people fill the lower two-thirds of the frame; the upper third is open, softly blurred background, leaving clean space for text.",
     "",
     `In the upper third, centered, ${lines.length === 1 ? "one short line" : `${lines.length} short lines`} of clean, modern serif text in warm white with a subtle soft shadow for readability${lines.length > 1 ? ", stacked with even spacing" : ""}:`,

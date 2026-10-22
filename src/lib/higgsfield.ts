@@ -111,7 +111,7 @@ export function imageRequest(brief: ImageBrief): { path: string; body: Record<st
   };
 }
 
-/** Submits a still image ad: 4:5 with its text lines (feed model), or a text-free 9:16 photo (Soul Cinema). */
+/** Submits a still image: 4:5 or a 1:1 carousel card with its text lines (feed model), or a text-free 9:16 photo (Soul Cinema). */
 export async function submitImage(brief: ImageBrief, opts: SubmitOptions) {
   const req = imageRequest(brief);
   return submit(req.path, req.body, opts);

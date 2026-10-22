@@ -45,7 +45,8 @@ export type ExtraTool = {
   run: (input: Record<string, unknown>, env: OperatorEnv) => Promise<ToolOutcome>;
 };
 
-const COPY_TOOLS = new Set(["generate_video", "generate_image", "new_hook_variant", "launch_creative", "write_copy_variants"]);
+const COPY_TOOLS = new Set(["generate_video", "generate_image", "generate_carousel", "new_hook_variant", "launch_creative", "write_copy_variants"]);
+const GENERATION_TOOLS = ["generate_video", "generate_image", "generate_carousel", "new_hook_variant"];
 
 /** Whether a validated action can change what Meta spends or shows. */
 export function affectsSpend(payload: ActionPayload) {
@@ -63,7 +64,8 @@ export function affectsSpend(payload: ActionPayload) {
 function copyOf(payload: ActionPayload): string[] {
   if ("brief" in payload) {
     const b = payload.brief as unknown as Record<string, unknown>;
-    return [b.hook_line, b.primary_text, b.headline, ...((b.overlay_lines as string[]) ?? []), b.button_text].filter(
+    const cards = (b.cards as { overlay_lines: string[]; headline: string }[] | undefined) ?? [];
+    return [b.hook_line, b.primary_text, b.headline, ...((b.overlay_lines as string[]) ?? []), b.button_text, ...cards.flatMap((c) => [...c.overlay_lines, c.headline])].filter(
       (x): x is string => typeof x === "string",
     );
   }
@@ -241,13 +243,13 @@ export async function runOperator(env: OperatorEnv, extras: ExtraTool[], opts: {
       }
 
       if (evaluated.payload.tool !== "hold") env.ctx.actionsThisRun++;
-      if (["generate_video", "generate_image", "new_hook_variant"].includes(evaluated.payload.tool)) {
+      if (GENERATION_TOOLS.includes(evaluated.payload.tool)) {
         env.ctx.generationsThisRun++;
         env.ctx.openGenerations++;
-        if (evaluated.payload.tool !== "generate_image") env.ctx.videosThisRun = (env.ctx.videosThisRun ?? 0) + 1;
+        if (evaluated.payload.tool === "generate_video" || evaluated.payload.tool === "new_hook_variant") env.ctx.videosThisRun = (env.ctx.videosThisRun ?? 0) + 1;
       }
       const base = { kind: evaluated.kind, title: evaluated.title, detail: evaluated.detail, tool: evaluated.payload.tool, payload: evaluated.payload, run_id: runId };
-      const creative = ["generate_video", "generate_image", "new_hook_variant"].includes(evaluated.payload.tool);
+      const creative = GENERATION_TOOLS.includes(evaluated.payload.tool);
 
       if (mode === "approve" && evaluated.payload.tool !== "hold") {
         await logAction(agent.id, { ...base, status: "proposed" });
@@ -257,19 +259,21 @@ export async function runOperator(env: OperatorEnv, extras: ExtraTool[], opts: {
       }
 
       const actionId = await logAction(agent.id, { ...base, status: "applied" });
-      const applied = await applyPayload(agent, evaluated.payload, actionId);
+      const applied = await applyPayload(agent, evaluated.payload, actionId, { runId, title: evaluated.title });
       await supabaseAdmin
         .from("ad_actions")
         .update(applied.ok ? { result: applied.result } : { status: "failed", result: { error: applied.error } })
         .eq("id", actionId);
-      await emit({
-        agentId: agent.id,
-        runId,
-        step: creative ? "drafting" : "acting",
-        tier: creative ? "higgsfield" : "code",
-        summary: applied.ok ? evaluated.title : `Failed: ${evaluated.title}`,
-        evidence: { tool: evaluated.payload.tool, reason: evaluated.detail, ...(applied.ok ? {} : { error: applied.error }) },
-      });
+      // Meta changes and generations log their own live steps; a hold (or a failure) is recorded here
+      if (!applied.ok || evaluated.payload.tool === "hold" || evaluated.payload.tool === "launch_creative")
+        await emit({
+          agentId: agent.id,
+          runId,
+          step: creative ? "drafting" : "acting",
+          tier: creative ? "higgsfield" : "code",
+          summary: applied.ok ? evaluated.title : `Failed: ${evaluated.title}`,
+          evidence: { tool: evaluated.payload.tool, reason: evaluated.detail, ...(applied.ok ? {} : { error: applied.error }) },
+        });
       reply(use.id, applied.ok ? { content: `Done. ${JSON.stringify(applied.result)}` } : { isError: true, content: applied.error });
     }
 

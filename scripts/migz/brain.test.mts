@@ -250,4 +250,53 @@ assert.match(placementCheck(early, "A") ?? "", /first week/);
 assert.equal(placementCheck({ ...gctx, revisionsFrom: new Date("2026-10-19T05:00:00Z") }, "A"), null);
 ok("pauses, budget and placement edits wait for the campaign's first 7 days of results");
 
+// campaign batches
+const { batchOptions, recommendOption, outcomeEstimate, bestTopic, findOption, MIN_BATCH_CENTS } = await import("@/lib/batch");
+const noHistory = { spentCents: 0, bookedCalls: 0, batches: 0, byTopic: {} };
+assert.equal(batchOptions(MIN_BATCH_CENTS - 100, ["final_expense"]).length, 0, "under the minimum there are no options");
+const min2 = batchOptions(28_000, ["final_expense", "mortgage_protection"]);
+assert.deepEqual(min2.map((o) => [o.key, o.campaigns.length, o.days, o.perCampaignCents]), [["focused", 1, 14, 2000], ["balanced", 2, 14, 1000]], "$280: focused $20/day, or 2 × $10/day, both 2 weeks; spread adds nothing");
+const big = batchOptions(70_000, ["final_expense", "mortgage_protection", "income_protection"]);
+assert.deepEqual(big.map((o) => [o.key, o.campaigns.length, o.days]), [["focused", 1, 35], ["balanced", 3, 15], ["spread", 5, 14]]);
+for (const o of big) {
+  assert.ok(o.days >= 14 && o.perCampaignCents >= 1000, `${o.key} keeps the limits`);
+  assert.ok(o.dailyCents * o.days <= 70_000, `${o.key} stays within the batch`);
+}
+assert.equal(recommendOption(big, ["final_expense", "mortgage_protection"], noHistory).key, "balanced", "no data: one per focus");
+const history = { spentCents: 60_000, bookedCalls: 20, batches: 1, byTopic: { final_expense: { spentCents: 20_000, bookedCalls: 12 }, mortgage_protection: { spentCents: 40_000, bookedCalls: 8 } } };
+assert.equal(bestTopic(history), "final_expense", "$16.67 vs $50 per call is a clear winner");
+assert.equal(recommendOption(batchOptions(56_000, ["mortgage_protection", "final_expense"], "final_expense"), ["mortgage_protection", "final_expense"], history).key, "focused");
+assert.equal(batchOptions(56_000, ["mortgage_protection", "final_expense"], "final_expense")[0].campaigns[0], "final_expense", "focused backs the winner, not just the first focus");
+assert.deepEqual(outcomeEstimate(56_000, history), { costPerCallCents: 3000, low: 14, high: 22 });
+assert.equal(outcomeEstimate(56_000, noHistory), null, "no estimate without the agent's own data");
+assert.equal(findOption(28_000, ["final_expense"], "spread"), null, "the server re-derives options; a made-up one is refused");
+ok("batches: focused / balanced / spread within 14+ days and $10+/day per campaign; recommendation and estimate from the agent's own results");
+
+// carousels
+const carouselInput = { concept: "Mortgage then coverage", topic: "mortgage_protection", style: "warm natural light", primary_text: "Who keeps paying the mortgage if you can't? A free call walks you through it.", launch_adset_id: "A", title: "t", reason: "r",
+  cards: [{ scene: "A couple on the porch of their new house", overlay_lines: ["The house is yours."], headline: "Your home" }, { scene: "The same couple at the kitchen table, relaxed", overlay_lines: ["Keep it that way."], headline: "Protect it" }] };
+const car = evalTool("generate_carousel", carouselInput, gctx);
+assert.ok(car.ok, JSON.stringify(car));
+assert.equal((car as { payload: { brief: { cards: unknown[] } } }).payload.brief.cards.length, 2);
+assert.match((evalTool("generate_carousel", { ...carouselInput, cards: [...carouselInput.cards, carouselInput.cards[0]] }, gctx) as { error: string }).error, /exactly 2 cards/);
+assert.match((evalTool("generate_carousel", { ...carouselInput, launch_adset_id: "" }, gctx) as { error: string }).error, /launch_adset_id/);
+const { cardBrief, briefLabel } = await import("@/lib/migz/brief");
+const card = imageRequest(cardBrief((car as { payload: { brief: never } }).payload.brief, 1));
+assert.equal(card.model, "ideogram"); assert.equal(card.body.aspect_ratio, "1:1"); assert.match(String(card.body.prompt), /1:1 square/); assert.match(String(card.body.prompt), /Keep it that way\./);
+assert.equal(briefLabel((car as { payload: { brief: never } }).payload.brief), "The house is yours.");
+ok("2-card carousels: exactly 2 cards, launched into an ad set, each card a square feed-model still with its own text");
+
+// the Brain lights whatever is actually working, in a review or not
+const { deriveGraph } = await import("@/components/dashboard/brain/state");
+const at = (s: number) => new Date(Date.UTC(2026, 9, 21, 12, 0, s)).toISOString();
+const ev = (id: number, o: object) => ({ id, run_id: null, model: null, evidence: {}, input_tokens: 0, output_tokens: 0, started_at: at(0), finished_at: null, summary: "x", ...o });
+const idleLive = { now: at(30), running: false, runId: "r1", lastRun: { status: "succeeded", started_at: at(-600), finished_at: at(-500), summary: null, skipped_reason: null }, nextRunAt: null, mode: "auto",
+  events: [ev(1, { run_id: "r1", step: "finished", tier: "code", started_at: at(-500), finished_at: at(-500) }), ev(2, { step: "drafting", tier: "higgsfield", summary: "Making an image" }), ev(3, { step: "acting", tier: "code", summary: "Building the ad in Meta" })] };
+const g = deriveGraph(idleLive as never, Date.parse(at(30)));
+assert.deepEqual([...g.active].sort(), ["higgsfield", "meta"], "no review running, but Higgsfield and Meta are working");
+assert.equal(deriveGraph({ ...idleLive, events: [ev(9, { step: "acting", tier: "code", started_at: at(-3600) })] } as never, Date.parse(at(30))).active.size, 0, "a step left open for an hour crashed: not lit");
+const syncing = deriveGraph({ ...idleLive, running: true, events: [ev(4, { run_id: "r1", step: "syncing", tier: "code", started_at: at(0) })] } as never, Date.parse(at(5)));
+assert.ok(syncing.active.has("meta"), "pulling results from Meta lights the Meta node");
+ok("Brain: background work (a generation, a Meta upload) lights its node outside a review; syncing lights Meta; stale steps don't");
+
 console.log(`\nALL ${n} UNIT GROUPS PASSED`);

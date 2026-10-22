@@ -2,13 +2,14 @@ import "server-only";
 import { DateTime } from "luxon";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
-import { createAdSet, createCampaign, setDailyBudget, setStatus } from "@/lib/meta/ads";
-import { isImageBrief, type AnyBrief, type CreativeBrief } from "@/lib/migz/brief";
+import { createAdSet, createCampaign, getAdSet, setDailyBudget, setStates, setStatus, stateRegionKeys } from "@/lib/meta/ads";
+import { isCarouselBrief, isVideoBrief, type AnyBrief, type CreativeBrief } from "@/lib/migz/brief";
 import { buildSnapshot, type Snapshot } from "@/lib/migz/snapshot";
 import { syncAgent } from "@/lib/migz/sync";
-import { begin, emit } from "@/lib/migz/events";
+import { begin, emit, metaStep } from "@/lib/migz/events";
+import { closeEndedBatch, getActiveBatch, type Batch } from "@/lib/dashboard/batches";
 import { allocateCampaigns, campaignCount, campaignEnded, campaignLabels, perCampaignCents } from "@/lib/campaign";
-import { cleanFocus } from "@/lib/migz/topics";
+import { cleanFocus, isTopic } from "@/lib/migz/topics";
 import { MIN_ADSET_BUDGET_CENTS } from "@/lib/migz/guardrails";
 import { isTestMode } from "@/lib/migz/test-mode";
 import { gateState, materialChanges, type GateState } from "@/lib/migz/gate";
@@ -67,11 +68,12 @@ export async function buildEvalContext(agent: Agent, snapshot: Snapshot): Promis
   for (const row of scripted ?? []) {
     const media = row.creatives as { meta_video_id?: string | null; meta_image_hash?: string | null } | null;
     const set = (row.ad_sets as { meta_adset_id?: string } | null)?.meta_adset_id;
-    if (set && row.status === "ACTIVE" && (media?.meta_video_id || media?.meta_image_hash)) reusableAds.set(row.meta_ad_id, set);
     const script = (row.creatives as { script?: AnyBrief } | null)?.script;
+    // A carousel's media is two cards; reusing its first card's image would make a different ad
+    if (set && row.status === "ACTIVE" && (media?.meta_video_id || media?.meta_image_hash) && !(script && isCarouselBrief(script))) reusableAds.set(row.meta_ad_id, set);
     const adset = row.ad_sets as { meta_adset_id?: string } | null;
     // Only videos have a body to reuse with a new hook
-    if (script && !isImageBrief(script) && adset?.meta_adset_id && row.creative_id) {
+    if (script && isVideoBrief(script) && adset?.meta_adset_id && row.creative_id) {
       scriptedAds.set(row.meta_ad_id, { creative_id: row.creative_id, script, meta_adset_id: adset.meta_adset_id });
     }
   }
@@ -104,18 +106,20 @@ async function enforceSpendState(agent: Agent, snapshot: Snapshot, runId: string
   const ended = campaignEnded(agent.campaign_ends_on, agent.timezone);
 
   if ((agent.ads_paused || lowBalance || ended) && active.length) {
-    for (const adset of active) await setStatus(adset.meta_adset_id, "PAUSED");
+    await metaStep({ agentId: agent.id, runId, summary: "Pausing your ad sets" }, async () => {
+      for (const adset of active) await setStatus(adset.meta_adset_id, "PAUSED");
+    });
     await supabaseAdmin
       .from("ad_sets")
       .update({ status: "PAUSED", updated_at: new Date().toISOString() })
       .in("meta_adset_id", active.map((a) => a.meta_adset_id));
     await logAction(agent.id, {
       kind: "pause",
-      title: agent.ads_paused ? "Paused your ads" : ended ? "Your campaign has ended" : "Paused ads: balance is low",
+      title: agent.ads_paused ? "Paused your ads" : ended ? "Your campaign batch has ended" : "Paused ads: balance is low",
       detail: agent.ads_paused
         ? "You turned ads off. They'll stay paused until you turn them back on."
         : ended
-          ? `Your campaign was set to run until ${agent.campaign_ends_on}, so Migz paused your ads. To keep going, extend it on the Start here page.`
+          ? `Your campaign batch ran until ${agent.campaign_ends_on}, so Migz paused your ads. To keep going, start your next batch from the Overview.`
           : `Your balance ($${(snapshot.balanceCents / 100).toFixed(2)}) can't cover a day at $${(agent.daily_budget_cents / 100).toFixed(2)}/day. Add funds to resume.`,
       status: "applied",
       tool: "system_pause",
@@ -138,7 +142,10 @@ async function enforceSpendState(agent: Agent, snapshot: Snapshot, runId: string
       const ids = ((last.payload as { adset_ids?: string[] })?.adset_ids ?? []).filter((id) =>
         snapshot.guardAdsets.some((a) => a.meta_adset_id === id && a.status === "PAUSED"),
       );
-      for (const id of ids) await setStatus(id, "ACTIVE");
+      if (ids.length)
+        await metaStep({ agentId: agent.id, runId, summary: "Turning your ad sets back on" }, async () => {
+          for (const id of ids) await setStatus(id, "ACTIVE");
+        });
       if (ids.length) {
         await supabaseAdmin.from("ad_sets").update({ status: "ACTIVE" }).in("meta_adset_id", ids);
       }
@@ -164,9 +171,10 @@ async function syncCampaignSwitch(agent: Agent, runId: string) {
     .from("ad_campaigns")
     .select("id, meta_campaign_id, status")
     .eq("agent_id", agent.id)
+    .is("retired_at", null) // paused because a batch doesn't use them
     .neq("status", want);
   for (const c of campaigns ?? []) {
-    await setStatus(c.meta_campaign_id, want);
+    await metaStep({ agentId: agent.id, runId, summary: want === "ACTIVE" ? "Turning your campaign on" : "Pausing your campaign for testing" }, () => setStatus(c.meta_campaign_id, want));
     await supabaseAdmin.from("ad_campaigns").update({ status: want, updated_at: new Date().toISOString() }).eq("id", c.id);
     // Going live for the first time: the campaign switch alone does nothing while its ad sets are still
     // paused, so turn them on too (unless the agent has paused their ads themselves)
@@ -199,96 +207,167 @@ async function syncCampaignSwitch(agent: Agent, runId: string) {
 }
 
 /**
- * Keeps one campaign per planned slot: the daily budget buys $10/day campaigns, each serving a focus
- * topic (see allocateCampaigns). Creates the missing ones; a campaign made before campaigns had topics
- * takes the first slot left. When it adds campaigns it splits the daily budget evenly again, so the total
- * stays within the agent's cap. Never pauses or deletes one: that's Migz's call, with data.
- * Returns true when it created anything.
+ * Keeps one campaign per planned slot. With an active batch the slots are the batch's campaigns (the
+ * plan the agent chose); before batches they come from the daily budget ($10/day campaigns over the
+ * focus topics). Creates the missing ones; a campaign made before campaigns had topics takes the first
+ * slot left. The first review of a new batch also pauses (retires) campaigns the batch doesn't use,
+ * brings back retired ones it does, and gives every campaign its share of the batch's daily spend.
+ * Returns true when it changed anything.
  */
-async function syncCampaignPlan(agent: Agent, runId: string) {
-  const slots = allocateCampaigns(cleanFocus(agent.ad_focus), campaignCount(agent.daily_budget_cents));
+async function syncCampaignPlan(agent: Agent, runId: string, batch: Batch | null) {
+  const slots = batch
+    ? batch.campaigns.map((t) => (isTopic(t) ? t : null))
+    : allocateCampaigns(cleanFocus(agent.ad_focus), campaignCount(agent.daily_budget_cents));
+  const applying = !!batch && !batch.applied_at;
   const { data: existing, error } = await supabaseAdmin
     .from("ad_campaigns")
-    .select("id, topic")
+    .select("id, topic, meta_campaign_id, retired_at")
     .eq("agent_id", agent.id)
     .not("status", "in", "(DELETED,ARCHIVED)");
   // Never guess: an unreadable list would look empty and duplicate every campaign in Meta
-  if (error) throw new Error(`Couldn't read the agent's campaigns (has 20261028000000_required_questions.sql run?): ${error.message}`);
+  if (error) throw new Error(`Couldn't read the agent's campaigns (have the latest migrations run?): ${error.message}`);
 
-  const pool = [...(existing ?? [])];
+  // A new batch may bring back a retired campaign for a topic it uses; otherwise retired ones stay out
+  const pool = (existing ?? []).filter((c) => applying || !c.retired_at);
+  const claimed: typeof pool = [];
   const missing: number[] = [];
   for (const [i, topic] of slots.entries()) {
-    let j = pool.findIndex((c) => c.topic === topic);
-    if (j === -1) j = pool.findIndex((c) => c.topic === null);
+    const pick = (ok: (c: (typeof pool)[number]) => boolean) => pool.findIndex(ok);
+    let j = pick((c) => c.topic === topic && !c.retired_at);
+    if (j === -1) j = pick((c) => c.topic === topic);
+    if (j === -1) j = pick((c) => c.topic === null && !c.retired_at);
     if (j === -1) {
       missing.push(i);
       continue;
     }
-    const [claimed] = pool.splice(j, 1);
-    if (claimed.topic !== topic) await supabaseAdmin.from("ad_campaigns").update({ topic }).eq("id", claimed.id);
+    const [c] = pool.splice(j, 1);
+    claimed.push(c);
+    if (c.topic !== topic) await supabaseAdmin.from("ad_campaigns").update({ topic }).eq("id", c.id);
   }
-  if (!missing.length) return false;
+  const unused = pool.filter((c) => !c.retired_at);
+  if (!missing.length && !applying) return false;
 
   if (!agent.licensed_states.length) throw new Error("Add the agent's licensed states before Migz can launch ads.");
   const account = agent.meta_ad_account_id!;
   const labels = campaignLabels(slots);
-  const total = (existing ?? []).length + missing.length;
-  const budget = Math.max(MIN_ADSET_BUDGET_CENTS, perCampaignCents(agent.daily_budget_cents, total));
+  const kept = applying ? claimed.length : (existing ?? []).filter((c) => !c.retired_at).length;
+  const budget = Math.max(MIN_ADSET_BUDGET_CENTS, perCampaignCents(agent.daily_budget_cents, kept + missing.length));
   const campaignStatus = isTestMode() ? "PAUSED" : "ACTIVE";
   const adsetName = `${agent.licensed_states.join(", ")} · adults 18+`;
+  const now = () => new Date().toISOString();
 
-  // Campaigns already running give up their share of the budget to the new ones
-  if (existing?.length) {
-    const { data: sets } = await supabaseAdmin
-      .from("ad_sets")
-      .select("id, meta_adset_id, daily_budget_cents")
-      .in("campaign_id", existing.map((c) => c.id));
-    for (const set of sets ?? []) {
-      if (set.daily_budget_cents === budget) continue;
-      await setDailyBudget(set.meta_adset_id, budget);
-      const now = new Date().toISOString();
-      await supabaseAdmin.from("ad_sets").update({ daily_budget_cents: budget, last_edited_at: now, updated_at: now }).eq("id", set.id);
+  await metaStep({ agentId: agent.id, runId, summary: applying ? "Setting up campaigns for your new batch" : "Building your planned campaigns" }, async () => {
+    if (applying) {
+      for (const c of unused) {
+        await setStatus(c.meta_campaign_id, "PAUSED");
+        await supabaseAdmin.from("ad_campaigns").update({ status: "PAUSED", retired_at: now(), updated_at: now() }).eq("id", c.id);
+      }
+      for (const c of claimed.filter((x) => x.retired_at)) {
+        if (campaignStatus === "ACTIVE") await setStatus(c.meta_campaign_id, "ACTIVE");
+        await supabaseAdmin.from("ad_campaigns").update({ status: campaignStatus, retired_at: null, updated_at: now() }).eq("id", c.id);
+      }
     }
-  }
 
-  for (const i of missing) {
-    const name = `Migz · ${labels[i]} · ${agent.licensed_states.join(" ")}`;
-    const campaignId = await createCampaign(account, name);
-    if (campaignStatus === "ACTIVE") await setStatus(campaignId, "ACTIVE"); // spends nothing until ads exist
-    const adsetId = await createAdSet(account, {
-      campaignId,
-      name: adsetName,
-      dailyBudgetCents: budget,
-      pixelId: process.env.META_PIXEL_ID!,
-      states: agent.licensed_states,
-      placements: [],
-      status: "ACTIVE",
-    });
-    const { data: campaign } = await supabaseAdmin
-      .from("ad_campaigns")
-      .insert({ agent_id: agent.id, meta_campaign_id: campaignId, name, status: campaignStatus, topic: slots[i] })
-      .select("id")
-      .single();
-    await supabaseAdmin.from("ad_sets").insert({
-      agent_id: agent.id,
-      campaign_id: campaign!.id,
-      meta_adset_id: adsetId,
-      name: adsetName,
-      status: "ACTIVE",
-      daily_budget_cents: budget,
-    });
-  }
+    // Campaigns the plan keeps get their share of the daily spend
+    const keptIds = applying ? claimed.map((c) => c.id) : (existing ?? []).filter((c) => !c.retired_at).map((c) => c.id);
+    if (keptIds.length) {
+      const { data: sets } = await supabaseAdmin.from("ad_sets").select("id, meta_adset_id, daily_budget_cents").in("campaign_id", keptIds).neq("status", "DELETED");
+      for (const set of sets ?? []) {
+        if (set.daily_budget_cents === budget) continue;
+        await setDailyBudget(set.meta_adset_id, budget);
+        await supabaseAdmin.from("ad_sets").update({ daily_budget_cents: budget, last_edited_at: now(), updated_at: now() }).eq("id", set.id);
+      }
+    }
+
+    for (const i of missing) {
+      const name = `Migz · ${labels[i]} · ${agent.licensed_states.join(" ")}`;
+      const campaignId = await createCampaign(account, name);
+      if (campaignStatus === "ACTIVE") await setStatus(campaignId, "ACTIVE"); // spends nothing until ads exist
+      const adsetId = await createAdSet(account, {
+        campaignId,
+        name: adsetName,
+        dailyBudgetCents: budget,
+        pixelId: process.env.META_PIXEL_ID!,
+        states: agent.licensed_states,
+        placements: [],
+        status: "ACTIVE",
+      });
+      const { data: campaign } = await supabaseAdmin
+        .from("ad_campaigns")
+        .insert({ agent_id: agent.id, meta_campaign_id: campaignId, name, status: campaignStatus, topic: slots[i] })
+        .select("id")
+        .single();
+      await supabaseAdmin.from("ad_sets").insert({
+        agent_id: agent.id,
+        campaign_id: campaign!.id,
+        meta_adset_id: adsetId,
+        name: adsetName,
+        status: "ACTIVE",
+        daily_budget_cents: budget,
+        states: agent.licensed_states,
+      });
+    }
+    if (applying) await supabaseAdmin.from("campaign_batches").update({ applied_at: now() }).eq("id", batch!.id);
+  });
 
   const made = missing.map((i) => labels[i]);
+  const perDay = `$${(budget / 100).toFixed(2)}/day`;
   await logAction(agent.id, {
     kind: "launch",
-    title: made.length === 1 ? `Set up your ${made[0]} campaign` : `Set up ${made.length} campaigns`,
-    detail: `${made.join(", ")}. Each targets adults in ${agent.licensed_states.join(", ")} at $${(budget / 100).toFixed(2)}/day, optimized for booked calls${existing?.length ? `; your other campaigns moved to $${(budget / 100).toFixed(2)}/day so the total stays within your daily budget` : ""}. Ads go live as creatives are approved.`,
+    title: applying
+      ? `Set up your $${(batch!.budget_cents / 100).toFixed(0)} batch`
+      : made.length === 1 ? `Set up your ${made[0]} campaign` : `Set up ${made.length} campaigns`,
+    detail: applying
+      ? `${slots.length} campaign${slots.length === 1 ? "" : "s"} (${labels.join(", ")}) at ${perDay} each for ${batch!.days} days, targeting ${agent.licensed_states.join(", ")}.${made.length ? ` New: ${made.join(", ")}.` : ""}${unused.length ? ` Paused ${unused.length} campaign${unused.length === 1 ? "" : "s"} this batch doesn't use.` : ""} Ads go live as creatives are approved.`
+      : `${made.join(", ")}. Each targets adults in ${agent.licensed_states.join(", ")} at ${perDay}, optimized for booked calls${existing?.length ? `; your other campaigns moved to ${perDay} so the total stays within your daily budget` : ""}. Ads go live as creatives are approved.`,
     status: "applied",
     tool: "system_setup",
     run_id: runId,
   });
   return true;
+}
+
+/**
+ * Keeps every ad set on the agent's licensed states. When the agent adds or removes a state, the
+ * targeting is updated in Meta (ads must never reach people in states the agent can't sell in).
+ */
+async function syncTargeting(agent: Agent, runId: string) {
+  if (!agent.licensed_states.length) return 0;
+  const want = [...agent.licensed_states].sort();
+  const { data: sets, error } = await supabaseAdmin
+    .from("ad_sets")
+    .select("id, meta_adset_id, states, ad_campaigns!inner(retired_at)")
+    .eq("agent_id", agent.id)
+    .neq("status", "DELETED")
+    .is("ad_campaigns.retired_at", null);
+  if (error) return 0; // before the batches migration
+  const stale = (sets ?? []).filter((s) => !s.states || [...s.states].sort().join() !== want.join());
+  if (!stale.length) return 0;
+  let changed = 0;
+  await metaStep({ agentId: agent.id, runId, summary: `Checking your ads target ${want.join(", ")}` }, async () => {
+    const keys = (await stateRegionKeys(want)).map((k) => k.key).sort();
+    for (const s of stale) {
+      // Ad sets made before states were recorded: compare with what Meta actually targets
+      const current = await getAdSet(s.meta_adset_id);
+      const regions = ((current.targeting?.geo_locations as { regions?: { key: string }[] } | undefined)?.regions ?? []).map((r) => r.key).sort();
+      if (regions.join() !== keys.join()) {
+        await setStates(s.meta_adset_id, want);
+        changed++;
+      }
+      await supabaseAdmin.from("ad_sets").update({ states: want, ...(regions.join() !== keys.join() ? { last_edited_at: new Date().toISOString() } : {}) }).eq("id", s.id);
+    }
+  }, () => `Your ads target ${want.join(", ")}${changed ? ` (updated ${changed} ad set${changed === 1 ? "" : "s"})` : ""}`);
+  if (changed) {
+    await logAction(agent.id, {
+      kind: "audience",
+      title: "Updated your ads to your licensed states",
+      detail: `Your ads now reach adults in ${want.join(", ")} only, matching the states on your profile.`,
+      status: "applied",
+      tool: "system_targeting",
+      run_id: runId,
+    });
+  }
+  return changed;
 }
 
 /**
@@ -313,6 +392,8 @@ export async function runMigz(
   };
 
   try {
+    // A batch whose last day is over is closed with its results; its ads pause below
+    await closeEndedBatch(agent).catch((e) => console.error("closing the batch failed", e));
     let snapshot = await buildSnapshot(agent);
     if (snapshot.hasCampaign) {
       const done = await begin({ agentId: agent.id, runId, step: "syncing", tier: "code", summary: "Pulling results from Meta" });
@@ -330,7 +411,8 @@ export async function runMigz(
       return { runId, status: "paused" as const };
     }
 
-    if (await syncCampaignPlan(agent, runId)) snapshot = await buildSnapshot(agent);
+    if (await syncCampaignPlan(agent, runId, await getActiveBatch(agent.id))) snapshot = await buildSnapshot(agent);
+    if (await syncTargeting(agent, runId)) snapshot = await buildSnapshot(agent);
 
     const budget = await monthlyBudget(agent.id, agent.migz_model_budget_cents ?? 3000);
     const team = { runId, budget, createMessage };

@@ -5,10 +5,11 @@ import type { Agent } from "@/lib/booking/data";
 import { getBalanceCents } from "@/lib/dashboard/queries";
 import type { AdSetState } from "@/lib/migz/guardrails";
 import { LOOKBACK_DAYS } from "@/lib/migz/sync";
-import { briefLabel, isImageBrief, type AnyBrief } from "@/lib/migz/brief";
+import { briefLabel, isCarouselBrief, isImageBrief, isVideoBrief, type AnyBrief } from "@/lib/migz/brief";
 import { addRow, derive, emptyTotals, fatigue, present, type Totals } from "@/lib/migz/metrics";
 import { cleanFocus, TOPICS } from "@/lib/migz/topics";
 import { daysLeft, REVISE_AFTER_DAYS } from "@/lib/campaign";
+import { getActiveBatch } from "@/lib/dashboard/batches";
 
 /**
  * Everything Migz needs for one review: the campaign tree with 14-day and 3-day results per ad,
@@ -20,9 +21,10 @@ export async function buildSnapshot(agent: Agent) {
   const since14 = today.minus({ days: LOOKBACK_DAYS - 1 }).toISODate()!;
   const since3 = today.minus({ days: 2 }).toISODate()!;
 
-  const [campaigns, adsets, ads, insights, bookings, library, jobs, actions, balance, placementRows, visitRows] = await Promise.all([
-    supabaseAdmin.from("ad_campaigns").select("*").eq("agent_id", agent.id),
-    supabaseAdmin.from("ad_sets").select("*").eq("agent_id", agent.id).neq("status", "DELETED"),
+  const [campaigns, adsets, ads, insights, bookings, library, jobs, actions, balance, placementRows, visitRows, batch] = await Promise.all([
+    // Campaigns a batch retired are paused and out of play: they don't count toward budgets or reviews
+    supabaseAdmin.from("ad_campaigns").select("*").eq("agent_id", agent.id).is("retired_at", null),
+    supabaseAdmin.from("ad_sets").select("*, ad_campaigns!inner(retired_at)").eq("agent_id", agent.id).neq("status", "DELETED").is("ad_campaigns.retired_at", null),
     supabaseAdmin.from("ads").select("*, creatives(kind, source, hook, file_name, script)").eq("agent_id", agent.id),
     supabaseAdmin.from("ad_insights_daily").select("*").eq("agent_id", agent.id).gte("date", since14),
     supabaseAdmin
@@ -57,6 +59,7 @@ export async function buildSnapshot(agent: Agent) {
       .select("utm_content, created_at")
       .eq("agent_id", agent.id)
       .gte("created_at", DateTime.fromISO(since14, { zone: agent.timezone }).toUTC().toISO()!),
+    getActiveBatch(agent.id),
   ]);
 
   // Booked calls per ad come from our bookings: Meta fills utm_content with the ad id
@@ -184,7 +187,7 @@ export async function buildSnapshot(agent: Agent) {
 
   // What's live and in the works, by format, so the model fills gaps instead of repeating one format
   const formatOf = (kind?: string, script?: AnyBrief | null) =>
-    kind === "video" ? "reel_video_9x16" : script && isImageBrief(script) ? (script.aspect_ratio === "9:16" ? "story_image_9x16" : "feed_image_4x5") : kind === "image" ? "image_upload" : "unknown";
+    kind === "video" ? "reel_video_9x16" : script && isCarouselBrief(script) ? "carousel_2_cards" : script && isImageBrief(script) ? (script.aspect_ratio === "9:16" ? "story_image_9x16" : "feed_image_4x5") : kind === "image" ? "image_upload" : "unknown";
   const liveByFormat: Record<string, number> = {};
   for (const a of ads.data ?? []) {
     if (a.status !== "ACTIVE") continue;
@@ -195,7 +198,7 @@ export async function buildSnapshot(agent: Agent) {
   const beingMadeByFormat: Record<string, number> = {};
   for (const j of jobs.data ?? []) {
     const b = j.brief as AnyBrief;
-    const f = isImageBrief(b) ? (b.aspect_ratio === "9:16" ? "story_image_9x16" : "feed_image_4x5") : "reel_video_9x16";
+    const f = isCarouselBrief(b) ? "carousel_2_cards" : isImageBrief(b) ? (b.aspect_ratio === "9:16" ? "story_image_9x16" : "feed_image_4x5") : "reel_video_9x16";
     beingMadeByFormat[f] = (beingMadeByFormat[f] ?? 0) + 1;
   }
 
@@ -222,6 +225,15 @@ export async function buildSnapshot(agent: Agent) {
         ? "on: campaigns stay paused and every ad you launch is built paused, so the agent can preview the finished ads in Meta Ads Manager and nothing delivers or spends. Build and launch ads as normal (launch creatives into the ad set), and don't ask the agent to turn the campaign on; the ads switch on when test mode ends"
         : "off",
       today: today.toISODate(),
+      batch: batch
+        ? {
+            budget: `$${(batch.budget_cents / 100).toFixed(2)} of ad spend over ${batch.days} days`,
+            plan: `${batch.option}: ${batch.campaigns.length} campaign${batch.campaigns.length === 1 ? "" : "s"} the agent chose`,
+            note: batch.campaigns.length === 1
+              ? "One focused campaign: there's no second campaign to compare against, so compare ads and formats within it."
+              : "Spend the batch to get the most booked calls; move budget between its campaigns once the results phase is over.",
+          }
+        : "no active batch",
       campaign: {
         started_on: agent.campaign_started_on ?? "not started",
         runs_until: agent.campaign_ends_on ?? (agent.campaign_days === 0 ? "ongoing (no end date)" : "no end date set"),
@@ -254,7 +266,7 @@ export async function buildSnapshot(agent: Agent) {
     creative_mix: {
       live_ads_by_format: liveByFormat,
       being_made_by_format: beingMadeByFormat,
-      target: "each ad set runs 4:5 feed images, 9:16 Stories/Reels images and 9:16 reel videos; images are cheap, videos are limited to 1 new one per review",
+      target: "each ad set runs 4:5 feed images, 9:16 Stories/Reels images and 9:16 reel videos; images are cheap, videos are limited to 1 new one per review. A 2-card carousel is an option when a message works as two beats",
     },
     account_last_14_days: present(derive(totals)),
     campaigns: (campaigns.data ?? []).map((c) => ({
@@ -300,7 +312,7 @@ export async function buildSnapshot(agent: Agent) {
                   ? `${creative.kind} (${creative.source === "migz" ? "made by Migz" : "agent upload"})${creative.hook ? `, ${creative.kind === "image" ? "text" : "hook"}: "${creative.hook}"` : ""}`
                   : "unknown",
                 // Only Migz videos have body shots to reuse with a new hook
-                can_make_hook_variants: !!creative?.script && !isImageBrief(creative.script as AnyBrief),
+                can_make_hook_variants: !!creative?.script && isVideoBrief(creative.script as AnyBrief),
                 headline: a.headline,
                 last_14_days: present(results.d14),
                 last_3_days: present(results.d3),
@@ -317,7 +329,7 @@ export async function buildSnapshot(agent: Agent) {
       hook: c.hook,
     })),
     creatives_being_made: (jobs.data ?? []).map((j) => ({
-      format: isImageBrief(j.brief as AnyBrief) ? "image" : "video",
+      format: isCarouselBrief(j.brief as AnyBrief) ? "carousel" : isImageBrief(j.brief as AnyBrief) ? "image" : "video",
       label: briefLabel(j.brief as AnyBrief),
       stage: j.stage,
       launching_into: j.launch_adset_id,

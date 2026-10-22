@@ -3,10 +3,31 @@ import { nodeOf, PIPELINE, STAGE_OF, type NodeId, type Stage } from "@/component
 
 export type NodeState = { status: "idle" | "done" | "active"; last: BrainEvent | null; count: number };
 
-/** What the graph should show, derived only from real events. */
+// A step left open longer than this crashed without closing; don't keep it lit forever
+const STALE_MS = 30 * 60_000;
+
+/** Steps still running (a review's, or background work like a generation or a Meta upload). */
+export function openEvents(live: BrainLive, now = Date.now()) {
+  return live.events.filter((e) => !e.finished_at && now - new Date(e.started_at).getTime() < STALE_MS);
+}
+
+/** True while any part of Migz is working: a review, or background work outside one. */
+export function isBusy(live: BrainLive, now = Date.now()) {
+  return live.running || openEvents(live, now).length > 0;
+}
+
+/**
+ * What the graph should show, derived only from real events. A node pulses whenever it is actually
+ * working: during a review, and also for background work outside one (Higgsfield making a creative,
+ * Migz building an ad in Meta after an approval).
+ */
 export function deriveGraph(live: BrainLive, now = Date.now()) {
   const runId = live.runId;
-  const runEvents = runId ? live.events.filter((e) => e.run_id === runId) : [];
+  const runStart = live.lastRun ? new Date(live.lastRun.started_at).getTime() : 0;
+  // The review's own steps, plus background steps since it started (they belong to no run)
+  const runEvents = live.events.filter(
+    (e) => (runId && e.run_id === runId) || (e.run_id !== runId && new Date(e.started_at).getTime() >= runStart && (e.run_id === null || !e.finished_at)),
+  );
   const nodes = {} as Record<NodeId, NodeState>;
   for (const id of ["opus", "sonnet", "code", "auditor", "librarian", "scout", "clerk", "higgsfield", "meta", "memory"] as NodeId[])
     nodes[id] = { status: "idle", last: null, count: 0 };
@@ -19,17 +40,16 @@ export function deriveGraph(live: BrainLive, now = Date.now()) {
   }
 
   const active = new Set<NodeId>();
-  if (live.running) {
-    for (const e of runEvents) if (!e.finished_at) active.add(nodeOf(e));
-    // Between steps, the lead is thinking; a step that just closed keeps its light for a beat
-    const latest = runEvents.at(-1);
-    if (latest?.finished_at && now - new Date(latest.finished_at).getTime() < 4000) active.add(nodeOf(latest));
-    if (!active.size) active.add("sonnet");
-  }
+  const open = openEvents(live, now);
+  for (const e of open) active.add(nodeOf(e));
+  // A step that just closed keeps its light for a beat
+  for (const e of live.events) if (e.finished_at && now - new Date(e.finished_at).getTime() < 4000) active.add(nodeOf(e));
+  // Between steps of a review, the lead is thinking
+  if (live.running && !open.some((e) => e.run_id === runId)) active.add("sonnet");
   for (const id of active) nodes[id].status = "active";
 
   const stages = new Set<Stage>(runEvents.map((e) => STAGE_OF[e.step]).filter(Boolean));
-  const activeStages = new Set<Stage>([...runEvents.filter((e) => live.running && !e.finished_at).map((e) => STAGE_OF[e.step])]);
+  const activeStages = new Set<Stage>(open.map((e) => STAGE_OF[e.step]).filter(Boolean));
   if (live.running && !activeStages.size && runEvents.at(-1)) activeStages.add(STAGE_OF[runEvents.at(-1)!.step]);
 
   return {

@@ -1,0 +1,191 @@
+"use client";
+
+import { useState, useTransition } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { Loader2, Sparkles } from "lucide-react";
+import { planBatch, type BatchPlanResult } from "@/app/dashboard/actions";
+import { Button, Label, inputClass } from "@/components/dashboard/ui";
+import { depositFor, REVISE_AFTER_DAYS } from "@/lib/campaign";
+import { MIN_BATCH_CENTS, type BatchOptionKey } from "@/lib/batch";
+import { usd } from "@/lib/dashboard/format";
+import { cn } from "@/lib/utils";
+
+export type BatchChoice = { budgetCents: number; option: BatchOptionKey; recommended: BatchOptionKey; reason: string };
+
+const QUICK = [28_000, 42_000, 56_000, 84_000]; // ad spend: 2, 3, 4 and 6 two-week campaigns
+
+const whole = (cents: number) => usd(cents, { cents: cents % 100 !== 0 });
+
+/**
+ * "How much do you want to put into this batch?" then Migz's options for spending it, with the one it
+ * recommends for this agent. Used on Start here (saves the first batch) and on the Overview (starts one).
+ */
+export function BatchPlanner({
+  topics,
+  balanceCents,
+  initialBudgetCents,
+  confirmLabel,
+  onConfirm,
+  needsBalance = true,
+}: {
+  topics?: string[]; // setup passes the focus being edited; the overview uses the saved focus
+  balanceCents: number;
+  initialBudgetCents?: number;
+  confirmLabel: string;
+  onConfirm: (choice: BatchChoice) => Promise<{ ok: true } | { ok: false; error: string }>;
+  /** Setup saves the plan before funds arrive (launch checks the balance); the overview needs it now. */
+  needsBalance?: boolean;
+}) {
+  const [amount, setAmount] = useState(String(Math.round((initialBudgetCents ?? Math.max(MIN_BATCH_CENTS, Math.min(balanceCents, 56_000))) / 100)));
+  const [plan, setPlan] = useState<Extract<BatchPlanResult, { ok: true }> | null>(null);
+  const [picked, setPicked] = useState<BatchOptionKey | null>(null);
+  const [planning, startPlanning] = useTransition();
+  const [confirming, startConfirming] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [plannedFor, setPlannedFor] = useState(0);
+
+  const budgetCents = Math.round(Number(amount.replace(/[^0-9.]/g, "")) * 100) || 0;
+  const tooSmall = budgetCents > 0 && budgetCents < MIN_BATCH_CENTS;
+  const overBalance = needsBalance && budgetCents > balanceCents;
+  const stale = plan !== null && budgetCents !== plannedFor;
+
+  const ask = () =>
+    startPlanning(async () => {
+      setError(null);
+      const res = await planBatch(budgetCents, topics);
+      if (!res.ok) {
+        setPlan(null);
+        return setError(res.error);
+      }
+      setPlan(res);
+      setPlannedFor(budgetCents);
+      setPicked(res.recommended.key);
+    });
+
+  const confirm = () =>
+    startConfirming(async () => {
+      if (!plan || !picked) return;
+      setError(null);
+      const res = await onConfirm({ budgetCents: plannedFor, option: picked, recommended: plan.recommended.key, reason: plan.recommended.reason });
+      if (!res.ok) setError(res.error);
+    });
+
+  const chosen = plan?.options.find((o) => o.key === picked) ?? null;
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <Label htmlFor="batch-amount">How much do you want to put into this batch?</Label>
+        <div className="flex flex-wrap items-center gap-2">
+          {QUICK.map((c) => (
+            <button
+              key={c}
+              type="button"
+              aria-pressed={budgetCents === c}
+              onClick={() => setAmount(String(c / 100))}
+              className={cn(
+                "rounded-lg border px-3.5 py-2 text-sm tabular-nums transition-colors",
+                budgetCents === c ? "border-brand/60 bg-brand/10 text-fg" : "border-line text-fg-muted hover:border-line-strong hover:text-fg",
+              )}
+            >
+              {whole(c)}
+            </button>
+          ))}
+          <div className="relative">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-fg-faint">$</span>
+            <input
+              id="batch-amount"
+              inputMode="decimal"
+              className={cn(inputClass, "w-32 pl-6 tabular-nums")}
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+            />
+          </div>
+          <Button onClick={ask} disabled={planning || !budgetCents || tooSmall}>
+            {planning ? <Loader2 className="animate-spin" /> : <Sparkles />}
+            {plan && !stale ? "Ask Migz again" : "See Migz's plan"}
+          </Button>
+        </div>
+        <p className={cn("mt-2 text-[13px]", tooSmall ? "text-bad" : "text-fg-muted")}>
+          {tooSmall
+            ? `The smallest batch is ${whole(MIN_BATCH_CENTS)} of ad spend (a ${whole(depositFor(MIN_BATCH_CENTS))} deposit with the 20% fee).`
+            : `This is ad spend from your balance (${usd(balanceCents, { cents: true })} available). Migz decides how to split it and for how long, at least 2 weeks.`}
+          {budgetCents > balanceCents && !tooSmall && <span className="text-brand"> That&apos;s more than your balance; add {whole(depositFor(budgetCents - balanceCents))} in funds first.</span>}
+        </p>
+      </div>
+
+      <AnimatePresence initial={false}>
+        {planning && !plan && (
+          <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex items-center gap-2 text-[13px] text-fg-muted">
+            <Loader2 className="size-3.5 animate-spin" /> Migz is looking at your results and planning the batch…
+          </motion.p>
+        )}
+      </AnimatePresence>
+
+      {plan && (
+        <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: stale ? 0.5 : 1, y: 0 }} transition={{ duration: 0.25 }} className="space-y-4">
+          <div className="rounded-lg border border-brand/30 bg-brand/[0.05] px-4 py-3">
+            <p className="flex items-center gap-1.5 text-[13px] font-semibold text-fg">
+              <Sparkles className="size-3.5 text-brand" /> Migz recommends: {plan.options.find((o) => o.key === plan.recommended.key)?.title}
+            </p>
+            <p className="mt-1 text-[13px] text-fg-muted">{plan.recommended.reason}</p>
+            <p className="mt-2 text-[12px] text-fg-faint">
+              {plan.estimate
+                ? `At your ${whole(plan.estimate.costPerCallCents)} per booked call so far, ${whole(plannedFor)} should bring roughly ${plan.estimate.low}–${plan.estimate.high} booked calls. Results vary week to week.`
+                : "Migz will estimate booked calls once your ads have a few bookings; this first batch is what sets that baseline."}
+            </p>
+          </div>
+
+          <div role="radiogroup" aria-label="How to spend this batch" className="grid gap-2 sm:grid-cols-3">
+            {plan.options.map((o) => (
+              <button
+                key={o.key}
+                type="button"
+                role="radio"
+                aria-checked={picked === o.key}
+                onClick={() => setPicked(o.key)}
+                className={cn(
+                  "flex flex-col rounded-lg border px-4 py-3 text-left transition-colors",
+                  picked === o.key ? "border-brand/60 bg-brand/[0.08]" : "border-line hover:border-line-strong hover:bg-white/[0.03]",
+                )}
+              >
+                <span className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium text-fg">{o.title}</span>
+                  {o.key === plan.recommended.key && <span className="rounded-full bg-brand/15 px-2 py-0.5 text-[11px] font-medium text-brand">Recommended</span>}
+                </span>
+                <span className="mt-1 font-mono text-[12px] text-fg-muted">
+                  {o.campaigns.length === 1 ? `1 campaign · ${whole(o.perCampaignCents)}/day` : `${o.campaigns.length} campaigns · ${whole(o.perCampaignCents)}/day each`} · {o.days} days
+                </span>
+                <span className="mt-2 text-[12px] leading-snug text-fg-muted">{o.blurb}</span>
+              </button>
+            ))}
+          </div>
+
+          {chosen && (
+            <ol className="space-y-1 text-[13px] text-fg-muted">
+              <li>
+                <span className="mr-2 font-mono text-[11px] text-brand">1</span>Days 1–{REVISE_AFTER_DAYS}: Migz builds ads for {chosen.campaigns.length === 1 ? "the campaign" : "every campaign"} and collects results. No changes while the data comes in.
+              </li>
+              <li>
+                <span className="mr-2 font-mono text-[11px] text-brand">2</span>After {REVISE_AFTER_DAYS} days: it revises what&apos;s underperforming (hooks, copy{chosen.campaigns.length > 1 ? ", budget between campaigns" : ""}).
+              </li>
+              <li>
+                <span className="mr-2 font-mono text-[11px] text-brand">3</span>Through day {chosen.days}: it checks whether those changes actually brought more booked calls, and keeps what works.
+              </li>
+            </ol>
+          )}
+
+          <div className="flex flex-wrap items-center gap-3">
+            <Button variant="primary" onClick={confirm} disabled={confirming || !picked || !!stale || overBalance}>
+              {confirming ? <Loader2 className="animate-spin" /> : null}
+              {confirmLabel}
+            </Button>
+            {stale && <span className="text-[13px] text-fg-faint">You changed the amount. Ask Migz again to update the plan.</span>}
+          </div>
+        </motion.div>
+      )}
+
+      {error && <p className="text-[13px] text-bad">{error}</p>}
+    </div>
+  );
+}

@@ -5,24 +5,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowUpRight, Check, Loader2 } from "lucide-react";
-import { launchCampaign, savePlan, setCreativeMode } from "@/app/dashboard/actions";
+import { launchCampaign, saveBatchPlan, setCreativeMode } from "@/app/dashboard/actions";
+import { BatchPlanner } from "@/components/dashboard/batch/BatchPlanner";
+import { listCampaignTopics } from "@/lib/batch";
 import { AddFunds } from "@/components/dashboard/FundsControls";
 import { ProfileForm, type Profile } from "@/components/dashboard/LandingEditor";
-import { Button, Label, Panel, inputClass } from "@/components/dashboard/ui";
-import {
-  allocateCampaigns,
-  BUDGETS,
-  campaignCount,
-  CAMPAIGN_DAILY_CENTS,
-  depositFor,
-  DURATIONS,
-  estimate,
-  MIN_CAMPAIGNS,
-  MIN_DAILY_CENTS,
-  MIN_DEPOSIT_CENTS,
-  perCampaignCents,
-  REVISE_AFTER_DAYS,
-} from "@/lib/campaign";
+import { Button, Label, Panel } from "@/components/dashboard/ui";
+import { MIN_DEPOSIT_CENTS } from "@/lib/campaign";
 import { usd } from "@/lib/dashboard/format";
 import { cleanFocus, MAX_FOCUS, TOPIC_KEYS, TOPICS, type TopicKey } from "@/lib/migz/topics";
 import { cn } from "@/lib/utils";
@@ -36,7 +25,10 @@ type Props = {
   balanceCents: number;
   stripeConnected: boolean;
   connected: boolean; // Meta ad account linked and Migz configured
-  plan: { topics: string[]; days: number | null; dailyCents: number };
+  plan: {
+    topics: string[];
+    batch: { budget_cents: number; option: string; campaigns: string[]; days: number; daily_cents: number } | null;
+  };
   creativeMode: "upload" | "ai" | "both" | null;
   creativeCount: number;
   contactEmail: string;
@@ -47,7 +39,7 @@ const TITLES: Record<string, { title: string; blurb: string }> = {
   profile: { title: "Your profile", blurb: "Your name, photo and a short bio. People see this before they book." },
   page: { title: "Your booking page", blurb: "The hours you take calls, and a look at the page your ads send people to." },
   funds: { title: "Add funds", blurb: `Money for your Meta ads. The minimum is ${usd(MIN_DEPOSIT_CENTS)}: 2 campaigns at $10 a day for 2 weeks.` },
-  plan: { title: "Plan your campaign", blurb: "What to promote, how long to run, and how much to spend each day." },
+  plan: { title: "Plan your first batch", blurb: "What to promote and how much to put in. Migz plans the campaigns and how long they run." },
   creatives: { title: "Videos and images", blurb: "Let Migz make your ads' videos and photos, or bring your own." },
 };
 
@@ -105,38 +97,16 @@ function StepShell({
 function PlanStep({ plan, balanceCents, onSaved }: { plan: Props["plan"]; balanceCents: number; onSaved: () => void }) {
   const router = useRouter();
   const [topics, setTopics] = useState<TopicKey[]>(cleanFocus(plan.topics));
-  const [days, setDays] = useState<number | null>(plan.days);
-  const [daily, setDaily] = useState<string>(String(Math.round(plan.dailyCents / 100)));
-  const [pending, start] = useTransition();
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
 
-  const dailyCents = Math.round(Number(daily.replace(/[^0-9.]/g, "")) * 100) || 0;
-  const est = estimate(dailyCents, days, balanceCents);
-
-  const toggle = (k: TopicKey) => {
-    setSaved(false);
+  const toggle = (k: TopicKey) =>
     setTopics((cur) => (cur.includes(k) ? cur.filter((x) => x !== k) : cur.length >= MAX_FOCUS ? cur : [...cur, k]));
-  };
-
-  const save = () =>
-    start(async () => {
-      setError(null);
-      if (days === null) return setError("Pick how long the campaign should run.");
-      const res = await savePlan({ topics, days, dailyCents });
-      if (!res.ok) return setError(res.error);
-      setSaved(true);
-      router.refresh();
-      onSaved();
-    });
 
   return (
     <div className="space-y-6">
       <div>
         <Label>What do you want to promote?</Label>
         <p className="mb-2 text-[12px] text-fg-faint">
-          Pick up to {MAX_FOCUS}, in order. Each gets its own campaign while your budget covers it, and extra campaigns go to your
-          main focus first.
+          Pick up to {MAX_FOCUS}, in order. Each can get its own campaign, and extra campaigns go to your main focus first.
         </p>
         <div className="grid gap-2 sm:grid-cols-2">
           {TOPIC_KEYS.map((k) => {
@@ -167,143 +137,25 @@ function PlanStep({ plan, balanceCents, onSaved }: { plan: Props["plan"]; balanc
         </div>
       </div>
 
-      <div>
-        <Label>How long should it run?</Label>
-        <div className="flex flex-wrap gap-2">
-          {DURATIONS.map((d) => (
-            <button
-              key={d.label}
-              type="button"
-              aria-pressed={days === d.days}
-              onClick={() => {
-                setDays(d.days);
-                setSaved(false);
-              }}
-              className={cn(
-                "rounded-lg border px-4 py-2 text-sm transition-colors",
-                days === d.days ? "border-brand/60 bg-brand/10 text-fg" : "border-line text-fg-muted hover:border-line-strong hover:text-fg",
-              )}
-            >
-              {d.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div>
-        <Label htmlFor="daily">How much per day?</Label>
-        <div className="flex flex-wrap items-center gap-2">
-          {BUDGETS.map((b) => (
-            <button
-              key={b}
-              type="button"
-              aria-pressed={dailyCents === b * 100}
-              onClick={() => {
-                setDaily(String(b));
-                setSaved(false);
-              }}
-              className={cn(
-                "rounded-lg border px-4 py-2 text-sm transition-colors",
-                dailyCents === b * 100 ? "border-brand/60 bg-brand/10 text-fg" : "border-line text-fg-muted hover:border-line-strong hover:text-fg",
-              )}
-            >
-              ${b}
-            </button>
-          ))}
-          <div className="relative">
-            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-fg-faint">$</span>
-            <input
-              id="daily"
-              inputMode="decimal"
-              className={cn(inputClass, "w-28 pl-6")}
-              value={daily}
-              onChange={(e) => {
-                setDaily(e.target.value);
-                setSaved(false);
-              }}
-            />
-          </div>
-          <span className="text-[13px] text-fg-muted">a day</span>
-        </div>
-        <p className="mt-2 text-[13px] text-fg-muted">
-          {dailyCents < MIN_DAILY_CENTS
-            ? `The minimum is ${usd(MIN_DAILY_CENTS, { cents: false })} a day: ${MIN_CAMPAIGNS} campaigns at ${usd(CAMPAIGN_DAILY_CENTS, { cents: false })} each.`
-            : days === null
-              ? "Pick a length to see the total."
-              : est.totalCents !== null
-                ? `About ${usd(est.totalCents)} over ${days} days. Your balance covers ${est.coveredDays} day${est.coveredDays === 1 ? "" : "s"}${est.fullyFunded ? ", the whole campaign." : `, so add ${usd(est.shortfallCents ?? 0)} more to cover it all.`}`
-                : `It runs until you stop it. Your balance covers ${est.coveredDays} day${est.coveredDays === 1 ? "" : "s"} at this rate.`}
-        </p>
-      </div>
-
-      {topics.length > 0 && dailyCents >= MIN_DAILY_CENTS && days !== null && (
-        <MigzPlan topics={topics} dailyCents={dailyCents} days={days} balanceCents={balanceCents} />
-      )}
-
-      <div className="flex items-center gap-3">
-        <Button variant="primary" onClick={save} disabled={pending || !topics.length || days === null}>
-          {pending ? <Loader2 className="animate-spin" /> : null}
-          Save plan
-        </Button>
-        {saved && <span className="text-[13px] text-good">Saved</span>}
-        {error && <span className="text-[13px] text-bad">{error}</span>}
-      </div>
-    </div>
-  );
-}
-
-/** "Mortgage protection and Final expense", "Final expense (2 campaigns), Mortgage protection and ..." */
-function listTopics(slots: TopicKey[]) {
-  const counts = new Map<TopicKey, number>();
-  for (const t of slots) counts.set(t, (counts.get(t) ?? 0) + 1);
-  const parts = [...counts].map(([t, n]) => (n > 1 ? `${TOPICS[t].label} (${n} campaigns)` : TOPICS[t].label));
-  return parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0];
-}
-
-/** What Migz will do with this plan, in plain words, so the agent knows what to expect before saving. */
-function MigzPlan({ topics, dailyCents, days, balanceCents }: { topics: TopicKey[]; dailyCents: number; days: number; balanceCents: number }) {
-  const count = campaignCount(dailyCents);
-  const slots = allocateCampaigns(topics, count) as TopicKey[];
-  const each = perCampaignCents(dailyCents, count);
-  const left = topics.filter((t) => !slots.includes(t));
-  const doubled = topics.filter((t) => slots.filter((x) => x === t).length > 1);
-  const length = DURATIONS.find((d) => d.days === days)?.label.toLowerCase() ?? `${days} days`;
-  const totalCents = days ? dailyCents * days : null;
-  const covered = estimate(dailyCents, days, balanceCents);
-
-  const steps = [
-    `Make ${count} campaign${count === 1 ? "" : "s"}: ${listTopics(slots)}, at ${usd(each, { cents: each % 100 !== 0 })} a day each.`,
-    days ? `Run them for ${length}.` : "Run them until you stop them.",
-    `Days 1–${REVISE_AFTER_DAYS}: build ads for every campaign and collect results. No changes while the data comes in.`,
-    `After ${REVISE_AFTER_DAYS} days of results: compare the campaigns and revise what's underperforming, like hooks, copy and budget between campaigns.`,
-    days === 14
-      ? "Days 8–14: check whether those changes actually improved results."
-      : "Then keep checking whether each change actually improved results, and revise again where it didn't.",
-  ];
-
-  return (
-    <div className="rounded-lg border border-brand/30 bg-brand/[0.05] px-4 py-4">
-      <p className="text-sm font-semibold text-fg">Migz&apos;s plan</p>
-      <ol className="mt-2 space-y-1.5">
-        {steps.map((text, i) => (
-          <li key={i} className="flex gap-2.5 text-[13px] leading-snug text-fg-muted">
-            <span className="mt-px font-mono text-[11px] text-brand">{i + 1}</span>
-            <span>{text}</span>
-          </li>
-        ))}
-      </ol>
-      {(left.length > 0 || doubled.length > 0) && (
-        <p className="mt-3 text-[12px] text-fg-faint">
-          {left.length > 0
-            ? `Your budget covers ${count} campaign${count === 1 ? "" : "s"}, so Migz starts with your top ${count === 1 ? "focus" : count}. Add ${usd(left.length * CAMPAIGN_DAILY_CENTS, { cents: false })} a day to cover ${listTopics(left)} too.`
-            : `${listTopics(doubled)} get${doubled.length === 1 ? "s" : ""} a second campaign so Migz can compare two approaches.`}
-        </p>
-      )}
-      {totalCents !== null && (
-        <p className="mt-3 border-t border-brand/20 pt-3 text-[12px] text-fg-muted">
-          {usd(totalCents)} of ad spend over {length} ({usd(depositFor(totalCents))} to add, with the 20% fee).{" "}
-          {covered.fullyFunded ? "Your balance covers it." : `Your balance covers ${covered.coveredDays} day${covered.coveredDays === 1 ? "" : "s"}.`}
-        </p>
+      {topics.length > 0 ? (
+        <BatchPlanner
+          key={topics.join()}
+          topics={topics}
+          balanceCents={balanceCents}
+          initialBudgetCents={plan.batch?.budget_cents}
+          confirmLabel="Save plan"
+          needsBalance={false}
+          onConfirm={async (choice) => {
+            const res = await saveBatchPlan({ ...choice, topics });
+            if (res.ok) {
+              router.refresh();
+              onSaved();
+            }
+            return res;
+          }}
+        />
+      ) : (
+        <p className="text-[13px] text-fg-faint">Pick at least one topic, then Migz plans your first batch.</p>
       )}
     </div>
   );
@@ -395,7 +247,9 @@ export function StartWizard(props: Props) {
     profile: props.profile.full_name,
     page: `Live at /${props.slug}`,
     funds: `${usd(props.balanceCents, { cents: true })} available`,
-    plan: `${cleanFocus(props.plan.topics).map((t) => TOPICS[t].label).join(", ")} · ${usd(props.plan.dailyCents)}/day · ${DURATIONS.find((d) => d.days === props.plan.days)?.label.toLowerCase() ?? ""}`,
+    plan: props.plan.batch
+      ? `${usd(props.plan.batch.budget_cents, { cents: false })} batch · ${listCampaignTopics(props.plan.batch.campaigns.map((t) => (t || null) as TopicKey | null))} · ${props.plan.batch.days} days`
+      : cleanFocus(props.plan.topics).map((t) => TOPICS[t].label).join(", "),
     creatives: props.creativeMode === "ai" ? "Migz creates them" : props.creativeMode === "upload" ? `${props.creativeCount} of your own` : "Yours plus Migz's",
   };
 
@@ -467,13 +321,13 @@ export function StartWizard(props: Props) {
         <h2 className="text-sm font-semibold text-fg">{props.completed ? "Your campaign" : "Start your campaign"}</h2>
         {props.completed ? (
           <p className="mt-1 text-[13px] text-fg-muted">
-            You&apos;re set up. Changes you make above apply to your next review. <Link href="/dashboard/brain" className="text-fg underline-offset-4 hover:underline">Watch Migz work</Link>.
+            You&apos;re set up. Start new campaign batches from the <Link href="/dashboard" className="text-fg underline-offset-4 hover:underline">Overview</Link>, or <Link href="/dashboard/brain" className="text-fg underline-offset-4 hover:underline">watch Migz work</Link>.
           </p>
         ) : (
           <>
             <p className="mt-1 text-[13px] text-fg-muted">
               {ready
-                ? "Migz reviews your account, then proposes your first ads. In Ask me first mode, nothing goes live until you approve it."
+                ? "This starts your first batch. Migz sets up the campaigns, then proposes your first ads. In Ask me first mode, nothing goes live until you approve it."
                 : `Finish ${props.steps.length - doneCount} more step${props.steps.length - doneCount === 1 ? "" : "s"} to start.`}
             </p>
             {!props.connected && ready && (
