@@ -388,6 +388,28 @@ assert.match((evalTool("generate_video", vidBase, gctx) as { error: string }).er
 assert.equal(evalTool("generate_video", { ...vidBase, cast: "a mother in her 30s and two kids", setting: "a family kitchen", mood: "worry turning into relief" }, gctx).ok, true);
 ok("videos: written as a short film (topic, look, place, same cast, timed shots, mood) with realism rules on the whole and every shot; cast/setting/mood required");
 
+// Video continuity and voiceover
+const { timeJumpWithoutAging, VIDEO_CONTINUITY } = await import("@/lib/migz/brief");
+assert.equal(timeJumpWithoutAging("Years later, the tree they planted is fully grown and the family stands under it."), true, "the planted-tree problem is caught");
+assert.equal(timeJumpWithoutAging("Now grown, the oak shades the yard as the kids play."), true);
+assert.equal(timeJumpWithoutAging("Years later, the daughter is a teenager in a graduation gown and hugs her mother on the porch."), false, "a time jump that says how they aged is fine");
+assert.equal(timeJumpWithoutAging("Her two kids run into the same sunlit kitchen in pajamas."), false, "no time jump, nothing to check");
+const narrated = videoPrompt({ ...film, voiceover: "She never had to choose between the house and their future. He made sure of that." });
+assert.ok(narrated.includes(VIDEO_CONTINUITY));
+assert.match(narrated, /Voiceover: an off-screen narrator .* says: "She never had to choose/); assert.match(narrated, /no one on screen speaks or moves their lips/);
+assert.match(videoPrompt(film), /No narration and no dialogue/);
+assert.ok(shotPrompts(film).every((x) => /unless this shot says time has passed/.test(x.prompt) && x.prompt.length <= 512));
+const goodVideo = { ...vidBase, cast: "a mother in her 30s and two kids", setting: "a family home and backyard", mood: "worry turning into relief" };
+const tree = evalTool("generate_video", { ...goodVideo, body_shots: [{ prompt: "The family plants a small tree in the backyard", duration: 4 }, { prompt: "Years later, the tree is fully grown and the family picnics under it", duration: 4 }] }, gctx);
+assert.ok(!tree.ok && /Shot 3 jumps forward in time but doesn't say how the people have aged/.test((tree as { error: string }).error), JSON.stringify(tree));
+assert.equal(evalTool("generate_video", { ...goodVideo, body_shots: [{ prompt: "The family plants a small tree in the backyard", duration: 4 }, { prompt: "Years later, the kids are teenagers and the mother has grey in her hair, sitting under the now tall tree", duration: 4 }] }, gctx).ok, true);
+const voiced = evalTool("generate_video", { ...goodVideo, voiceover: "He planned ahead, so they kept their home." }, gctx);
+assert.ok(voiced.ok && (voiced as { payload: { brief: { voiceover: string } } }).payload.brief.voiceover === "He planned ahead, so they kept their home.");
+assert.match((evalTool("generate_video", { ...goodVideo, voiceover: Array(45).fill("word").join(" ") }, gctx) as { error: string }).error, /45 words; keep it to 40/);
+assert.equal(evalTool("generate_video", { ...goodVideo, voiceover: "Guaranteed approval, no matter what." }, gctx).ok, false, "narration follows the insurance copy rules");
+assert.equal(evalTool("generate_video", { ...goodVideo, voiceover: null }, gctx).ok, true, "narration is optional");
+ok("videos: continuity rules on every video and shot, time jumps must say how people aged (planted tree refused); optional off-screen voiceover, 40 words max, same copy rules");
+
 // Stripe keys: live keys only ever on Vercel Production
 const { stripeKey } = await import("@/lib/stripe");
 const keyEnv = { main: process.env.STRIPE_SECRET_KEY, test: process.env.STRIPE_TEST_SECRET_KEY, vercel: process.env.VERCEL_ENV };

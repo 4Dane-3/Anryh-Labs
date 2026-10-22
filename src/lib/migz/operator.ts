@@ -65,7 +65,7 @@ function copyOf(payload: ActionPayload): string[] {
   if ("brief" in payload) {
     const b = payload.brief as unknown as Record<string, unknown>;
     const cards = (b.cards as { overlay_lines: string[]; headline: string }[] | undefined) ?? [];
-    return [b.hook_line, b.primary_text, b.headline, ...((b.overlay_lines as string[]) ?? []), b.button_text, ...cards.flatMap((c) => [...c.overlay_lines, c.headline])].filter(
+    return [b.hook_line, b.primary_text, b.headline, b.voiceover, ...((b.overlay_lines as string[]) ?? []), b.button_text, ...cards.flatMap((c) => [...c.overlay_lines, c.headline])].filter(
       (x): x is string => typeof x === "string",
     );
   }
