@@ -29,6 +29,7 @@ export async function GET(req: Request) {
     .eq("active", true)
     .neq("migz_mode", "off")
     .not("meta_ad_account_id", "is", null)
+    .not("onboarding_completed_at", "is", null) // setup finished: their first batch has started
     .or(`migz_last_run_at.is.null,migz_last_run_at.lt.${dueBefore}`)
     .order("migz_last_run_at", { ascending: true, nullsFirst: true })
     .limit(10);
