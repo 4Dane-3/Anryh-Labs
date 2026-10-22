@@ -144,23 +144,6 @@ async function rollUp(agent: Agent, since: string, until: string) {
     { onConflict: "agent_id,date" },
   );
 
-  const spendDays = [...days].filter(([, d]) => d.spend_cents > 0);
-  if (spendDays.length) {
-    await supabaseAdmin.from("wallet_transactions").upsert(
-      spendDays.map(([date, d]) => ({
-        agent_id: agent.id,
-        kind: "ad_spend",
-        amount_cents: -d.spend_cents,
-        status: "completed",
-        description: `Meta ad spend · ${DateTime.fromISO(date).toFormat("LLL d")}`,
-        external_id: `meta_spend:${agent.id}:${date}`,
-        // End of that day, but never in the future (today's entry keeps updating as spend grows)
-        created_at: DateTime.min(
-          DateTime.fromISO(date, { zone: agent.timezone }).endOf("day"),
-          DateTime.now(),
-        ).toUTC().toISO(),
-      })),
-      { onConflict: "external_id" },
-    );
-  }
+  // Spend isn't taken from the wallet day by day: a batch sets its whole budget aside when it starts and
+  // returns what it didn't spend when it ends (see setAsideBatch in dashboard/batches.ts)
 }

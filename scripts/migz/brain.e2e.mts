@@ -703,6 +703,10 @@ try {
   assert.equal(afterBatch!.filter((c) => c.retired_at && c.status === "PAUSED").length, 3, "the 3 campaigns the batch doesn't use are paused and retired");
   const { data: appliedBatch } = await db.from("campaign_batches").select("applied_at").eq("id", batchRow!.id).single();
   assert.ok(appliedBatch!.applied_at);
+  // Starting the batch set its whole budget aside: the balance drops by $280 right away, not as Meta spends
+  const { data: setAsideRow } = await db.from("wallet_transactions").select("amount_cents, kind, description").eq("external_id", `batch:${batchRow!.id}`).single();
+  assert.deepEqual([setAsideRow!.amount_cents, setAsideRow!.kind], [-28_000, "adjustment"]);
+  assert.match(setAsideRow!.description, /Set aside for your \$280 campaign batch/);
   const { data: mpSetRow } = await db.from("ad_sets").select("daily_budget_cents").eq("meta_adset_id", mpSet).single();
   assert.equal(mpSetRow!.daily_budget_cents, 2000, "the batch's one campaign gets its whole $20/day");
   const { data: batchLog } = await db.from("ad_actions").select("title").eq("agent_id", AGENT_ID).eq("tool", "system_setup").order("created_at", { ascending: false }).limit(1).single();
@@ -768,6 +772,13 @@ try {
   assert.equal(endRun.status, "paused");
   const { data: endedBatch } = await db.from("campaign_batches").select("status, result").eq("id", batchRow!.id).single();
   assert.equal(endedBatch!.status, "ended"); assert.ok(endedBatch!.result && typeof (endedBatch!.result as { spent_cents: number }).spent_cents === "number");
+  // What it didn't spend came back to the balance ($280 budget, $278 spent: $2 back), exactly once
+  const spentInBatch = (endedBatch!.result as { spent_cents: number }).spent_cents;
+  const { data: returned } = await db.from("wallet_transactions").select("amount_cents, kind").eq("external_id", `batch:${batchRow!.id}:return`);
+  assert.equal(returned!.length, 1);
+  assert.deepEqual([returned![0].amount_cents, returned![0].kind], [28_000 - spentInBatch, "refund"]);
+  const { count: dailySpendRows } = await db.from("wallet_transactions").select("id", { count: "exact", head: true }).eq("agent_id", AGENT_ID).eq("kind", "ad_spend");
+  assert.equal(dailySpendRows, 0, "daily Meta spend is no longer taken from the balance on top of the set-aside");
   await db.from("agents").update({ campaign_ends_on: null, campaign_started_on: null, migz_last_run_at: null }).eq("id", AGENT_ID);
   ok("batch applied (1 campaign kept at $20/day, 3 retired, Meta end time set), 2-card carousel built with live Brain steps, spend paced down then paused at the budget, batch closed with results");
 

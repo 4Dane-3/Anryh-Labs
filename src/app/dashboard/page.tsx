@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { DateTime } from "luxon";
 import { ArrowRight } from "lucide-react";
-import { requireAgent } from "@/lib/auth";
+import { isAnryhAdmin, requireAgent } from "@/lib/auth";
+import { getMigzUpdate } from "@/lib/dashboard/status";
 import { integrations, migzReadyFor } from "@/lib/integrations";
 import {
   getAdActions,
@@ -17,7 +18,7 @@ import { Badge, EmptyState, NotConnected, PageHeader, Panel, PanelHeader } from 
 import { MigzPanel } from "@/components/dashboard/MigzPanel";
 import { BrainWidget } from "@/components/dashboard/brain/BrainWidget";
 import { getBrainLive } from "@/lib/migz/brain";
-import { closeEndedBatch, getBatchProgress, getOpenBatch, getRecentBatches } from "@/lib/dashboard/batches";
+import { closeEndedBatch, ensureBatchSetAside, getBatchProgress, getOpenBatch, getRecentBatches } from "@/lib/dashboard/batches";
 import { BatchCard } from "@/components/dashboard/batch/BatchCard";
 import { StartBatchButton } from "@/components/dashboard/batch/StartBatch";
 
@@ -25,6 +26,7 @@ export default async function OverviewPage() {
   const agent = await requireAgent();
   // A batch past its last day is closed (with its results) before the page reads it
   await closeEndedBatch(agent).catch(() => null);
+  await ensureBatchSetAside(agent).catch(() => null);
   const [metrics, balance, upcoming, actions, proposals, brain, openBatch, pastBatches] = await Promise.all([
     getDailyMetrics(agent, 30),
     getBalanceCents(agent.id),
@@ -36,6 +38,7 @@ export default async function OverviewPage() {
     getRecentBatches(agent.id, 4),
   ]);
   const activeBatch = openBatch?.status === "active" ? openBatch : null;
+  const [update, canReview] = await Promise.all([getMigzUpdate(agent), isAnryhAdmin()]);
   const batchProgress = activeBatch ? await getBatchProgress(agent, activeBatch) : null;
   const batchBlocked = !agent.onboarding_completed_at
     ? "Finish setting up first"
@@ -102,9 +105,11 @@ export default async function OverviewPage() {
           hint={
             agent.ads_paused
               ? "Ads are paused"
-              : daysLeft !== null
-                ? `About ${daysLeft} day${daysLeft === 1 ? "" : "s"} at ${usd(agent.daily_budget_cents)}/day`
-                : undefined
+              : activeBatch
+                ? `Plus ${usd(activeBatch.budget_cents)} set aside for your running batch`
+                : daysLeft !== null
+                  ? `About ${daysLeft} day${daysLeft === 1 ? "" : "s"} at ${usd(agent.daily_budget_cents)}/day`
+                  : undefined
           }
         />
         <StatTile index={1} label="Spent · 30 days" value={spend} format="usd" hint={`${usd(Math.round(spend / 30))} a day on average`} />
@@ -162,6 +167,8 @@ export default async function OverviewPage() {
             recentlyRan={recentlyRan}
             proposals={proposals}
             actions={actions}
+            update={update}
+            canReview={canReview}
           />
         </Panel>
         <Panel className="lg:col-span-2">

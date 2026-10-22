@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { DateTime } from "luxon";
-import { ArrowRight, Loader2 } from "lucide-react";
+import { ArrowRight, Loader2, RefreshCw } from "lucide-react";
+import type { MigzUpdate } from "@/lib/dashboard/status";
 import type { MigzAction } from "@/lib/dashboard/queries";
 import { runMigzNow } from "@/app/dashboard/actions";
 import { Proposal } from "@/components/dashboard/Proposals";
@@ -36,15 +37,23 @@ export function MigzPanel({
   recentlyRan,
   proposals,
   actions,
+  update,
+  canReview = false,
 }: {
   connected: boolean;
   mode: "off" | "approve" | "auto";
   recentlyRan: boolean; // a full review finished within the last 10 minutes (computed on the server)
   proposals: MigzAction[];
   actions: MigzAction[];
+  /** What Migz is doing right now, read from the account (no review is started). */
+  update: MigzUpdate;
+  /** Anryh Labs staff can still start a review by hand; agents can't (it would make new creatives). */
+  canReview?: boolean;
 }) {
   const router = useRouter();
   const [reviewing, startReview] = useTransition();
+  const [refreshing, startRefresh] = useTransition();
+  const refresh = () => startRefresh(() => router.refresh());
   const [note, setNote] = useState<{ tone: "good" | "bad"; text: string } | null>(null);
 
   const review = () =>
@@ -68,10 +77,13 @@ export function MigzPanel({
             <Link href="/dashboard/settings" className="text-[12px] text-fg-faint transition-colors hover:text-fg">
               {MODE_LABELS[mode]}
             </Link>
-            {mode !== "off" && (
-              <Button size="sm" onClick={review} disabled={reviewing || recentlyRan} title={recentlyRan ? "Migz just finished a review. Try again in a few minutes." : undefined}>
+            <Button size="sm" onClick={refresh} disabled={refreshing}>
+              <RefreshCw className={refreshing ? "animate-spin" : undefined} /> Get an update
+            </Button>
+            {canReview && mode !== "off" && (
+              <Button size="sm" variant="ghost" onClick={review} disabled={reviewing || recentlyRan} title={recentlyRan ? "Migz just finished a review. Try again in a few minutes." : "Staff only: starts a full review now"}>
                 {reviewing ? <Loader2 className="animate-spin" /> : null}
-                {reviewing ? "Starting…" : "Review now"}
+                {reviewing ? "Starting…" : "Run a review (staff)"}
               </Button>
             )}
           </div>
@@ -90,6 +102,29 @@ export function MigzPanel({
           </motion.p>
         )}
       </AnimatePresence>
+
+      {connected && (
+        <div className="border-b border-line px-5 py-4">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-fg-faint">Right now</p>
+          <p className="mt-1.5 text-sm font-semibold text-fg">{update.headline}</p>
+          <p className="mt-0.5 text-[13px] leading-relaxed text-fg-muted">{update.detail}</p>
+          {update.lines.length > 0 && (
+            <ul className="mt-2.5 space-y-1">
+              {update.lines.map((line) => (
+                <li key={line} className="flex gap-2 text-[13px] text-fg-muted">
+                  <span className="mt-[7px] size-1 shrink-0 rounded-full bg-brand" aria-hidden="true" />
+                  {line}
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="mt-3 text-[12px] text-fg-faint">
+            {update.lastCheck ? `Last check ${DateTime.fromISO(update.lastCheck.at).toRelative()}` : "No checks yet"}
+            {update.nextCheckAt ? ` · next check ${DateTime.fromISO(update.nextCheckAt).toRelative()}` : ""}
+          </p>
+          {update.lastCheck?.summary && <p className="mt-1 text-[12px] leading-relaxed text-fg-faint">&ldquo;{update.lastCheck.summary}&rdquo;</p>}
+        </div>
+      )}
 
       {proposals.length > 0 && (
         <div className="border-b border-line px-5 py-4">

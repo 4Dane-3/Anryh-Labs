@@ -68,9 +68,11 @@ export default async function FundsPage({ searchParams }: { searchParams: Promis
             <p className="mt-2 text-[13px] text-fg-muted">
               {agent.ads_paused
                 ? "Your ads are paused."
-                : daysLeft !== null
-                  ? `Covers about ${daysLeft} day${daysLeft === 1 ? "" : "s"} of ads at ${usd(agent.daily_budget_cents)} a day.`
-                  : null}
+                : batch
+                  ? `Free to use. Your running batch has its ${usd(batch.budget_cents)} set aside; what it doesn't spend comes back here when it ends on ${batch.ends_on}.`
+                  : daysLeft !== null
+                    ? `Covers about ${daysLeft} day${daysLeft === 1 ? "" : "s"} of ads at ${usd(agent.daily_budget_cents)} a day.`
+                    : null}
             </p>
           </div>
           <AddFunds />
@@ -87,7 +89,7 @@ export default async function FundsPage({ searchParams }: { searchParams: Promis
       </div>
 
       <Panel className="mt-3">
-        <PanelHeader title="History" description="Deposits, and ad spend billed by Meta." />
+        <PanelHeader title="History" description="Deposits, fees, and money set aside for (and returned from) your campaign batches." />
         {transactions.length ? (
           <ul className="divide-y divide-line">
             {transactions.map((t) => (

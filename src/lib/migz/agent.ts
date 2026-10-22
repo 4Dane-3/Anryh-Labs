@@ -8,7 +8,7 @@ import { isCarouselBrief, isVideoBrief, type AnyBrief, type CreativeBrief } from
 import { buildSnapshot, type Snapshot } from "@/lib/migz/snapshot";
 import { syncAgent } from "@/lib/migz/sync";
 import { begin, emit, metaStep } from "@/lib/migz/events";
-import { closeEndedBatch, getActiveBatch, type Batch } from "@/lib/dashboard/batches";
+import { closeEndedBatch, ensureBatchSetAside, getActiveBatch, type Batch } from "@/lib/dashboard/batches";
 import { allocateCampaigns, campaignCount, campaignEnded, campaignLabels, perCampaignCents } from "@/lib/campaign";
 import { cleanFocus, isTopic } from "@/lib/migz/topics";
 import { MIN_ADSET_BUDGET_CENTS } from "@/lib/migz/guardrails";
@@ -101,9 +101,10 @@ export async function buildEvalContext(agent: Agent, snapshot: Snapshot): Promis
  * Safety switch that runs before any AI decision: pause every ad set if the agent paused ads or the
  * balance can't cover a day of spend; resume what this switch paused once that's fixed.
  */
-async function enforceSpendState(agent: Agent, snapshot: Snapshot, runId: string, budgetUsed = false) {
+async function enforceSpendState(agent: Agent, snapshot: Snapshot, runId: string, budgetUsed = false, inBatch = false) {
   const active = snapshot.guardAdsets.filter((a) => a.status === "ACTIVE");
-  const lowBalance = snapshot.balanceCents < agent.daily_budget_cents;
+  // A running batch's money is already set aside (the balance shows $0), so it's funded until its budget runs out
+  const lowBalance = !inBatch && snapshot.balanceCents < agent.daily_budget_cents;
   // The agent chose how long the campaign runs; after its last day (or once its budget is spent), ads stop
   const ended = campaignEnded(agent.campaign_ends_on, agent.timezone) || budgetUsed;
 
@@ -510,6 +511,7 @@ export async function runMigz(
   try {
     // A batch whose last day is over is closed with its results; its ads pause below
     await closeEndedBatch(agent).catch((e) => console.error("closing the batch failed", e));
+    await ensureBatchSetAside(agent).catch((e) => console.error("setting the batch's money aside failed", e));
     let snapshot = await buildSnapshot(agent);
     if (snapshot.hasCampaign) {
       const done = await begin({ agentId: agent.id, runId, step: "syncing", tier: "code", summary: "Pulling results from Meta" });
@@ -522,7 +524,7 @@ export async function runMigz(
     await syncCampaignSwitch(agent, runId);
     const batch = await getActiveBatch(agent.id);
     const pacing = await batchPacing(agent, batch);
-    const spend = await enforceSpendState(agent, snapshot, runId, pacing?.budgetUsed ?? false);
+    const spend = await enforceSpendState(agent, snapshot, runId, pacing?.budgetUsed ?? false, !!batch);
     if (spend === "paused") {
       await finish(runId, agent.id, { summary: "Ads are paused, so Migz made no changes." });
       await emit({ agentId: agent.id, runId, step: "finished", tier: "code", summary: "Ads are paused, so Migz made no changes." });
