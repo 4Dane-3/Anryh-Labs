@@ -515,7 +515,7 @@ try {
   assert.equal(endedRun.status, "paused", JSON.stringify(endedRun));
   assert.equal(meta.adsetStatus, "PAUSED");
   const { data: endAction } = await db.from("ad_actions").select("title, detail").eq("agent_id", AGENT_ID).eq("tool", "system_pause").order("created_at", { ascending: false }).limit(1).single();
-  assert.equal(endAction!.title, "Your campaign has ended"); assert.match(endAction!.detail, /Start here/);
+  assert.equal(endAction!.title, "Your campaign batch has ended"); assert.match(endAction!.detail, /next batch from the Overview/);
   modelAllowed = true;
   operatorScript = () => ({ content: [text("Resumed after the campaign was extended.")] });
   await db.from("agents").update({ campaign_ends_on: ymd(10), migz_last_run_at: null }).eq("id", AGENT_ID);
@@ -680,8 +680,9 @@ try {
   const { data: batchLog } = await db.from("ad_actions").select("title").eq("agent_id", AGENT_ID).eq("tool", "system_setup").order("created_at", { ascending: false }).limit(1).single();
   assert.equal(batchLog!.title, "Set up your $280 batch");
   // Higgsfield is working on both cards: the Brain shows it with an open step, outside any review
-  const { data: openHf } = await db.from("migz_events").select("summary").eq("agent_id", AGENT_ID).eq("tier", "higgsfield").is("finished_at", null);
-  assert.equal(openHf!.length, 1); assert.match(openHf![0].summary, /Making a carousel/);
+  // (other jobs may still be generating too; this checks the carousel's own step)
+  const { data: openHf } = await db.from("migz_events").select("summary").eq("agent_id", AGENT_ID).eq("tier", "higgsfield").is("finished_at", null).like("summary", "Making a carousel%");
+  assert.equal(openHf!.length, 1, JSON.stringify(openHf));
   for (const rid of hf.status.keys()) hf.status.set(rid, "completed");
   await advanceOpenJobs(Date.now() + 60_000);
   const carouselAds = [...meta.ads.keys()].filter((id) => !adsBeforeBatch.has(id));
