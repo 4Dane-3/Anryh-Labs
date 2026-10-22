@@ -732,6 +732,23 @@ try {
   await db.from("agents").update({ licensed_states: ["FL", "GA", "TX"], migz_last_run_at: null }).eq("id", AGENT_ID);
   ok("new states pushed to Meta immediately (FL, TX); removing every state paused all ads");
 
+  // ===== 8i =====
+  step("8i. Two processes advance the same creative job at once (webhook + cron): one ad, not two");
+  const { data: dupSet } = await db.from("ad_sets").select("meta_adset_id").eq("agent_id", AGENT_ID).eq("status", "ACTIVE").limit(1).single();
+  const { data: dupCreative } = await db.from("creatives").insert({ agent_id: AGENT_ID, kind: "image", storage_path: `${AGENT_ID}/migz/dup-${Date.now()}.png`, file_name: "Migz · duplicate guard", mime_type: "image/png", size_bytes: PNG.length, status: "in_review", source: "migz", hook: "dup" }).select("id, storage_path").single();
+  await db.storage.from("creatives").upload(dupCreative!.storage_path, PNG, { contentType: "image/png" });
+  const { data: dupJob } = await db.from("creative_jobs").insert({ agent_id: AGENT_ID, stage: "stored", creative_id: dupCreative!.id, launch_adset_id: dupSet!.meta_adset_id, brief: { format: "image", concept: "dup", scene: "s", style: "s", overlay_lines: ["One ad only."], button_text: null, aspect_ratio: "4:5", primary_text: "A free call walks you through it.", headline: "One ad" } }).select("id").single();
+  const adsBeforeDup = [...meta.ads.keys()].length;
+  const raced = await Promise.all([advanceJobById(dupJob!.id), advanceJobById(dupJob!.id), advanceJobById(dupJob!.id)]);
+  assert.equal(raced.filter((r) => r === "launched").length, 1, JSON.stringify(raced));
+  assert.ok(raced.filter((r) => r === "busy").length >= 1, `the others stepped aside: ${JSON.stringify(raced)}`);
+  assert.equal([...meta.ads.keys()].length - adsBeforeDup, 1, "exactly one ad was built");
+  const { count: dupAds } = await db.from("ads").select("id", { count: "exact", head: true }).eq("agent_id", AGENT_ID).eq("creative_id", dupCreative!.id);
+  assert.equal(dupAds, 1);
+  const { data: released } = await db.from("creative_jobs").select("claimed_at").eq("id", dupJob!.id).single();
+  assert.equal(released!.claimed_at, null, "the claim is released when the run ends");
+  ok("three simultaneous advances of one job: one launched it, the others stepped aside, one ad exists, claim released");
+
   // ===== 9 =====
   step("9. Slack: morning digest section, and failure alerts to staff (once per distinct error)");
   const { migzDigestSection } = await import("@/lib/migz/slack");
