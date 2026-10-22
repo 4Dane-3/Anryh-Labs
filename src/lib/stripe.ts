@@ -46,11 +46,26 @@ export function checkoutReturnBase() {
 }
 
 /** A Checkout page for a deposit. Returns the URL to send the agent to. */
-export async function createDepositCheckout(input: { agentId: string; email: string; cents: number; appUrl: string }) {
+export async function createDepositCheckout(input: {
+  agentId: string;
+  email: string;
+  cents: number;
+  appUrl: string;
+  customerId?: string | null; // the agent's Stripe customer from an earlier deposit
+}) {
   const forAds = adSpendCents(input.cents);
-  const session = await stripe().checkout.sessions.create({
+  // One Stripe customer per agent: the first deposit creates it, later ones reuse it, so each paid
+  // deposit builds the history Stripe's fraud checks look at
+  const reuse = input.customerId
+    ? { customer: input.customerId, customer_update: { address: "auto" as const, name: "auto" as const } }
+    : null;
+  const fresh = { customer_email: input.email, customer_creation: "always" as const };
+  const create = (who: typeof reuse | typeof fresh) => stripe().checkout.sessions.create({
     mode: "payment",
-    customer_email: input.email,
+    ...who,
+    // More for Stripe to verify: the card's billing address (address and ZIP checks) and a phone number
+    billing_address_collection: "required",
+    phone_number_collection: { enabled: true },
     client_reference_id: input.agentId,
     line_items: [
       {
@@ -71,6 +86,16 @@ export async function createDepositCheckout(input: { agentId: string; email: str
     success_url: `${input.appUrl}/dashboard/funds?deposit=success`,
     cancel_url: `${input.appUrl}/dashboard/funds?deposit=canceled`,
   });
+  let session;
+  try {
+    session = await create(reuse ?? fresh);
+  } catch (e) {
+    // A saved customer that can't be used (deleted, or the API key can't read customers) must never
+    // stop a deposit: fall back to a checkout that creates a new customer
+    if (!reuse) throw e;
+    console.error("stripe: couldn't reuse the saved customer, creating a new one", e instanceof Error ? e.message : e);
+    session = await create(fresh);
+  }
   if (!session.url) throw new Error("Stripe didn't return a checkout link.");
   return session.url;
 }
@@ -90,5 +115,10 @@ export async function recordDeposit(session: Stripe.Checkout.Session) {
   ]);
   if (error?.code === "23505") return false; // unique external_id: already recorded
   if (error) throw new Error(`Couldn't record the deposit: ${error.message}`);
+  // Remember the customer Checkout created, for this agent's next deposit (never overwrite an existing one)
+  const customer = typeof session.customer === "string" ? session.customer : session.customer?.id;
+  if (customer) {
+    await supabaseAdmin.from("agents").update({ stripe_customer_id: customer }).eq("id", agentId).is("stripe_customer_id", null);
+  }
   return true;
 }
