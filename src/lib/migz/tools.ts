@@ -106,7 +106,7 @@ export const MIGZ_TOOLS: Anthropic.Beta.BetaTool[] = [
       mood: { type: "string", description: "The emotional arc and what must never appear, e.g. 'grief turning into gratitude and relief; hopeful, never dark; no funerals, hospitals or caskets'." },
       voiceover: {
         type: "string",
-        description: `Optional narration by an off-screen narrator over the footage (nobody on screen talks), up to ${MAX_VOICEOVER_WORDS} words, e.g. 'She never had to choose between the house and the kids' future. He made sure of that.' Empty for ambient sound only.`,
+        description: `Required: narration by an off-screen narrator over the footage (nobody on screen talks), up to ${MAX_VOICEOVER_WORDS} words that tell the story and end on the call to action, e.g. 'She never had to choose between the house and the kids' future. He made sure of that. A free call can help you plan for yours.'`,
       },
       hook_line: { type: "string", description: "The opening idea in words; it also starts the primary text." },
       hook_shot: { type: "string", description: `Shot 1, the first ${HOOK_SECONDS} seconds: a close, specific moment that stops the scroll (who, what they're holding or doing, the light). E.g. 'Close-up at dawn: the woman sits alone at the kitchen table holding a man's wristwatch, eyes wet; she hears small footsteps and looks toward the hallway.'` },
@@ -337,12 +337,12 @@ export function evaluate(name: string, raw: unknown, ctx: EvalContext): Evaluate
       // The short-film standard: the same people in one place, with a stated mood (see videoPrompt)
       if (!brief.cast || !brief.setting || !brief.mood)
         return fail("A video needs a cast (the same people in every shot), a setting (one real place) and a mood (the emotional arc and what never appears).");
+      // Every new video is narrated: an off-screen voice over the footage (videoPrompt keeps everyone on screen silent)
       const voiceover = typeof input.voiceover === "string" ? str(input.voiceover, 400) : "";
-      if (voiceover) {
-        const words = voiceover.split(/\s+/).filter(Boolean).length;
-        if (words > MAX_VOICEOVER_WORDS) return fail(`The voiceover is ${words} words; keep it to ${MAX_VOICEOVER_WORDS} so it fits 15 seconds without rushing.`);
-        brief.voiceover = voiceover;
-      }
+      if (!voiceover) return fail("Every video needs a voiceover: a few warm, plain sentences from an off-screen narrator that tell the story and end on the call to action.");
+      const words = voiceover.split(/\s+/).filter(Boolean).length;
+      if (words > MAX_VOICEOVER_WORDS) return fail(`The voiceover is ${words} words; keep it to ${MAX_VOICEOVER_WORDS} so it fits 15 seconds without rushing.`);
+      brief.voiceover = voiceover;
       // Continuity: a time jump has to say how the people aged, or the model shows a grown tree next to an unchanged family
       const shots = [brief.hook_shot, ...brief.body_shots.map((b) => b.prompt)];
       const jumpAt = shots.findIndex(timeJumpWithoutAging);

@@ -385,7 +385,7 @@ assert.deepEqual(perShot.map((x) => x.duration), [3, 4, 4, 4]);
 assert.ok(perShot.every((x) => x.prompt.length <= 512 && /Same people: a woman in her late 30s/.test(x.prompt) && /nobody looks at the camera/.test(x.prompt)), "each shot keeps the cast and the realism rule");
 const vidBase = { concept: "c", topic: "term_life", style: "warm", hook_line: "Is your family covered?", hook_shot: "A mother at the table", body_shots: [{ prompt: "She hugs her kids", duration: 4 }], primary_text: "Is your family covered? A free call walks you through it.", headline: "Plan ahead", launch_adset_id: null, title: "t", reason: "r" };
 assert.match((evalTool("generate_video", vidBase, gctx) as { error: string }).error, /needs a cast/, "a video without cast, setting and mood is refused");
-assert.equal(evalTool("generate_video", { ...vidBase, cast: "a mother in her 30s and two kids", setting: "a family kitchen", mood: "worry turning into relief" }, gctx).ok, true);
+assert.equal(evalTool("generate_video", { ...vidBase, cast: "a mother in her 30s and two kids", setting: "a family kitchen", mood: "worry turning into relief", voiceover: "She planned ahead. A free call can help you do the same." }, gctx).ok, true);
 ok("videos: written as a short film (topic, look, place, same cast, timed shots, mood) with realism rules on the whole and every shot; cast/setting/mood required");
 
 // Video continuity and voiceover
@@ -399,7 +399,7 @@ assert.ok(narrated.includes(VIDEO_CONTINUITY));
 assert.match(narrated, /Voiceover: an off-screen narrator .* says: "She never had to choose/); assert.match(narrated, /no one on screen speaks or moves their lips/);
 assert.match(videoPrompt(film), /No narration and no dialogue/);
 assert.ok(shotPrompts(film).every((x) => /unless this shot says time has passed/.test(x.prompt) && x.prompt.length <= 512));
-const goodVideo = { ...vidBase, cast: "a mother in her 30s and two kids", setting: "a family home and backyard", mood: "worry turning into relief" };
+const goodVideo = { ...vidBase, cast: "a mother in her 30s and two kids", setting: "a family home and backyard", mood: "worry turning into relief", voiceover: "She planned ahead, so they stayed home. A free call can help you plan too." };
 const tree = evalTool("generate_video", { ...goodVideo, body_shots: [{ prompt: "The family plants a small tree in the backyard", duration: 4 }, { prompt: "Years later, the tree is fully grown and the family picnics under it", duration: 4 }] }, gctx);
 assert.ok(!tree.ok && /Shot 3 jumps forward in time but doesn't say how the people have aged/.test((tree as { error: string }).error), JSON.stringify(tree));
 assert.equal(evalTool("generate_video", { ...goodVideo, body_shots: [{ prompt: "The family plants a small tree in the backyard", duration: 4 }, { prompt: "Years later, the kids are teenagers and the mother has grey in her hair, sitting under the now tall tree", duration: 4 }] }, gctx).ok, true);
@@ -407,8 +407,9 @@ const voiced = evalTool("generate_video", { ...goodVideo, voiceover: "He planned
 assert.ok(voiced.ok && (voiced as { payload: { brief: { voiceover: string } } }).payload.brief.voiceover === "He planned ahead, so they kept their home.");
 assert.match((evalTool("generate_video", { ...goodVideo, voiceover: Array(45).fill("word").join(" ") }, gctx) as { error: string }).error, /45 words; keep it to 40/);
 assert.equal(evalTool("generate_video", { ...goodVideo, voiceover: "Guaranteed approval, no matter what." }, gctx).ok, false, "narration follows the insurance copy rules");
-assert.equal(evalTool("generate_video", { ...goodVideo, voiceover: null }, gctx).ok, true, "narration is optional");
-ok("videos: continuity rules on every video and shot, time jumps must say how people aged (planted tree refused); optional off-screen voiceover, 40 words max, same copy rules");
+assert.match((evalTool("generate_video", { ...goodVideo, voiceover: null }, gctx) as { error: string }).error, /Every video needs a voiceover/, "narration is required");
+assert.match((evalTool("generate_video", { ...goodVideo, voiceover: "   " }, gctx) as { error: string }).error, /Every video needs a voiceover/, "blank narration doesn't count");
+ok("videos: continuity rules on every video and shot, time jumps must say how people aged (planted tree refused); a required off-screen voiceover, 40 words max, same copy rules");
 
 // Stripe keys: live keys only ever on Vercel Production
 const { stripeKey } = await import("@/lib/stripe");
