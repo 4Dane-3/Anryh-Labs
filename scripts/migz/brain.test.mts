@@ -299,4 +299,24 @@ const syncing = deriveGraph({ ...idleLive, running: true, events: [ev(4, { run_i
 assert.ok(syncing.active.has("meta"), "pulling results from Meta lights the Meta node");
 ok("Brain: background work (a generation, a Meta upload) lights its node outside a review; syncing lights Meta; stale steps don't");
 
+// Stripe keys: live keys only ever on Vercel Production
+const { stripeKey } = await import("@/lib/stripe");
+const keyEnv = { main: process.env.STRIPE_SECRET_KEY, test: process.env.STRIPE_TEST_SECRET_KEY, vercel: process.env.VERCEL_ENV };
+const setKeys = (main?: string, test?: string, vercel?: string) => {
+  for (const [k, v] of [["STRIPE_SECRET_KEY", main], ["STRIPE_TEST_SECRET_KEY", test], ["VERCEL_ENV", vercel]] as const) {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+};
+setKeys("rk_live_x", "sk_test_y", undefined);
+assert.equal(stripeKey(), "sk_test_y", "locally the test key wins");
+setKeys("rk_live_x", undefined, "preview");
+assert.equal(stripeKey(), null, "a live key on a preview is refused");
+setKeys("rk_live_x", "sk_test_y", "production");
+assert.equal(stripeKey(), "rk_live_x", "Production uses the live key");
+setKeys("sk_test_z", undefined, undefined);
+assert.equal(stripeKey(), "sk_test_z", "a test key under the main name works anywhere");
+setKeys(keyEnv.main, keyEnv.test, keyEnv.vercel);
+ok("Stripe: live keys only run on Vercel Production; local and preview use the test key");
+
 console.log(`\nALL ${n} UNIT GROUPS PASSED`);

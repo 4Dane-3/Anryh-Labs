@@ -331,7 +331,7 @@ async function syncCampaignPlan(agent: Agent, runId: string, batch: Batch | null
  * Keeps every ad set on the agent's licensed states. When the agent adds or removes a state, the
  * targeting is updated in Meta (ads must never reach people in states the agent can't sell in).
  */
-async function syncTargeting(agent: Agent, runId: string) {
+async function syncTargeting(agent: Agent, runId: string | null) {
   if (!agent.licensed_states.length) return 0;
   const want = [...agent.licensed_states].sort();
   const { data: sets, error } = await supabaseAdmin
@@ -368,6 +368,32 @@ async function syncTargeting(agent: Agent, runId: string) {
     });
   }
   return changed;
+}
+
+/**
+ * Runs right after the agent saves their licensed states, instead of waiting up to 6 hours for the next
+ * review: re-targets every ad set to the new states, or pauses all ads if no states are left (ads must
+ * never reach people where the agent can't sell).
+ */
+export async function retargetNow(agent: Agent) {
+  if (!agent.meta_ad_account_id) return;
+  if (agent.licensed_states.length) return syncTargeting(agent, null);
+  const { data: live } = await supabaseAdmin.from("ad_sets").select("id, meta_adset_id").eq("agent_id", agent.id).eq("status", "ACTIVE");
+  if (!live?.length) return 0;
+  await metaStep({ agentId: agent.id, runId: null, summary: "Pausing your ads: no licensed states" }, async () => {
+    for (const s of live) await setStatus(s.meta_adset_id, "PAUSED");
+  });
+  await supabaseAdmin.from("ad_sets").update({ status: "PAUSED", updated_at: new Date().toISOString() }).in("id", live.map((s) => s.id));
+  await logAction(agent.id, {
+    kind: "pause",
+    title: "Paused your ads: no licensed states",
+    detail: "Your profile has no licensed states, so Migz paused your ads. Add the states you're licensed in and they'll target those.",
+    status: "applied",
+    tool: "system_pause",
+    payload: { adset_ids: live.map((s) => s.meta_adset_id) },
+    run_id: null,
+  });
+  return live.length;
 }
 
 /**

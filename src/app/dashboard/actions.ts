@@ -5,7 +5,7 @@ import { after } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { isAnryhAdmin, requireAgent } from "@/lib/auth";
 import { integrations, migzReadyFor } from "@/lib/integrations";
-import { buildEvalContext, runMigz } from "@/lib/migz/agent";
+import { buildEvalContext, retargetNow, runMigz } from "@/lib/migz/agent";
 import { applyPayload } from "@/lib/migz/executor";
 import { buildSnapshot } from "@/lib/migz/snapshot";
 import { syncAgent } from "@/lib/migz/sync";
@@ -16,6 +16,7 @@ import { endDate, MAX_DEPOSIT_CENTS, MIN_DEPOSIT_CENTS } from "@/lib/campaign";
 import { batchOptions, bestTopic, findOption, MIN_BATCH_CENTS, outcomeEstimate, type BatchOption, type BatchOptionKey } from "@/lib/batch";
 import { closeEndedBatch, getBatchHistory, getOpenBatch, recommendWithMigz } from "@/lib/dashboard/batches";
 import { getBalanceCents } from "@/lib/dashboard/queries";
+import { checkoutReturnBase, createDepositCheckout } from "@/lib/stripe";
 import { setupBlockers } from "@/lib/dashboard/setup";
 import type { Agent } from "@/lib/booking/data";
 import { DateTime } from "luxon";
@@ -125,14 +126,18 @@ export async function setAdsPaused(paused: boolean): Promise<Result> {
 
 /** Starts a Stripe Checkout session for an ad-funds deposit. Needs Stripe keys. */
 export async function startDeposit(cents: number): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
-  await requireAgent();
+  const agent = await requireAgent();
   if (!Number.isInteger(cents) || cents < MIN_DEPOSIT_CENTS || cents > MAX_DEPOSIT_CENTS)
     return { ok: false, error: `Deposits must be between $${MIN_DEPOSIT_CENTS / 100} and $${(MAX_DEPOSIT_CENTS / 100).toLocaleString("en-US")}.` };
   if (!integrations.stripe)
     return { ok: false, error: "Payments aren't connected yet, so funds can't be added. This will work once Stripe is set up." };
-  // Stripe Checkout goes here once STRIPE_SECRET_KEY is set; the webhook records the deposit (+cents) and
-  // the fee (-(cents - adSpendCents(cents))) as two wallet rows, so the balance shows only the ad spend.
-  return { ok: false, error: "Stripe checkout isn't built yet." };
+  try {
+    const url = await createDepositCheckout({ agentId: agent.id, email: agent.email, cents, appUrl: checkoutReturnBase() });
+    return { ok: true, url };
+  } catch (e) {
+    console.error("stripe checkout failed", e);
+    return { ok: false, error: "Couldn't open the payment page. Please try again." };
+  }
 }
 
 // ---------- Uploads (creatives + profile photo) ----------
@@ -256,6 +261,15 @@ export async function updateProfile(input: {
     })
     .eq("id", agent.id);
   if (error) return fail("Couldn't save your page.");
+
+  // New licensed states take effect in Meta now, not at the next review
+  const changed = [...states].sort().join() !== [...agent.licensed_states].sort().join();
+  if (changed && migzReadyFor(agent)) {
+    const fresh = { ...agent, licensed_states: states };
+    after(async () => {
+      await retargetNow(fresh).catch((e) => console.error("re-targeting failed", e));
+    });
+  }
   revalidatePath("/dashboard", "layout");
   revalidatePath(`/${agent.slug}`);
   return { ok: true };
