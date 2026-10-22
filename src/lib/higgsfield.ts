@@ -1,5 +1,5 @@
 import "server-only";
-import { HOOK_SECONDS, imagePrompt, type CreativeBrief, type ImageBrief } from "@/lib/migz/brief";
+import { imagePrompt, shotPrompts, videoPrompt, type CreativeBrief, type ImageBrief } from "@/lib/migz/brief";
 
 // Higgsfield API (https://docs.higgsfield.ai): async generation. Submit -> store request_id and
 // status_url -> poll or receive a webhook -> download the output (URLs are kept ~7 days, so we
@@ -58,22 +58,17 @@ async function submit(path: string, body: Record<string, unknown>, opts: SubmitO
   return { requestId: json.request_id, statusUrl: json.status_url };
 }
 
-/** Submits a 9:16 multi-shot video: the hook shot first, then the body shots. */
+/** Submits a 9:16 multi-shot video, written as a short-film brief (see videoPrompt): hook shot first, then the body. */
 export async function submitVideo(brief: CreativeBrief, opts: SubmitOptions) {
-  const shots = [
-    { prompt: `${brief.hook_shot}. ${brief.style}`.slice(0, 512), duration: HOOK_SECONDS },
-    ...brief.body_shots.map((s) => ({ prompt: `${s.prompt}. ${brief.style}`.slice(0, 512), duration: s.duration })),
-  ];
-
   return submit(
     TEXT_TO_VIDEO,
     {
       // Required even with multi_prompt; describes the whole piece
-      prompt: `${brief.concept}. ${brief.style}`.slice(0, 2500),
+      prompt: videoPrompt(brief).slice(0, 2500),
       aspect_ratio: "9:16",
       sound: "on",
       multi_shots: true,
-      multi_prompt: shots,
+      multi_prompt: shotPrompts(brief),
     },
     opts,
   );

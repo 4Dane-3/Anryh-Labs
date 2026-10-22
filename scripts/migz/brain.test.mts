@@ -357,6 +357,37 @@ assert.match(placementGuard(focusCtx, "A", igOnly) ?? "", /Not enough evidence t
 assert.equal(placementGuard({ ...gctx, adsets: [{ ...gctx.adsets[0], platforms: st(10_000, 1, 10_000, 9) }] }, "A", igOnly), null);
 ok("platforms: Instagram/Facebook from Meta's placement tags; dropping one needs 5+ calls, $40 each side and 25% cheaper calls; automatic and both-platform narrowing stay allowed");
 
+// Videos follow the short-film standard
+const { videoPrompt, shotPrompts, VIDEO_REALISM } = await import("@/lib/migz/brief");
+const film = {
+  concept: "a family protected by a 30-year term life insurance policy",
+  style: "Warm natural light, soft film grain, handheld documentary style, muted earthy colors",
+  setting: "a real suburban home",
+  cast: "a woman in her late 30s; her son about 6 and daughter about 9",
+  mood: "grief turning into gratitude and relief. Hopeful, never dark. No funerals, hospitals, or caskets.",
+  hook_line: "He planned ahead.",
+  hook_shot: "Close-up at dawn. The woman sits alone at a kitchen table, holding a man's wristwatch, eyes wet. She hears small footsteps and looks up toward the hallway.",
+  body_shots: [
+    { prompt: "Her two young kids run into the same sunlit kitchen in pajamas. She wipes her eyes, smiles, and pulls them into a tight hug while breakfast cooks.", duration: 4 },
+    { prompt: "Years later, the same house. The daughter in a graduation gown laughs and hugs her mother on the front porch.", duration: 4 },
+    { prompt: "The mother straightens a framed family photo on the mantel, touches it gently, and smiles in golden evening light.", duration: 4 },
+  ],
+  primary_text: "He planned ahead, so they kept their home.", headline: "Plan ahead for them",
+};
+const whole = videoPrompt(film);
+assert.match(whole, /^A 15-second vertical short film about a family protected by a 30-year term life insurance policy\. Warm natural light.*, a real suburban home\. No text, no logos, no captions\./);
+assert.match(whole, /The same people appear throughout: a woman in her late 30s/);
+assert.match(whole, /Shot 1 \(0–3s\): Close-up at dawn/); assert.match(whole, /Shot 2 \(3–7s\)/); assert.match(whole, /Shot 4 \(11–15s\): The mother straightens/);
+assert.match(whole, /Mood: grief turning into gratitude/); assert.ok(whole.endsWith(VIDEO_REALISM));
+assert.match(VIDEO_REALISM, /no one looks into the camera/); assert.match(VIDEO_REALISM, /No exaggerated or forced laughing/);
+const perShot = shotPrompts(film);
+assert.deepEqual(perShot.map((x) => x.duration), [3, 4, 4, 4]);
+assert.ok(perShot.every((x) => x.prompt.length <= 512 && /Same people: a woman in her late 30s/.test(x.prompt) && /nobody looks at the camera/.test(x.prompt)), "each shot keeps the cast and the realism rule");
+const vidBase = { concept: "c", topic: "term_life", style: "warm", hook_line: "Is your family covered?", hook_shot: "A mother at the table", body_shots: [{ prompt: "She hugs her kids", duration: 4 }], primary_text: "Is your family covered? A free call walks you through it.", headline: "Plan ahead", launch_adset_id: null, title: "t", reason: "r" };
+assert.match((evalTool("generate_video", vidBase, gctx) as { error: string }).error, /needs a cast/, "a video without cast, setting and mood is refused");
+assert.equal(evalTool("generate_video", { ...vidBase, cast: "a mother in her 30s and two kids", setting: "a family kitchen", mood: "worry turning into relief" }, gctx).ok, true);
+ok("videos: written as a short film (topic, look, place, same cast, timed shots, mood) with realism rules on the whole and every shot; cast/setting/mood required");
+
 // Stripe keys: live keys only ever on Vercel Production
 const { stripeKey } = await import("@/lib/stripe");
 const keyEnv = { main: process.env.STRIPE_SECRET_KEY, test: process.env.STRIPE_TEST_SECRET_KEY, vercel: process.env.VERCEL_ENV };
