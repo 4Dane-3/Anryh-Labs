@@ -204,6 +204,7 @@ const { data: created, error: createError } = await db.from("agents").insert({
   // $10/day = one campaign, so the steps below can follow a single ad set; step 8f raises it to test the split
   timezone: "America/Chicago", active: true, daily_budget_cents: 1000, meta_ad_account_id: "act_9990001", meta_page_id: "page_1",
   migz_mode: "approve", slack_user_id: "U_TEST", ad_focus: ["final_expense", "mortgage_protection"],
+  onboarding_completed_at: new Date().toISOString(), // finished setup, so Migz may manage its ads
 }).select("id").single();
 if (createError) throw createError;
 const AGENT_ID = created!.id as string;
@@ -222,6 +223,20 @@ const callsFor = async (runId: string) => (await db.from("model_calls").select("
 const eventsFor = async (runId: string) => (await db.from("migz_events").select("step, tier, model, summary, finished_at").eq("run_id", runId).order("id")).data!;
 
 try {
+
+  // ===== 0 =====
+  step("0. An agent who hasn't finished setup gets no review, even with money in the account");
+  await db.from("agents").update({ onboarding_completed_at: null }).eq("id", AGENT_ID);
+  modelAllowed = false;
+  const callsBeforeSetup = meta.calls.length;
+  const notStarted = await run("schedule");
+  assert.equal(notStarted.status, "setup_not_finished");
+  assert.equal(meta.calls.length, callsBeforeSetup, "nothing touched in Meta");
+  const { count: runsBeforeSetup } = await db.from("migz_runs").select("id", { count: "exact", head: true }).eq("agent_id", AGENT_ID);
+  assert.equal(runsBeforeSetup, 0, "not even a run row");
+  modelAllowed = true;
+  await db.from("agents").update({ onboarding_completed_at: new Date().toISOString() }).eq("id", AGENT_ID);
+  ok("funded but setup unfinished: no review, no Meta calls, no campaigns");
 
   // ===== 1 =====
   step("1. First review: Haiku crew, Opus memo, Sonnet lead blocked until it consults the advisor");

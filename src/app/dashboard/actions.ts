@@ -498,6 +498,7 @@ export async function runMigzNow(): Promise<Result> {
   const agent = await requireAgent();
   if (agent.migz_mode === "off") return fail("Migz is turned off. Turn it on in Settings first.");
   if (!migzReadyFor(agent)) return fail("Migz isn't connected to your ad account yet.");
+  if (!agent.onboarding_completed_at) return fail("Finish setting up first: Start here walks you through it, and starting your first batch turns Migz on.");
   if (agent.migz_last_operator_at && Date.now() - new Date(agent.migz_last_operator_at).getTime() < MANUAL_REVIEW_COOLDOWN_MS) {
     return fail("Migz just finished a review. Give it a few minutes, then try again.");
   }

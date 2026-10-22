@@ -493,6 +493,9 @@ export async function runMigz(
 ) {
   const trigger = opts.trigger ?? "schedule";
   const createMessage = opts.createMessage ?? defaultCreateMessage;
+  // Migz only manages ads once the agent has finished setup ("Start my campaign" starts their first
+  // batch). Before that, adding funds alone must never make Migz build campaigns in their account.
+  if (!agent.onboarding_completed_at) return { runId: null, status: "setup_not_finished" as const };
   const { data: run } = await supabaseAdmin
     .from("migz_runs")
     .insert({ agent_id: agent.id, trigger, model: MODELS.sonnet })
