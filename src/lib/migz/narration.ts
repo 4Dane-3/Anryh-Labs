@@ -14,12 +14,12 @@ const run = promisify(execFile);
 export type Narrator = "female" | "male";
 
 // Narrators from the ElevenLabs Voice Library, chosen by Anryh Labs (env vars swap either one):
-//  - female: Victoria, "Warm, Trustworthy, and Relatable" (middle-aged, American, narrative)
-//  - male: Michael C. Vincent, "Confident, Expressive" (middle-aged, American, narrative)
+//  - female: Vivie, "Powerful and Commanding" (middle-aged, American, narrative)
+//  - male: Mark, "Deep, Serious" (older, American, narrative)
 // Library voices can be withdrawn by their owners, so there's a built-in fallback from ElevenLabs' own set.
 const VOICES: Record<Narrator, () => string> = {
-  female: () => process.env.ELEVENLABS_VOICE_FEMALE || "qSeXEcewz7tA0Q0qk9fH",
-  male: () => process.env.ELEVENLABS_VOICE_MALE || "uju3wxzG5OhpWcoi3SMy",
+  female: () => process.env.ELEVENLABS_VOICE_FEMALE || "z7U1SjrEq4fDDDriOQEN",
+  male: () => process.env.ELEVENLABS_VOICE_MALE || "GU8Qu28KNb4JbhQV7DX7",
 };
 const FALLBACK_VOICE = "nPczCjzI2devNBz1zQrb"; // ElevenLabs' own warm American narrator
 
@@ -37,6 +37,15 @@ const MAX_SPEEDUP = 1.25; // faster than this sounds rushed
 // before the first word and after the last.
 const SCENE_LUFS = -30; // well under the voice (-16), clearly audible on its own
 const MAX_SCENE_BOOST_DB = 30;
+// The music bed sits under the voice (and is ducked further while it speaks), and fills the ending
+const MUSIC_LUFS = -24;
+const MUSIC_COMPOSE_S = 22;
+const MUSIC_FADE_IN_S = 0.8;
+const MUSIC_FADE_OUT_S = 1;
+// Once the narrator finishes, the music carries the ending: its own loudness over that stretch is measured
+// (every composition differs) and lifted to this level
+const MUSIC_TAIL_LUFS = -22;
+const MAX_MUSIC_LIFT_DB = 15;
 
 /** The voiceover as speech (MP3), in the narrator's voice (or the next voice that works). */
 export async function speak(text: string, narrator: Narrator = "female"): Promise<{ audio: Buffer; voiceId: string }> {
@@ -66,6 +75,28 @@ function speakAs(key: string, voiceId: string, text: string) {
   });
 }
 
+/**
+ * A short instrumental bed for the video (ElevenLabs Music): soft strings and piano that start quietly
+ * and swell toward the end, so the closing seconds after the narrator aren't empty.
+ */
+export async function composeMusic(mood: string | null | undefined, seconds: number): Promise<Buffer> {
+  const key = process.env.ELEVENLABS_API_KEY;
+  if (!key) throw new Error("ELEVENLABS_API_KEY is not set");
+  const prompt = [
+    "Gentle, hopeful cinematic instrumental for a heartfelt family ad: soft strings (violins and cello) with warm piano.",
+    "Starts very soft, builds slowly, and grows into a full, warm swell through the middle and second half.",
+    "Slow tempo. No drums, no percussion, no vocals, no lyrics.",
+    mood ? `Mood: ${mood}.` : "",
+  ].filter(Boolean).join(" ");
+  const res = await fetch("https://api.elevenlabs.io/v1/music", {
+    method: "POST",
+    headers: { "xi-api-key": key, "Content-Type": "application/json", Accept: "audio/mpeg" },
+    body: JSON.stringify({ prompt, music_length_ms: Math.round(Math.max(10, Math.min(30, seconds)) * 1000) }),
+  });
+  if (!res.ok) throw new Error(`ElevenLabs music ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  return Buffer.from(await res.arrayBuffer());
+}
+
 async function ffmpegPath() {
   try {
     const mod = (await import("ffmpeg-static")) as unknown as { default?: string | null } | string;
@@ -76,10 +107,11 @@ async function ffmpegPath() {
 }
 
 /** Integrated loudness (LUFS) of a file's audio, or null if it has none or is silent. */
-async function loudness(bin: string, file: string) {
+async function loudness(bin: string, file: string, from?: { start: number; seconds: number }) {
   let report = "";
+  const window = from ? ["-ss", from.start.toFixed(2), "-t", from.seconds.toFixed(2)] : [];
   try {
-    const r = await run(bin, ["-hide_banner", "-nostats", "-i", file, "-vn", "-af", "ebur128", "-f", "null", "-"], { timeout: 60_000 });
+    const r = await run(bin, ["-hide_banner", "-nostats", ...window, "-i", file, "-vn", "-af", "ebur128", "-f", "null", "-"], { timeout: 60_000 });
     report = String(r.stderr ?? "");
   } catch (e) {
     report = String((e as { stderr?: string }).stderr ?? "");
@@ -107,7 +139,7 @@ async function probe(bin: string, file: string) {
  * would overrun (never past MAX_SPEEDUP; past that it's cut at the end), the scene's own sound kept low.
  * The picture is copied untouched. Null when ffmpeg isn't available here.
  */
-export async function mixNarration(video: Buffer, voice: Buffer): Promise<Buffer | null> {
+export async function mixNarration(video: Buffer, voice: Buffer, music?: Buffer | null): Promise<Buffer | null> {
   const bin = await ffmpegPath();
   if (!bin) return null;
   const dir = await mkdtemp(join(tmpdir(), "migz-voice-"));
@@ -115,8 +147,10 @@ export async function mixNarration(video: Buffer, voice: Buffer): Promise<Buffer
     const vIn = join(dir, "video.mp4");
     const aIn = join(dir, "voice.mp3");
     const out = join(dir, "out.mp4");
+    const mIn = join(dir, "music.mp3");
     await writeFile(vIn, video);
     await writeFile(aIn, voice);
+    if (music) await writeFile(mIn, music);
     const [v, a] = await Promise.all([probe(bin, vIn), probe(bin, aIn)]);
     if (!v.seconds) throw new Error("Couldn't read the video's length");
     const room = Math.max(1, v.seconds - START_AT_S - END_PADDING_S);
@@ -126,17 +160,40 @@ export async function mixNarration(video: Buffer, voice: Buffer): Promise<Buffer
     const voiceChain = `[1:a]loudnorm=I=-16:TP=-1.5:LRA=11,atempo=${tempo.toFixed(3)},adelay=${delayMs}|${delayMs},${fmt}`;
     const sceneLufs = v.hasAudio ? await loudness(bin, vIn) : null;
     const boost = sceneLufs === null ? 0 : Math.min(MAX_SCENE_BOOST_DB, SCENE_LUFS - sceneLufs);
-    const filter = v.hasAudio
-      ? // the voice drives a compressor on the scene sound: down while it speaks, back up in the gaps
-        // (the key is padded with silence: a compressor stops when its sidechain does, which cut the scene at the last word)
-        `${voiceChain},asplit=2[vo][keyvoice];[keyvoice]apad[key];` +
-        `[0:a]${fmt},volume=${boost.toFixed(1)}dB[scene];` +
-        `[scene][key]sidechaincompress=threshold=0.02:ratio=8:attack=20:release=500[bg];` +
-        `[bg][vo]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.95[a]`
+    const musicLufs = music ? await loudness(bin, mIn) : null;
+    const musicGain = musicLufs === null ? 0 : MUSIC_LUFS - musicLufs;
+    const withMusic = !!music && musicLufs !== null;
+    // The voice drives a compressor on each bed: down while it speaks, back up in the gaps. Keys are padded
+    // with silence (a compressor stops when its sidechain does, which would cut the bed at the last word).
+    const keys = 1 + (v.hasAudio ? 1 : 0) + (withMusic ? 1 : 0);
+    const parts = [`${voiceChain},asplit=${keys}[vo]${v.hasAudio ? "[ks]" : ""}${withMusic ? "[km]" : ""}`];
+    const mixIn = ["[vo]"];
+    if (v.hasAudio) {
+      parts.push(`[ks]apad[kscene]`, `[0:a]${fmt},volume=${boost.toFixed(1)}dB[scene]`, `[scene][kscene]sidechaincompress=threshold=0.02:ratio=8:attack=20:release=500[bg]`);
+      mixIn.unshift("[bg]"); // the scene runs the full length, so it goes first (amix duration=first)
+    }
+    if (withMusic) {
+      const fadeOutAt = Math.max(0, v.seconds - MUSIC_FADE_OUT_S);
+      const voiceEnd = START_AT_S + (a.seconds ?? room) / tempo + 0.3; // a beat after the last word
+      // Measured over the last two seconds before the fade: compositions often decay there, and that's the
+      // stretch that sounds empty (the part right after the voice is usually louder already)
+      const tailStart = Math.max(voiceEnd, fadeOutAt - 2);
+      const tailSeconds = Math.max(0, fadeOutAt - tailStart);
+      const tailLufs = tailSeconds >= 0.5 ? await loudness(bin, mIn, { start: tailStart, seconds: tailSeconds }) : null;
+      const lift = tailLufs === null ? 0 : Math.max(0, Math.min(MAX_MUSIC_LIFT_DB, MUSIC_TAIL_LUFS - (tailLufs + musicGain)));
+      parts.push(
+        `[km]apad[kmusic]`,
+        `[2:a]${fmt},volume=${musicGain.toFixed(1)}dB,volume=${lift.toFixed(1)}dB:enable='gte(t,${voiceEnd.toFixed(2)})',afade=t=in:st=0:d=${MUSIC_FADE_IN_S},afade=t=out:st=${fadeOutAt.toFixed(2)}:d=${MUSIC_FADE_OUT_S},apad[music]`,
+        `[music][kmusic]sidechaincompress=threshold=0.02:ratio=4:attack=40:release=900[bed]`,
+      );
+      mixIn.push("[bed]");
+    }
+    const filter = mixIn.length > 1
+      ? `${parts.join(";")};${mixIn.join("")}amix=inputs=${mixIn.length}:duration=${v.hasAudio ? "first" : "longest"}:normalize=0,alimiter=limit=0.95[a]`
       : `${voiceChain},apad[a]`;
     await run(
       bin,
-      ["-loglevel", "error", "-y", "-i", vIn, "-i", aIn, "-filter_complex", filter, "-map", "0:v", "-map", "[a]",
+      ["-loglevel", "error", "-y", "-i", vIn, "-i", aIn, ...(withMusic ? ["-i", mIn] : []), "-filter_complex", filter, "-map", "0:v", "-map", "[a]",
         "-c:v", "copy", "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-t", v.seconds.toFixed(3), "-movflags", "+faststart", out],
       { timeout: 120_000 },
     );
@@ -147,9 +204,23 @@ export async function mixNarration(video: Buffer, voice: Buffer): Promise<Buffer
 }
 
 /** Speaks the voiceover and lays it over the video. Throws with the reason when it can't (the caller decides). */
-export async function narrateVideo(video: Buffer, voiceover: string, narrator: Narrator = "female"): Promise<Buffer> {
-  const { audio } = await speak(voiceover, narrator);
-  const mixed = await mixNarration(video, audio);
+export async function narrateVideo(
+  video: Buffer,
+  voiceover: string,
+  narrator: Narrator = "female",
+  mood?: string | null,
+): Promise<Buffer> {
+  // Voice and music in parallel; the music is a nice-to-have, so its failure never costs the narration
+  const [{ audio }, music] = await Promise.all([
+    speak(voiceover, narrator),
+    // Composed longer than the video so its own ending falls after the video's: the video's last seconds
+    // land mid-swell and our fade closes it (a 15s piece tends to wind down early)
+    composeMusic(mood, MUSIC_COMPOSE_S).catch((e) => {
+      console.error("music bed failed; narrating without it", e instanceof Error ? e.message : e);
+      return null;
+    }),
+  ]);
+  const mixed = await mixNarration(video, audio, music);
   if (!mixed) throw new Error("ffmpeg isn't available here");
   return mixed;
 }

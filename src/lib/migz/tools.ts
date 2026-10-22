@@ -107,7 +107,7 @@ export const MIGZ_TOOLS: Anthropic.Beta.BetaTool[] = [
       narrator: {
         type: "string",
         enum: ["female", "male"],
-        description: "Whose voice reads the voiceover: a warm, trustworthy woman's voice, or a confident man's voice. Pick what suits the story (often the opposite of the person the story centres on, so it sounds like someone telling their story).",
+        description: "Whose voice reads the voiceover: a powerful, commanding woman's voice, or a deep, serious man's voice. Pick what suits the story (often the opposite of the person the story centres on, so it sounds like someone telling their story).",
       },
       voiceover: {
         type: "string",

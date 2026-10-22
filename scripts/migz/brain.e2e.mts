@@ -56,6 +56,7 @@ runFfmpeg(FFMPEG, ["-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=70
 const MP4 = readMedia(`${mediaDir}/clip.mp4`);
 const VOICE = readMedia(`${mediaDir}/voice.mp3`);
 const elevenlabs: { text: string; voice: string }[] = [];
+const music: { prompt: string; music_length_ms: number }[] = [];
 
 const json = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status, headers: { "content-type": "application/json" } });
 
@@ -115,6 +116,10 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   if (url.host === "slack.com") { slack.push(JSON.parse(String(init?.body))); return json({ ok: true }); }
   if (url.host === "api.elevenlabs.io") {
     assert.equal((init?.headers as Record<string, string>)?.["xi-api-key"], "el-fake");
+    if (url.pathname === "/v1/music") {
+      music.push(JSON.parse(String(init?.body)));
+      return new Response(VOICE, { headers: { "content-type": "audio/mpeg" } });
+    }
     elevenlabs.push({ text: JSON.parse(String(init?.body)).text, voice: url.pathname.split("/").pop()! });
     return new Response(VOICE, { headers: { "content-type": "audio/mpeg" } });
   }
@@ -356,7 +361,9 @@ try {
   // The narrator: ElevenLabs spoke the brief's voiceover and it was mixed over the stored video
   assert.equal(elevenlabs.length, 1, "one voiceover spoken");
   assert.match(elevenlabs[0].text, /^He thought about who keeps the house/);
-  assert.equal(elevenlabs[0].voice, "qSeXEcewz7tA0Q0qk9fH", "the brief didn't pick a narrator, so Victoria reads it");
+  assert.equal(elevenlabs[0].voice, "z7U1SjrEq4fDDDriOQEN", "the brief didn't pick a narrator, so Vivie reads it");
+  assert.equal(music.length, 1, "one music bed composed");
+  assert.match(music[0].prompt, /strings/);
   const { data: storedVideo } = await db.from("creatives").select("storage_path").eq("agent_id", AGENT_ID).eq("kind", "video").order("created_at").limit(1).single();
   const { data: videoFile } = await db.storage.from("creatives").download(storedVideo!.storage_path);
   const { writeFileSync: writeMedia } = await import("node:fs");

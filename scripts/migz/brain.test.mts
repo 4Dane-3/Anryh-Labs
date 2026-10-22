@@ -434,10 +434,17 @@ for (const voice of ["short", "long"]) {
 // The scene's sound carries on after the narrator stops (it used to be cut at the last word)
 const tailLevel = (file: string) => Number((spawnSync(ff, ["-hide_banner", "-ss", "3", "-i", file, "-vn", "-af", "volumedetect", "-f", "null", "-"], { encoding: "utf8" }).stderr.match(/mean_volume: (-?[\d.]+) dB/) ?? [])[1]);
 assert.ok(tailLevel(`${mixDir}/short-out.mp4`) > -60, `scene sound still audible after a 2s voice ends (${tailLevel(`${mixDir}/short-out.mp4`)} dB in the last second)`);
+// A music bed fills the end once the narrator stops, well above the scene's own sound
+execFileSync(ff, ["-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=220:duration=22", "-y", `${mixDir}/music.mp3`]);
+const scored = await mixNarration(fsx.readFileSync(`${mixDir}/v.mp4`), fsx.readFileSync(`${mixDir}/short.mp3`), fsx.readFileSync(`${mixDir}/music.mp3`));
+fsx.writeFileSync(`${mixDir}/music-out.mp4`, scored!);
+const scoredSecs = Number((report(`${mixDir}/music-out.mp4`).match(/Duration: 00:00:([\d.]+)/) ?? [])[1]);
+assert.ok(Math.abs(scoredSecs - 4) < 0.15, `music doesn't make the video longer (${scoredSecs}s)`);
+assert.ok(tailLevel(`${mixDir}/music-out.mp4`) > tailLevel(`${mixDir}/short-out.mp4`) + 3, `music fills the end (${tailLevel(`${mixDir}/music-out.mp4`)} dB vs ${tailLevel(`${mixDir}/short-out.mp4`)} dB without it)`);
 const { narratorVoices } = await import("@/lib/migz/narration");
-assert.deepEqual(narratorVoices("female"), ["qSeXEcewz7tA0Q0qk9fH", "uju3wxzG5OhpWcoi3SMy", "nPczCjzI2devNBz1zQrb"], "Victoria, then Michael, then ElevenLabs' own narrator");
-assert.deepEqual(narratorVoices("male")[0], "uju3wxzG5OhpWcoi3SMy");
-ok("narration: the voice is mixed over the video with the picture untouched; a voice longer than the video is sped up and cut to fit; the scene sound carries on after the voice; Victoria / Michael with fallbacks");
+assert.deepEqual(narratorVoices("female"), ["z7U1SjrEq4fDDDriOQEN", "GU8Qu28KNb4JbhQV7DX7", "nPczCjzI2devNBz1zQrb"], "Vivie, then Mark, then ElevenLabs' own narrator");
+assert.deepEqual(narratorVoices("male")[0], "GU8Qu28KNb4JbhQV7DX7");
+ok("narration: the voice is mixed over the video with the picture untouched; a voice longer than the video is sped up and cut to fit; the scene sound carries on after the voice; a music bed fills the end; Vivie / Mark with fallbacks");
 
 // Stripe keys: live keys only ever on Vercel Production
 const { stripeKey } = await import("@/lib/stripe");
