@@ -5,9 +5,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { DateTime } from "luxon";
-import { ArrowRight, Check, Loader2, X } from "lucide-react";
+import { ArrowRight, Loader2 } from "lucide-react";
 import type { MigzAction } from "@/lib/dashboard/queries";
-import { decideMigzAction, runMigzNow } from "@/app/dashboard/actions";
+import { runMigzNow } from "@/app/dashboard/actions";
+import { Proposal } from "@/components/dashboard/Proposals";
 import { MigzStatus } from "@/components/dashboard/Migz";
 import { Badge, Button, EmptyState } from "@/components/dashboard/ui";
 
@@ -27,50 +28,6 @@ function OutcomeBadge({ action }: { action: MigzAction }) {
   if (action.status === "rejected") return <Badge>You declined</Badge>;
   if (action.status === "expired") return <Badge>Expired</Badge>;
   return null;
-}
-
-function Proposal({ action }: { action: MigzAction }) {
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
-  const [choice, setChoice] = useState<"approve" | "reject" | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const decide = (decision: "approve" | "reject") =>
-    startTransition(async () => {
-      setChoice(decision);
-      setError(null);
-      const res = await decideMigzAction(action.id, decision);
-      if (!res.ok) {
-        setError(res.error);
-        setChoice(null);
-      }
-      router.refresh();
-    });
-
-  return (
-    <motion.li
-      layout
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, height: 0, marginTop: 0 }}
-      className="rounded-lg border border-brand/25 bg-brand/[0.05] px-4 py-3"
-    >
-      <div className="flex items-baseline justify-between gap-3">
-        <p className="text-[13px] font-medium text-fg">{action.title}</p>
-        <span className="shrink-0 text-[11px] text-fg-faint">{KIND_LABELS[action.kind] ?? action.kind}</span>
-      </div>
-      {action.detail && <p className="mt-0.5 text-[13px] leading-relaxed text-fg-muted">{action.detail}</p>}
-      {error && <p className="mt-2 text-[12px] text-bad">{error}</p>}
-      <div className="mt-3 flex gap-2">
-        <Button size="sm" variant="primary" onClick={() => decide("approve")} disabled={pending}>
-          {pending && choice === "approve" ? <Loader2 className="animate-spin" /> : <Check />} Approve
-        </Button>
-        <Button size="sm" variant="ghost" onClick={() => decide("reject")} disabled={pending}>
-          {pending && choice === "reject" ? <Loader2 className="animate-spin" /> : <X />} Decline
-        </Button>
-      </div>
-    </motion.li>
-  );
 }
 
 export function MigzPanel({

@@ -64,7 +64,7 @@ export default async function OverviewPage() {
       <PageHeader
         title={`${greeting}, ${firstName}`}
         description="How your ads performed over the last 30 days, and what's coming up. Migz AI runs your ads and tunes them as results come in."
-        action={<StartBatchButton balanceCents={balance} disabledReason={batchBlocked} />}
+        action={<StartBatchButton balanceCents={balance} disabledReason={batchBlocked} autoRun={agent.migz_mode === "auto"} />}
       />
 
       {!agent.onboarding_completed_at && (

@@ -9,6 +9,7 @@ import { isTestMode } from "@/lib/migz/test-mode";
 import { alertCreativeFailed } from "@/lib/migz/slack";
 import { briefLabel, cardBrief, isCarouselBrief, isImageBrief, isVideoBrief, type AnyBrief, type CreativeBrief } from "@/lib/migz/brief";
 import { closeEvent, openEvent } from "@/lib/migz/events";
+import { notifyAdLive, notifyCreativeReady } from "@/lib/migz/notify";
 
 // Creative jobs move through stages, advanced by the creatives cron (every 10 min) and the
 // Higgsfield webhook:  generating -> stored -> meta_processing -> launched   (or failed)
@@ -220,6 +221,19 @@ async function loadAgent(agentId: string): Promise<Agent> {
   return data as Agent;
 }
 
+/** A creative made for the library (not launched): the agent hears about it with a preview. */
+async function tellCreativeReady(job: Job) {
+  try {
+    const agent = await loadAgent(job.agent_id);
+    const creativeIds = isCarouselBrief(job.brief)
+      ? (job.parts ?? []).map((p) => p.creative_id).filter((id): id is string => !!id)
+      : job.creative_id ? [job.creative_id] : [];
+    await notifyCreativeReady(agent, { brief: job.brief, creativeIds });
+  } catch (e) {
+    console.error("creative ready update failed", e);
+  }
+}
+
 async function createLiveAd(job: Job, agent: Agent, media: Parameters<typeof createAdCreative>[1]["media"]) {
   const account = agent.meta_ad_account_id!;
   const name = `Migz · ${briefLabel(job.brief)}`.slice(0, 100);
@@ -261,6 +275,18 @@ async function createLiveAd(job: Job, agent: Agent, media: Parameters<typeof cre
   }
   await supabaseAdmin.from("creatives").update({ status: "live" }).eq("id", job.creative_id!);
   await update(job.id, { stage: "launched" });
+
+  // Tell the agent, with a preview of the ad as it shows in the feed
+  const creativeIds = isCarouselBrief(job.brief)
+    ? (job.parts ?? []).map((p) => p.creative_id).filter((id): id is string => !!id)
+    : [job.creative_id!];
+  await notifyAdLive(agent, {
+    brief: job.brief,
+    creativeIds,
+    metaAdsetId: job.launch_adset_id!,
+    held,
+    videoThumbnail: media.kind === "video" ? media.thumbnailUrl : null,
+  }).catch((e) => console.error("ad live update failed", e));
 }
 
 const CLAIM_SECONDS = 120; // longer than any single step; a crashed run's claim expires after this
@@ -327,6 +353,7 @@ async function advance(job: Job) {
       job = { ...job, stage: "stored", creative_id: parts[0].creative_id, parts };
       await update(job.id, { stage: "stored", creative_id: parts[0].creative_id, attempts: 0 });
       await closeJobEvent(job, `Made a carousel: ${briefLabel(job.brief)}`.slice(0, 200));
+      if (!job.launch_adset_id) await tellCreativeReady(job);
     }
 
     if (job.stage === "generating") {
@@ -349,6 +376,7 @@ async function advance(job: Job) {
       job = { ...job, stage: "stored", creative_id: creativeId };
       await update(job.id, { stage: "stored", creative_id: creativeId, attempts: 0 });
       await closeJobEvent(job, `Made a ${kindOf(job.brief)}: ${briefLabel(job.brief)}`.slice(0, 200));
+      if (!job.launch_adset_id) await tellCreativeReady(job);
     }
 
     if (job.stage === "stored") {

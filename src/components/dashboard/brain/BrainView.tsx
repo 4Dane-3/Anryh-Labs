@@ -15,6 +15,8 @@ import { deriveGraph } from "@/components/dashboard/brain/state";
 import { useBrainLive } from "@/components/dashboard/brain/useBrainLive";
 import { Badge, Button, EmptyState, inputClass, Panel, PanelHeader } from "@/components/dashboard/ui";
 import { cn } from "@/lib/utils";
+import { ApprovalsPanel } from "@/components/dashboard/Proposals";
+import type { MigzAction } from "@/lib/dashboard/queries";
 
 type Board = {
   findings: { check_name: string; subject: string; severity: string; summary: string; first_seen: string; status: string }[];
@@ -39,7 +41,20 @@ function useNow() {
   return now;
 }
 
-export function BrainView({ initial, board, agentId, justStarted = false }: { initial: BrainLive; board: Board; agentId: string; justStarted?: boolean }) {
+export function BrainView({
+  initial,
+  board,
+  agentId,
+  justStarted = false,
+  approvals = null,
+}: {
+  initial: BrainLive;
+  board: Board;
+  agentId: string;
+  justStarted?: boolean;
+  /** Proposals waiting for the agent (Ask me first mode); null hides the panel. */
+  approvals?: MigzAction[] | null;
+}) {
   const [demo, setDemo] = useState(false);
   const live = useBrainLive(initial, demo, justStarted);
   const now = useNow();
@@ -48,6 +63,7 @@ export function BrainView({ initial, board, agentId, justStarted = false }: { in
 
   return (
     <div className="space-y-6">
+      {approvals && !demo && <ApprovalsPanel proposals={approvals} />}
       <Panel className="overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-3">
           <StatusLine live={live} demo={demo} />

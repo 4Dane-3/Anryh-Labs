@@ -9,7 +9,7 @@ import { BatchPlanner } from "@/components/dashboard/batch/BatchPlanner";
 import { Button } from "@/components/dashboard/ui";
 
 /** "Start campaign batch": a dialog with the batch planner; starting one opens the Brain to watch Migz set it up. */
-export function StartBatchButton({ balanceCents, disabledReason }: { balanceCents: number; disabledReason: string | null }) {
+export function StartBatchButton({ balanceCents, disabledReason, autoRun }: { balanceCents: number; disabledReason: string | null; autoRun: boolean }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
 
@@ -59,6 +59,7 @@ export function StartBatchButton({ balanceCents, disabledReason }: { balanceCent
               <div className="px-5 py-5">
                 <BatchPlanner
                   balanceCents={balanceCents}
+                  initialAutoRun={autoRun}
                   confirmLabel="Start batch"
                   onConfirm={async (choice) => {
                     const res = await startBatch(choice);

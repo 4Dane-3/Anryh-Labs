@@ -10,7 +10,12 @@ import { MIN_BATCH_CENTS, type BatchOptionKey } from "@/lib/batch";
 import { usd } from "@/lib/dashboard/format";
 import { cn } from "@/lib/utils";
 
-export type BatchChoice = { budgetCents: number; option: BatchOptionKey; recommended: BatchOptionKey; reason: string };
+export type BatchChoice = { budgetCents: number; option: BatchOptionKey; recommended: BatchOptionKey; reason: string; autoRun: boolean };
+
+const RUN_MODES = [
+  { auto: true, title: "Let Migz run it", detail: "Migz launches ads and makes changes on its own, within the budget and guardrails. You get a Slack update for everything it does." },
+  { auto: false, title: "Ask me first", detail: "Migz proposes each new ad and change. Nothing goes live until you approve it in the Brain or on the Overview." },
+] as const;
 
 const QUICK = [28_000, 42_000, 56_000, 84_000]; // ad spend: 2, 3, 4 and 6 two-week campaigns
 
@@ -27,6 +32,7 @@ export function BatchPlanner({
   confirmLabel,
   onConfirm,
   needsBalance = true,
+  initialAutoRun = false,
 }: {
   topics?: string[]; // setup passes the focus being edited; the overview uses the saved focus
   balanceCents: number;
@@ -35,6 +41,8 @@ export function BatchPlanner({
   onConfirm: (choice: BatchChoice) => Promise<{ ok: true } | { ok: false; error: string }>;
   /** Setup saves the plan before funds arrive (launch checks the balance); the overview needs it now. */
   needsBalance?: boolean;
+  /** The agent's current mode (auto = Migz runs it), preselected in the choice. */
+  initialAutoRun?: boolean;
 }) {
   const [amount, setAmount] = useState(String(Math.round((initialBudgetCents ?? Math.max(MIN_BATCH_CENTS, Math.min(balanceCents, 56_000))) / 100)));
   const [plan, setPlan] = useState<Extract<BatchPlanResult, { ok: true }> | null>(null);
@@ -43,6 +51,7 @@ export function BatchPlanner({
   const [confirming, startConfirming] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [plannedFor, setPlannedFor] = useState(0);
+  const [autoRun, setAutoRun] = useState(initialAutoRun);
 
   const budgetCents = Math.round(Number(amount.replace(/[^0-9.]/g, "")) * 100) || 0;
   const tooSmall = budgetCents > 0 && budgetCents < MIN_BATCH_CENTS;
@@ -66,7 +75,7 @@ export function BatchPlanner({
     startConfirming(async () => {
       if (!plan || !picked) return;
       setError(null);
-      const res = await onConfirm({ budgetCents: plannedFor, option: picked, recommended: plan.recommended.key, reason: plan.recommended.reason });
+      const res = await onConfirm({ budgetCents: plannedFor, option: picked, recommended: plan.recommended.key, reason: plan.recommended.reason, autoRun });
       if (!res.ok) setError(res.error);
     });
 
@@ -177,6 +186,28 @@ export function BatchPlanner({
               </li>
             </ol>
           )}
+
+          <div>
+            <p className="mb-2 text-[13px] font-medium text-fg-muted">How should Migz run it?</p>
+            <div role="radiogroup" aria-label="How Migz runs this batch" className="grid gap-2 sm:grid-cols-2">
+              {RUN_MODES.map((m) => (
+                <button
+                  key={m.title}
+                  type="button"
+                  role="radio"
+                  aria-checked={autoRun === m.auto}
+                  onClick={() => setAutoRun(m.auto)}
+                  className={cn(
+                    "rounded-lg border px-4 py-3 text-left transition-colors",
+                    autoRun === m.auto ? "border-brand/60 bg-brand/[0.08]" : "border-line hover:border-line-strong hover:bg-white/[0.03]",
+                  )}
+                >
+                  <span className="block text-sm font-medium text-fg">{m.title}</span>
+                  <span className="mt-1 block text-[12px] leading-snug text-fg-muted">{m.detail}</span>
+                </button>
+              ))}
+            </div>
+          </div>
 
           <div className="flex flex-wrap items-center gap-3">
             <Button variant="primary" onClick={confirm} disabled={confirming || !picked || !!stale || overBalance}>

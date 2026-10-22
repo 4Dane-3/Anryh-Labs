@@ -28,6 +28,7 @@ type Props = {
   plan: {
     topics: string[];
     batch: { budget_cents: number; option: string; campaigns: string[]; days: number; daily_cents: number } | null;
+    autoRun: boolean;
   };
   creativeMode: "upload" | "ai" | "both" | null;
   creativeCount: number;
@@ -143,6 +144,7 @@ function PlanStep({ plan, balanceCents, onSaved }: { plan: Props["plan"]; balanc
           topics={topics}
           balanceCents={balanceCents}
           initialBudgetCents={plan.batch?.budget_cents}
+          initialAutoRun={plan.autoRun}
           confirmLabel="Save plan"
           needsBalance={false}
           onConfirm={async (choice) => {

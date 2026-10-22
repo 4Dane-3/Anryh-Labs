@@ -22,7 +22,8 @@ import { diagnoseCreativeTool, watchNewCreatives } from "@/lib/migz/vision";
 import { runRoutines } from "@/lib/migz/routines";
 import { audit } from "@/lib/migz/team/auditor";
 import { writeFeed } from "@/lib/migz/team/clerk";
-import { alertCriticalFindings, alertReviewFailed, nudgeProposals } from "@/lib/migz/slack";
+import { alertCriticalFindings, alertReviewFailed } from "@/lib/migz/slack";
+import { notifyBatchSetup, notifyReviewSummary } from "@/lib/migz/notify";
 import { runScout } from "@/lib/migz/team/scout";
 import { READ_TOOLS } from "@/lib/migz/team/tools";
 import type { EvalContext } from "@/lib/migz/tools";
@@ -336,6 +337,13 @@ async function syncCampaignPlan(agent: Agent, runId: string, batch: Batch | null
     tool: "system_setup",
     run_id: runId,
   });
+  await notifyBatchSetup(agent, {
+    budgetCents: batch?.budget_cents ?? null,
+    days: batch?.days ?? null,
+    campaigns: labels,
+    perCampaignCents: budget,
+    endsOn: batch?.ends_on ?? null,
+  });
   return true;
 }
 
@@ -599,7 +607,7 @@ export async function runMigz(
     const after = await buildSnapshot(agent);
     await supabaseAdmin.from("agents").update({ migz_last_operator_at: now, migz_gate_state: gateState(after) }).eq("id", agent.id);
     await emit({ agentId: agent.id, runId, step: "finished", tier: "code", summary: summary || "Review finished", evidence: { advisor_calls: result.advisorCalls, executor: result.executor, degraded: result.degraded } });
-    await nudgeProposals(agent, runId).catch(() => {});
+    await notifyReviewSummary(agent, runId, summary).catch(() => {});
     return { runId, status: "succeeded" as const, summary };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);

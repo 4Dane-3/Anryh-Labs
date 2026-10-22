@@ -320,6 +320,24 @@ for (const [budget, days, planned] of [[28_000, 14, 2000], [56_000, 14, 4000], [
 assert.equal(batchEndTime("2026-11-03", "America/Chicago"), "2026-11-03T23:59:59.000-06:00".replace(".000", ""));
 ok("pacing: even 25% over every day, a batch never finishes over budget (and still spends most of it); Meta stops at 23:59 on the last day");
 
+// Slack: rich updates with an ad preview
+const sb = await import("@/lib/migz/slack-blocks");
+const preview = { pageName: "Miguel Cruz", primaryText: "Who pays the mortgage if you can't? <script> & *bold*", headline: "Protect your home", images: [{ url: "https://img.test/a.png", alt: "a" }, { url: "https://img.test/b.png", alt: "b" }], bookingUrl: "https://anryhlabs.com/miguel-cruz", format: "carousel" as const };
+const live = sb.adLiveMessage({ ad: preview, campaign: "Mortgage protection", states: ["IL", "TX"], held: false, dashboardUrl: "https://anryhlabs.com" });
+const liveJson = JSON.stringify(live.blocks);
+assert.match(live.text, /Your new ad is live: Protect your home/);
+assert.equal((live.blocks as { type: string }[]).filter((b) => b.type === "image").length, 2, "both carousel cards shown");
+assert.match(liveJson, /Book now/); assert.match(liveJson, /anryhlabs\.com\/miguel-cruz/); assert.match(liveJson, /Sponsored/);
+assert.ok(!liveJson.includes("<script>") && liveJson.includes("&lt;script&gt;"), "ad copy is escaped");
+assert.match(JSON.stringify(sb.adLiveMessage({ ad: { ...preview, format: "image", images: [preview.images[0]] }, campaign: "x", states: ["IL"], held: true, dashboardUrl: "u" }).blocks), /paused for testing|Test mode keeps it paused/);
+assert.equal(sb.reviewSummaryMessage({ summary: "Quiet.", applied: [], proposed: [], dashboardUrl: "u" }), null, "a review that did nothing sends nothing");
+const waiting = sb.reviewSummaryMessage({ summary: "Two ideas.", applied: ["Held budget steady"], proposed: [{ title: "Made a feed image", detail: "Main focus has no image." }], dashboardUrl: "https://a.b" })!;
+assert.match(waiting.text, /waiting for your OK/); assert.match(JSON.stringify(waiting.blocks), /#approvals/); assert.match(JSON.stringify(waiting.blocks), /Held budget steady/);
+const setupMsg = sb.batchSetupMessage({ budgetCents: 28_000, days: 14, campaigns: ["Final expense", "Policy review"], perCampaignCents: 1000, states: ["IL", "OH"], endsOn: "2026-11-04", auto: false, dashboardUrl: "u" });
+assert.match(setupMsg.text, /Your \$280 campaign batch is set up/); assert.match(JSON.stringify(setupMsg.blocks), /Ask me first is on/);
+assert.match(sb.batchEndedMessage({ budgetCents: 28_000, spentCents: 25_000, bookedCalls: 10, dashboardUrl: "u" }).text, /10 booked calls from \$250/);
+ok("Slack: ad-live preview (page, copy, both carousel cards, Book now), escaped copy, review summary with approvals link, batch set up / ended; silent when nothing happened");
+
 // Stripe keys: live keys only ever on Vercel Production
 const { stripeKey } = await import("@/lib/stripe");
 const keyEnv = { main: process.env.STRIPE_SECRET_KEY, test: process.env.STRIPE_TEST_SECRET_KEY, vercel: process.env.VERCEL_ENV };
