@@ -263,8 +263,45 @@ async function createLiveAd(job: Job, agent: Agent, media: Parameters<typeof cre
   await update(job.id, { stage: "launched" });
 }
 
-/** Moves one job forward as far as it can go right now. Safe to call repeatedly. */
+const CLAIM_SECONDS = 120; // longer than any single step; a crashed run's claim expires after this
+
+/**
+ * Takes the job for this run. Only one caller wins at a time (the webhook, the cron and the approval
+ * flow can all reach the same job), so a job is never advanced twice at once. Returns false when
+ * someone else is on it. Before the claim migration has run, jobs are advanced unlocked as before.
+ */
+async function claim(jobId: string) {
+  const stale = new Date(Date.now() - CLAIM_SECONDS * 1000).toISOString();
+  const { data, error } = await supabaseAdmin
+    .from("creative_jobs")
+    .update({ claimed_at: new Date().toISOString() })
+    .eq("id", jobId)
+    .or(`claimed_at.is.null,claimed_at.lt.${stale}`)
+    .select("id");
+  if (error) return true;
+  return (data ?? []).length === 1;
+}
+
+async function release(jobId: string) {
+  await supabaseAdmin.from("creative_jobs").update({ claimed_at: null }).eq("id", jobId);
+}
+
+/**
+ * Moves one job forward as far as it can go right now. Safe to call repeatedly, and from several places
+ * at once: whoever claims the job advances it, the others see "busy" and leave it for the next tick.
+ */
 export async function advanceJob(job: Job) {
+  if (!(await claim(job.id))) return "busy";
+  try {
+    // The caller's copy may be stale (another run could have moved it on just before we claimed it)
+    const { data: fresh } = await supabaseAdmin.from("creative_jobs").select("*").eq("id", job.id).maybeSingle();
+    return await advance((fresh as Job | null) ?? job);
+  } finally {
+    await release(job.id);
+  }
+}
+
+async function advance(job: Job) {
   try {
     if (job.stage === "generating" && isCarouselBrief(job.brief)) {
       const parts = job.parts ?? [];
