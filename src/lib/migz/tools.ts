@@ -104,6 +104,11 @@ export const MIGZ_TOOLS: Anthropic.Beta.BetaTool[] = [
       cast: { type: "string", description: "The same people in every shot, with ages and a detail or two so they stay consistent, e.g. 'a woman in her late 30s with shoulder-length brown hair; her son about 6 and daughter about 9'. 1 to 3 people per shot." },
       setting: { type: "string", description: "One real place the story stays in, e.g. 'a real suburban home: sunlit kitchen, front porch, living room mantel'." },
       mood: { type: "string", description: "The emotional arc and what must never appear, e.g. 'grief turning into gratitude and relief; hopeful, never dark; no funerals, hospitals or caskets'." },
+      narrator: {
+        type: "string",
+        enum: ["female", "male"],
+        description: "Whose voice reads the voiceover: a warm, trustworthy woman's voice, or a confident man's voice. Pick what suits the story (often the opposite of the person the story centres on, so it sounds like someone telling their story).",
+      },
       voiceover: {
         type: "string",
         description: `Required: narration by an off-screen narrator over the footage (nobody on screen talks), up to ${MAX_VOICEOVER_WORDS} words that tell the story and end on the call to action, e.g. 'She never had to choose between the house and the kids' future. He made sure of that. A free call can help you plan for yours.'`,
@@ -343,6 +348,7 @@ export function evaluate(name: string, raw: unknown, ctx: EvalContext): Evaluate
       const words = voiceover.split(/\s+/).filter(Boolean).length;
       if (words > MAX_VOICEOVER_WORDS) return fail(`The voiceover is ${words} words; keep it to ${MAX_VOICEOVER_WORDS} so it fits 15 seconds without rushing.`);
       brief.voiceover = voiceover;
+      brief.narrator = input.narrator === "male" ? "male" : "female";
       // Continuity: a time jump has to say how the people aged, or the model shows a grown tree next to an unchanged family
       const shots = [brief.hook_shot, ...brief.body_shots.map((b) => b.prompt)];
       const jumpAt = shots.findIndex(timeJumpWithoutAging);

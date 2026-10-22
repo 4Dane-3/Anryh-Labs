@@ -356,6 +356,7 @@ try {
   // The narrator: ElevenLabs spoke the brief's voiceover and it was mixed over the stored video
   assert.equal(elevenlabs.length, 1, "one voiceover spoken");
   assert.match(elevenlabs[0].text, /^He thought about who keeps the house/);
+  assert.equal(elevenlabs[0].voice, "qSeXEcewz7tA0Q0qk9fH", "the brief didn't pick a narrator, so Victoria reads it");
   const { data: storedVideo } = await db.from("creatives").select("storage_path").eq("agent_id", AGENT_ID).eq("kind", "video").order("created_at").limit(1).single();
   const { data: videoFile } = await db.storage.from("creatives").download(storedVideo!.storage_path);
   const { writeFileSync: writeMedia } = await import("node:fs");
