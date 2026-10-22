@@ -14,7 +14,7 @@ import { traitSwipe } from "@/lib/migz/team/scout";
 import { cleanFocus, type TopicKey } from "@/lib/migz/topics";
 import { endDate, MAX_DEPOSIT_CENTS, MIN_DEPOSIT_CENTS } from "@/lib/campaign";
 import { batchOptions, bestTopic, findOption, MIN_BATCH_CENTS, outcomeEstimate, type BatchOption, type BatchOptionKey } from "@/lib/batch";
-import { closeEndedBatch, getActiveBatch, getBatchHistory, getOpenBatch, recommendWithMigz } from "@/lib/dashboard/batches";
+import { closeEndedBatch, ensureBatchSetAside, getActiveBatch, getBatchHistory, getOpenBatch, recommendWithMigz } from "@/lib/dashboard/batches";
 import { getBalanceCents } from "@/lib/dashboard/queries";
 import { checkoutReturnBase, createDepositCheckout } from "@/lib/stripe";
 import { setupBlockers } from "@/lib/dashboard/setup";
@@ -496,6 +496,8 @@ const MANUAL_REVIEW_COOLDOWN_MS = 10 * 60_000;
 
 export async function runMigzNow(): Promise<Result> {
   const agent = await requireAgent();
+  // Staff only: a review can launch new creatives, so agents get "Get an update" instead
+  if (!(await isAnryhAdmin())) return fail("Migz checks your ads on its own several times a day. Use Get an update to see what it's doing.");
   if (agent.migz_mode === "off") return fail("Migz is turned off. Turn it on in Settings first.");
   if (!migzReadyFor(agent)) return fail("Migz isn't connected to your ad account yet.");
   if (!agent.onboarding_completed_at) return fail("Finish setting up first: Start here walks you through it, and starting your first batch turns Migz on.");
@@ -635,6 +637,8 @@ async function activateBatch(agent: Agent, batchId: string, row: { days: number;
     .eq("id", agent.id);
   if (error) throw new Error("Couldn't start the batch.");
   const fresh = (await supabaseAdmin.from("agents").select("*").eq("id", agent.id).single()).data as Agent;
+  // The batch's money comes out of the balance now (what it doesn't spend comes back when it ends)
+  await ensureBatchSetAside(fresh);
   after(async () => {
     await runMigz(fresh, { trigger: "manual" }).catch((e) => console.error("batch review crashed", e));
   });

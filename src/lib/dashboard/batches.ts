@@ -118,6 +118,71 @@ export async function getBatchProgress(agent: Agent, batch: Batch) {
   };
 }
 
+// ---------- The batch's money ----------
+// Starting a batch sets its whole budget aside from the balance (one wallet line), so the balance shows
+// what's actually free. When it ends, whatever it didn't spend comes back (another line). Daily Meta spend
+// isn't taken from the balance on top of that; it's tracked against the batch instead.
+
+const setAsideId = (batchId: string) => `batch:${batchId}`;
+const returnId = (batchId: string) => `batch:${batchId}:return`;
+const money = (cents: number) => `$${(cents / 100).toFixed(cents % 100 ? 2 : 0)}`;
+
+/** Sets the batch's budget aside from the balance, once. Safe to call repeatedly. */
+export async function setAsideBatch(agent: Agent, batch: Batch) {
+  if (batch.status !== "active" || !batch.starts_on) return false;
+  const { data: existing } = await supabaseAdmin.from("wallet_transactions").select("id").eq("external_id", setAsideId(batch.id)).maybeSingle();
+  if (existing) return false;
+  // Batches started before set-asides existed may already have had daily spend taken; count it
+  const { data: daily } = await supabaseAdmin
+    .from("wallet_transactions")
+    .select("amount_cents, external_id")
+    .eq("agent_id", agent.id)
+    .eq("kind", "ad_spend")
+    .like("external_id", `meta_spend:${agent.id}:%`);
+  const already = (daily ?? [])
+    .filter((r) => {
+      const date = String(r.external_id).split(":").pop()!;
+      return date >= batch.starts_on! && (!batch.ends_on || date <= batch.ends_on);
+    })
+    .reduce((sum, r) => sum - r.amount_cents, 0);
+  const range = batch.ends_on
+    ? ` (${DateTime.fromISO(batch.starts_on).toFormat("LLL d")} – ${DateTime.fromISO(batch.ends_on).toFormat("LLL d")})`
+    : "";
+  const { error } = await supabaseAdmin.from("wallet_transactions").insert({
+    agent_id: agent.id,
+    kind: "adjustment",
+    amount_cents: -Math.max(0, batch.budget_cents - already),
+    status: "completed",
+    description: `Set aside for your ${money(batch.budget_cents)} campaign batch${range}`,
+    external_id: setAsideId(batch.id),
+  });
+  if (error && error.code !== "23505") throw new Error(`Couldn't set the batch's money aside: ${error.message}`);
+  return !error;
+}
+
+/** Makes sure the running batch's money is set aside (for batches started before this existed). */
+export async function ensureBatchSetAside(agent: Agent) {
+  const batch = await getActiveBatch(agent.id);
+  return batch ? setAsideBatch(agent, batch) : false;
+}
+
+/** When a batch ends, what it didn't spend goes back to the balance (only if its money was set aside). */
+async function returnUnspent(agent: Agent, batch: Batch, spentCents: number) {
+  const { data: setAside } = await supabaseAdmin.from("wallet_transactions").select("id").eq("external_id", setAsideId(batch.id)).maybeSingle();
+  if (!setAside) return;
+  const back = batch.budget_cents - spentCents;
+  if (back === 0) return;
+  const { error } = await supabaseAdmin.from("wallet_transactions").insert({
+    agent_id: agent.id,
+    kind: back > 0 ? "refund" : "adjustment",
+    amount_cents: back,
+    status: "completed",
+    description: back > 0 ? `Unspent from your ${money(batch.budget_cents)} batch, back in your balance` : `Meta spent ${money(-back)} over your ${money(batch.budget_cents)} batch`,
+    external_id: returnId(batch.id),
+  });
+  if (error && error.code !== "23505") console.error("returning the batch's unspent money failed", error);
+}
+
 /** Closes a batch whose last day is over, recording what it did. Safe to call repeatedly. */
 export async function closeEndedBatch(agent: Agent) {
   const batch = await getActiveBatch(agent.id);
@@ -132,7 +197,10 @@ export async function closeEndedBatch(agent: Agent) {
     .eq("id", batch.id)
     .eq("status", "active")
     .select("id");
-  if (closed?.length) await notifyBatchEnded(agent, { budgetCents: batch.budget_cents, spentCents: r.spentCents, bookedCalls: r.bookedCalls });
+  if (closed?.length) {
+    await returnUnspent(agent, batch, r.spentCents);
+    await notifyBatchEnded(agent, { budgetCents: batch.budget_cents, spentCents: r.spentCents, bookedCalls: r.bookedCalls });
+  }
   return { ...batch, status: "ended" as const, result };
 }
 

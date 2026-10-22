@@ -270,8 +270,13 @@ export async function buildSnapshot(agent: Agent) {
       name: agent.full_name,
       licensed_states: agent.licensed_states,
       daily_budget_cap: `$${(agent.daily_budget_cents / 100).toFixed(2)}`,
-      balance: `$${(balance / 100).toFixed(2)}`,
-      days_of_funding_left: agent.daily_budget_cents ? Math.floor(balance / agent.daily_budget_cents) : null,
+      // A running batch's budget is set aside from the balance, so it's funded through the batch's last day
+      balance: batch
+        ? `$${(balance / 100).toFixed(2)} free, plus $${(batch.budget_cents / 100).toFixed(2)} set aside for the running batch`
+        : `$${(balance / 100).toFixed(2)}`,
+      days_of_funding_left: batch?.ends_on
+        ? daysLeft(batch.ends_on, agent.timezone)
+        : agent.daily_budget_cents ? Math.floor(balance / agent.daily_budget_cents) : null,
       ads_paused_by_agent: agent.ads_paused,
       // Test mode keeps campaigns paused on purpose (set by the account manager, not something to fix)
       test_mode: process.env.MIGZ_TEST_MODE === "1"
