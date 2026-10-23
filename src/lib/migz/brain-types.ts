@@ -20,6 +20,7 @@ export type BrainEvent = {
 };
 
 export type BrainLive = {
+  agentId: string; // whose Brain this is: a refresh for another account means the page is stale
   now: string;
   running: boolean;
   runId: string | null;
@@ -49,6 +50,7 @@ export type Scorecard = {
 
 /** Today's numbers straight from Meta, plus what Migz itself has cost. Refreshed while the Brain is open. */
 export type LiveStats = {
+  agentId: string;
   at: string;
   hourNow: number; // the current hour (0-23) in the agent's timezone
   connected: boolean;

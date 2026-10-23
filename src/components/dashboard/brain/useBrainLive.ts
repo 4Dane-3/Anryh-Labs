@@ -40,6 +40,13 @@ export function useBrainLive(initial: BrainLive, demo: boolean, justStarted = fa
           const res = await fetch(`/api/dashboard/brain?after=${after}`, { cache: "no-store" });
           if (res.ok) {
             const next = (await res.json()) as BrainLive;
+            // The account changed under this page (staff stopped viewing as this agent in another tab, or
+            // signed in as someone else): never mix two accounts, reload to show whose page this is now
+            if (next.agentId && cur.agentId && next.agentId !== cur.agentId) {
+              stopped = true;
+              window.location.reload();
+              return;
+            }
             const byId = new Map(cur.events.map((e) => [e.id, e]));
             for (const e of next.events) byId.set(e.id, e);
             const merged: BrainLive = { ...next, events: trim([...byId.values()]) };
@@ -103,6 +110,7 @@ function useDemo(on: boolean): BrainLive {
   }));
   const running = now < DEMO_SCRIPT.at(-1)!.at + 1;
   return {
+    agentId: "demo",
     now: new Date(clock.at).toISOString(),
     running,
     runId: "demo",

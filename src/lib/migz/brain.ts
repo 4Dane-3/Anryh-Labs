@@ -35,6 +35,7 @@ export async function getBrainLive(agent: Agent, afterId?: number): Promise<Brai
   const list = ((events.data ?? []) as BrainEvent[]).slice();
   if (!afterId) list.reverse();
   return {
+    agentId: agent.id,
     now: new Date().toISOString(),
     running,
     runId: last?.id ?? null,

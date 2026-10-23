@@ -20,7 +20,7 @@ export const PULSE_KICK = "migz:pulse-kick";
 const usd = (c: number) => `$${(c / 100).toFixed(2)}`;
 const int = (n: number) => Math.round(n).toLocaleString("en-US");
 
-function useLiveStats() {
+function useLiveStats(agentId: string) {
   const [stats, setStats] = useState<LiveStats | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
@@ -31,7 +31,14 @@ function useLiveStats() {
         try {
           const res = await fetch("/api/dashboard/brain/live", { cache: "no-store" });
           if (res.ok) {
-            setStats((await res.json()) as LiveStats);
+            const next = (await res.json()) as LiveStats;
+            // Another account answered (see useBrainLive): reload rather than show its numbers here
+            if (next.agentId && next.agentId !== agentId) {
+              stopped = true;
+              window.location.reload();
+              return;
+            }
+            setStats(next);
             setFailed(false);
             window.dispatchEvent(new Event(PULSE_KICK));
           } else setFailed(true);
@@ -49,7 +56,7 @@ function useLiveStats() {
       clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, []);
+  }, [agentId]);
   return { stats, failed };
 }
 
@@ -240,8 +247,8 @@ function WatchFeed({ events }: { events: BrainEvent[] }) {
   );
 }
 
-export function LivePanel({ events }: { events: BrainEvent[] }) {
-  const { stats, failed } = useLiveStats();
+export function LivePanel({ events, agentId }: { events: BrainEvent[]; agentId: string }) {
+  const { stats, failed } = useLiveStats(agentId);
   const reduce = useReducedMotion();
   if (stats && !stats.connected)
     return (
