@@ -160,10 +160,11 @@ async function study(agent: Agent, note: Note, createMessage: CreateMessage) {
     runId: null,
     createMessage,
     params: {
-      max_tokens: 1500,
+      // Room for the search results' summary and the note (1,500 ran out while it listed sources)
+      max_tokens: 4000,
       output_config: note.web ? { effort: "low" } : { effort: "low", format: { type: "json_schema", schema: STUDY_SCHEMA } },
       ...(note.web ? { tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 1 }] } : {}),
-      system: [{ type: "text", text: `${BASE}\n\nYou are the market scout. ${note.web ? "Search the web once, on public sources, then answer." : "Work from what the team has already gathered and what's well established about persuasion and buyer psychology; don't claim to have searched."} ${note.web ? 'Finish with only a JSON object inside <note></note> tags: {"finding": string (at most 90 words), "sources": [{"title": string, "url": string}]}' : "Answer with the JSON object only (sources: [])."}`, cache_control: { type: "ephemeral" } }],
+      system: [{ type: "text", text: `${BASE}\n\nYou are the market scout. ${note.web ? "Search the web once, on public sources, then answer." : "Work from what the team has already gathered and what's well established about persuasion and buyer psychology; don't claim to have searched."} ${note.web ? 'Keep it short: no lists of every page you saw. Finish with only a JSON object inside <note></note> tags: {"finding": string (at most 90 words), "sources": [{"title": string, "url": string}] (the 3 most useful at most)}' : "Answer with the JSON object only (sources: [])."}`, cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: `Study ${ask}.${saved.length ? `\n\nAlready gathered:\n- ${saved.join("\n- ").slice(0, 3000)}` : ""}` }],
     },
   });
@@ -252,14 +253,19 @@ async function save(agent: Agent, note: Note) {
   return "saved";
 }
 
-function parseTagged<T>(text: string, tag: string): T | null {
-  const m = text.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`));
-  if (!m) return null;
-  try {
-    return JSON.parse(m[1]) as T;
-  } catch {
-    return null;
+/** The JSON inside <tag></tag>, or failing that the last JSON object in the text. Pure. */
+export function parseTagged<T>(text: string, tag: string): T | null {
+  const tagged = text.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`))?.[1];
+  const candidates = [tagged, text.slice(text.lastIndexOf("{\"finding\""))].filter((x): x is string => !!x && x.includes("{"));
+  for (const c of candidates) {
+    const json = c.slice(c.indexOf("{"), c.lastIndexOf("}") + 1);
+    try {
+      return JSON.parse(json) as T;
+    } catch {
+      // try the next candidate
+    }
   }
+  return null;
 }
 
 /** Every 10 minutes (pg_cron): one research step for each agent on Migz, until the deadline. */

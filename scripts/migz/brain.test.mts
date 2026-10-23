@@ -509,6 +509,10 @@ assert.deepEqual([r0.topic, r1.topic, r2.topic], ["final_expense", "whole_life",
 assert.equal(r0.angle.key, ANGLES[0].key); assert.equal(r2.angle.key, ANGLES[1].key, "each topic walks the angles");
 assert.deepEqual([r0.web, r1.web, r2.web], [true, false, true]);
 assert.equal(nextAssignment([], 0).topic, "mortgage_protection", "no focus: sensible defaults");
+const { parseTagged } = await import("@/lib/migz/research");
+assert.deepEqual(parseTagged('I searched.\n<note>{"finding":"A","sources":[]}</note>', "note"), { finding: "A", sources: [] });
+assert.deepEqual(parseTagged('Here it is: {"finding":"B","sources":[{"title":"t","url":"https://x"}]}', "note"), { finding: "B", sources: [{ title: "t", url: "https://x" }] }, "untagged JSON still reads");
+assert.equal(parseTagged('<note>{"finding":"C","sources":[{"title":"t","url":"https://x"},', "note"), null, "a cut-off answer is a miss, not a crash");
 const rsb = await import("@/lib/migz/slack-blocks");
 const idea = rsb.researchIdeaMessage({ topic: "Final expense", angle: "winning hooks", finding: "Questions about family memories outperform cost framing.", history: "Fits: the family video is our best hook.", idea: { format: "video", hook_line: "What will they remember?", concept: "Grandmother and grandkids baking.", why: "Warmth over fear." }, sources: [{ title: "Ad roundup", url: "https://example.com/a" }], dashboardUrl: "https://app" });
 assert.match(idea.text, /idea for your next final expense ad: "What will they remember\?"/);
