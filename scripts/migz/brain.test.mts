@@ -528,6 +528,37 @@ assert.equal(isPrefetch(reqWith({ "sec-purpose": "prefetch;anonymous-client-ip" 
 assert.equal(isPrefetch(reqWith({ accept: "text/html" })), false, "a real click is not a prefetch");
 ok("view-as: prefetch requests (Next.js and browser) are recognised, real clicks are not");
 
+// Page analytics: funnel, drop-off, scroll, sources and days from raw page events
+const { pageAnalytics } = await import("@/lib/admin/page-analytics");
+const paAt = (min: number) => new Date(Date.parse("2026-10-23T15:00:00Z") + min * 60_000).toISOString();
+const pev = (session: string, name: string, min: number, meta: Record<string, unknown> = {}) => ({ session_id: session, name, meta, created_at: paAt(min) });
+const rows = [
+  // a: phone, from a Meta ad, used Soonest, booked
+  pev("a", "view", 0, { source: "meta", device: "mobile" }), pev("a", "see_calendar", 0.1), pev("a", "scroll", 0.2, { depth: 50 }), pev("a", "pick_soonest", 0.5), pev("a", "form_start", 0.6), pev("a", "submit", 1), pev("a", "booked", 1.1), pev("a", "leave", 1.2, { ms: 72000 }),
+  // b: phone, saw the times, left
+  pev("b", "view", 5, { source: "facebook", device: "mobile" }), pev("b", "see_calendar", 5.1), pev("b", "leave", 5.3, { ms: 18000 }),
+  // c: desktop, picked a time, started details, gave up
+  pev("c", "view", 9, { source: "direct", device: "desktop" }), pev("c", "see_calendar", 9.1), pev("c", "pick_day", 9.2), pev("c", "pick_time", 9.3), pev("c", "form_start", 9.4), pev("c", "scroll", 9.5, { depth: 100 }), pev("c", "leave", 10, { ms: 60000 }),
+  // d: phone, never saw the times
+  pev("d", "view", 12, { source: "meta", device: "mobile" }), pev("d", "leave", 12.1, { ms: 4000 }),
+  // stray events from a visit that started before the window: ignored
+  pev("old", "pick_time", 1),
+];
+const pa = pageAnalytics(rows, 7, "America/Chicago", new Date("2026-10-23T20:00:00Z"));
+assert.equal(pa.sessions, 4, "a visit counts once it opened the page");
+assert.deepEqual(pa.funnel.map((f) => f.sessions), [4, 3, 2, 2, 1, 1]);
+assert.equal(pa.booked, 1); assert.equal(pa.conversion, 0.25);
+assert.deepEqual(pa.biggestDrop, { from: "Opened the page", to: "Saw the times", lost: 1 }, "ties keep the earliest step");
+assert.equal(pa.medianSeconds, 39, "median of 72, 18, 60 and 4 seconds");
+assert.equal(pa.mobileShare, 0.75);
+assert.equal(pa.soonestShare, 0.5, "1 of the 2 who picked a time used Soonest");
+assert.deepEqual(pa.scroll.map((x) => x.pct), [0.5, 0.5, 0.25, 0.25]);
+assert.deepEqual(pa.sources, [{ source: "meta ads", sessions: 3, booked: 1 }, { source: "direct", sessions: 1, booked: 0 }], "meta, facebook and fb all count as Meta ads");
+assert.equal(pa.daily.length, 7); assert.deepEqual(pa.daily.at(-1), { date: "2026-10-23", sessions: 4, booked: 1 });
+assert.deepEqual(pa.recent.map((r) => r.furthest), ["Opened the page", "Started their details", "Saw the times", "Booked"], "newest first, how far each got");
+assert.equal(pageAnalytics([], 30, "America/Chicago").sessions, 0);
+ok("page analytics: visits, funnel and biggest drop-off, median time, phone share, Soonest use, scroll depth, sources, days, recent visits");
+
 // Admin health: what raises an alert (and how loud)
 const { findIssues } = await import("@/lib/admin/issues");
 const hNow = Date.parse("2026-10-22T20:00:00Z");

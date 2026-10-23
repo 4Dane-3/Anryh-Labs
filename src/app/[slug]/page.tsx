@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { CalendarCheck, MessageCircle, SearchCheck, ShieldCheck, Star } from "lucide-react";
+import { BadgeCheck, CalendarCheck, Clock, MessageCircle, SearchCheck, ShieldCheck, Star } from "lucide-react";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { getAgentBySlug, getIntakeQuestions } from "@/lib/booking/data";
 import { preBookingQuestions } from "@/lib/booking/questions";
 import { BookingWidget } from "@/components/booking/BookingWidget";
+import { AboutAgent, StickyBookBar } from "@/components/booking/PageBits";
 import { DEFAULT_TITLE } from "@/lib/campaign";
 
 export const dynamic = "force-dynamic";
@@ -74,69 +75,94 @@ export default async function AgentPage({ params, searchParams }: Props) {
     .slice(0, 2)
     .join("");
 
+  const slotMinutes = agent.slot_minutes ?? 30;
+  const states = agent.licensed_states;
+  const rated = (testimonials ?? []).filter((t) => t.rating);
+  const avgRating = rated.length ? rated.reduce((s, t) => s + (t.rating ?? 0), 0) / rated.length : null;
+
   return (
     <div className="min-h-screen bg-white text-slate-900">
-      <main className="mx-auto grid max-w-5xl gap-10 px-4 py-10 sm:px-6 lg:grid-cols-[1fr_420px] lg:gap-14 lg:py-16">
-        <section>
-          <div className="flex items-center gap-4">
+      {/* Booking first: on phones the calendar sits right under who the agent is, before any long text;
+          on desktop it's the sticky right column */}
+      <main className="mx-auto grid max-w-5xl grid-cols-[minmax(0,1fr)] gap-6 px-4 pb-28 pt-5 sm:px-6 lg:grid-cols-[minmax(0,1fr)_420px] lg:gap-x-14 lg:gap-y-8 lg:pb-16 lg:pt-14">
+        <header className="min-w-0 lg:col-start-1">
+          <div className="flex items-center gap-3">
             {agent.photo_url ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={agent.photo_url}
                 alt={agent.full_name}
                 crossOrigin="anonymous"
-                className="size-20 rounded-full object-cover ring-4 ring-white sm:size-24"
+                className="size-14 rounded-full object-cover sm:size-20"
               />
             ) : (
-              <div className="flex size-20 items-center justify-center rounded-full bg-blue-700 text-2xl font-semibold text-white ring-4 ring-white sm:size-24">
+              <div className="flex size-14 items-center justify-center rounded-full bg-blue-700 text-xl font-semibold text-white sm:size-20">
                 {initials}
               </div>
             )}
-            <div>
-              <h1 className="text-2xl font-bold sm:text-3xl">{agent.full_name}</h1>
-              <p className="text-slate-500">{agent.title || DEFAULT_TITLE}</p>
+            <div className="min-w-0">
+              <h1 className="text-xl font-bold leading-tight sm:text-3xl">{agent.full_name}</h1>
+              <p className="text-sm text-slate-500 sm:text-base">{agent.title || DEFAULT_TITLE}</p>
+              {avgRating !== null && (
+                <p className="mt-0.5 flex items-center gap-1 text-sm text-slate-600">
+                  <Star className="size-4 fill-amber-400 text-amber-400" />
+                  {avgRating.toFixed(1)} · {rated.length} review{rated.length === 1 ? "" : "s"}
+                </p>
+              )}
             </div>
           </div>
 
           {agent.headline && (
-            <h2 className="mt-8 text-3xl font-bold leading-tight tracking-tight sm:text-4xl">
+            <p className="mt-4 line-clamp-3 text-2xl font-bold leading-tight tracking-tight sm:text-4xl lg:mt-8 lg:line-clamp-none">
               {agent.headline}
-            </h2>
-          )}
-          {agent.bio && (
-            <p className="mt-4 text-lg leading-relaxed text-slate-600">{agent.bio}</p>
+            </p>
           )}
 
-          {agent.licensed_states.length > 0 && (
-            <div className="mt-6 flex flex-wrap items-center gap-2">
-              <span className="text-sm text-slate-500">Licensed in</span>
-              {agent.licensed_states.map((s) => (
-                <span
-                  key={s}
-                  className="rounded-md bg-white px-2 py-0.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200"
-                >
-                  {s}
-                </span>
-              ))}
-            </div>
-          )}
-
-          <ul className="mt-10 space-y-5">
-            {steps.map(({ icon: Icon, title, body }) => (
-              <li key={title} className="flex gap-4">
-                <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-700">
-                  <Icon className="size-5" />
-                </div>
-                <div>
-                  <div className="font-semibold">{title}</div>
-                  <div className="text-slate-600">{body}</div>
-                </div>
+          <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-sm text-slate-600">
+            <li className="flex items-center gap-1.5"><Clock className="size-4 text-blue-700" /> Free {slotMinutes}-min call</li>
+            <li className="flex items-center gap-1.5"><BadgeCheck className="size-4 text-blue-700" /> No obligation</li>
+            {states.length > 0 && (
+              <li className="flex items-center gap-1.5">
+                <ShieldCheck className="size-4 text-blue-700" /> Licensed in {states.length <= 4 ? states.join(", ") : `${states.length} states`}
               </li>
-            ))}
+            )}
           </ul>
+        </header>
+
+        <aside id="book" className="min-w-0 scroll-mt-4 lg:sticky lg:top-8 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:self-start">
+          <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 sm:p-6">
+            <h2 className="text-lg font-bold sm:text-xl">Book your free call with {firstName}</h2>
+            <p className="mb-4 mt-0.5 text-sm text-slate-500">Pick a time. It takes under a minute.</p>
+            <BookingWidget
+              slug={agent.slug}
+              firstName={firstName}
+              preview={preview}
+              questions={preBookingQuestions(questions, requiredSteps)}
+              requiredSteps={requiredSteps}
+            />
+          </div>
+        </aside>
+
+        <section className="min-w-0 space-y-10 lg:col-start-1">
+          <div>
+            <h2 className="text-lg font-semibold">How the call works</h2>
+            <ul className="mt-4 space-y-4">
+              {steps.map(({ icon: Icon, title, body }) => (
+                <li key={title} className="flex gap-3.5">
+                  <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-700">
+                    <Icon className="size-[18px]" />
+                  </div>
+                  <div>
+                    <div className="font-semibold">{title}</div>
+                    <div className="text-slate-600">{body}</div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
 
           {!!testimonials?.length && (
-            <div className="mt-12">
+            <div>
               <h2 className="text-lg font-semibold">What clients say</h2>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 {testimonials.map((t) => (
@@ -161,26 +187,25 @@ export default async function AgentPage({ params, searchParams }: Props) {
               </div>
             </div>
           )}
-        </section>
 
-        <aside className="lg:sticky lg:top-8 lg:self-start">
-          <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 sm:p-6">
-            <h2 className="text-xl font-bold">Book a free call with {firstName}</h2>
-            <p className="mb-5 mt-1 text-sm text-slate-500">
-              Pick a time that works for you.
-            </p>
-            <BookingWidget
-              slug={agent.slug}
-              firstName={firstName}
-              preview={preview}
-              questions={preBookingQuestions(questions, requiredSteps)}
-              requiredSteps={requiredSteps}
-            />
-          </div>
-        </aside>
+          {agent.bio && <AboutAgent firstName={firstName} bio={agent.bio} preview={preview} />}
+
+          {states.length > 4 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm text-slate-500">Licensed in</span>
+              {states.map((s) => (
+                <span key={s} className="rounded-md bg-white px-2 py-0.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200">
+                  {s}
+                </span>
+              ))}
+            </div>
+          )}
+        </section>
       </main>
 
-      <footer className="mx-auto max-w-5xl px-4 pb-10 text-xs leading-relaxed text-slate-400 sm:px-6">
+      <StickyBookBar firstName={firstName} preview={preview} />
+
+      <footer className="mx-auto max-w-5xl px-4 pb-28 text-xs lg:pb-10 leading-relaxed text-slate-400 sm:px-6">
         <p>
           {agent.full_name} is a licensed insurance agent
           {agent.license_number ? ` (License #${agent.license_number})` : ""}.
