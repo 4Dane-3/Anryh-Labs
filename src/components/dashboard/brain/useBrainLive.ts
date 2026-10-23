@@ -1,17 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { isPulse, PULSE_KEEP, type BrainEvent, type BrainLive } from "@/lib/migz/brain-types";
+import { isBackground, PULSE_KEEP, type BrainEvent, type BrainLive } from "@/lib/migz/brain-types";
 import { PULSE_KICK } from "@/components/dashboard/brain/LivePanel";
 import { DEMO_SCRIPT } from "@/components/dashboard/brain/demo";
 import { isBusy, openEvents } from "@/components/dashboard/brain/state";
 
 const MAX_EVENTS = 120;
 
-/** The latest review steps plus the latest live check-ins, so frequent check-ins never crowd a review out. */
+/** The latest review steps plus the latest background work, so all-day work never crowds a review out. */
 function trim(events: BrainEvent[]) {
-  const pulses = events.filter(isPulse).slice(-PULSE_KEEP);
-  const rest = events.filter((e) => !isPulse(e)).slice(-MAX_EVENTS);
+  const pulses = events.filter(isBackground).slice(-PULSE_KEEP * 2);
+  const rest = events.filter((e) => !isBackground(e)).slice(-MAX_EVENTS);
   return [...rest, ...pulses].sort((x, y) => x.id - y.id);
 }
 

@@ -7,6 +7,7 @@ import { graphAll } from "@/lib/meta/graph";
 import {
   adLiveMessage,
   adsReviewedMessage,
+  researchIdeaMessage,
   batchEndedMessage,
   batchSetupMessage,
   creativeReadyMessage,
@@ -184,4 +185,9 @@ export async function notifyAdReviews(deadlineMs: number) {
     results[agent.slug] = `${approved.length} approved, ${rejected.length} not approved${sent ? "" : " (not sent: no Slack)"}`;
   }
   return results;
+}
+
+/** The research shift drafted an idea worth sharing (the caller caps how many go out a day). */
+export async function notifyResearch(agent: Pick<Agent, "slack_user_id">, input: Omit<Parameters<typeof researchIdeaMessage>[0], "dashboardUrl">) {
+  return send(agent, researchIdeaMessage({ ...input, dashboardUrl: appUrl() }));
 }

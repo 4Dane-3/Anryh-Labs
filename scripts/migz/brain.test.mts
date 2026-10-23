@@ -479,6 +479,42 @@ assert.equal(stripeKey(), "sk_test_z", "a test key under the main name works any
 setKeys(keyEnv.main, keyEnv.test, keyEnv.vercel);
 ok("Stripe: live keys only run on Vercel Production; local and preview use the test key");
 
+// Ghost bookings: some open times held back, stable, at least 2 a day, only the next 2 weeks
+const { generateSlots, withGhostHolds } = await import("@/lib/booking/slots");
+const gNow = new Date("2026-10-23T12:00:00Z");
+const weekdays = [1, 2, 3, 4, 5, 6, 7].map((weekday) => ({ weekday, start_time: "09:00", end_time: "17:00" }));
+const allSlots = generateSlots(weekdays, [], { timezone: "America/Chicago", slotMinutes: 30, bufferMinutes: 0, minNoticeHours: 0, maxDaysAhead: 21 }, gNow);
+const shown = withGhostHolds(allSlots, "agent-1", "America/Chicago", gNow);
+const dayOf = (iso: string) => new Date(iso).toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+const count = (xs: string[]) => xs.reduce((m, x) => m.set(dayOf(x), (m.get(dayOf(x)) ?? 0) + 1), new Map<string, number>());
+const before = count(allSlots), after = count(shown);
+assert.ok(shown.length < allSlots.length, "some times are held");
+assert.deepEqual(withGhostHolds(allSlots, "agent-1", "America/Chicago", gNow), shown, "the same times stay held across page loads");
+assert.notDeepEqual(withGhostHolds(allSlots, "agent-2", "America/Chicago", gNow), shown, "each agent's pattern is its own");
+for (const [day, n] of before) {
+  const left = after.get(day) ?? 0;
+  assert.ok(left >= Math.min(2, n), `${day} keeps at least 2 times (${left} of ${n})`);
+}
+const lastDays = [...before.keys()].sort().slice(-5);
+for (const d of lastDays) assert.equal(after.get(d), before.get(d), `${d} is beyond two weeks: untouched`);
+const firstDay = [...before.keys()].sort()[0];
+assert.ok(after.get(firstDay)! < before.get(firstDay)!, "the next few days look busy");
+assert.ok(shown.every((s) => allSlots.includes(s)), "never invents a time");
+assert.deepEqual(withGhostHolds(allSlots.slice(0, 2), "agent-1", "America/Chicago", gNow), allSlots.slice(0, 2), "a day with only 2 times keeps both");
+
+// Research shift: rotates the agent's topics and the angles; web search every other cycle
+const { nextAssignment, ANGLES } = await import("@/lib/migz/research");
+const r0 = nextAssignment(["final_expense", "whole_life"], 0), r1 = nextAssignment(["final_expense", "whole_life"], 1), r2 = nextAssignment(["final_expense", "whole_life"], 2);
+assert.deepEqual([r0.topic, r1.topic, r2.topic], ["final_expense", "whole_life", "final_expense"]);
+assert.equal(r0.angle.key, ANGLES[0].key); assert.equal(r2.angle.key, ANGLES[1].key, "each topic walks the angles");
+assert.deepEqual([r0.web, r1.web, r2.web], [true, false, true]);
+assert.equal(nextAssignment([], 0).topic, "mortgage_protection", "no focus: sensible defaults");
+const rsb = await import("@/lib/migz/slack-blocks");
+const idea = rsb.researchIdeaMessage({ topic: "Final expense", angle: "winning hooks", finding: "Questions about family memories outperform cost framing.", history: "Fits: the family video is our best hook.", idea: { format: "video", hook_line: "What will they remember?", concept: "Grandmother and grandkids baking.", why: "Warmth over fear." }, sources: [{ title: "Ad roundup", url: "https://example.com/a" }], dashboardUrl: "https://app" });
+assert.match(idea.text, /idea for your next final expense ad: "What will they remember\?"/);
+assert.match(JSON.stringify(idea.blocks), /example\.com\/a\|Ad roundup/);
+ok("ghost bookings (stable holds, 2+ times a day, only 2 weeks out, never invented) and the research shift's rotation and Slack idea");
+
 // Admin health: what raises an alert (and how loud)
 const { findIssues } = await import("@/lib/admin/issues");
 const hNow = Date.parse("2026-10-22T20:00:00Z");
