@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { isAnryhAdmin, VIEW_AS_COOKIE } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { isPrefetch } from "@/lib/prefetch";
 
 // Staff: open an agent's dashboard exactly as they see it, view only (the proxy blocks every change).
 export async function GET(req: Request, { params }: { params: Promise<{ slug: string }> }) {
+  if (isPrefetch(req)) return new Response(null, { status: 204 });
   if (!(await isAnryhAdmin())) return new Response("Not found", { status: 404 });
   const { slug } = await params;
   const { data: agent } = await supabaseAdmin.from("agents").select("id").eq("slug", slug).maybeSingle();

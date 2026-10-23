@@ -519,6 +519,15 @@ assert.match(idea.text, /idea for your next final expense ad: "What will they re
 assert.match(JSON.stringify(idea.blocks), /example\.com\/a\|Ad roundup/);
 ok("ghost bookings (stable holds, 2+ times a day, only 2 weeks out, never invented) and the research shift's rotation and Slack idea");
 
+// Staff "view as" must survive Next.js link prefetching (a prefetched exit link used to end the view)
+const { isPrefetch } = await import("@/lib/prefetch");
+const reqWith = (h: Record<string, string>) => new Request("https://app/admin/view/exit", { headers: h });
+assert.equal(isPrefetch(reqWith({ "next-router-prefetch": "1" })), true);
+assert.equal(isPrefetch(reqWith({ purpose: "prefetch" })), true);
+assert.equal(isPrefetch(reqWith({ "sec-purpose": "prefetch;anonymous-client-ip" })), true);
+assert.equal(isPrefetch(reqWith({ accept: "text/html" })), false, "a real click is not a prefetch");
+ok("view-as: prefetch requests (Next.js and browser) are recognised, real clicks are not");
+
 // Admin health: what raises an alert (and how loud)
 const { findIssues } = await import("@/lib/admin/issues");
 const hNow = Date.parse("2026-10-22T20:00:00Z");

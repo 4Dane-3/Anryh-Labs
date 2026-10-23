@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { requireAgent, devAgentSlug, getViewAs, isAnryhAdmin } from "@/lib/auth";
 import { Sidebar } from "@/components/dashboard/Sidebar";
 
@@ -28,9 +27,11 @@ export default async function DashboardLayout({ children }: { children: React.Re
             <span className="font-semibold text-brand">Viewing as {viewing.full_name}</span>
             <span className="text-fg-muted"> · exactly what they see, live · view only, nothing you click changes their account</span>
           </p>
-          <Link href="/admin/view/exit" className="rounded-md bg-brand px-2.5 py-1 text-[12px] font-semibold text-brand-fg hover:bg-brand/90">
+          {/* A plain link, not <Link>: this URL ends the view, and Next.js prefetches <Link>s in production */}
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+          <a href="/admin/view/exit" className="rounded-md bg-brand px-2.5 py-1 text-[12px] font-semibold text-brand-fg hover:bg-brand/90">
             Back to admin
-          </Link>
+          </a>
         </div>
       )}
       <main className="mx-auto w-full max-w-6xl px-4 pb-16 pt-6 sm:px-8 lg:pt-10">{children}</main>
