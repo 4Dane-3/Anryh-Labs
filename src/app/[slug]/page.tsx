@@ -8,6 +8,7 @@ import { preBookingQuestions } from "@/lib/booking/questions";
 import { BookingWidget } from "@/components/booking/BookingWidget";
 import { AboutAgent, StickyBookBar } from "@/components/booking/PageBits";
 import { DEFAULT_TITLE } from "@/lib/campaign";
+import { pageFont } from "@/lib/booking/page-fonts";
 
 export const dynamic = "force-dynamic";
 
@@ -79,9 +80,10 @@ export default async function AgentPage({ params, searchParams }: Props) {
   const states = agent.licensed_states;
   const rated = (testimonials ?? []).filter((t) => t.rating);
   const avgRating = rated.length ? rated.reduce((s, t) => s + (t.rating ?? 0), 0) / rated.length : null;
+  const font = pageFont(agent.page_font);
 
   return (
-    <div className="min-h-screen bg-white text-slate-900">
+    <div className={`min-h-screen bg-white text-slate-900 ${font.className}`} style={font.style}>
       {/* Booking first: on phones the calendar sits right under who the agent is, before any long text;
           on desktop it's the sticky right column */}
       <main className="mx-auto grid max-w-5xl grid-cols-[minmax(0,1fr)] gap-6 px-4 pb-28 pt-5 sm:px-6 lg:grid-cols-[minmax(0,1fr)_420px] lg:gap-x-14 lg:gap-y-8 lg:pb-16 lg:pt-14">
@@ -103,6 +105,12 @@ export default async function AgentPage({ params, searchParams }: Props) {
             <div className="min-w-0">
               <h1 className="text-xl font-bold leading-tight sm:text-3xl">{agent.full_name}</h1>
               <p className="text-sm text-slate-500 sm:text-base">{agent.title || DEFAULT_TITLE}</p>
+              {states.length > 0 && (
+                <p className="mt-0.5 flex items-center gap-1 text-sm text-slate-600">
+                  <ShieldCheck className="size-4 shrink-0 text-blue-700" />
+                  <span>Licensed in {states.join(", ")}</span>
+                </p>
+              )}
               {avgRating !== null && (
                 <p className="mt-0.5 flex items-center gap-1 text-sm text-slate-600">
                   <Star className="size-4 fill-amber-400 text-amber-400" />
@@ -121,11 +129,6 @@ export default async function AgentPage({ params, searchParams }: Props) {
           <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-sm text-slate-600">
             <li className="flex items-center gap-1.5"><Clock className="size-4 text-blue-700" /> Free {slotMinutes}-min call</li>
             <li className="flex items-center gap-1.5"><BadgeCheck className="size-4 text-blue-700" /> No obligation</li>
-            {states.length > 0 && (
-              <li className="flex items-center gap-1.5">
-                <ShieldCheck className="size-4 text-blue-700" /> Licensed in {states.length <= 4 ? states.join(", ") : `${states.length} states`}
-              </li>
-            )}
           </ul>
         </header>
 
@@ -190,16 +193,6 @@ export default async function AgentPage({ params, searchParams }: Props) {
 
           {agent.bio && <AboutAgent firstName={firstName} bio={agent.bio} preview={preview} />}
 
-          {states.length > 4 && (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm text-slate-500">Licensed in</span>
-              {states.map((s) => (
-                <span key={s} className="rounded-md bg-white px-2 py-0.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200">
-                  {s}
-                </span>
-              ))}
-            </div>
-          )}
         </section>
       </main>
 

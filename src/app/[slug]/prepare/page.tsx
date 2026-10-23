@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import { getBookingByToken, getIntakeQuestions } from "@/lib/booking/data";
 import { preBookingQuestions, type IntakeAnswers } from "@/lib/booking/questions";
 import { PrepareFlow } from "@/components/booking/PrepareFlow";
+import { pageFont } from "@/lib/booking/page-fonts";
 
 export const dynamic = "force-dynamic";
 
@@ -40,8 +41,9 @@ export default async function PreparePage({ params, searchParams }: Props) {
   const answers = (intake?.answers ?? {}) as IntakeAnswers;
   const initial = Object.fromEntries(Object.entries(answers).map(([k, a]) => [k, a.value]));
 
+  const font = pageFont(agent.page_font);
   return (
-    <div className="min-h-screen bg-white text-slate-900">
+    <div className={`min-h-screen bg-white text-slate-900 ${font.className}`} style={font.style}>
       <PrepareFlow
         token={booking.token}
         agentName={agent.full_name}
