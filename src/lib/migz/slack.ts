@@ -3,6 +3,7 @@ import { DateTime } from "luxon";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
 import { sendSlackMessage } from "@/lib/slack";
+import { recordEventAlert } from "@/lib/admin/alerts";
 
 // Slack for Migz, in two voices:
 //  - the agent: a "what Migz did" section in their morning digest (live updates are in notify.ts)
@@ -40,6 +41,7 @@ export async function firstAlertSince(agentId: string, key: string, hours = 6) {
 export async function alertReviewFailed(agent: Pick<Agent, "id" | "slug">, message: string, runId: string) {
   const key = `Review failed: ${message.slice(0, 200)}`;
   if (!(await firstAlertSince(agent.id, key))) return;
+  await recordEventAlert({ agentId: agent.id, key: `review_failed:${agent.id}`, severity: "critical", title: "A Migz review failed", detail: message });
   await alertAdmin(`*Migz review failed* for \`${agent.slug}\`\n>${esc(message.slice(0, 400))}\nrun \`${runId.slice(0, 8)}\` · see the Brain page for the step log`);
 }
 
@@ -51,6 +53,7 @@ export async function alertCreativeFailed(agentId: string, slug: string, jobId: 
     agent_id: agentId, run_id: null, step: "finished", tier: "code", summary: key.slice(0, 400), evidence: { job_id: jobId },
     finished_at: new Date().toISOString(),
   });
+  await recordEventAlert({ agentId, key: `creative_failed:${jobId}`, severity: "warn", title: "A creative failed", detail: error });
   await alertAdmin(`*A Migz creative failed* for \`${slug}\`\n>${esc(error.slice(0, 400))}\njob \`${jobId.slice(0, 8)}\``);
 }
 
@@ -59,6 +62,7 @@ export async function alertCriticalFindings(agent: Pick<Agent, "id" | "slug" | "
   const fresh = findings.filter((f) => f.severity === "critical" && f.isNew);
   if (!fresh.length) return;
   const lines = fresh.map((f) => `• ${esc(f.summary)}`).join("\n");
+  for (const f of fresh) await recordEventAlert({ agentId: agent.id, key: `finding:${agent.id}:${f.summary.slice(0, 120)}`, severity: "critical", title: "Critical audit finding", detail: f.summary });
   await alertAdmin(`*Critical Migz finding* for \`${agent.slug}\`\n${lines}`);
 }
 

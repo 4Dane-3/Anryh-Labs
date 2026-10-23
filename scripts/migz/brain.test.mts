@@ -468,6 +468,51 @@ assert.equal(stripeKey(), "sk_test_z", "a test key under the main name works any
 setKeys(keyEnv.main, keyEnv.test, keyEnv.vercel);
 ok("Stripe: live keys only run on Vercel Production; local and preview use the test key");
 
+// Admin health: what raises an alert (and how loud)
+const { findIssues } = await import("@/lib/admin/issues");
+const hNow = Date.parse("2026-10-22T20:00:00Z");
+const healthy = {
+  agent: { id: "ag1", slug: "miguel-cruz", name: "Miguel Cruz", mode: "auto", setupDone: true, adAccount: "act_1", slack: true, lastRunAt: "2026-10-22T18:00:00Z" },
+  now: hNow,
+  testMode: false,
+  lastRun: { status: "succeeded", started_at: "2026-10-22T18:00:00Z", error: null },
+  batch: { day: 3, days: 14, budgetCents: 28000, spentCents: 4000 },
+  meta: {
+    error: null,
+    accountStatus: 1,
+    campaigns: [{ id: "c1", name: "Final expense", effective_status: "ACTIVE", retired: false }, { id: "c0", name: "Old", effective_status: "PAUSED", retired: true }],
+    adsets: [{ id: "s1", name: "IL, TX", effective_status: "ACTIVE", retired: false }],
+    ads: [{ id: "a1", name: "Leave them memories", effective_status: "ACTIVE", reviewFeedback: null }],
+  },
+  spend: { todayCents: 430, yesterdayCents: 900 },
+  jobs: [],
+  modelBudgetRatio: 0.2,
+  staleProposals: 0,
+};
+const keys = (h: typeof healthy) => findIssues(h).map((i) => `${i.severity}:${i.key.split(":")[0]}`);
+assert.deepEqual(keys(healthy), [], "a healthy account raises nothing (a retired campaign being paused is expected)");
+assert.deepEqual(keys({ ...healthy, meta: { ...healthy.meta, accountStatus: 3 } }), ["critical:account_status"]);
+assert.match(findIssues({ ...healthy, meta: { ...healthy.meta, accountStatus: 3 } })[0].title, /unsettled/);
+assert.deepEqual(keys({ ...healthy, meta: { ...healthy.meta, error: "Error validating access token" } }), ["critical:meta_error"]);
+assert.deepEqual(keys({ ...healthy, meta: { ...healthy.meta, campaigns: [{ ...healthy.meta.campaigns[0], effective_status: "PAUSED" }] } }), ["warn:campaign_paused"], "a live campaign paused mid-batch");
+assert.deepEqual(keys({ ...healthy, testMode: true, meta: { ...healthy.meta, campaigns: [{ ...healthy.meta.campaigns[0], effective_status: "PAUSED" }] } }), [], "test mode pauses everything on purpose");
+assert.deepEqual(keys({ ...healthy, meta: { ...healthy.meta, ads: [{ id: "a1", name: "x", effective_status: "DISAPPROVED", reviewFeedback: "Financial claims" }] } }), ["critical:no_ads", "critical:ad_rejected"]);
+assert.match(findIssues({ ...healthy, meta: { ...healthy.meta, ads: [{ id: "a1", name: "x", effective_status: "DISAPPROVED", reviewFeedback: "Financial claims" }] } })[1].detail, /Financial claims/);
+assert.deepEqual(keys({ ...healthy, meta: { ...healthy.meta, ads: [healthy.meta.ads[0], { id: "a2", name: "old video", effective_status: "PAUSED", reviewFeedback: null }] } }), ["info:ads_paused"], "paused ads are listed quietly");
+assert.deepEqual(keys({ ...healthy, meta: { ...healthy.meta, ads: [{ id: "a1", name: "new", effective_status: "PENDING_REVIEW", reviewFeedback: null }] } }), [], "ads still in Meta's review aren't a problem");
+assert.deepEqual(keys({ ...healthy, spend: { todayCents: 0, yesterdayCents: 0 } }), ["warn:not_spending"]);
+assert.deepEqual(keys({ ...healthy, batch: { ...healthy.batch, day: 1 }, spend: { todayCents: 0, yesterdayCents: 0 } }), [], "day 1 can be quiet");
+assert.deepEqual(keys({ ...healthy, batch: { ...healthy.batch, spentCents: 29000 } }), ["critical:overspend"]);
+assert.deepEqual(keys({ ...healthy, agent: { ...healthy.agent, lastRunAt: "2026-10-22T08:00:00Z" } }), ["warn:review_overdue"]);
+assert.deepEqual(keys({ ...healthy, jobs: [{ id: "j1", stage: "meta_processing", updated_at: "2026-10-22T18:30:00Z", brief: "Plan ahead" }] }), ["warn:job_stuck"]);
+assert.deepEqual(keys({ ...healthy, jobs: [{ id: "j1", stage: "generating", updated_at: "2026-10-22T19:30:00Z", brief: "Plan ahead" }] }), [], "a 30-minute generation is normal");
+assert.deepEqual(keys({ ...healthy, modelBudgetRatio: 1.05 }), ["warn:model_budget"]);
+assert.deepEqual(keys({ ...healthy, agent: { ...healthy.agent, adAccount: null }, meta: null }), ["critical:meta_missing"]);
+assert.deepEqual(keys({ ...healthy, agent: { ...healthy.agent, adAccount: null, mode: "off" }, meta: null }), ["info:meta_missing", "info:migz_off"], "quiet when Migz is off anyway");
+assert.deepEqual(keys({ ...healthy, agent: { ...healthy.agent, slack: false } }), ["info:no_slack"]);
+assert.equal(new Set(findIssues({ ...healthy, meta: { ...healthy.meta, ads: [{ id: "a1", name: "x", effective_status: "DISAPPROVED", reviewFeedback: null }, { id: "a2", name: "y", effective_status: "DISAPPROVED", reviewFeedback: null }] } }).map((i) => i.key)).size, 3, "each rejected ad is its own alert");
+ok("admin health: account can't spend, Meta errors, paused campaigns mid-batch (not in test mode), rejected ads, no ads, not spending, overspend, reviews stopped, stuck creatives, AI budget, missing Meta or Slack");
+
 // Live monitor: a check-in every 10 minutes while the Brain is open, never during a review
 const { pulseDue, PULSE_EVERY_MIN } = await import("@/lib/migz/live");
 const { isPulse } = await import("@/lib/migz/brain-types");

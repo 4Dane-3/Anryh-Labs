@@ -16,6 +16,7 @@ import {
   PanelsTopLeft,
   Rocket,
   Settings,
+  ShieldCheck,
   Users,
   Wallet,
   X,
@@ -97,7 +98,7 @@ function NavLinks({ onNavigate, setupDone }: { onNavigate?: () => void; setupDon
   );
 }
 
-function AgentFooter({ agent, devLogin }: { agent: AgentSummary; devLogin: boolean }) {
+function AgentFooter({ agent, devLogin, staff }: { agent: AgentSummary; devLogin: boolean; staff: boolean }) {
   const router = useRouter();
 
   async function signOut() {
@@ -108,6 +109,14 @@ function AgentFooter({ agent, devLogin }: { agent: AgentSummary; devLogin: boole
 
   return (
     <div className="space-y-3 border-t border-line pt-4">
+      {staff && (
+        <Link
+          href="/admin"
+          className="flex items-center justify-between rounded-lg px-3 py-2 text-[13px] text-brand transition-colors hover:bg-brand/[0.08]"
+        >
+          Admin dashboard <ShieldCheck className="size-3.5" />
+        </Link>
+      )}
       <a
         href={`/${agent.slug}`}
         target="_blank"
@@ -151,7 +160,7 @@ function AgentFooter({ agent, devLogin }: { agent: AgentSummary; devLogin: boole
   );
 }
 
-export function Sidebar({ agent, devLogin, setupDone }: { agent: AgentSummary; devLogin: boolean; setupDone: boolean }) {
+export function Sidebar({ agent, devLogin, setupDone, staff = false }: { agent: AgentSummary; devLogin: boolean; setupDone: boolean; staff?: boolean }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
 
@@ -180,7 +189,7 @@ export function Sidebar({ agent, devLogin, setupDone }: { agent: AgentSummary; d
         <div className="flex-1">
           <NavLinks setupDone={setupDone} />
         </div>
-        <AgentFooter agent={agent} devLogin={devLogin} />
+        <AgentFooter agent={agent} devLogin={devLogin} staff={staff} />
       </aside>
 
       {/* Mobile top bar */}
@@ -227,7 +236,7 @@ export function Sidebar({ agent, devLogin, setupDone }: { agent: AgentSummary; d
               <div className="flex-1">
                 <NavLinks onNavigate={() => setOpen(false)} setupDone={setupDone} />
               </div>
-              <AgentFooter agent={agent} devLogin={devLogin} />
+              <AgentFooter agent={agent} devLogin={devLogin} staff={staff} />
             </motion.aside>
           </>
         )}
