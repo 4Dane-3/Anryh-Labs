@@ -3,8 +3,10 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
 import { sendSlackMessage } from "@/lib/slack";
 import { isCarouselBrief, isImageBrief, type AnyBrief } from "@/lib/migz/brief";
+import { graphAll } from "@/lib/meta/graph";
 import {
   adLiveMessage,
+  adsReviewedMessage,
   batchEndedMessage,
   batchSetupMessage,
   creativeReadyMessage,
@@ -13,7 +15,8 @@ import {
   type SlackMessage,
 } from "@/lib/migz/slack-blocks";
 
-// Slack updates to the agent as Migz works: campaigns set up, ads live (with a preview of the ad), new
+// Slack updates to the agent as Migz works: campaigns set up, ads sent to Meta and then approved (with a
+// preview of the ad), new
 // creatives, what each review did and what's waiting for approval, and a batch's results. Best effort:
 // a Slack problem never breaks the work it's reporting on.
 
@@ -100,4 +103,85 @@ export async function notifyReviewSummary(agent: Recipient, runId: string, summa
 
 export async function notifyBatchEnded(agent: Recipient, input: { budgetCents: number; spentCents: number; bookedCalls: number }) {
   return send(agent, batchEndedMessage({ ...input, dashboardUrl: appUrl() }));
+}
+
+// Meta's review: "approved" once the ad is delivering; a rejection carries Meta's reason. Ads still in
+// review (or paused, which Meta's status can't tell apart) are checked again next time.
+const REVIEW_WINDOW_DAYS = 7; // past this, an ad's review is old news
+const APPROVED = new Set(["ACTIVE"]);
+const REJECTED = new Set(["DISAPPROVED"]);
+
+type MetaAdReview = {
+  id: string;
+  effective_status: string;
+  ad_review_feedback?: { global?: Record<string, string> };
+  creative?: { thumbnail_url?: string; image_url?: string };
+};
+
+/**
+ * Every 10 minutes (creatives cron): tells each agent once, in one message, which of their new ads Meta
+ * finished reviewing. Before the review_notified_at migration runs, this does nothing.
+ */
+export async function notifyAdReviews(deadlineMs: number) {
+  const since = new Date(Date.now() - REVIEW_WINDOW_DAYS * 86_400_000).toISOString();
+  const { data: rows, error } = await supabaseAdmin
+    .from("ads")
+    .select("id, agent_id, meta_ad_id, headline, primary_text, creative_id, status, creatives(kind, storage_path), ad_sets(ad_campaigns(name))")
+    .is("review_notified_at", null)
+    .gte("created_at", since)
+    .eq("status", "ACTIVE")
+    .limit(100);
+  if (error || !rows?.length) return {};
+
+  const byAgent = new Map<string, typeof rows>();
+  for (const r of rows) byAgent.set(r.agent_id, [...(byAgent.get(r.agent_id) ?? []), r]);
+  const results: Record<string, string> = {};
+
+  for (const [agentId, ads] of byAgent) {
+    if (Date.now() > deadlineMs) break;
+    const { data: agent } = await supabaseAdmin.from("agents").select("id, slug, full_name, slack_user_id, licensed_states, meta_ad_account_id").eq("id", agentId).single();
+    if (!agent?.meta_ad_account_id) continue;
+    let reviews: Record<string, MetaAdReview>;
+    try {
+      const list = await graphAll<MetaAdReview>(`${agent.meta_ad_account_id}/ads`, {
+        fields: "id,effective_status,ad_review_feedback,creative{thumbnail_url,image_url}",
+        filtering: JSON.stringify([{ field: "id", operator: "IN", value: ads.map((a) => a.meta_ad_id) }]),
+        limit: 100,
+      });
+      reviews = Object.fromEntries(list.map((r) => [r.id, r]));
+    } catch (e) {
+      console.error("ad review check failed", agent.slug, e instanceof Error ? e.message : e);
+      continue;
+    }
+
+    const approved: Parameters<typeof adsReviewedMessage>[0]["approved"] = [];
+    const rejected: Parameters<typeof adsReviewedMessage>[0]["rejected"] = [];
+    const done: string[] = [];
+    for (const a of ads) {
+      const review = reviews[a.meta_ad_id];
+      if (!review || (!APPROVED.has(review.effective_status) && !REJECTED.has(review.effective_status))) continue;
+      const creative = a.creatives as { kind?: string; storage_path?: string } | null;
+      // Our stored picture for image ads (Meta's thumbnail is small); Meta's frame for videos
+      const stored = creative?.kind === "image" && creative.storage_path ? await signedImage(creative.storage_path) : null;
+      const picture = stored ?? review.creative?.thumbnail_url ?? review.creative?.image_url ?? null;
+      const campaign = ((a.ad_sets as { ad_campaigns?: { name?: string } } | null)?.ad_campaigns?.name ?? "your").replace(/^Migz · /, "").replace(/ · [A-Z ]+$/, "");
+      const ad: AdPreview = {
+        pageName: agent.full_name,
+        primaryText: a.primary_text ?? "",
+        headline: a.headline ?? "Your ad",
+        images: picture ? [{ url: picture, alt: a.headline ?? "Ad" }] : [],
+        bookingUrl: `${appUrl()}/${agent.slug}`,
+        format: creative?.kind === "video" ? "video" : "image",
+      };
+      if (APPROVED.has(review.effective_status)) approved.push({ ad, campaign });
+      else rejected.push({ ad, campaign, reason: Object.values(review.ad_review_feedback?.global ?? {})[0] ?? null });
+      done.push(a.id);
+    }
+    if (!done.length) continue;
+    // Marked even when the agent has no Slack, so connecting Slack later doesn't replay old reviews
+    await supabaseAdmin.from("ads").update({ review_notified_at: new Date().toISOString() }).in("id", done);
+    const sent = await send(agent, adsReviewedMessage({ approved, rejected, states: agent.licensed_states, dashboardUrl: appUrl() }));
+    results[agent.slug] = `${approved.length} approved, ${rejected.length} not approved${sent ? "" : " (not sent: no Slack)"}`;
+  }
+  return results;
 }

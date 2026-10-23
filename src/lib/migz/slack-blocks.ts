@@ -57,16 +57,16 @@ export function adLiveMessage(input: {
   held: boolean;
   dashboardUrl: string;
 }): SlackMessage {
-  const title = input.held ? "Your new ad is built (paused for testing)" : "Your new ad is live";
+  const title = input.held ? "Your new ad is built (paused for testing)" : "Your new ad is with Meta for review";
   const kind = input.ad.format === "carousel" ? "carousel" : input.ad.format;
   return {
     text: `${title}: ${input.ad.headline}`,
     blocks: [
-      header(input.held ? ":hammer_and_wrench: Your new ad is built" : ":white_check_mark: Your new ad is live"),
+      header(input.held ? ":hammer_and_wrench: Your new ad is built" : ":outbox_tray: Your new ad is with Meta for review"),
       section(
         input.held
           ? `Migz built a new ${kind} ad in the *${esc(input.campaign)}* campaign. Test mode keeps it paused; it switches on when test mode ends.`
-          : `Migz launched a new ${kind} ad in your *${esc(input.campaign)}* campaign. Meta reviews new ads first (usually a few hours), then it starts showing to adults in ${esc(input.states.join(", "))}.`,
+          : `Migz sent a new ${kind} ad in your *${esc(input.campaign)}* campaign to Meta. Meta reviews new ads first, usually within a few hours. You'll get a message here as soon as it's approved and showing to adults in ${esc(input.states.join(", "))}.`,
       ),
       divider,
       ...adPreviewBlocks(input.ad),
@@ -74,6 +74,31 @@ export function adLiveMessage(input: {
       actions(button("Open the Migz brain", `${input.dashboardUrl}/dashboard/brain`)),
     ],
   };
+}
+
+/** Meta finished reviewing new ads: approved ones are now showing; rejected ones say why. */
+export function adsReviewedMessage(input: {
+  approved: { ad: AdPreview; campaign: string }[];
+  rejected: { ad: AdPreview; campaign: string; reason: string | null }[];
+  states: string[];
+  dashboardUrl: string;
+}): SlackMessage {
+  const { approved, rejected } = input;
+  const n = (k: number) => `${k} ad${k === 1 ? "" : "s"}`;
+  const title = approved.length
+    ? `Meta approved ${approved.length === 1 ? "your new ad" : `${n(approved.length)}`}${rejected.length ? `, and didn't approve ${n(rejected.length)}` : ""}`
+    : `Meta didn't approve ${rejected.length === 1 ? "your new ad" : n(rejected.length)}`;
+  const blocks: unknown[] = [header(`${approved.length ? ":white_check_mark:" : ":warning:"} ${title}`)];
+  if (approved.length) {
+    blocks.push(section(`${approved.length === 1 ? "It's" : "They're"} now showing to adults in ${esc(input.states.join(", "))}. Migz watches the results and adjusts at its reviews.`));
+    if (approved.length === 1) blocks.push(divider, ...adPreviewBlocks(approved[0].ad));
+    else blocks.push(section(approved.map((a) => `• *${esc(cut(a.ad.headline, 80))}* (${a.ad.format}, ${esc(a.campaign)})`).join("\n")));
+  }
+  for (const r of rejected) {
+    blocks.push(divider, section(`:no_entry: *${esc(cut(r.ad.headline, 80))}* (${r.ad.format}, ${esc(r.campaign)}) wasn't approved.${r.reason ? ` Meta said: _${esc(cut(r.reason, 400))}_` : ""} Migz sees this at its next review and won't spend on it.`));
+  }
+  blocks.push(divider, actions(button("Open the Migz brain", `${input.dashboardUrl}/dashboard/brain`)));
+  return { text: title, blocks };
 }
 
 /** A creative Migz made for the library (not launched yet). */
