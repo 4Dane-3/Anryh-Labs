@@ -157,8 +157,8 @@
     animation: pending-pulse 2.2s ease-in-out infinite;
   }
 
-  /* Migz Brain: nodes that aren't idle breathe a glow in their own color (set --glow on the element).
-     .brain-glow: working right now (quick and bright). .brain-glow-soft: worked this run (slower, softer). */
+  /* Migz Brain: nodes that aren't idle pulse a glow in their own color (set --glow on the element).
+     .brain-glow: working right now (1.4s). .brain-glow-soft: worked this run (same glow, 2s). */
   @keyframes brain-glow {
     0%,
     100% {
@@ -179,26 +179,12 @@
     }
   }
 
-  @keyframes brain-glow-soft {
-    0%,
-    100% {
-      border-color: color-mix(in srgb, var(--glow) 45%, transparent);
-      box-shadow: 0 0 6px 0 color-mix(in srgb, var(--glow) 12%, transparent);
-    }
-    50% {
-      border-color: color-mix(in srgb, var(--glow) 90%, transparent);
-      box-shadow:
-        0 0 0 1px color-mix(in srgb, var(--glow) 50%, transparent),
-        0 0 22px 2px color-mix(in srgb, var(--glow) 38%, transparent);
-    }
-  }
-
   .brain-glow {
     animation: brain-glow 1.4s ease-in-out infinite;
   }
 
   .brain-glow-soft {
-    animation: brain-glow-soft 2.8s ease-in-out infinite;
+    animation: brain-glow 2s ease-in-out infinite;
   }
 
   @media (prefers-reduced-motion: reduce) {
