@@ -157,6 +157,37 @@
     animation: pending-pulse 2.2s ease-in-out infinite;
   }
 
+  /* Migz Brain: a node that's working breathes a glow in its own color (set --glow on the element) */
+  @keyframes brain-glow {
+    0%,
+    100% {
+      box-shadow:
+        0 0 0 1px color-mix(in srgb, var(--glow) 55%, transparent),
+        0 0 10px 0 color-mix(in srgb, var(--glow) 22%, transparent);
+      background-color: color-mix(in srgb, var(--glow) 6%, var(--color-ink));
+    }
+    50% {
+      box-shadow:
+        0 0 0 1px var(--glow),
+        0 0 26px 3px color-mix(in srgb, var(--glow) 45%, transparent);
+      background-color: color-mix(in srgb, var(--glow) 13%, var(--color-ink));
+    }
+  }
+
+  .brain-glow {
+    animation: brain-glow 1.8s ease-in-out infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .brain-glow {
+      animation: none;
+      box-shadow:
+        0 0 0 1px var(--glow),
+        0 0 16px 2px color-mix(in srgb, var(--glow) 35%, transparent);
+      background-color: color-mix(in srgb, var(--glow) 10%, var(--color-ink));
+    }
+  }
+
   .font-manifold {
     font-family: manifold-cf, ui-sans-serif, system-ui, -apple-system, "Segoe UI",
       Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";

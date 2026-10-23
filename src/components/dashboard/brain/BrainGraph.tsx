@@ -65,6 +65,7 @@ function NodeBox({ id, graph }: { id: NodeId; graph: GraphState }) {
       className={cn(
         "absolute flex flex-col rounded-md border px-3 py-2.5 font-mono text-[11px] leading-snug transition-[border-color,background-color] duration-300",
         n.status === "idle" ? "border-white/10 bg-ink" : "bg-ink",
+        active && "brain-glow z-10",
       )}
       style={{
         left: pct(b.x, W),
@@ -72,7 +73,7 @@ function NodeBox({ id, graph }: { id: NodeId; graph: GraphState }) {
         width: pct(b.w, W),
         height: pct(b.h, H),
         borderColor: n.status === "idle" ? undefined : `${tier.color}${active ? "" : "80"}`,
-        backgroundColor: active ? `${tier.color}12` : undefined,
+        ["--glow" as string]: tier.color,
       }}
     >
       <div className="flex items-center justify-between gap-2">
@@ -175,8 +176,8 @@ export function BrainList({ graph }: { graph: GraphState }) {
               />
             </div>
             <div
-              className="min-w-0 flex-1 rounded-md border px-3 py-2 font-mono text-[11px] transition-colors"
-              style={{ borderColor: n.status === "idle" ? "rgb(255 255 255 / 0.08)" : `${tier.color}${active ? "" : "70"}`, backgroundColor: active ? `${tier.color}12` : undefined }}
+              className={cn("min-w-0 flex-1 rounded-md border px-3 py-2 font-mono text-[11px] transition-colors", active && "brain-glow")}
+              style={{ borderColor: n.status === "idle" ? "rgb(255 255 255 / 0.08)" : `${tier.color}${active ? "" : "70"}`, ["--glow" as string]: tier.color }}
             >
               <div className="flex items-baseline justify-between gap-2">
                 <span className="font-semibold text-fg">{NODE_COPY[id].title}</span>
