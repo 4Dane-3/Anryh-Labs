@@ -65,7 +65,7 @@ function NodeBox({ id, graph }: { id: NodeId; graph: GraphState }) {
       className={cn(
         "absolute flex flex-col rounded-md border px-3 py-2.5 font-mono text-[11px] leading-snug transition-[border-color,background-color] duration-300",
         n.status === "idle" ? "border-white/10 bg-ink" : "bg-ink",
-        active && "brain-glow z-10",
+        active ? "brain-glow z-10" : n.status === "done" && "brain-glow-soft",
       )}
       style={{
         left: pct(b.x, W),
@@ -176,7 +176,7 @@ export function BrainList({ graph }: { graph: GraphState }) {
               />
             </div>
             <div
-              className={cn("min-w-0 flex-1 rounded-md border px-3 py-2 font-mono text-[11px] transition-colors", active && "brain-glow")}
+              className={cn("min-w-0 flex-1 rounded-md border px-3 py-2 font-mono text-[11px] transition-colors", active ? "brain-glow" : n.status === "done" && "brain-glow-soft")}
               style={{ borderColor: n.status === "idle" ? "rgb(255 255 255 / 0.08)" : `${tier.color}${active ? "" : "70"}`, ["--glow" as string]: tier.color }}
             >
               <div className="flex items-baseline justify-between gap-2">
