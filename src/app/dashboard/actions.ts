@@ -491,6 +491,16 @@ export async function setMigzMode(mode: "off" | "approve" | "auto"): Promise<Res
   return { ok: true };
 }
 
+/** Ghost bookings: hold back some open times on the booking page so the calendar looks busy. */
+export async function setGhostBookings(on: boolean): Promise<Result> {
+  const agent = await requireAgent();
+  const { error } = await supabaseAdmin.from("agents").update({ ghost_bookings: !!on }).eq("id", agent.id);
+  if (error) return fail(error.code === "42703" ? "Ghost bookings aren't set up yet." : "Couldn't save that.");
+  revalidatePath("/dashboard/settings");
+  revalidatePath(`/${agent.slug}`);
+  return { ok: true };
+}
+
 // Based on the last full review (not quiet hourly checks, which would keep resetting it)
 const MANUAL_REVIEW_COOLDOWN_MS = 10 * 60_000;
 

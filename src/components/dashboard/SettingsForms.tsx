@@ -3,8 +3,8 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { setMigzMode, setModelBudget, updateSettings } from "@/app/dashboard/actions";
-import { Button, Label, Panel, PanelHeader, inputClass } from "@/components/dashboard/ui";
+import { setGhostBookings, setMigzMode, setModelBudget, updateSettings } from "@/app/dashboard/actions";
+import { Button, Label, Panel, PanelHeader, Switch, inputClass } from "@/components/dashboard/ui";
 
 const TIMEZONES = [
   ["America/New_York", "Eastern"],
@@ -179,6 +179,39 @@ export function MigzModeForm({ mode }: { mode: "off" | "approve" | "auto" }) {
           );
         })}
         {error && <p className="text-[13px] text-bad">{error}</p>}
+      </div>
+    </Panel>
+  );
+}
+
+/** Ghost bookings: some open times are held back on the booking page so the calendar looks busy. */
+export function GhostBookingsForm({ on }: { on: boolean }) {
+  const router = useRouter();
+  const [value, setValue] = useState(on);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+  const toggle = (next: boolean) =>
+    startTransition(async () => {
+      setValue(next);
+      setError(null);
+      const res = await setGhostBookings(next);
+      if (!res.ok) {
+        setValue(!next);
+        setError(res.error);
+      }
+      router.refresh();
+    });
+  return (
+    <Panel>
+      <div className="flex items-start justify-between gap-4 px-5 py-4">
+        <div>
+          <h2 className="text-sm font-semibold text-fg">Ghost bookings</h2>
+          <p className="mt-0.5 text-[13px] text-fg-muted">
+            Holds back some of your open times over the next two weeks (more in the next few days), so your booking page looks like a busy agent&apos;s. Held times just aren&apos;t offered, like a taken slot. Every day keeps at least two times, and nothing is added to your calendar or clients.
+          </p>
+          {error && <p className="mt-1 text-[13px] text-bad">{error}</p>}
+        </div>
+        <Switch checked={value} onChange={toggle} label="Ghost bookings" disabled={pending} />
       </div>
     </Panel>
   );

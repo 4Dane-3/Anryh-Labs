@@ -2,6 +2,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import {
   generateSlots,
+  withGhostHolds,
   type AvailabilityRule,
   type SlotConfig,
 } from "@/lib/booking/slots";
@@ -48,6 +49,7 @@ export type Agent = {
   onboarding_completed_at?: string | null;
   required_intake_steps?: number[]; // steps whose questions must be answered before booking
   stripe_customer_id?: string | null; // saved from the first paid deposit
+  ghost_bookings?: boolean; // hold back some open times so the calendar looks busy (missing before its migration)
 };
 
 export type Booking = {
@@ -118,7 +120,8 @@ export async function getOpenSlots(agent: Agent): Promise<string[]> {
     maxDaysAhead: agent.max_days_ahead,
   };
 
-  return generateSlots(rules, busy, config);
+  const open = generateSlots(rules, busy, config);
+  return agent.ghost_bookings ? withGhostHolds(open, agent.id, agent.timezone) : open;
 }
 
 /** The agent's questions (enabled and disabled), or the defaults if they've never edited them. */

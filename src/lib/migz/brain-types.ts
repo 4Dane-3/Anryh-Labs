@@ -4,6 +4,10 @@
 export const PULSE_KIND = "pulse";
 export const PULSE_KEEP = 30;
 export const isPulse = (e: { evidence?: Record<string, unknown> | null }) => e.evidence?.kind === PULSE_KIND;
+/** Steps from the research shift (market, history, clerk, memory around the clock). */
+export const RESEARCH_KIND = "research";
+/** Work between reviews (live check-ins and the research shift): loaded and trimmed apart from reviews. */
+export const isBackground = (e: { evidence?: Record<string, unknown> | null }) => e.evidence?.kind === PULSE_KIND || e.evidence?.kind === RESEARCH_KIND;
 
 export type BrainEvent = {
   id: number;

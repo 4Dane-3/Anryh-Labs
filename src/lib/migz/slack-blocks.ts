@@ -101,6 +101,32 @@ export function adsReviewedMessage(input: {
   return { text: title, blocks };
 }
 
+/** The research shift found something worth making: what it learned and the creative idea it drafted. */
+export function researchIdeaMessage(input: {
+  topic: string;
+  angle: string;
+  finding: string;
+  history: string | null;
+  idea: { format: string; hook_line: string; concept: string; why: string };
+  sources: { title: string; url: string }[];
+  dashboardUrl: string;
+}): SlackMessage {
+  const title = `Migz has an idea for your next ${input.topic.toLowerCase()} ad`;
+  const sources = input.sources.slice(0, 3).map((s) => `<${s.url}|${esc(cut(s.title, 60))}>`).join(" · ");
+  return {
+    text: `${title}: "${input.idea.hook_line}"`,
+    blocks: [
+      header(`:bulb: ${title}`),
+      section(`*What Migz studied:* ${esc(input.angle)}\n${esc(cut(input.finding, 700))}`),
+      ...(input.history ? [context(`:books: ${esc(cut(input.history, 400))}`)] : []),
+      divider,
+      section(`*Idea (${esc(input.idea.format)}):* "${esc(cut(input.idea.hook_line, 120))}"\n${esc(cut(input.idea.concept, 400))}\n_${esc(cut(input.idea.why, 300))}_`),
+      context(`Migz uses ideas like this when it makes your next creatives at a review.${sources ? ` Sources: ${sources}` : ""}`),
+      actions(button("Open the Migz brain", `${input.dashboardUrl}/dashboard/brain`)),
+    ],
+  };
+}
+
 /** A creative Migz made for the library (not launched yet). */
 export function creativeReadyMessage(input: { ad: AdPreview; dashboardUrl: string }): SlackMessage {
   return {

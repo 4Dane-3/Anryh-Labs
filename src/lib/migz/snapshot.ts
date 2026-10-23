@@ -10,6 +10,7 @@ import { addRow, derive, emptyTotals, fatigue, present, type Totals } from "@/li
 import { cleanFocus, TOPICS } from "@/lib/migz/topics";
 import { daysLeft, REVISE_AFTER_DAYS } from "@/lib/campaign";
 import { getActiveBatch } from "@/lib/dashboard/batches";
+import { latestIdeas } from "@/lib/migz/research";
 import { emptyPlatformStats, platformOf, PLATFORMS, strongerPlatform, type PlatformStats } from "@/lib/migz/platforms";
 
 /**
@@ -265,7 +266,16 @@ export async function buildSnapshot(agent: Agent) {
     adsetsByTopic.set(c.topic, [...(adsetsByTopic.get(c.topic) ?? []), ...ids]);
   }
 
+  // The research shift's latest ideas (market → history → clerk), as inspiration for new creatives
+  const researchIdeas = await latestIdeas(agent.id);
+
   const forModel = {
+    market_research_ideas: researchIdeas.length
+      ? {
+          note: "Ideas from your research shift, checked against this account's history and Meta's ad rules. Use them as inspiration when you make new creatives (pick what fits the ad sets that need creative); never copy outside wording.",
+          ideas: researchIdeas,
+        }
+      : "none yet",
     agent: {
       name: agent.full_name,
       licensed_states: agent.licensed_states,

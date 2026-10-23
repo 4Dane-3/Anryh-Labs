@@ -75,3 +75,47 @@ export function generateSlots(
     .sort((a, b) => a - b)
     .map((ms) => new Date(ms).toISOString());
 }
+
+// Ghost bookings (an agent setting): hold back a share of open times in the next two weeks so the
+// calendar looks like a busy agent's. A held time looks exactly like a taken one: it simply isn't
+// offered. Nothing is invented beyond that (no names, no "booked" labels), nothing is stored, and the
+// agent's own calendar and client list never show these. The choice is a stable hash of the agent and
+// the time, so the same times stay held across page loads.
+export const GHOST_DAYS = 14;
+const GHOST_SHARE_SOON = 0.45; // the next 3 days look busiest
+const GHOST_SHARE_LATER = 0.3;
+const GHOST_MIN_LEFT = 2; // every day keeps at least this many times (when it had them)
+
+function hash01(text: string) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0) / 0xffffffff;
+}
+
+/** The open times to offer once ghost bookings hold some back. Pure; `slots` are UTC ISO strings. */
+export function withGhostHolds(slots: string[], seed: string, timezone: string, now: Date = new Date()): string[] {
+  const today = DateTime.fromJSDate(now, { zone: timezone }).startOf("day");
+  const byDay = new Map<string, string[]>();
+  for (const s of slots) {
+    const day = DateTime.fromISO(s, { zone: timezone }).toISODate()!;
+    byDay.set(day, [...(byDay.get(day) ?? []), s]);
+  }
+  const held = new Set<string>();
+  for (const [day, times] of byDay) {
+    const offset = Math.round(DateTime.fromISO(day, { zone: timezone }).diff(today, "days").days);
+    if (offset >= GHOST_DAYS || times.length <= GHOST_MIN_LEFT) continue;
+    const share = offset < 3 ? GHOST_SHARE_SOON : GHOST_SHARE_LATER;
+    // Hold the times whose hash falls under the share, lowest first, while enough stay open
+    const ranked = times.map((t) => ({ t, r: hash01(`${seed}|${t}`) })).filter((x) => x.r < share).sort((a, b) => a.r - b.r);
+    let open = times.length;
+    for (const { t } of ranked) {
+      if (open <= GHOST_MIN_LEFT) break;
+      held.add(t);
+      open--;
+    }
+  }
+  return slots.filter((s) => !held.has(s));
+}
