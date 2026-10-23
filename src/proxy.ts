@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
-// Refreshes the Supabase session cookie on dashboard requests and sends signed-out visitors to /login.
+// Refreshes the Supabase session cookie on dashboard and admin requests, sends signed-out visitors to
+// /login, and keeps the dashboard read-only while staff are viewing an agent's account.
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
 
@@ -29,7 +30,13 @@ export async function proxy(request: NextRequest) {
   const devBypass = process.env.NODE_ENV === "development" && !!process.env.DEV_AGENT_SLUG;
   const { pathname } = request.nextUrl;
 
-  if (!user && !devBypass && pathname.startsWith("/dashboard")) {
+  // Staff viewing an agent's dashboard can look, never change: no form posts, server actions or uploads
+  const viewing = !!request.cookies.get("anryh_view_as")?.value;
+  if (viewing && request.method !== "GET" && request.method !== "HEAD" && (pathname.startsWith("/dashboard") || pathname.startsWith("/api/dashboard"))) {
+    return new NextResponse("View only: you're looking at an agent's dashboard. Go back to the admin dashboard to stop viewing.", { status: 403 });
+  }
+
+  if (!user && !devBypass && (pathname.startsWith("/dashboard") || pathname.startsWith("/admin"))) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.search = "";
@@ -49,5 +56,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/login"],
+  matcher: ["/dashboard/:path*", "/api/dashboard/:path*", "/admin/:path*", "/admin", "/login"],
 };

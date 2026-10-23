@@ -7,6 +7,7 @@ import { createAd, createAdCreative, uploadImage, uploadVideo, videoState } from
 import { MetaApiError } from "@/lib/meta/graph";
 import { isTestMode } from "@/lib/migz/test-mode";
 import { alertAdmin, alertCreativeFailed } from "@/lib/migz/slack";
+import { recordEventAlert } from "@/lib/admin/alerts";
 import { briefLabel, cardBrief, isCarouselBrief, isImageBrief, isVideoBrief, type AnyBrief, type CreativeBrief } from "@/lib/migz/brief";
 import { closeEvent, openEvent } from "@/lib/migz/events";
 import { notifyAdLive, notifyCreativeReady } from "@/lib/migz/notify";
@@ -191,6 +192,7 @@ async function storeGenerated(job: Job, mediaUrl: string, card?: { index: number
       const reason = e instanceof Error ? e.message : String(e);
       console.error("narration failed", reason);
       await alertAdmin(`*Narration failed* on creative job \`${job.id.slice(0, 8)}\`; the video was kept without a voiceover.\n>${reason.slice(0, 300)}`).catch(() => {});
+      await recordEventAlert({ agentId: job.agent_id, key: `narration_failed:${job.id}`, severity: "warn", title: "Narration failed", detail: `The video was kept without a voiceover: ${reason}` });
     }
   }
 
