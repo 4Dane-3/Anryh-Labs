@@ -7,9 +7,9 @@ import { DateTime } from "luxon";
 import { ArrowUpRight, BellRing, BrainCircuit, Check, RefreshCw, ShieldCheck } from "lucide-react";
 import type { AdminAlert, AdminOverview, AdminAgentRow } from "@/lib/admin/types";
 import type { Severity } from "@/lib/admin/issues";
-import { resolveAlert, scanNow } from "@/app/admin/actions";
+import { resolveAlert, scanNow, setAgentModelBudget } from "@/app/admin/actions";
 import { TIER } from "@/components/dashboard/brain/model";
-import { Badge, Button, EmptyState, Panel, PanelHeader } from "@/components/dashboard/ui";
+import { Badge, Button, EmptyState, inputClass, Panel, PanelHeader } from "@/components/dashboard/ui";
 import { cn } from "@/lib/utils";
 
 const REFRESH_MS = 30_000;
@@ -266,6 +266,79 @@ function AgentsPanel({ data, now }: { data: AdminOverview; now: number }) {
   );
 }
 
+function Dot({ on }: { on: boolean }) {
+  return <span className={cn("size-2 shrink-0 rounded-full", on ? "bg-good" : "bg-fg-faint")} />;
+}
+
+/** Monthly AI budget for one agent: the cap on Migz's model costs. Over it, work moves to cheaper models. */
+function BudgetEditor({ agent }: { agent: AdminAgentRow }) {
+  const [value, setValue] = useState(String(agent.modelBudgetCents / 100));
+  const [pending, start] = useTransition();
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const budget = agent.modelBudgetCents / 100;
+  const used = budget > 0 ? Math.min(1, agent.modelSpentUsd / budget) : 1;
+  const save = () =>
+    start(async () => {
+      setMsg(null);
+      const r = await setAgentModelBudget(agent.id, Math.round(Number(value) * 100));
+      setMsg(r.ok ? { ok: true, text: "Saved" } : { ok: false, text: r.error });
+    });
+  return (
+    <div>
+      <p className="font-mono text-[11px] text-fg-faint">AI budget · dollars per month</p>
+      <div className="mt-1.5 flex gap-2">
+        <input aria-label={`AI budget for ${agent.name}`} inputMode="decimal" className={cn(inputClass, "max-w-[140px]")} value={value} onChange={(e) => setValue(e.target.value)} />
+        <Button size="sm" onClick={save} disabled={pending}>Save</Button>
+        {msg && <span className={cn("self-center text-[12px]", msg.ok ? "text-good" : "text-bad")}>{msg.text}</span>}
+      </div>
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/[0.07]">
+        <div className={cn("h-full rounded-full", used >= 1 ? "bg-bad" : used >= 0.8 ? "bg-brand" : "bg-good")} style={{ width: `${used * 100}%` }} />
+      </div>
+      <p className="mt-1 font-mono text-[11px] text-fg-muted">${agent.modelSpentUsd.toFixed(2)} used this month of ${budget.toFixed(2)}. Over it, Migz moves work to cheaper models instead of stopping.</p>
+    </div>
+  );
+}
+
+/** Staff only: what each account is connected to and its AI budget. Agents never see any of this. */
+function AccountsPanel({ data }: { data: AdminOverview }) {
+  return (
+    <Panel>
+      <PanelHeader title="Accounts & AI budgets" description="Connections and each agent's monthly AI budget. Only you can see this." />
+      <div className="border-b border-line px-5 py-4">
+        <p className="mb-2 font-mono text-[11px] text-fg-faint">Services (shared by every account)</p>
+        <ul className="grid gap-x-6 gap-y-2 sm:grid-cols-2 lg:grid-cols-3">
+          {data.services.map((s) => (
+            <li key={s.key} className="flex items-center gap-2.5">
+              <Dot on={s.on} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[13px] text-fg">{s.name}</span>
+                <span className="block truncate text-[11px] text-fg-faint">{s.detail}</span>
+              </span>
+              <span className={cn("text-[11px]", s.on ? "text-good" : "text-bad")}>{s.on ? "Connected" : "Not connected"}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <ul className="divide-y divide-line">
+        {data.agents.map((a) => (
+          <li key={a.id} className="grid gap-5 px-5 py-4 lg:grid-cols-[1fr_1.2fr]">
+            <div className="min-w-0">
+              <p className="text-[13px] font-medium text-fg">{a.name} <span className="font-mono text-[11px] font-normal text-fg-faint">/{a.slug}</span></p>
+              <ul className="mt-2 space-y-1.5 text-[12px]">
+                <li className="flex items-center gap-2"><Dot on={!!a.adAccount} /><span className="text-fg-muted">Ad account</span><span className="min-w-0 truncate font-mono text-fg">{a.adAccount ?? "not linked"}</span></li>
+                <li className="flex items-center gap-2"><Dot on={!!a.pageId} /><span className="text-fg-muted">Facebook Page</span><span className="min-w-0 truncate font-mono text-fg">{a.pageId ?? "not linked"}</span></li>
+                <li className="flex items-center gap-2"><Dot on={!!a.instagramId} /><span className="text-fg-muted">Instagram</span><span className="min-w-0 truncate font-mono text-fg">{a.instagramId ?? "not linked"}</span></li>
+                <li className="flex items-center gap-2"><Dot on={a.slack} /><span className="text-fg-muted">Slack updates</span><span className="text-fg">{a.slack ? "connected" : "not connected"}</span></li>
+              </ul>
+            </div>
+            <BudgetEditor agent={a} />
+          </li>
+        ))}
+      </ul>
+    </Panel>
+  );
+}
+
 export function AdminView({ initial }: { initial: AdminOverview }) {
   const { data, setData, now } = useOverview(initial);
   const [pending, start] = useTransition();
@@ -327,6 +400,8 @@ export function AdminView({ initial }: { initial: AdminOverview }) {
       </div>
 
       <AgentsPanel data={data} now={now} />
+
+      <AccountsPanel data={data} />
     </div>
   );
 }

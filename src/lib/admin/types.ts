@@ -35,11 +35,21 @@ export type AdminAgentRow = {
   liveAds: number;
   alerts: Record<Severity, number>;
   working: string | null; // what Migz is doing for this agent right now
+  // Account and AI budget (staff only)
+  adAccount: string | null;
+  pageId: string | null;
+  instagramId: string | null;
+  modelBudgetCents: number;
+  modelSpentUsd: number; // this month
 };
+
+/** A service Migz depends on, shared by every account. */
+export type AdminService = { key: string; name: string; detail: string; on: boolean };
 
 export type AdminOverview = {
   at: string;
   alertsReady: boolean; // false until the admin_alerts migration runs
+  services: AdminService[];
   agents: AdminAgentRow[];
   open: AdminAlert[];
   recent: AdminAlert[];

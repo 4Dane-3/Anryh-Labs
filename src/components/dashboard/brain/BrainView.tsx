@@ -6,8 +6,8 @@ import { motion } from "framer-motion";
 import { DateTime } from "luxon";
 import { ExternalLink, Trash2 } from "lucide-react";
 import type { BrainLive, Scorecard } from "@/lib/migz/brain-types";
-import { addSwipe, deleteSwipe, setAdFocus } from "@/app/dashboard/actions";
-import { cleanFocus, isTopic, MAX_FOCUS, TOPIC_KEYS, TOPICS, type TopicKey } from "@/lib/migz/topics";
+import { addSwipe, deleteSwipe } from "@/app/dashboard/actions";
+import { isTopic, TOPICS } from "@/lib/migz/topics";
 import { BrainGraph, BrainList } from "@/components/dashboard/brain/BrainGraph";
 import { TIER } from "@/components/dashboard/brain/model";
 import { PipelineStrip, SessionLog, StatusLine } from "@/components/dashboard/brain/parts";
@@ -25,8 +25,6 @@ type Board = {
   learnings: { id: string; insight: string; confidence: string; source: string; created_at: string }[];
   swipes: { id: string; source_url: string | null; advertiser: string | null; notes: string | null; traits: { angle?: string; hook_type?: string; compliance_risk?: string } | null; added_by: string; created_at: string }[];
   scorecards: Scorecard[];
-  focus: string[];
-  liveByTopic: Record<string, number>;
   cost: { month: string; byTier: Record<"haiku" | "sonnet" | "opus", number>; tokens: Record<"haiku" | "sonnet" | "opus", number>; advisorCalls: number; totalUsd: number; limitUsd: number };
 };
 
@@ -105,10 +103,7 @@ export function BrainView({
             <SessionLog events={live.events} />
           </div>
         </Panel>
-        <div className="space-y-6">
-          <FocusPanel focus={board.focus} liveByTopic={board.liveByTopic} />
-          <AuditPanel findings={board.findings} />
-        </div>
+        <AuditPanel findings={board.findings} />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -119,81 +114,6 @@ export function BrainView({
       <ScorecardsPanel cards={board.scorecards} />
       <SwipePanel swipes={board.swipes} />
     </div>
-  );
-}
-
-function FocusPanel({ focus, liveByTopic }: { focus: string[]; liveByTopic: Record<string, number> }) {
-  const router = useRouter();
-  const [picked, setPicked] = useState<TopicKey[]>(cleanFocus(focus));
-  const [pending, start] = useTransition();
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const dirty = picked.join() !== cleanFocus(focus).join();
-
-  const toggle = (key: TopicKey) => {
-    setSaved(false);
-    setPicked((cur) => (cur.includes(key) ? cur.filter((k) => k !== key) : cur.length >= MAX_FOCUS ? cur : [...cur, key]));
-  };
-  const save = () =>
-    start(async () => {
-      setError(null);
-      const res = await setAdFocus(picked);
-      if (!res.ok) return setError(res.error);
-      setSaved(true);
-      router.refresh();
-    });
-
-  return (
-    <Panel>
-      <PanelHeader
-        title="Ad focus"
-        description={`What you want to sell. Pick up to ${MAX_FOCUS}; the first is your main focus. Migz makes new creatives for these.`}
-      />
-      <div className="space-y-2 px-5 py-4">
-        {TOPIC_KEYS.map((key) => {
-          const rank = picked.indexOf(key);
-          const on = rank >= 0;
-          const full = !on && picked.length >= MAX_FOCUS;
-          return (
-            <button
-              key={key}
-              type="button"
-              onClick={() => toggle(key)}
-              disabled={full}
-              aria-pressed={on}
-              className={cn(
-                "flex w-full items-start gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors disabled:opacity-40",
-                on ? "border-brand/50 bg-brand/[0.07]" : "border-line hover:border-line-strong hover:bg-white/[0.03]",
-              )}
-            >
-              <span
-                className={cn(
-                  "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full font-mono text-[11px]",
-                  on ? "bg-brand text-brand-fg" : "border border-line-strong text-transparent",
-                )}
-              >
-                {on ? rank + 1 : "·"}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="flex items-baseline justify-between gap-2">
-                  <span className="text-[13px] font-medium text-fg">{TOPICS[key].label}</span>
-                  {(liveByTopic[key] ?? 0) > 0 && <span className="shrink-0 font-mono text-[11px] text-fg-faint">{liveByTopic[key]} live</span>}
-                </span>
-                <span className="block text-[12px] text-fg-muted">{TOPICS[key].pitch}</span>
-              </span>
-            </button>
-          );
-        })}
-        <div className="flex items-center gap-3 pt-2">
-          <Button variant="primary" size="sm" onClick={save} disabled={pending || !dirty}>
-            Save focus
-          </Button>
-          {saved && !dirty && <span className="text-[12px] text-good">Saved. Migz uses it from the next review.</span>}
-          {!picked.length && <span className="text-[12px] text-fg-faint">None picked: Migz chooses from proven angles.</span>}
-        </div>
-        {error && <p className="text-[12px] text-bad">{error}</p>}
-      </div>
-    </Panel>
   );
 }
 
