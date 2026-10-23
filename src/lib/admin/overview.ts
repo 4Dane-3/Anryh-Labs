@@ -5,6 +5,7 @@ import type { Agent } from "@/lib/booking/data";
 import { getActiveBatch, getBatchProgress } from "@/lib/dashboard/batches";
 import { getBalanceCents } from "@/lib/dashboard/queries";
 import { getLiveStats } from "@/lib/migz/live";
+import { integrations } from "@/lib/integrations";
 import type { AdminAlert, AdminOverview, AdminAgentRow } from "@/lib/admin/types";
 
 // Everything the admin dashboard shows, read live: every agent's state (today's numbers straight from
@@ -12,7 +13,7 @@ import type { AdminAlert, AdminOverview, AdminAgentRow } from "@/lib/admin/types
 
 const RECENT_RESOLVED_DAYS = 3;
 
-async function agentRow(agent: Agent, alerts: AdminAlert[], working: string | null): Promise<AdminAgentRow> {
+async function agentRow(agent: Agent, alerts: AdminAlert[], working: string | null, modelSpentUsd: number): Promise<AdminAgentRow> {
   const [batch, balance, run, live, liveAds] = await Promise.all([
     getActiveBatch(agent.id),
     getBalanceCents(agent.id),
@@ -43,17 +44,36 @@ async function agentRow(agent: Agent, alerts: AdminAlert[], working: string | nu
     liveAds: liveAds.count ?? 0,
     alerts: { critical: mine.filter((a) => a.severity === "critical").length, warn: mine.filter((a) => a.severity === "warn").length, info: mine.filter((a) => a.severity === "info").length },
     working,
+    adAccount: agent.meta_ad_account_id,
+    pageId: agent.meta_page_id,
+    instagramId: agent.meta_instagram_id,
+    modelBudgetCents: agent.migz_model_budget_cents ?? 3000,
+    modelSpentUsd,
   };
 }
 
+const SERVICES = [
+  { key: "slack", name: "Slack", detail: "Booking alerts, Migz updates and these alerts" },
+  { key: "meta", name: "Meta ads", detail: "Lets Migz run and adjust campaigns" },
+  { key: "metaPixel", name: "Meta pixel", detail: "Tells Meta which ads book calls" },
+  { key: "claude", name: "Claude", detail: "The AI behind Migz's decisions" },
+  { key: "higgsfield", name: "Higgsfield", detail: "Generates video creatives" },
+  { key: "elevenlabs", name: "ElevenLabs", detail: "Narration and music for videos" },
+  { key: "stripe", name: "Stripe", detail: "Adding funds for ads" },
+] as const;
+
 export async function getAdminOverview(): Promise<AdminOverview> {
   const since = DateTime.now().minus({ days: RECENT_RESOLVED_DAYS }).toUTC().toISO()!;
-  const [{ data: agents }, openRes, recentRes, { data: events }] = await Promise.all([
+  const monthStart = DateTime.now().startOf("month").toUTC().toISO()!;
+  const [{ data: agents }, openRes, recentRes, { data: events }, { data: calls }] = await Promise.all([
     supabaseAdmin.from("agents").select("*").eq("active", true).order("full_name"),
     supabaseAdmin.from("admin_alerts").select("*").is("resolved_at", null).order("first_seen", { ascending: false }).limit(200),
     supabaseAdmin.from("admin_alerts").select("*").not("resolved_at", "is", null).gte("resolved_at", since).order("resolved_at", { ascending: false }).limit(40),
     supabaseAdmin.from("migz_events").select("id, agent_id, step, tier, summary, started_at, finished_at").order("id", { ascending: false }).limit(30),
+    supabaseAdmin.from("model_calls").select("agent_id, cost_usd").gte("created_at", monthStart),
   ]);
+  const spent = new Map<string, number>();
+  for (const c of calls ?? []) if (c.agent_id) spent.set(c.agent_id, (spent.get(c.agent_id) ?? 0) + Number(c.cost_usd));
   const list = (agents ?? []) as Agent[];
   const names = new Map(list.map((a) => [a.id, { name: a.full_name, slug: a.slug }]));
   const toAlert = (r: Record<string, unknown>): AdminAlert => ({
@@ -78,10 +98,11 @@ export async function getAdminOverview(): Promise<AdminOverview> {
   const working = new Map<string, string>();
   for (const e of events ?? []) if (!e.finished_at && new Date(e.started_at).getTime() > fresh && !working.has(e.agent_id)) working.set(e.agent_id, e.summary);
 
-  const rows = await Promise.all(list.map((a) => agentRow(a, open, working.get(a.id) ?? null)));
+  const rows = await Promise.all(list.map((a) => agentRow(a, open, working.get(a.id) ?? null, spent.get(a.id) ?? 0)));
   return {
     at: new Date().toISOString(),
     alertsReady: !openRes.error,
+    services: SERVICES.map((s) => ({ ...s, on: integrations[s.key] })),
     agents: rows,
     open,
     recent: (recentRes.data ?? []).map(toAlert),

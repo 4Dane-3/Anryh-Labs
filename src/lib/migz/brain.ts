@@ -118,8 +118,6 @@ export async function getBrainBoard(agent: Agent) {
     learnings: learnings.data ?? [],
     swipes: swipes.data ?? [],
     scorecards,
-    focus: snapshot.focus,
-    liveByTopic: snapshot.forModel.live_ads_by_topic as Record<string, number>,
     cost: {
       month: DateTime.now().toFormat("LLLL"),
       byTier,
