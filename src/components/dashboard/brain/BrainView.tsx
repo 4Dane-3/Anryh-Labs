@@ -11,6 +11,7 @@ import { cleanFocus, isTopic, MAX_FOCUS, TOPIC_KEYS, TOPICS, type TopicKey } fro
 import { BrainGraph, BrainList } from "@/components/dashboard/brain/BrainGraph";
 import { TIER } from "@/components/dashboard/brain/model";
 import { PipelineStrip, SessionLog, StatusLine } from "@/components/dashboard/brain/parts";
+import { LivePanel } from "@/components/dashboard/brain/LivePanel";
 import { deriveGraph } from "@/components/dashboard/brain/state";
 import { useBrainLive } from "@/components/dashboard/brain/useBrainLive";
 import { Badge, Button, EmptyState, inputClass, Panel, PanelHeader } from "@/components/dashboard/ui";
@@ -95,6 +96,8 @@ export function BrainView({
           </div>
         </div>
       </Panel>
+
+      {!demo && <LivePanel events={live.events} />}
 
       <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
         <Panel>

@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { DateTime } from "luxon";
-import type { BrainEvent, BrainLive } from "@/lib/migz/brain-types";
+import { isPulse, type BrainEvent, type BrainLive } from "@/lib/migz/brain-types";
 import { TIER } from "@/components/dashboard/brain/model";
 import { openEvents, type GraphState } from "@/components/dashboard/brain/state";
 import { cn } from "@/lib/utils";
@@ -30,9 +30,19 @@ export function StatusLine({ live, demo }: { live: BrainLive; demo: boolean }) {
       </p>
     );
   const when = last?.finished_at ?? last?.started_at;
+  const pulse = live.events.filter(isPulse).at(-1);
+  const watching = !demo && pulse && new Date(live.now).getTime() - new Date(pulse.started_at).getTime() < 15 * 60_000;
   return (
     <p className="font-mono text-[12px] text-fg-muted">
-      idle · {when ? `last reviewed ${DateTime.fromISO(when).toRelative()}` : "no reviews yet"}
+      {watching ? (
+        <>
+          <span className="mr-1.5 inline-block size-1.5 animate-pulse rounded-full align-middle" style={{ backgroundColor: TIER.code.color }} />
+          <span className="text-fg">monitoring live</span> · checked in {DateTime.fromISO(pulse.started_at).toRelative()}
+        </>
+      ) : (
+        "idle"
+      )}{" "}
+      · {when ? `last reviewed ${DateTime.fromISO(when).toRelative()}` : "no reviews yet"}
       {last?.status === "skipped" && " (quiet: nothing material changed)"}
       {last?.status === "failed" && " (failed)"}
       {live.nextRunAt ? ` · next check ${DateTime.fromISO(live.nextRunAt).toRelative()}` : " · Migz is off"}
@@ -82,7 +92,8 @@ function evidenceLine(e: BrainEvent) {
 /** The findings stream: each step with the numbers behind it. No chain of thought, ever. */
 export function SessionLog({ events, max = 40 }: { events: BrainEvent[]; max?: number }) {
   const reduce = useReducedMotion();
-  const rows = events.slice(-max).reverse();
+  // Live check-ins have their own feed in the live monitor
+  const rows = events.filter((e) => !isPulse(e)).slice(-max).reverse();
   if (!rows.length) return <p className="px-5 py-8 text-center text-sm text-fg-muted">No activity yet. Steps appear here as Migz works.</p>;
   return (
     <ol className="divide-y divide-line font-mono text-[12px]">

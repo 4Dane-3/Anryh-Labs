@@ -20,7 +20,8 @@ export type Task =
   | "creative_traits" // Sonnet vision: structured traits from frames
   | "operator" // Sonnet: runs the review with tools; Opus advises through the advisor tool
   | "memo" // Opus: weekly strategy memo
-  | "batch_plan"; // Sonnet: recommends how to spend a new campaign batch
+  | "batch_plan" // Sonnet: recommends how to spend a new campaign batch
+  | "watch"; // Sonnet: a short note on today's numbers between reviews (live monitor)
 
 const TASK_TIER: Record<Task, ModelTier> = {
   audit: "haiku",
@@ -33,6 +34,7 @@ const TASK_TIER: Record<Task, ModelTier> = {
   operator: "sonnet",
   memo: "opus",
   batch_plan: "sonnet",
+  watch: "sonnet",
 };
 
 export type Budget = { limitUsd: number; spentUsd: number; ratio: number };
@@ -54,7 +56,7 @@ export async function monthlyBudget(agentId: string | null, limitCents: number):
 
 /**
  * The tier a task runs on given this month's model spend. Degrades instead of failing:
- *  - at 80% of the budget the market scout stops (it's the most optional work);
+ *  - at 80% of the budget the market scout and the live monitor's notes stop (the most optional work);
  *  - at 100%, drafting and the review itself move from Sonnet to Haiku, and the memo from Opus to
  *    Sonnet. The Opus advisor check on spend-affecting actions is never removed (it rides on the
  *    operator call as the advisor tool, whichever executor runs it).
@@ -62,7 +64,7 @@ export async function monthlyBudget(agentId: string | null, limitCents: number):
  */
 export function planTier(task: Task, budget: Budget): { tier: ModelTier; degraded: boolean } | null {
   const tier = TASK_TIER[task];
-  if (task === "scout" && budget.ratio >= 0.8) return null;
+  if ((task === "scout" || task === "watch") && budget.ratio >= 0.8) return null;
   if (budget.ratio < 1) return { tier, degraded: false };
   if (tier === "sonnet") return { tier: "haiku", degraded: true };
   if (tier === "opus") return { tier: "sonnet", degraded: true };

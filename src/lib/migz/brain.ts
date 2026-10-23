@@ -4,7 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
 import { buildSnapshot } from "@/lib/migz/snapshot";
 import { ladder } from "@/lib/migz/vision";
-import type { BrainEvent, BrainLive, Scorecard } from "@/lib/migz/brain-types";
+import { PULSE_KEEP, PULSE_KIND, type BrainEvent, type BrainLive, type Scorecard } from "@/lib/migz/brain-types";
 
 export type { BrainEvent, BrainLive } from "@/lib/migz/brain-types";
 
@@ -20,7 +20,11 @@ export async function getBrainLive(agent: Agent, afterId?: number): Promise<Brai
     supabaseAdmin.from("migz_runs").select("id, status, started_at, finished_at, summary, skipped_reason").eq("agent_id", agent.id).order("started_at", { ascending: false }).limit(1),
     afterId
       ? supabaseAdmin.from("migz_events").select(EVENT_COLS).eq("agent_id", agent.id).gt("id", afterId).order("id").limit(200)
-      : supabaseAdmin.from("migz_events").select(EVENT_COLS).eq("agent_id", agent.id).order("id", { ascending: false }).limit(80),
+      // Live check-ins come every few minutes: load them separately so they never push a review's steps out
+      : Promise.all([
+          supabaseAdmin.from("migz_events").select(EVENT_COLS).eq("agent_id", agent.id).or(`evidence->>kind.is.null,evidence->>kind.neq.${PULSE_KIND}`).order("id", { ascending: false }).limit(80),
+          supabaseAdmin.from("migz_events").select(EVENT_COLS).eq("agent_id", agent.id).eq("evidence->>kind", PULSE_KIND).order("id", { ascending: false }).limit(PULSE_KEEP),
+        ]).then(([a, b]) => ({ data: [...(a.data ?? []), ...(b.data ?? [])].sort((x, y) => y.id - x.id) })),
   ]);
   const last = runs?.[0] ?? null;
   // A run that's been "running" for over 10 minutes died without finishing (function timeout)
