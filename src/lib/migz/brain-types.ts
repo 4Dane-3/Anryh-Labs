@@ -1,5 +1,10 @@
 // Client-safe shapes for the Brain page (the queries live in brain.ts, which is server-only).
 
+/** Brain events from the live monitor carry evidence.kind = "pulse"; the page keeps this many of them. */
+export const PULSE_KIND = "pulse";
+export const PULSE_KEEP = 30;
+export const isPulse = (e: { evidence?: Record<string, unknown> | null }) => e.evidence?.kind === PULSE_KIND;
+
 export type BrainEvent = {
   id: number;
   run_id: string | null;
@@ -41,3 +46,27 @@ export type Scorecard = {
   topic: string | null;
 };
 
+
+/** Today's numbers straight from Meta, plus what Migz itself has cost. Refreshed while the Brain is open. */
+export type LiveStats = {
+  at: string;
+  hourNow: number; // the current hour (0-23) in the agent's timezone
+  connected: boolean;
+  error: string | null;
+  today: {
+    date: string;
+    spendCents: number;
+    budgetCents: number; // the live ad sets' daily budgets added up
+    impressions: number;
+    reach: number;
+    linkClicks: number;
+    ctr: number | null; // link clicks / impressions
+    cpmCents: number | null;
+    cpcCents: number | null; // per link click
+    bookedCalls: number;
+  };
+  hours: { hour: number; spendCents: number; impressions: number }[]; // 0-23 in the ad account's timezone, up to now
+  ads: { adId: string; name: string; spendCents: number; impressions: number; linkClicks: number }[];
+  batch: { spentCents: number; budgetCents: number; day: number; days: number } | null;
+  migz: { todayUsd: number; monthUsd: number; limitUsd: number; callsToday: number };
+};

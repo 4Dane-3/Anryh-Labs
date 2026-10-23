@@ -22,6 +22,8 @@ assert.deepEqual(planTier("operator", b(0.5)), { tier: "sonnet", degraded: false
 assert.deepEqual(planTier("audit", b(0.5)), { tier: "haiku", degraded: false });
 assert.deepEqual(planTier("memo", b(0.2)), { tier: "opus", degraded: false });
 assert.equal(planTier("scout", b(0.85)), null);
+assert.deepEqual(planTier("watch", b(0.5)), { tier: "sonnet", degraded: false }, "live check-in notes are written by Sonnet");
+assert.equal(planTier("watch", b(0.85)), null, "and stop near the model budget, like the scout");
 assert.deepEqual(planTier("operator", b(1.2)), { tier: "haiku", degraded: true });
 assert.deepEqual(planTier("memo", b(1.2)), { tier: "sonnet", degraded: true });
 assert.deepEqual(planTier("creative_traits", b(1)), { tier: "haiku", degraded: true });
@@ -465,5 +467,18 @@ setKeys("sk_test_z", undefined, undefined);
 assert.equal(stripeKey(), "sk_test_z", "a test key under the main name works anywhere");
 setKeys(keyEnv.main, keyEnv.test, keyEnv.vercel);
 ok("Stripe: live keys only run on Vercel Production; local and preview use the test key");
+
+// Live monitor: a check-in every 10 minutes while the Brain is open, never during a review
+const { pulseDue, PULSE_EVERY_MIN } = await import("@/lib/migz/live");
+const { isPulse } = await import("@/lib/migz/brain-types");
+const t0 = Date.parse("2026-10-22T18:00:00Z");
+assert.equal(PULSE_EVERY_MIN, 10);
+assert.equal(pulseDue(null, false, t0), true, "first check-in runs straight away");
+assert.equal(pulseDue(null, true, t0), false, "never while a review is running");
+assert.equal(pulseDue("2026-10-22T17:52:00Z", false, t0), false, "8 minutes after the last one: not yet");
+assert.equal(pulseDue("2026-10-22T17:50:00Z", false, t0), true, "10 minutes after: due");
+assert.equal(isPulse({ evidence: { kind: "pulse" } }), true);
+assert.equal(isPulse({ evidence: {} }), false);
+ok("live monitor: check-ins every 10 minutes, none during a review; Sonnet notes stop near the model budget");
 
 console.log(`\nALL ${n} UNIT GROUPS PASSED`);

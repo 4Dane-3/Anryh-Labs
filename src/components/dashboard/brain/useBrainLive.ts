@@ -1,11 +1,19 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { BrainEvent, BrainLive } from "@/lib/migz/brain-types";
+import { isPulse, PULSE_KEEP, type BrainEvent, type BrainLive } from "@/lib/migz/brain-types";
+import { PULSE_KICK } from "@/components/dashboard/brain/LivePanel";
 import { DEMO_SCRIPT } from "@/components/dashboard/brain/demo";
 import { isBusy, openEvents } from "@/components/dashboard/brain/state";
 
 const MAX_EVENTS = 120;
+
+/** The latest review steps plus the latest live check-ins, so frequent check-ins never crowd a review out. */
+function trim(events: BrainEvent[]) {
+  const pulses = events.filter(isPulse).slice(-PULSE_KEEP);
+  const rest = events.filter((e) => !isPulse(e)).slice(-MAX_EVENTS);
+  return [...rest, ...pulses].sort((x, y) => x.id - y.id);
+}
 
 /**
  * Real events, polled: every 2.5s while any part of Migz is working (a review, or background work like
@@ -34,7 +42,7 @@ export function useBrainLive(initial: BrainLive, demo: boolean, justStarted = fa
             const next = (await res.json()) as BrainLive;
             const byId = new Map(cur.events.map((e) => [e.id, e]));
             for (const e of next.events) byId.set(e.id, e);
-            const merged: BrainLive = { ...next, events: [...byId.values()].sort((x, y) => x.id - y.id).slice(-MAX_EVENTS) };
+            const merged: BrainLive = { ...next, events: trim([...byId.values()]) };
             state.current = merged;
             setLive(merged);
           }
@@ -45,9 +53,17 @@ export function useBrainLive(initial: BrainLive, demo: boolean, justStarted = fa
       if (!stopped) timer = setTimeout(tick, isBusy(state.current) || Date.now() < fastUntil.current ? 2500 : 15_000);
     };
     timer = setTimeout(tick, isBusy(state.current) || justStarted ? 1500 : 15_000);
+    // The live monitor just refreshed, which may start a check-in: watch closely for a little while
+    const onKick = () => {
+      fastUntil.current = Math.max(fastUntil.current, Date.now() + 45_000);
+      clearTimeout(timer);
+      timer = setTimeout(tick, 1500);
+    };
+    window.addEventListener(PULSE_KICK, onKick);
     return () => {
       stopped = true;
       clearTimeout(timer);
+      window.removeEventListener(PULSE_KICK, onKick);
     };
   }, [demo, justStarted]);
 
