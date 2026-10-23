@@ -64,6 +64,8 @@ export function BookingWidget({
   );
   const [nowMs] = useState(() => Date.now()); // for "Today" / "Tomorrow" labels
   const [slots, setSlots] = useState<string[] | null>(null);
+  // Times inside the agent's hours that are already booked (or held back): shown greyed out
+  const [taken, setTaken] = useState<string[]>([]);
   const [slotMinutes, setSlotMinutes] = useState(30);
   const [day, setDay] = useState<string | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
@@ -90,6 +92,7 @@ export function BookingWidget({
       if (!res.ok) throw new Error();
       const data = await res.json();
       setSlots(data.slots);
+      setTaken(Array.isArray(data.taken) ? data.taken : []);
       setSlotMinutes(data.slotMinutes);
     } catch {
       setSlots([]);
@@ -137,17 +140,26 @@ export function BookingWidget({
     if (!preview) track(name, meta);
   };
 
+  // Every day with times, open and taken together in order; openTimes are the bookable ones
   const days = useMemo(() => {
     if (!slots || !tz) return [];
+    const open = new Set(slots);
     const map = new Map<string, string[]>();
-    for (const iso of slots) {
+    for (const iso of [...slots, ...taken]) {
       const key = dayKey(iso, tz);
       map.set(key, [...(map.get(key) ?? []), iso]);
     }
-    return [...map.entries()].map(([key, times]) => ({ key, times }));
-  }, [slots, tz]);
+    return [...map.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, times]) => {
+        const sorted = [...new Set(times)].sort();
+        return { key, times: sorted, openTimes: sorted.filter((t) => open.has(t)) };
+      });
+  }, [slots, taken, tz]);
+  const isOpen = (iso: string) => !!slots?.includes(iso);
 
-  const activeDay = days.find((d) => d.key === (day ?? days[0]?.key));
+  const firstOpenDay = days.find((d) => d.openTimes.length);
+  const activeDay = days.find((d) => d.key === (day ?? firstOpenDay?.key ?? days[0]?.key));
 
   const fmtTime = (iso: string) =>
     new Date(iso).toLocaleTimeString([], {
@@ -372,7 +384,7 @@ export function BookingWidget({
     );
   }
 
-  const soonest = days[0]?.times[0];
+  const soonest = firstOpenDay?.openTimes[0];
   const dayIndex = (key: string) => days.findIndex((d) => d.key === key);
   const relDay = (iso: string) => {
     const k = dayKey(iso, tz);
@@ -387,7 +399,7 @@ export function BookingWidget({
         <button
           type="button"
           onClick={() => {
-            t("pick_soonest", { day: 0, hour: Number(new Date(soonest).toLocaleTimeString("en-US", { hour: "numeric", hour12: false, timeZone: tz })) });
+            t("pick_soonest", { day: dayIndex(firstOpenDay!.key), hour: Number(new Date(soonest).toLocaleTimeString("en-US", { hour: "numeric", hour12: false, timeZone: tz })) });
             setPicked(soonest);
           }}
           className="flex w-full items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-left transition-colors hover:border-blue-400 active:bg-blue-100"
@@ -407,9 +419,10 @@ export function BookingWidget({
         <div className="mb-2 text-sm font-medium text-slate-700">Or pick a day</div>
         {/* One swipeable row on phones (keeps the times on screen); a grid on larger screens */}
         <div className="-mx-4 flex snap-x gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:grid sm:grid-cols-5 sm:overflow-visible sm:px-0 [&::-webkit-scrollbar]:hidden">
-          {days.slice(0, 15).map(({ key, times }) => {
+          {days.slice(0, 15).map(({ key, times, openTimes }) => {
             const date = new Date(times[0]);
             const selected = key === activeDay?.key;
+            const full = !openTimes.length;
             return (
               <button
                 key={key}
@@ -418,10 +431,15 @@ export function BookingWidget({
                   t("pick_day", { day: dayIndex(key) });
                   setDay(key);
                 }}
+                aria-label={full ? `${date.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric", timeZone: tz })}, no open times` : undefined}
                 className={`w-[62px] shrink-0 snap-start rounded-lg border px-1 py-2 text-center transition-colors sm:w-auto ${
                   selected
-                    ? "border-blue-700 bg-blue-700 text-white"
-                    : "border-slate-200 bg-white text-slate-700 hover:border-blue-400"
+                    ? full
+                      ? "border-slate-400 bg-slate-200 text-slate-500"
+                      : "border-blue-700 bg-blue-700 text-white"
+                    : full
+                      ? "border-slate-100 bg-slate-50 text-slate-400"
+                      : "border-slate-200 bg-white text-slate-700 hover:border-blue-400"
                 }`}
               >
                 <div className="text-[11px] uppercase tracking-wide opacity-80">
@@ -445,7 +463,18 @@ export function BookingWidget({
             Pick a time on {new Date(activeDay.times[0]).toLocaleDateString([], { weekday: "long", month: "short", day: "numeric", timeZone: tz })}
           </div>
           <div className="grid grid-cols-3 gap-2">
-            {activeDay.times.map((iso) => (
+            {activeDay.times.map((iso) =>
+              !isOpen(iso) ? (
+                <button
+                  key={iso}
+                  type="button"
+                  disabled
+                  aria-label={`${fmtTime(iso)}, unavailable`}
+                  className="cursor-not-allowed rounded-lg border border-slate-100 bg-slate-100 py-3 text-sm font-medium text-slate-400 line-through decoration-slate-300"
+                >
+                  {fmtTime(iso)}
+                </button>
+              ) : (
               <button
                 key={iso}
                 type="button"
@@ -457,8 +486,10 @@ export function BookingWidget({
               >
                 {fmtTime(iso)}
               </button>
-            ))}
+              ),
+            )}
           </div>
+          {!activeDay.openTimes.length && <p className="mt-2 text-sm text-slate-500">No open times this day. Pick another day above.</p>}
         </div>
       )}
 

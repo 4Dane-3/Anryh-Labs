@@ -501,6 +501,14 @@ const firstDay = [...before.keys()].sort()[0];
 assert.ok(after.get(firstDay)! < before.get(firstDay)!, "the next few days look busy");
 assert.ok(shown.every((s) => allSlots.includes(s)), "never invents a time");
 assert.deepEqual(withGhostHolds(allSlots.slice(0, 2), "agent-1", "America/Chicago", gNow), allSlots.slice(0, 2), "a day with only 2 times keeps both");
+// The page shows held and booked times greyed out: taken = every time in the agent's hours minus the open ones
+const booked = [{ start: new Date(allSlots[3]), end: new Date(Date.parse(allSlots[3]) + 30 * 60_000) }];
+const free = generateSlots(weekdays, booked, { timezone: "America/Chicago", slotMinutes: 30, bufferMinutes: 0, minNoticeHours: 0, maxDaysAhead: 21 }, gNow);
+const openNow = withGhostHolds(free, "agent-1", "America/Chicago", gNow);
+const takenNow = allSlots.filter((x) => !openNow.includes(x));
+assert.ok(takenNow.includes(allSlots[3]), "a real booking shows as taken");
+assert.ok(takenNow.length > 1, "ghost holds show as taken too");
+assert.equal(takenNow.length + openNow.length, allSlots.length, "every time is either open or taken, none lost");
 
 // Research shift: rotates the agent's topics and the angles; web search every other cycle
 const { nextAssignment, ANGLES } = await import("@/lib/migz/research");

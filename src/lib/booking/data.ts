@@ -91,6 +91,15 @@ export async function getBookingByToken(
 }
 
 export async function getOpenSlots(agent: Agent): Promise<string[]> {
+  return (await getSlotBoard(agent)).open;
+}
+
+/**
+ * Every time the booking page shows: `open` can be booked; `taken` are times inside the agent's hours
+ * that are already booked (or held back by ghost bookings), shown greyed out so the calendar reads as
+ * a real, busy one. Both are UTC ISO strings, ascending.
+ */
+export async function getSlotBoard(agent: Agent): Promise<{ open: string[]; taken: string[] }> {
   const horizon = new Date(Date.now() + (agent.max_days_ahead + 2) * 86_400_000);
 
   const [rulesRes, busyRes] = await Promise.all([
@@ -121,8 +130,11 @@ export async function getOpenSlots(agent: Agent): Promise<string[]> {
     maxDaysAhead: agent.max_days_ahead,
   };
 
-  const open = generateSlots(rules, busy, config);
-  return agent.ghost_bookings ? withGhostHolds(open, agent.id, agent.timezone) : open;
+  const free = generateSlots(rules, busy, config);
+  const open = agent.ghost_bookings ? withGhostHolds(free, agent.id, agent.timezone) : free;
+  const openSet = new Set(open);
+  const taken = generateSlots(rules, [], config).filter((t) => !openSet.has(t));
+  return { open, taken };
 }
 
 /** The agent's questions (enabled and disabled), or the defaults if they've never edited them. */

@@ -1,4 +1,4 @@
-import { getAgentBySlug, getOpenSlots } from "@/lib/booking/data";
+import { getAgentBySlug, getSlotBoard } from "@/lib/booking/data";
 
 export async function GET(
   _req: Request,
@@ -8,9 +8,10 @@ export async function GET(
   const agent = await getAgentBySlug(slug);
   if (!agent) return Response.json({ error: "Not found" }, { status: 404 });
 
-  const slots = await getOpenSlots(agent);
+  // Open times can be booked; taken ones (booked, or held by ghost bookings) are shown greyed out
+  const { open, taken } = await getSlotBoard(agent);
   return Response.json(
-    { slots, slotMinutes: agent.slot_minutes, timezone: agent.timezone },
+    { slots: open, taken, slotMinutes: agent.slot_minutes, timezone: agent.timezone },
     { headers: { "Cache-Control": "no-store" } },
   );
 }
