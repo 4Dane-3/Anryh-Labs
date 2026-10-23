@@ -3,6 +3,7 @@
 // created in `finally`, even if an assertion fails.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { DateTime } from "luxon";
 
 // ---------- environment ----------
 for (const line of readFileSync(".env.local", "utf8").split("\n")) {
@@ -568,7 +569,8 @@ try {
   await db.from("agents").update({ migz_model_budget_cents: 3000 }).eq("id", AGENT_ID); // back to the normal tiers after step 7
   // ===== 8b =====
   step("8b. Campaign end date: ads pause after the last day, and resume when it's extended");
-  const ymd = (d: number) => new Date(Date.now() + d * 86_400_000).toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+  // Calendar days in the agent's timezone (adding 24-hour blocks drifts a day across a DST change)
+  const ymd = (d: number) => DateTime.now().setZone("America/Chicago").plus({ days: d }).toISODate()!;
   await db.from("agents").update({ campaign_ends_on: ymd(-1), migz_last_run_at: null }).eq("id", AGENT_ID);
   modelAllowed = false;
   const endedRun = await run("manual");
@@ -893,7 +895,6 @@ try {
   // ===== 9 =====
   step("9. Slack: morning digest section, and failure alerts to staff (once per distinct error)");
   const { migzDigestSection } = await import("@/lib/migz/slack");
-  const { DateTime } = await import("luxon");
   agent = await getAgent();
   const section = await migzDigestSection(agent as never, DateTime.now().setZone("America/Chicago").plus({ days: 1 }));
   assert.match(section, /Your ads yesterday/); assert.match(section, /What Migz did/); assert.match(section, /Paused the image ad/);

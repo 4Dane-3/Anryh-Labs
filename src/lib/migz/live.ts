@@ -71,6 +71,7 @@ export async function getLiveStats(agent: Agent, opts: { fresh?: boolean } = {})
   }
 
   const stats: LiveStats = {
+    agentId: agent.id,
     at: new Date().toISOString(),
     hourNow: DateTime.now().setZone(zone).hour,
     connected: !!account,

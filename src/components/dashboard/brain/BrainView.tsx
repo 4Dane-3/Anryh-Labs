@@ -60,7 +60,6 @@ export function BrainView({
   const live = useBrainLive(initial, demo, justStarted);
   const now = useNow();
   const graph = useMemo(() => deriveGraph(live, now), [live, now]);
-  void agentId;
 
   return (
     <div className="space-y-6">
@@ -97,7 +96,7 @@ export function BrainView({
         </div>
       </Panel>
 
-      {!demo && <LivePanel events={live.events} />}
+      {!demo && <LivePanel events={live.events} agentId={agentId} />}
 
       <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
         <Panel>
