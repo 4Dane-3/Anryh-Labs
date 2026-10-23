@@ -559,6 +559,14 @@ assert.deepEqual(pa.recent.map((r) => r.furthest), ["Opened the page", "Started 
 assert.equal(pageAnalytics([], 30, "America/Chicago").sessions, 0);
 ok("page analytics: visits, funnel and biggest drop-off, median time, phone share, Soonest use, scroll depth, sources, days, recent visits");
 
+// Page fonts: Arial by default, unknown keys fall back to it, and the database allows exactly these
+const { fontKey, PAGE_FONT_KEYS, DEFAULT_PAGE_FONT } = await import("@/lib/booking/page-font-keys");
+assert.equal(DEFAULT_PAGE_FONT, "arial");
+assert.equal(fontKey(undefined), "arial"); assert.equal(fontKey("comic-sans"), "arial"); assert.equal(fontKey("nunito"), "nunito");
+const migrationFonts = (await import("node:fs")).readFileSync("supabase/migrations/20261105000000_page_font.sql", "utf8").match(/in \(([^)]*)\)/)![1].replace(/'| /g, "").split(",");
+assert.deepEqual(migrationFonts, PAGE_FONT_KEYS, "the migration's allowed fonts match the picker");
+ok("page fonts: Arial by default, unknown fonts fall back to it, the database allows exactly the picker's fonts");
+
 // Admin health: what raises an alert (and how loud)
 const { findIssues } = await import("@/lib/admin/issues");
 const hNow = Date.parse("2026-10-22T20:00:00Z");

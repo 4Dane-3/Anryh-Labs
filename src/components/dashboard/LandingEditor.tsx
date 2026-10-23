@@ -9,8 +9,10 @@ import {
   deleteTestimonial,
   saveTestimonial,
   setProfilePhoto,
+  setPageFont,
   updateProfile,
 } from "@/app/dashboard/actions";
+import { PAGE_FONTS } from "@/lib/booking/page-fonts";
 import { uploadToSignedUrl } from "@/lib/dashboard/upload";
 import { initials } from "@/lib/dashboard/format";
 import { Badge, Button, EmptyState, Label, Panel, PanelHeader, Switch, Tabs, inputClass } from "@/components/dashboard/ui";
@@ -588,6 +590,56 @@ function PagePreview({ slug, version }: { slug: string; version: number }) {
   );
 }
 
+// ---------- Font ----------
+
+/** The booking page's font: each option shown in itself. Saves on tap; the preview reloads. */
+function FontPicker({ current, firstName, onSaved }: { current: string; firstName: string; onSaved: () => void }) {
+  const [value, setValue] = useState(current);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+  const choose = (key: string) =>
+    start(async () => {
+      const previous = value;
+      setValue(key);
+      setError(null);
+      const res = await setPageFont(key);
+      if (!res.ok) {
+        setValue(previous);
+        setError(res.error);
+      } else onSaved();
+    });
+  return (
+    <Panel className="mt-6">
+      <PanelHeader title="Page font" description="The font people see on your booking page. Arial is the most familiar; Nunito is the friendliest." />
+      <div role="radiogroup" aria-label="Page font" className="grid gap-2 p-5 sm:grid-cols-2">
+        {PAGE_FONTS.map((f) => {
+          const on = value === f.key;
+          return (
+            <button
+              key={f.key}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              disabled={pending}
+              onClick={() => choose(f.key)}
+              className={`rounded-lg border px-4 py-3 text-left transition-colors ${on ? "border-brand/60 bg-brand/[0.07]" : "border-line hover:border-line-strong"}`}
+            >
+              <span className={`block text-[17px] font-bold text-fg ${f.className}`} style={f.style}>
+                Book a free call with {firstName}
+              </span>
+              <span className="mt-1 flex items-baseline justify-between gap-2">
+                <span className="text-[13px] font-medium text-fg">{f.label}{f.key === "arial" && <span className="font-normal text-fg-faint"> · default</span>}</span>
+                <span className="text-[12px] text-fg-muted">{f.note}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      {error && <p className="px-5 pb-4 text-[13px] text-bad">{error}</p>}
+    </Panel>
+  );
+}
+
 // ---------- Page ----------
 
 export function LandingEditor({
@@ -595,11 +647,13 @@ export function LandingEditor({
   slug,
   profile,
   testimonials,
+  pageFontKey = "arial",
 }: {
   tab: "profile" | "testimonials";
   slug: string;
   profile: Profile;
   testimonials: Testimonial[];
+  pageFontKey?: string;
 }) {
   // Bumped after every save so the preview iframe reloads with the new content
   const [version, setVersion] = useState(0);
@@ -617,7 +671,10 @@ export function LandingEditor({
           ]}
         />
         {tab === "profile" ? (
-          <ProfileForm profile={profile} onSaved={bump} />
+          <>
+            <ProfileForm profile={profile} onSaved={bump} />
+            <FontPicker current={pageFontKey} firstName={profile.full_name.split(" ")[0] || "me"} onSaved={bump} />
+          </>
         ) : (
           <TestimonialsList testimonials={testimonials} onChanged={bump} />
         )}

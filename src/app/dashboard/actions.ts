@@ -12,6 +12,7 @@ import { syncAgent } from "@/lib/migz/sync";
 import { defaultCreateMessage, monthlyBudget } from "@/lib/migz/router";
 import { traitSwipe } from "@/lib/migz/team/scout";
 import { cleanFocus, type TopicKey } from "@/lib/migz/topics";
+import { PAGE_FONT_KEYS } from "@/lib/booking/page-font-keys";
 import { endDate, MAX_DEPOSIT_CENTS, MIN_DEPOSIT_CENTS } from "@/lib/campaign";
 import { batchOptions, bestTopic, findOption, MIN_BATCH_CENTS, outcomeEstimate, type BatchOption, type BatchOptionKey } from "@/lib/batch";
 import { closeEndedBatch, ensureBatchSetAside, getActiveBatch, getBatchHistory, getOpenBatch, recommendWithMigz } from "@/lib/dashboard/batches";
@@ -488,6 +489,17 @@ export async function setMigzMode(mode: "off" | "approve" | "auto"): Promise<Res
   const { error } = await supabaseAdmin.from("agents").update({ migz_mode: mode }).eq("id", agent.id);
   if (error) return fail("Couldn't change how Migz works.");
   revalidatePath("/dashboard", "layout");
+  return { ok: true };
+}
+
+/** The booking page's font (My page). */
+export async function setPageFont(key: string): Promise<Result> {
+  const agent = await requireAgent();
+  if (!PAGE_FONT_KEYS.includes(key)) return fail("Unknown font.");
+  const { error } = await supabaseAdmin.from("agents").update({ page_font: key }).eq("id", agent.id);
+  if (error) return fail(error.code === "42703" || error.code === "PGRST204" ? "Page fonts aren't set up yet." : "Couldn't save the font.");
+  revalidatePath("/dashboard/landing");
+  revalidatePath(`/${agent.slug}`);
   return { ok: true };
 }
 

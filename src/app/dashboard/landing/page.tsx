@@ -44,6 +44,7 @@ export default async function LandingPage({
           photo_url: agent.photo_url,
         }}
         testimonials={testimonials ?? []}
+        pageFontKey={agent.page_font ?? "arial"}
       />
     </>
   );
