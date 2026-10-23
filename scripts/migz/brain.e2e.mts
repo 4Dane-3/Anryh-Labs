@@ -760,8 +760,8 @@ try {
   const carouselAds = [...meta.ads.keys()].filter((id) => !adsBeforeBatch.has(id));
   assert.equal(carouselAds.length, 1, "one carousel ad built");
   // The agent gets a preview of the live ad in Slack: both cards, the copy and a Book now button
-  const liveSlack = slack.filter((m) => m.channel === "U_TEST" && /Your new ad is live/.test(m.text)).at(-1)!;
-  assert.ok(liveSlack, "ad live message sent");
+  const liveSlack = slack.filter((m) => m.channel === "U_TEST" && /Your new ad is with Meta for review/.test(m.text)).at(-1)!;
+  assert.ok(liveSlack, "ad sent-to-Meta message sent");
   const liveBlocks = liveSlack.blocks as { type: string; image_url?: string }[];
   assert.equal(liveBlocks.filter((b) => b.type === "image").length, 2, "both carousel cards in the preview");
   assert.ok(liveBlocks.filter((b) => b.type === "image").every((b) => /^https:\/\/.+\/storage\/v1\/object\/sign\//.test(b.image_url!)), "cards are signed links Slack can load");

@@ -325,7 +325,8 @@ const sb = await import("@/lib/migz/slack-blocks");
 const preview = { pageName: "Miguel Cruz", primaryText: "Who pays the mortgage if you can't? <script> & *bold*", headline: "Protect your home", images: [{ url: "https://img.test/a.png", alt: "a" }, { url: "https://img.test/b.png", alt: "b" }], bookingUrl: "https://anryhlabs.com/miguel-cruz", format: "carousel" as const };
 const live = sb.adLiveMessage({ ad: preview, campaign: "Mortgage protection", states: ["IL", "TX"], held: false, dashboardUrl: "https://anryhlabs.com" });
 const liveJson = JSON.stringify(live.blocks);
-assert.match(live.text, /Your new ad is live: Protect your home/);
+assert.match(live.text, /Your new ad is with Meta for review: Protect your home/);
+assert.match(liveJson, /as soon as it's approved/);
 assert.equal((live.blocks as { type: string }[]).filter((b) => b.type === "image").length, 2, "both carousel cards shown");
 assert.match(liveJson, /Book now/); assert.match(liveJson, /anryhlabs\.com\/miguel-cruz/); assert.match(liveJson, /Sponsored/);
 assert.ok(!liveJson.includes("<script>") && liveJson.includes("&lt;script&gt;"), "ad copy is escaped");
@@ -333,10 +334,20 @@ assert.match(JSON.stringify(sb.adLiveMessage({ ad: { ...preview, format: "image"
 assert.equal(sb.reviewSummaryMessage({ summary: "Quiet.", applied: [], proposed: [], dashboardUrl: "u" }), null, "a review that did nothing sends nothing");
 const waiting = sb.reviewSummaryMessage({ summary: "Two ideas.", applied: ["Held budget steady"], proposed: [{ title: "Made a feed image", detail: "Main focus has no image." }], dashboardUrl: "https://a.b" })!;
 assert.match(waiting.text, /waiting for your OK/); assert.match(JSON.stringify(waiting.blocks), /#approvals/); assert.match(JSON.stringify(waiting.blocks), /Held budget steady/);
+// Then Meta's verdict, in one message per check
+const pv = (headline: string, format: "image" | "video" = "image") => ({ ...preview, headline, format, images: [preview.images[0]] });
+const one = sb.adsReviewedMessage({ approved: [{ ad: pv("Plan ahead", "video"), campaign: "Final expense" }], rejected: [], states: ["TX", "OH"], dashboardUrl: "https://app" });
+assert.equal(one.text, "Meta approved your new ad");
+assert.match(JSON.stringify(one.blocks), /now showing to adults in TX, OH/);
+assert.equal((one.blocks as { type: string }[]).filter((b) => b.type === "image").length, 1, "a single approval shows the ad");
+const mixed = sb.adsReviewedMessage({ approved: [{ ad: pv("A"), campaign: "Whole life" }, { ad: pv("B"), campaign: "Whole life" }], rejected: [{ ad: pv("C"), campaign: "Final expense", reason: "Financial claims" }], states: ["TX"], dashboardUrl: "https://app" });
+assert.equal(mixed.text, "Meta approved 2 ads, and didn't approve 1 ad");
+assert.match(JSON.stringify(mixed.blocks), /Meta said: _Financial claims_/);
+assert.equal(sb.adsReviewedMessage({ approved: [], rejected: [{ ad: pv("C"), campaign: "x", reason: null }], states: ["TX"], dashboardUrl: "u" }).text, "Meta didn't approve your new ad");
 const setupMsg = sb.batchSetupMessage({ budgetCents: 28_000, days: 14, campaigns: ["Final expense", "Policy review"], perCampaignCents: 1000, states: ["IL", "OH"], endsOn: "2026-11-04", auto: false, dashboardUrl: "u" });
 assert.match(setupMsg.text, /Your \$280 campaign batch is set up/); assert.match(JSON.stringify(setupMsg.blocks), /Ask me first is on/);
 assert.match(sb.batchEndedMessage({ budgetCents: 28_000, spentCents: 25_000, bookedCalls: 10, dashboardUrl: "u" }).text, /10 booked calls from \$250/);
-ok("Slack: ad-live preview (page, copy, both carousel cards, Book now), escaped copy, review summary with approvals link, batch set up / ended; silent when nothing happened");
+ok("Slack: sent-to-Meta preview (page, copy, both carousel cards, Book now), then Meta approved / not approved with the reason, escaped copy, review summary with approvals link, batch set up / ended; silent when nothing happened");
 
 // Facebook vs Instagram: focus only on clear booked-call evidence
 const { platformOf, checkPlatformFocus, strongerPlatform } = await import("@/lib/migz/platforms");
