@@ -158,41 +158,37 @@
   }
 
   /* Migz Brain: nodes that aren't idle pulse a glow in their own color (set --glow on the element).
-     .brain-glow: working right now (1.4s). .brain-glow-soft: worked this run (same glow, 2s). */
+     .brain-glow: working right now (2.6s). .brain-glow-soft: worked this run (4.5s). Calm on purpose. */
   @keyframes brain-glow {
     0%,
     100% {
-      border-color: color-mix(in srgb, var(--glow) 70%, transparent);
-      box-shadow:
-        0 0 0 1px color-mix(in srgb, var(--glow) 45%, transparent),
-        0 0 12px 0 color-mix(in srgb, var(--glow) 30%, transparent),
-        inset 0 0 10px 0 color-mix(in srgb, var(--glow) 8%, transparent);
-      background-color: color-mix(in srgb, var(--glow) 6%, var(--color-ink));
+      border-color: color-mix(in srgb, var(--glow) 55%, transparent);
+      box-shadow: 0 0 6px 0 color-mix(in srgb, var(--glow) 12%, transparent);
+      background-color: color-mix(in srgb, var(--glow) 4%, var(--color-ink));
     }
     50% {
-      border-color: var(--glow);
+      border-color: color-mix(in srgb, var(--glow) 90%, transparent);
       box-shadow:
-        0 0 0 2px color-mix(in srgb, var(--glow) 85%, transparent),
-        0 0 34px 6px color-mix(in srgb, var(--glow) 60%, transparent),
-        inset 0 0 22px 0 color-mix(in srgb, var(--glow) 22%, transparent);
-      background-color: color-mix(in srgb, var(--glow) 16%, var(--color-ink));
+        0 0 0 1px color-mix(in srgb, var(--glow) 35%, transparent),
+        0 0 16px 1px color-mix(in srgb, var(--glow) 26%, transparent);
+      background-color: color-mix(in srgb, var(--glow) 8%, var(--color-ink));
     }
   }
 
   .brain-glow {
-    animation: brain-glow 1.4s ease-in-out infinite;
+    animation: brain-glow 2.6s ease-in-out infinite;
   }
 
   .brain-glow-soft {
-    animation: brain-glow 2s ease-in-out infinite;
+    animation: brain-glow 4.5s ease-in-out infinite;
   }
 
   @media (prefers-reduced-motion: reduce) {
     .brain-glow,
     .brain-glow-soft {
       animation: none;
-      border-color: var(--glow);
-      box-shadow: 0 0 16px 2px color-mix(in srgb, var(--glow) 35%, transparent);
+      border-color: color-mix(in srgb, var(--glow) 80%, transparent);
+      box-shadow: 0 0 12px 0 color-mix(in srgb, var(--glow) 20%, transparent);
     }
   }
 
