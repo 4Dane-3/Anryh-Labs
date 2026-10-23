@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Globe, Loader2 } from "lucide-react";
+import { ArrowLeft, Globe, Loader2, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CONSENT_TEXT } from "@/lib/booking/constants";
+import { startTracking, track, trackOnce } from "@/lib/booking/track";
 import { QuestionField } from "@/components/booking/IntakeForm";
 import {
   isHidden,
@@ -61,6 +62,7 @@ export function BookingWidget({
     () => Intl.DateTimeFormat().resolvedOptions().timeZone,
     () => "",
   );
+  const [nowMs] = useState(() => Date.now()); // for "Today" / "Tomorrow" labels
   const [slots, setSlots] = useState<string[] | null>(null);
   const [slotMinutes, setSlotMinutes] = useState(30);
   const [day, setDay] = useState<string | null>(null);
@@ -102,9 +104,10 @@ export function BookingWidget({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug]);
 
-  // Count one visit per browser session, tagged with the ad that sent it
+  // Count one visit per browser session, tagged with the ad that sent it; then follow the visit's steps
   useEffect(() => {
     if (preview) return;
+    startTracking(slug);
     try {
       const key = `visit:${slug}`;
       if (sessionStorage.getItem(key)) return;
@@ -120,6 +123,19 @@ export function BookingWidget({
       keepalive: true,
     }).catch(() => {});
   }, [slug, preview]);
+
+  // "Saw the times": the picker actually came into view
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const hasDays = !!slots?.length && !!tz;
+  useEffect(() => {
+    if (preview || !hasDays || picked || !pickerRef.current) return;
+    const io = new IntersectionObserver(([e]) => e.isIntersecting && trackOnce("see_calendar", "see_calendar"), { threshold: 0.4 });
+    io.observe(pickerRef.current);
+    return () => io.disconnect();
+  }, [preview, hasDays, picked]);
+  const t = (name: Parameters<typeof track>[0], meta?: Parameters<typeof track>[1]) => {
+    if (!preview) track(name, meta);
+  };
 
   const days = useMemo(() => {
     if (!slots || !tz) return [];
@@ -150,11 +166,13 @@ export function BookingWidget({
       if (missing) return setError(`Please answer "${missing.label}" to book.`);
     }
     if (!isLastPage) {
+      t("form_continue", { page: page + 1 });
       setPage(page + 1);
       return;
     }
 
     setSubmitting(true);
+    t("submit");
 
     try {
       const res = await fetch("/api/bookings", {
@@ -174,11 +192,13 @@ export function BookingWidget({
       const data = await res.json();
 
       if (res.ok && data.token) {
+        t("booked");
         router.push(`/${slug}/prepare?b=${data.token}&new=1`);
         return;
       }
 
       setError(data.error ?? "Something went wrong. Please try again.");
+      t("booking_error", { status: res.status });
       if (res.status === 409) {
         setPicked(null);
         setPage(0);
@@ -220,6 +240,8 @@ export function BookingWidget({
           <ArrowLeft className="size-4" /> {page > 0 ? "Back" : "Change time"}
         </button>
 
+        {page === 0 && <p className="text-sm font-semibold text-slate-900">Almost done: where should {firstName} reach you?</p>}
+
         <div className="rounded-lg bg-blue-50 px-4 py-3 text-sm text-blue-900">
           <div className="font-semibold">
             {when} at {fmtTime(picked)}
@@ -258,6 +280,7 @@ export function BookingWidget({
                 id="name"
                 required
                 autoComplete="name"
+                onFocus={() => !preview && trackOnce("form_start", "form_start")}
                 className={inputClass}
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -349,11 +372,41 @@ export function BookingWidget({
     );
   }
 
+  const soonest = days[0]?.times[0];
+  const dayIndex = (key: string) => days.findIndex((d) => d.key === key);
+  const relDay = (iso: string) => {
+    const k = dayKey(iso, tz);
+    const today = dayKey(new Date(nowMs).toISOString(), tz);
+    const tomorrow = dayKey(new Date(nowMs + 86_400_000).toISOString(), tz);
+    return k === today ? "Today" : k === tomorrow ? "Tomorrow" : new Date(iso).toLocaleDateString([], { weekday: "long", timeZone: tz });
+  };
+
   return (
-    <div className="space-y-5">
+    <div ref={pickerRef} className="space-y-4">
+      {soonest && (
+        <button
+          type="button"
+          onClick={() => {
+            t("pick_soonest", { day: 0, hour: Number(new Date(soonest).toLocaleTimeString("en-US", { hour: "numeric", hour12: false, timeZone: tz })) });
+            setPicked(soonest);
+          }}
+          className="flex w-full items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-left transition-colors hover:border-blue-400 active:bg-blue-100"
+        >
+          <span className="flex items-center gap-2.5">
+            <Zap className="size-4 shrink-0 fill-blue-700 text-blue-700" />
+            <span>
+              <span className="block text-xs font-medium uppercase tracking-wide text-blue-700">Soonest available</span>
+              <span className="block font-semibold text-slate-900">{relDay(soonest)}, {fmtTime(soonest)}</span>
+            </span>
+          </span>
+          <span className="text-sm font-semibold text-blue-700">Book →</span>
+        </button>
+      )}
+
       <div>
-        <div className="mb-2 text-sm font-medium text-slate-700">Pick a day</div>
-        <div className="grid grid-cols-4 gap-2 sm:grid-cols-5">
+        <div className="mb-2 text-sm font-medium text-slate-700">Or pick a day</div>
+        {/* One swipeable row on phones (keeps the times on screen); a grid on larger screens */}
+        <div className="-mx-4 flex snap-x gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:grid sm:grid-cols-5 sm:overflow-visible sm:px-0 [&::-webkit-scrollbar]:hidden">
           {days.slice(0, 15).map(({ key, times }) => {
             const date = new Date(times[0]);
             const selected = key === activeDay?.key;
@@ -361,8 +414,11 @@ export function BookingWidget({
               <button
                 key={key}
                 type="button"
-                onClick={() => setDay(key)}
-                className={`rounded-lg border px-1 py-2 text-center transition-colors ${
+                onClick={() => {
+                  t("pick_day", { day: dayIndex(key) });
+                  setDay(key);
+                }}
+                className={`w-[62px] shrink-0 snap-start rounded-lg border px-1 py-2 text-center transition-colors sm:w-auto ${
                   selected
                     ? "border-blue-700 bg-blue-700 text-white"
                     : "border-slate-200 bg-white text-slate-700 hover:border-blue-400"
@@ -385,14 +441,19 @@ export function BookingWidget({
 
       {activeDay && (
         <div>
-          <div className="mb-2 text-sm font-medium text-slate-700">Pick a time</div>
+          <div className="mb-2 text-sm font-medium text-slate-700">
+            Pick a time on {new Date(activeDay.times[0]).toLocaleDateString([], { weekday: "long", month: "short", day: "numeric", timeZone: tz })}
+          </div>
           <div className="grid grid-cols-3 gap-2">
             {activeDay.times.map((iso) => (
               <button
                 key={iso}
                 type="button"
-                onClick={() => setPicked(iso)}
-                className="rounded-lg border border-slate-200 bg-white py-2.5 text-sm font-medium text-slate-800 transition-colors hover:border-blue-700 hover:bg-blue-50"
+                onClick={() => {
+                  t("pick_time", { day: dayIndex(activeDay.key), hour: Number(new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", hour12: false, timeZone: tz })) });
+                  setPicked(iso);
+                }}
+                className="rounded-lg border border-slate-200 bg-white py-3 text-sm font-medium text-slate-800 transition-colors hover:border-blue-700 hover:bg-blue-50"
               >
                 {fmtTime(iso)}
               </button>

@@ -9,6 +9,7 @@ import type { AdminAlert, AdminOverview, AdminAgentRow } from "@/lib/admin/types
 import type { Severity } from "@/lib/admin/issues";
 import { resolveAlert, scanNow, setAgentModelBudget } from "@/app/admin/actions";
 import { TIER } from "@/components/dashboard/brain/model";
+import { PageAnalyticsPanel } from "@/components/admin/PageAnalytics";
 import { Badge, Button, EmptyState, inputClass, Panel, PanelHeader } from "@/components/dashboard/ui";
 import { cn } from "@/lib/utils";
 
@@ -400,6 +401,8 @@ export function AdminView({ initial }: { initial: AdminOverview }) {
       </div>
 
       <AgentsPanel data={data} now={now} />
+
+      <PageAnalyticsPanel agents={data.agents.map((x) => ({ id: x.id, name: x.name, slug: x.slug }))} />
 
       <AccountsPanel data={data} />
     </div>
