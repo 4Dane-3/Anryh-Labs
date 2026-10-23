@@ -19,7 +19,8 @@ export type CreativeBrief = {
   cast?: string; // the same people in every shot, e.g. "a woman in her late 30s and her two kids, about 6 and 9"
   setting?: string; // one real place the story stays in, e.g. "a real suburban home with a sunlit kitchen"
   mood?: string; // the emotional arc and what never appears, e.g. "grief turning into gratitude; hopeful, never dark"
-  voiceover?: string | null; // optional off-screen narration over the footage (nobody on screen speaks)
+  voiceover?: string | null; // off-screen narration over the footage (nobody on screen speaks)
+  narrator?: "female" | "male"; // whose voice reads it (ElevenLabs; see narration.ts)
 };
 
 export type ImageBrief = {

@@ -186,7 +186,7 @@ async function storeGenerated(job: Job, mediaUrl: string, card?: { index: number
   // If that fails the video is kept without narration (never lose a paid generation) and staff are told.
   if (!image && !card && isVideoBrief(job.brief) && job.brief.voiceover) {
     try {
-      bytes = await narrateVideo(bytes, job.brief.voiceover);
+      bytes = await narrateVideo(bytes, job.brief.voiceover, job.brief.narrator ?? "female", job.brief.mood);
     } catch (e) {
       const reason = e instanceof Error ? e.message : String(e);
       console.error("narration failed", reason);

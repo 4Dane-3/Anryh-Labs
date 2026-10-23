@@ -400,6 +400,8 @@ assert.match(narrated, /Voiceover: an off-screen narrator .* says: "She never ha
 assert.match(videoPrompt(film), /No narration and no dialogue/);
 assert.ok(shotPrompts(film).every((x) => /unless this shot says time has passed/.test(x.prompt) && x.prompt.length <= 512));
 const goodVideo = { ...vidBase, cast: "a mother in her 30s and two kids", setting: "a family home and backyard", mood: "worry turning into relief", voiceover: "She planned ahead, so they stayed home. A free call can help you plan too." };
+assert.equal((evalTool("generate_video", { ...goodVideo, narrator: "male" }, gctx) as { payload: { brief: { narrator: string } } }).payload.brief.narrator, "male");
+assert.equal((evalTool("generate_video", goodVideo, gctx) as { payload: { brief: { narrator: string } } }).payload.brief.narrator, "female", "no narrator given: Victoria");
 const tree = evalTool("generate_video", { ...goodVideo, body_shots: [{ prompt: "The family plants a small tree in the backyard", duration: 4 }, { prompt: "Years later, the tree is fully grown and the family picnics under it", duration: 4 }] }, gctx);
 assert.ok(!tree.ok && /Shot 3 jumps forward in time but doesn't say how the people have aged/.test((tree as { error: string }).error), JSON.stringify(tree));
 assert.equal(evalTool("generate_video", { ...goodVideo, body_shots: [{ prompt: "The family plants a small tree in the backyard", duration: 4 }, { prompt: "Years later, the kids are teenagers and the mother has grey in her hair, sitting under the now tall tree", duration: 4 }] }, gctx).ok, true);
@@ -429,7 +431,20 @@ for (const voice of ["short", "long"]) {
   assert.match(r, /Video: h264/); assert.match(r, /Audio: aac/);
   assert.ok(Number((r.match(/max_volume: (-?[\d.]+) dB/) ?? [])[1]) > -20, `${voice} voice is audible over the scene`);
 }
-ok("narration: the voice is mixed over the video with the picture untouched; a voice longer than the video is sped up and cut to fit");
+// The scene's sound carries on after the narrator stops (it used to be cut at the last word)
+const tailLevel = (file: string) => Number((spawnSync(ff, ["-hide_banner", "-ss", "3", "-i", file, "-vn", "-af", "volumedetect", "-f", "null", "-"], { encoding: "utf8" }).stderr.match(/mean_volume: (-?[\d.]+) dB/) ?? [])[1]);
+assert.ok(tailLevel(`${mixDir}/short-out.mp4`) > -60, `scene sound still audible after a 2s voice ends (${tailLevel(`${mixDir}/short-out.mp4`)} dB in the last second)`);
+// A music bed fills the end once the narrator stops, well above the scene's own sound
+execFileSync(ff, ["-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=220:duration=22", "-y", `${mixDir}/music.mp3`]);
+const scored = await mixNarration(fsx.readFileSync(`${mixDir}/v.mp4`), fsx.readFileSync(`${mixDir}/short.mp3`), fsx.readFileSync(`${mixDir}/music.mp3`));
+fsx.writeFileSync(`${mixDir}/music-out.mp4`, scored!);
+const scoredSecs = Number((report(`${mixDir}/music-out.mp4`).match(/Duration: 00:00:([\d.]+)/) ?? [])[1]);
+assert.ok(Math.abs(scoredSecs - 4) < 0.15, `music doesn't make the video longer (${scoredSecs}s)`);
+assert.ok(tailLevel(`${mixDir}/music-out.mp4`) > tailLevel(`${mixDir}/short-out.mp4`) + 3, `music fills the end (${tailLevel(`${mixDir}/music-out.mp4`)} dB vs ${tailLevel(`${mixDir}/short-out.mp4`)} dB without it)`);
+const { narratorVoices } = await import("@/lib/migz/narration");
+assert.deepEqual(narratorVoices("female"), ["z7U1SjrEq4fDDDriOQEN", "GU8Qu28KNb4JbhQV7DX7", "nPczCjzI2devNBz1zQrb"], "Vivie, then Mark, then ElevenLabs' own narrator");
+assert.deepEqual(narratorVoices("male")[0], "GU8Qu28KNb4JbhQV7DX7");
+ok("narration: the voice is mixed over the video with the picture untouched; a voice longer than the video is sped up and cut to fit; the scene sound carries on after the voice; a music bed fills the end; Vivie / Mark with fallbacks");
 
 // Stripe keys: live keys only ever on Vercel Production
 const { stripeKey } = await import("@/lib/stripe");
