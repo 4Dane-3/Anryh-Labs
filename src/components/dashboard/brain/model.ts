@@ -80,6 +80,19 @@ export const PATHS: Record<string, string> = {
   "merge-memory": down(760),
 };
 
+/**
+ * Crew links: direct lines between nodes that hand work to each other (market finds, history checks,
+ * clerk drafts, memory files). Drawn, with a slow light going back and forth, only when both ends have
+ * worked in the current run or the research shift.
+ */
+export const LINKS: { id: string; a: NodeId; b: NodeId; d: string }[] = [
+  { id: "history-market", a: "librarian", b: "scout", d: "M560 410 C578 440, 622 440, 640 410" },
+  { id: "market-clerk", a: "scout", b: "clerk", d: "M742 410 C756 436, 776 436, 790 410" },
+  { id: "clerk-memory", a: "clerk", b: "memory", d: "M836 410 C838 448, 812 452, 800 476" },
+  { id: "history-memory", a: "librarian", b: "memory", d: "M524 410 C548 462, 690 442, 716 476" },
+  { id: "auditor-history", a: "auditor", b: "librarian", d: "M410 410 C424 436, 456 436, 470 410" },
+];
+
 /** The chain of connectors a light travels to reach a node from the lead (or from Opus). */
 export const ROUTE: Record<NodeId, string[]> = {
   opus: ["opus-sonnet"],
