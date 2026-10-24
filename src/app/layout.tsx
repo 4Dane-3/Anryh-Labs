@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { ErrorReporter } from "@/components/ErrorReporter";
 
 export const metadata: Metadata = {
   title: "anryh labs · ai ad automation for insurance agents",
@@ -22,6 +23,7 @@ export default function RootLayout({
       <body
         className="antialiased font-manifold"
       >
+        <ErrorReporter />
         {children}
       </body>
     </html>

@@ -2,6 +2,8 @@
 // connection dropped, the session ended), React throws from the transition and the whole page is replaced
 // by an error screen, losing everything typed. These helpers turn that into a message next to the form.
 
+import { reportClientError } from "@/lib/error-report";
+
 const STALE = /server action|was not found on the server|failed to find/i;
 const OFFLINE = /failed to fetch|networkerror|load failed|network request failed|fetch failed/i;
 
@@ -19,6 +21,7 @@ export async function safely<T extends { ok: boolean }>(run: () => Promise<T>): 
     return await run();
   } catch (e) {
     console.error("server action failed", e instanceof Error ? e.message : e);
+    reportClientError("action", e); // staff are told, even though the person just sees a message
     return { ok: false, error: friendlyActionError(e) };
   }
 }
