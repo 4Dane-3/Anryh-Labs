@@ -110,7 +110,22 @@ assert.match(materialChanges({ ...base, auditMaterial: true, snapshot: snap(5000
 const focused = (focus: string) => ({ ...(snap(5000, 2) as object), focus: focus ? focus.split(",") : [] }) as never;
 assert.deepEqual(materialChanges({ ...base, previous: gateState(focused("final_expense")), snapshot: focused("final_expense") }), []);
 assert.match(materialChanges({ ...base, previous: gateState(focused("final_expense")), snapshot: focused("mortgage_protection,final_expense") }).join(), /ad focus/);
-ok("quiet gate: skips small changes; runs on bookings, 1,000+ impressions, status changes, manual, daily, audit");
+// Spend and account size: a day's budget of new spend counts; the impressions bar scales with the account
+const { impressionsThreshold } = await import("@/lib/migz/gate");
+assert.equal(impressionsThreshold(1956, 2544, 1487), 572, "Miguel: a day's budget buys ~1,143 impressions, so 572 count");
+assert.equal(impressionsThreshold(100_000, 50_000, 900_000), 1000, "big accounts top out at 1,000");
+assert.equal(impressionsThreshold(500, 10_000, 4000), 250, "tiny accounts still need 250");
+assert.equal(impressionsThreshold(2000, 0, 0), 1000, "no data yet: the old 1,000");
+const spendSnap = (impr: number, spend: number) => ({
+  adMetrics: new Map([["a", { t: { d14: { ...emptyTotals(), impressions: impr, booked_calls: 0, spend_cents: spend } } }]]),
+  guardAdsets: [{ meta_adset_id: "A", status: "ACTIVE", daily_budget_cents: 978, ads: [{ meta_ad_id: "a", status: "ACTIVE" }] }, { meta_adset_id: "B", status: "ACTIVE", daily_budget_cents: 978, ads: [] }],
+  forModel: { creatives_not_running: [] }, openGenerations: 0, focus: [],
+}) as never;
+const spendBase = { ...base, previous: gateState(spendSnap(786, 594)) };
+assert.match(materialChanges({ ...spendBase, snapshot: spendSnap(1487, 2544) }).join(), /701 new impressions/, "Miguel's skipped review would now run (701 over his 572)");
+assert.match(materialChanges({ ...spendBase, snapshot: spendSnap(900, 2600) }).join(), /\$20\.06 new spend/, "a day's budget of spend counts even with few impressions");
+assert.deepEqual(materialChanges({ ...spendBase, snapshot: spendSnap(1000, 1200) }), [], "under both bars: still quiet");
+ok("quiet gate: skips small changes; runs on bookings, new impressions (scaled to the account), a day's budget of spend, status changes, manual, daily, audit");
 
 // routines cadence
 const now = new Date("2026-10-20T12:00:00Z");

@@ -270,7 +270,8 @@ export function parseTagged<T>(text: string, tag: string): T | null {
 
 /** Every 10 minutes (pg_cron): one research step for each agent on Migz, until the deadline. */
 export async function researchShift(deadlineMs: number) {
-  const { data: agents } = await supabaseAdmin.from("agents").select("*").eq("active", true).neq("migz_mode", "off").not("onboarding_completed_at", "is", null);
+  // Skips the end-to-end test's throwaway agents (e2e-*), which only exist while a test runs
+  const { data: agents } = await supabaseAdmin.from("agents").select("*").eq("active", true).neq("migz_mode", "off").not("onboarding_completed_at", "is", null).not("slug", "like", "e2e-%");
   const results: Record<string, string> = {};
   for (const agent of (agents ?? []) as Agent[]) {
     if (Date.now() > deadlineMs) break;

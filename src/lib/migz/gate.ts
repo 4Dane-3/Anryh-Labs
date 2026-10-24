@@ -14,8 +14,25 @@ export type GateState = {
   focus?: string; // the agent's ad focus, in order
 };
 
-export const MATERIAL_IMPRESSIONS = 1000;
+export const MATERIAL_IMPRESSIONS = 1000; // the most new impressions it takes to count, on any account
+export const MIN_MATERIAL_IMPRESSIONS = 250; // and the least, so a tiny account still needs real data
 export const MAX_QUIET_HOURS = 24; // a pro looks at the account at least daily
+
+/** The live ad sets' daily budgets added up: what the account can spend in a day. */
+export function liveDailyBudgetCents(snapshot: Snapshot) {
+  return snapshot.guardAdsets.filter((s) => s.status === "ACTIVE").reduce((sum, s) => sum + (s.daily_budget_cents ?? 0), 0);
+}
+
+/**
+ * New impressions that count as material, scaled to the account: half of what a day's budget buys at
+ * this account's own cost per impression, kept between 250 and 1,000. A flat 1,000 was most of a day
+ * on a $20-a-day account, so its reviews were nearly always quiet. Pure.
+ */
+export function impressionsThreshold(dailyBudgetCents: number, spendCents14: number, impressions14: number) {
+  if (dailyBudgetCents <= 0 || spendCents14 <= 0 || impressions14 <= 0) return MATERIAL_IMPRESSIONS;
+  const perDay = (dailyBudgetCents / spendCents14) * impressions14;
+  return Math.max(MIN_MATERIAL_IMPRESSIONS, Math.min(MATERIAL_IMPRESSIONS, Math.round(perDay / 2)));
+}
 
 export function gateState(snapshot: Snapshot): GateState {
   let impressions = 0;
@@ -63,8 +80,12 @@ export function materialChanges(input: GateInput): string[] {
   if (!prev || !input.lastOperatorAt) reasons.push("first full review");
   else {
     if (cur.bookings14 > prev.bookings14) reasons.push(`${cur.bookings14 - prev.bookings14} new booked call(s)`);
-    if (cur.impressions14 - prev.impressions14 >= MATERIAL_IMPRESSIONS)
+    const daily = liveDailyBudgetCents(input.snapshot);
+    if (cur.impressions14 - prev.impressions14 >= impressionsThreshold(daily, cur.spendCents14, cur.impressions14))
       reasons.push(`${(cur.impressions14 - prev.impressions14).toLocaleString("en-US")} new impressions`);
+    // A day's budget spent since the last full review is worth a look, however few impressions it bought
+    const newSpend = cur.spendCents14 - prev.spendCents14;
+    if (daily > 0 && newSpend >= daily) reasons.push(`$${(newSpend / 100).toFixed(2)} new spend (a day's budget or more)`);
     if (cur.statuses !== prev.statuses) reasons.push("ad or ad set status changed");
     if (cur.library !== prev.library && cur.library) reasons.push("new creative ready to launch");
     if (cur.generating < prev.generating) reasons.push("a creative finished generating");
