@@ -525,6 +525,17 @@ assert.ok(takenNow.includes(allSlots[3]), "a real booking shows as taken");
 assert.ok(takenNow.length > 1, "ghost holds show as taken too");
 assert.equal(takenNow.length + openNow.length, allSlots.length, "every time is either open or taken, none lost");
 
+// Start-time spacing: 15-minute calls offered on the hour (9:00, 10:00, 11:00)
+const oneDay = [{ weekday: 1, start_time: "09:00", end_time: "12:00" }];
+const mon = new Date("2026-10-25T12:00:00Z"); // a Sunday, so Monday Oct 26 is tomorrow
+const cfg = (slotMinutes: number, intervalMinutes: number | null) => ({ timezone: "America/Chicago", slotMinutes, intervalMinutes, bufferMinutes: 0, minNoticeHours: 0, maxDaysAhead: 2 });
+const local = (xs: string[]) => xs.map((x) => new Date(x).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/Chicago" }));
+assert.deepEqual(local(generateSlots(oneDay, [], cfg(15, 60), mon)), ["9:00 AM", "10:00 AM", "11:00 AM"], "15-min calls, hourly start times");
+assert.equal(generateSlots(oneDay, [], cfg(15, null), mon).length, 12, "no spacing set: every 15 minutes, as before");
+assert.deepEqual(local(generateSlots(oneDay, [], cfg(60, 30), mon)), ["9:00 AM", "9:30 AM", "10:00 AM", "10:30 AM", "11:00 AM"], "an hour-long call still has to fit before closing");
+const busy10 = [{ start: new Date(generateSlots(oneDay, [], cfg(15, 60), mon)[1]), end: new Date(Date.parse(generateSlots(oneDay, [], cfg(15, 60), mon)[1]) + 15 * 60_000) }];
+assert.deepEqual(local(generateSlots(oneDay, busy10, cfg(15, 60), mon)), ["9:00 AM", "11:00 AM"], "a booked 15-min call takes only its own hour slot");
+
 // Research shift: rotates the agent's topics and the angles; web search every other cycle
 const { nextAssignment, ANGLES } = await import("@/lib/migz/research");
 const r0 = nextAssignment(["final_expense", "whole_life"], 0), r1 = nextAssignment(["final_expense", "whole_life"], 1), r2 = nextAssignment(["final_expense", "whole_life"], 2);

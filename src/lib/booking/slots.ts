@@ -10,7 +10,8 @@ export type BusyRange = { start: Date; end: Date };
 
 export type SlotConfig = {
   timezone: string;
-  slotMinutes: number;
+  slotMinutes: number; // how long a call is
+  intervalMinutes?: number | null; // how far apart start times are (defaults to the call length)
   bufferMinutes: number;
   minNoticeHours: number;
   maxDaysAhead: number;
@@ -33,6 +34,8 @@ export function generateSlots(
 ): string[] {
   const { timezone, slotMinutes, bufferMinutes, minNoticeHours, maxDaysAhead } =
     config;
+  // Start times step by the interval (e.g. every hour), while each call lasts slotMinutes (e.g. 15)
+  const stepMinutes = config.intervalMinutes && config.intervalMinutes > 0 ? config.intervalMinutes : slotMinutes;
 
   const earliest = DateTime.fromJSDate(now).plus({ hours: minNoticeHours });
   const today = DateTime.fromJSDate(now, { zone: timezone }).startOf("day");
@@ -54,7 +57,7 @@ export function generateSlots(
       for (
         let slotStart = open;
         slotStart.toMillis() + slotMs <= close.toMillis();
-        slotStart = slotStart.plus({ minutes: slotMinutes })
+        slotStart = slotStart.plus({ minutes: stepMinutes })
       ) {
         const startMs = slotStart.toMillis();
         const endMs = startMs + slotMs;

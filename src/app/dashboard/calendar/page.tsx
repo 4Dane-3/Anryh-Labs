@@ -54,6 +54,7 @@ export default async function CalendarPage({
           initialRules={cleanRules}
           initialSettings={{
             slot_minutes: agent.slot_minutes,
+            slot_interval_minutes: agent.slot_interval_minutes ?? 0,
             buffer_minutes: agent.buffer_minutes,
             min_notice_hours: agent.min_notice_hours,
             max_days_ahead: agent.max_days_ahead,
