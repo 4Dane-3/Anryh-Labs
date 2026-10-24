@@ -1,6 +1,9 @@
 // The Slack messages agents get from Migz, as Block Kit. Pure (no I/O) so tests can check them.
 // Every message has a plain `text` too: Slack shows it in notifications and wherever blocks can't render.
 
+import type { Narrative, NightlyNumbers, Phase, Thought } from "@/lib/migz/nightly-core";
+import type { PageFinding } from "@/lib/migz/page-findings";
+
 export type SlackMessage = { text: string; blocks: unknown[] };
 
 // Prospect- or model-written text goes into mrkdwn, so neutralise mentions, links and formatting tokens
@@ -221,4 +224,65 @@ export function batchEndedMessage(input: { budgetCents: number; spentCents: numb
       actions(button("Start your next batch", `${input.dashboardUrl}/dashboard`, true)),
     ],
   };
+}
+
+// ---------- The nightly summary (9pm in the agent's timezone) ----------
+
+export type NightlyContent = {
+  dateLabel: string; // "Sat, Oct 24"
+  firstName: string;
+  phase: Phase;
+  changesFrom: string | null; // "Oct 29": when Migz may start changing things
+  numbers: NightlyNumbers;
+  narrative: Narrative;
+  thoughts: Thought[];
+  changes: string[]; // what Migz changed today
+  findings: PageFinding[];
+  pageWeekLine: string | null;
+};
+
+const bullets = (items: string[]) => items.map((x) => `• ${esc(cut(x, 280))}`).join("\n");
+const STATUS_LABEL: Record<Thought["status"], string> = { considering: "considering", testing: "testing", ready: "ready to act", done: "done", dropped: "dropped" };
+
+export function nightlySummaryMessage(c: NightlyContent & { dashboardUrl: string }): SlackMessage {
+  const n = c.numbers;
+  const pctOf = (a: number, b: number) => (b ? ` (${Math.round((a / b) * 100)}% of ${usd(b)}/day)` : "");
+  const lines = [
+    `Spent *${usd(n.spendCents)}*${pctOf(n.spendCents, n.budgetCents)}`,
+    `*${n.impressions.toLocaleString("en-US")}* people saw your ads, *${n.linkClicks}* tapped through${n.ctr !== null ? ` (${(n.ctr * 100).toFixed(1)}%)` : ""}`,
+    `*${n.bookedCalls}* call${n.bookedCalls === 1 ? "" : "s"} booked from ads today`,
+  ];
+  if (n.batch) lines.push(`Your batch: *${usd(n.batch.spentCents)}* of ${usd(n.batch.budgetCents)} spent · day ${n.batch.day} of ${n.batch.days}`);
+  const nar = c.narrative;
+  const title = `Tonight's summary · ${c.dateLabel}`;
+
+  const blocks: unknown[] = [header(`:crescent_moon: ${title}`), section(`*${esc(cut(nar.headline, 120))}*`), section(lines.join("\n"))];
+  if (nar.budget_read) blocks.push(context(esc(cut(nar.budget_read, 400))));
+  if (nar.happened.length) blocks.push(divider, section(`*What happened today*\n${bullets(nar.happened)}`));
+
+  if (c.phase === "collecting")
+    blocks.push(
+      divider,
+      section(
+        `*Migz is still collecting results*${c.changesFrom ? `, so it won't change anything until ${esc(c.changesFrom)}` : ""}. Here's what it's thinking and testing meanwhile:${
+          c.thoughts.length ? `\n${c.thoughts.map((t) => `• ${esc(cut(t.text, 200))} _(${STATUS_LABEL[t.status]}${t.nights > 1 ? `, night ${t.nights}` : ""})_${t.note ? `\n   ${esc(cut(t.note, 220))}` : ""}`).join("\n")}` : "\nNothing yet: it needs a bit more data."
+        }`,
+      ),
+    );
+  else if (c.phase === "revising") {
+    blocks.push(divider, section(`*What Migz changed today*\n${c.changes.length ? bullets(c.changes) : "Nothing: the numbers said to leave it alone."}`));
+    if (c.thoughts.length)
+      blocks.push(section(`*What Migz is thinking and testing*\n${c.thoughts.map((t) => `• ${esc(cut(t.text, 200))} _(${STATUS_LABEL[t.status]})_${t.note ? `\n   ${esc(cut(t.note, 220))}` : ""}`).join("\n")}`));
+  }
+  if (nar.next.length) blocks.push(section(`*Next*\n${bullets(nar.next)}`));
+  if (nar.fallback) blocks.push(context("_Migz's notes aren't in tonight's summary (they couldn't be written this time). The numbers above are today's._"));
+
+  blocks.push(divider);
+  const pageLines = c.findings.map((f) => `${f.level === "fix" ? ":warning:" : ":bulb:"} ${esc(cut(f.text, 300))}`);
+  blocks.push(
+    section(`*Your booking page*${nar.page_note ? `\n${esc(cut(nar.page_note, 300))}` : ""}\n${pageLines.length ? pageLines.join("\n") : ":white_check_mark: Nothing to change tonight: your page is in good shape."}`),
+  );
+  if (c.pageWeekLine) blocks.push(context(esc(c.pageWeekLine)));
+  blocks.push(actions(button("Open the Migz brain", `${c.dashboardUrl}/dashboard/brain`), button("Edit my page", `${c.dashboardUrl}/dashboard/landing`)));
+  return { text: `${title}: ${nar.headline}`, blocks };
 }

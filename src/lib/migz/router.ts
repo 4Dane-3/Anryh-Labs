@@ -21,7 +21,8 @@ export type Task =
   | "operator" // Sonnet: runs the review with tools; Opus advises through the advisor tool
   | "memo" // Opus: weekly strategy memo
   | "batch_plan" // Sonnet: recommends how to spend a new campaign batch
-  | "watch"; // Sonnet: a short note on today's numbers between reviews (live monitor)
+  | "watch" // Sonnet: a short note on today's numbers between reviews (live monitor)
+  | "nightly"; // Sonnet: the 9pm summary and the running notebook of thoughts
 
 const TASK_TIER: Record<Task, ModelTier> = {
   audit: "haiku",
@@ -35,6 +36,7 @@ const TASK_TIER: Record<Task, ModelTier> = {
   memo: "opus",
   batch_plan: "sonnet",
   watch: "sonnet",
+  nightly: "sonnet",
 };
 
 export type Budget = { limitUsd: number; spentUsd: number; ratio: number };

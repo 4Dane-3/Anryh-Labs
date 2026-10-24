@@ -601,6 +601,87 @@ const migrationFonts = (await import("node:fs")).readFileSync("supabase/migratio
 assert.deepEqual(migrationFonts, PAGE_FONT_KEYS, "the migration's allowed fonts match the picker");
 ok("page fonts: Arial by default, unknown fonts fall back to it, the database allows exactly the picker's fonts");
 
+
+// Nightly summary: 9pm in every timezone, the first-week phase, and thoughts carried night to night
+const { nightlyDue, phaseOf, mergeThoughts, carryOver, NIGHTLY_HOUR } = await import("@/lib/migz/nightly-core");
+const { DateTime: LuxonDT } = await import("luxon");
+assert.equal(NIGHTLY_HOUR, 21);
+const utcNight = LuxonDT.fromISO("2026-10-25T02:30:00Z"); // 9:30pm in Chicago, 7:30pm in LA, 3:30am in London
+const hourIn = (zone: string) => utcNight.setZone(zone).hour;
+assert.deepEqual(["America/Chicago", "America/Los_Angeles", "Europe/London"].map((z) => nightlyDue(hourIn(z), false)), [true, false, false], "each timezone gets it at its own 9pm");
+assert.equal(nightlyDue(21, true), false, "once per local day");
+assert.equal(nightlyDue(20, false), false);
+assert.equal(phaseOf("2026-10-29", "2026-10-24"), "collecting");
+assert.equal(phaseOf("2026-10-29", "2026-10-29"), "revising");
+assert.equal(phaseOf(null, "2026-10-24"), "none");
+const nt = (id: string, status: "considering" | "testing" | "ready" | "done" | "dropped", text = id) => ({ id, text, kind: "test" as const, status, note: "n" });
+const night1 = mergeThoughts([], [nt("", "considering", "Video hooks beat images"), nt("", "testing", "Evening spend converts better")], "2026-10-24");
+assert.deepEqual(night1.map((x) => [x.id, x.nights, x.since]), [["t2", 1, "2026-10-24"], ["t1", 1, "2026-10-24"]], "new thoughts get ids and a start date (testing sorts before considering)");
+const night2 = mergeThoughts(carryOver(night1), [{ ...nt("t1", "ready", "Video hooks beat images"), note: "hook rate 31% vs 5% link CTR" }, nt("", "considering", "Whole life needs a second video")], "2026-10-25");
+const byId = Object.fromEntries(night2.map((x) => [x.id, x]));
+assert.equal(byId.t1.nights, 2, "a returned thought counts another night"); assert.equal(byId.t1.since, "2026-10-24", "and keeps its start date");
+assert.equal(byId.t2.nights, 2, "a thought the model didn't mention carries over, it isn't forgotten");
+assert.equal(byId.t3.since, "2026-10-25", "a blank id is a new thought");
+assert.equal(night2[0].status, "ready", "ready thoughts sort first");
+const night3 = mergeThoughts(carryOver(night2), [nt("t2", "dropped"), nt("t1", "done")], "2026-10-26");
+assert.deepEqual(night3.filter((x) => x.status === "done" || x.status === "dropped").map((x) => x.id).sort(), ["t1", "t2"], "finished and dropped thoughts are reported once");
+assert.deepEqual(carryOver(night3).map((x) => x.id), ["t3"], "and then leave the notebook");
+const many = mergeThoughts([], Array.from({ length: 9 }, (_, k) => nt("", "considering", `idea ${k}`)), "2026-10-24");
+assert.equal(many.filter((x) => x.status === "considering").length, 6, "at most six active thoughts");
+assert.equal(mergeThoughts([], [nt("", "considering", "  ")], "2026-10-24").length, 0, "blank thoughts are ignored");
+
+// Page recommendations: specific, numbered, fixes first
+const { pageFindings, pageWeekLine } = await import("@/lib/migz/page-findings");
+const goodPage = { load: { ok: true, status: 200 }, hasPhoto: true, bioChars: 300, headlineChars: 50, testimonials: 3, requiredSteps: 0, openSlots7d: 40, evenings: true, weekends: true, hasHours: true, week: null };
+assert.deepEqual(pageFindings(goodPage), [], "a healthy page has nothing to fix");
+const rough = { ...goodPage, load: { ok: false, status: 500 }, hasPhoto: false, testimonials: 0, requiredSteps: 3, openSlots7d: 3, evenings: false, bioChars: 900, headlineChars: 95 };
+const found = pageFindings(rough);
+assert.deepEqual(found.slice(0, 2).map((f) => f.key), ["page_down", "no_photo"], "outages and missing basics come first");
+assert.ok(found.every((f, i, a) => i === 0 || !(f.level === "fix" && a[i - 1].level === "idea")), "fixes before ideas");
+assert.match(found.find((f) => f.key === "page_down")!.text, /error 500/);
+assert.equal(pageFindings({ ...goodPage, openSlots7d: 0 })[0].key, "no_times");
+assert.equal(pageFindings({ ...goodPage, hasHours: false, openSlots7d: 0 })[0].key, "no_hours");
+const visits = (w: Partial<NonNullable<typeof goodPage.week>>) => ({ ...goodPage, week: { visits: 40, sawTimes: 36, pickedTime: 20, startedForm: 18, booked: 3, errors: 0, mobileShare: 0.8, medianSeconds: 40, ...w } });
+assert.deepEqual(pageFindings(visits({})), [], "decent numbers raise nothing");
+assert.equal(pageFindings(visits({ sawTimes: 12 }))[0].key, "few_see_times"); assert.match(pageFindings(visits({ sawTimes: 12 }))[0].text, /30%.*40 visitors/);
+assert.equal(pageFindings(visits({ pickedTime: 8 }))[0].key, "few_pick");
+assert.equal(pageFindings(visits({ startedForm: 8 }))[0].key, "few_start");
+assert.equal(pageFindings(visits({ errors: 3 }))[0].key, "errors");
+assert.deepEqual(pageFindings({ ...goodPage, week: { visits: 8, sawTimes: 1, pickedTime: 0, startedForm: 0, booked: 0, errors: 0, mobileShare: 1, medianSeconds: 5 } }), [], "under 20 visits the percentages are noise");
+assert.equal(pageWeekLine(visits({})), "Last 7 days: 40 visits · 90% saw the times · 3 booked · 80% on a phone");
+assert.equal(pageWeekLine(goodPage), null);
+
+// The Slack message: shape, limits and escaping
+const nsb = await import("@/lib/migz/slack-blocks");
+const baseNight = {
+  dateLabel: "Sat, Oct 24", firstName: "Miguel", phase: "collecting" as const, changesFrom: "Oct 29",
+  numbers: { spendCents: 3047, budgetCents: 1892, yesterdaySpendCents: 730, impressions: 1301, reach: 800, linkClicks: 86, ctr: 0.066, bookedCalls: 0, batch: { spentCents: 3777, budgetCents: 28000, day: 2, days: 14 } },
+  narrative: { headline: "Day 2: the video is getting its first real views", happened: ["Spent $30.47 across both campaigns", "The final expense video had a 72% hook rate <b>"], budget_read: "Ran over the daily budget; Meta balances it over the week.", next: ["Compare hook rates again tomorrow"], page_note: "" },
+  thoughts: [{ id: "t1", text: "Video hooks beat images", kind: "test" as const, status: "testing" as const, note: "72% hook rate vs 5% for the image", since: "2026-10-23", nights: 2 }],
+  changes: [], findings: [{ key: "no_photo", level: "fix" as const, text: "Add a photo." }, { key: "no_reviews", level: "idea" as const, text: "Add 2–3 client reviews." }], pageWeekLine: "Last 7 days: 40 visits",
+  dashboardUrl: "https://anryhlabs.com",
+};
+const msg = nsb.nightlySummaryMessage(baseNight);
+const mj = JSON.stringify(msg.blocks);
+assert.match(msg.text, /Tonight's summary · Sat, Oct 24: Day 2/);
+assert.ok(msg.blocks.length <= 50, "Slack allows 50 blocks");
+assert.match(mj, /Spent \*\$30\.47\* \(161% of \$18\.92\/day\)/); assert.match(mj, /day 2 of 14/);
+assert.match(mj, /won't change anything until Oct 29/); assert.match(mj, /Video hooks beat images.*testing, night 2/);
+assert.ok(!mj.includes("<b>") && mj.includes("&lt;b&gt;"), "model text is escaped");
+assert.match(mj, /Your booking page/); assert.match(mj, /:warning: Add a photo/); assert.match(mj, /:bulb: Add 2/);
+assert.match(mj, /Edit my page/);
+const revising = JSON.stringify(nsb.nightlySummaryMessage({ ...baseNight, phase: "revising", changes: ["Paced your batch to stay within $280.00"] }).blocks);
+assert.match(revising, /What Migz changed today/); assert.match(revising, /Paced your batch/);
+assert.match(JSON.stringify(nsb.nightlySummaryMessage({ ...baseNight, phase: "revising", changes: [] }).blocks), /Nothing: the numbers said to leave it alone/);
+assert.match(JSON.stringify(nsb.nightlySummaryMessage({ ...baseNight, findings: [] }).blocks), /Nothing to change tonight/);
+assert.match(JSON.stringify(nsb.nightlySummaryMessage({ ...baseNight, narrative: { ...baseNight.narrative, fallback: true } }).blocks), /notes aren't in tonight's summary/);
+const huge = nsb.nightlySummaryMessage({ ...baseNight, thoughts: Array.from({ length: 6 }, (_, k) => ({ ...baseNight.thoughts[0], id: `t${k}`, text: "x".repeat(900), note: "y".repeat(900) })) });
+assert.ok(JSON.parse(JSON.stringify(huge.blocks)).every((b: { text?: { text: string } }) => !b.text || b.text.text.length <= 3000), "no block passes Slack's 3,000-character limit");
+const { planTier: nightPlan } = await import("@/lib/migz/router");
+assert.deepEqual(nightPlan("nightly", { limitUsd: 30, spentUsd: 5, ratio: 0.2 }), { tier: "sonnet", degraded: false });
+assert.deepEqual(nightPlan("nightly", { limitUsd: 30, spentUsd: 31, ratio: 1.03 }), { tier: "haiku", degraded: true }, "over the AI budget, tonight's summary still goes out on a cheaper model");
+ok("nightly summary: due at each timezone's own 9pm, first-week phase, thoughts carry (ids, nights, drop and done reported once, max six), page advice with real numbers, Slack message within limits and escaped");
+
 // Admin health: what raises an alert (and how loud)
 const { findIssues } = await import("@/lib/admin/issues");
 const hNow = Date.parse("2026-10-22T20:00:00Z");

@@ -26,20 +26,22 @@ type AdRow = TodayRow & { ad_id: string; ad_name: string };
 type HourRow = TodayRow & { hourly_stats_aggregated_by_advertiser_time_zone: string };
 
 /** Today so far, from Meta and our own tables. Cached briefly per agent; `fresh` skips the cache. */
-export async function getLiveStats(agent: Agent, opts: { fresh?: boolean } = {}): Promise<LiveStats> {
-  const hit = cache.get(agent.id);
+export async function getLiveStats(agent: Agent, opts: { fresh?: boolean; date?: string } = {}): Promise<LiveStats> {
+  // `date` (YYYY-MM-DD) asks for one specific day (the nightly summary's day) instead of Meta's "today"
+  const hit = cache.get(`${agent.id}:${opts.date ?? ""}`);
   if (!opts.fresh && hit && Date.now() - hit.at < STATS_TTL_MS) return hit.stats;
 
   const zone = agent.timezone;
-  const dayStart = DateTime.now().setZone(zone).startOf("day");
+  const dayStart = opts.date ? DateTime.fromISO(opts.date, { zone }).startOf("day") : DateTime.now().setZone(zone).startOf("day");
+  const when = opts.date ? { time_range: { since: opts.date, until: opts.date } } : { date_preset: "today" };
   const monthStart = DateTime.now().startOf("month").toUTC().toISO()!;
   const account = agent.meta_ad_account_id;
 
   const meta = account
     ? Promise.all([
-        graphAll<TodayRow>(`${account}/insights`, { level: "account", date_preset: "today", fields: "spend,impressions,reach,inline_link_clicks,date_start" }),
-        graphAll<AdRow>(`${account}/insights`, { level: "ad", date_preset: "today", fields: "ad_id,ad_name,spend,impressions,inline_link_clicks", limit: 200 }),
-        graphAll<HourRow>(`${account}/insights`, { level: "account", date_preset: "today", breakdowns: "hourly_stats_aggregated_by_advertiser_time_zone", fields: "spend,impressions", limit: 48 }),
+        graphAll<TodayRow>(`${account}/insights`, { level: "account", ...when, fields: "spend,impressions,reach,inline_link_clicks,date_start" }),
+        graphAll<AdRow>(`${account}/insights`, { level: "ad", ...when, fields: "ad_id,ad_name,spend,impressions,inline_link_clicks", limit: 200 }),
+        graphAll<HourRow>(`${account}/insights`, { level: "account", ...when, breakdowns: "hourly_stats_aggregated_by_advertiser_time_zone", fields: "spend,impressions", limit: 48 }),
       ]).then(
         ([total, ads, hours]) => ({ total: total[0] ?? null, ads, hours, error: null }),
         (e: unknown) => ({ total: null, ads: [] as AdRow[], hours: [] as HourRow[], error: e instanceof Error ? e.message : String(e) }),
@@ -49,7 +51,7 @@ export async function getLiveStats(agent: Agent, opts: { fresh?: boolean } = {})
   const [m, adsets, bookings, calls, budget, batch, synced] = await Promise.all([
     meta,
     supabaseAdmin.from("ad_sets").select("daily_budget_cents, ad_campaigns!inner(retired_at)").eq("agent_id", agent.id).eq("status", "ACTIVE").is("ad_campaigns.retired_at", null),
-    supabaseAdmin.from("bookings").select("attribution").eq("agent_id", agent.id).gte("created_at", dayStart.toUTC().toISO()!),
+    supabaseAdmin.from("bookings").select("attribution").eq("agent_id", agent.id).gte("created_at", dayStart.toUTC().toISO()!).lt("created_at", dayStart.plus({ days: 1 }).toUTC().toISO()!),
     supabaseAdmin.from("model_calls").select("cost_usd, created_at").eq("agent_id", agent.id).gte("created_at", monthStart),
     monthlyBudget(agent.id, agent.migz_model_budget_cents ?? 3000),
     getActiveBatch(agent.id),
@@ -103,7 +105,7 @@ export async function getLiveStats(agent: Agent, opts: { fresh?: boolean } = {})
       callsToday: callsToday.length,
     },
   };
-  cache.set(agent.id, { at: Date.now(), stats });
+  cache.set(`${agent.id}:${opts.date ?? ""}`, { at: Date.now(), stats });
   return stats;
 }
 
