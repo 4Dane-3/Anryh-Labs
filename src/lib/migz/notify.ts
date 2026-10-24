@@ -7,6 +7,8 @@ import { graphAll } from "@/lib/meta/graph";
 import {
   adLiveMessage,
   adsReviewedMessage,
+  nightlySummaryMessage,
+  type NightlyContent,
   researchIdeaMessage,
   batchEndedMessage,
   batchSetupMessage,
@@ -190,4 +192,9 @@ export async function notifyAdReviews(deadlineMs: number) {
 /** The research shift drafted an idea worth sharing (the caller caps how many go out a day). */
 export async function notifyResearch(agent: Pick<Agent, "slack_user_id">, input: Omit<Parameters<typeof researchIdeaMessage>[0], "dashboardUrl">) {
   return send(agent, researchIdeaMessage({ ...input, dashboardUrl: appUrl() }));
+}
+
+/** The 9pm summary of the agent's day (sent by the nightly shift). */
+export async function notifyNightly(agent: Pick<Agent, "slack_user_id">, content: NightlyContent) {
+  return send(agent, nightlySummaryMessage({ ...content, dashboardUrl: appUrl() }));
 }

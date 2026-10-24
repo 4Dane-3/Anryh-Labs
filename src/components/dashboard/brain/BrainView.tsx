@@ -18,6 +18,7 @@ import { Badge, Button, EmptyState, inputClass, Panel, PanelHeader } from "@/com
 import { cn } from "@/lib/utils";
 import { ApprovalsPanel } from "@/components/dashboard/Proposals";
 import type { MigzAction } from "@/lib/dashboard/queries";
+import type { Phase, Thought, ThoughtStatus } from "@/lib/migz/nightly-core";
 
 type Board = {
   findings: { check_name: string; subject: string; severity: string; summary: string; first_seen: string; status: string }[];
@@ -25,6 +26,7 @@ type Board = {
   learnings: { id: string; insight: string; confidence: string; source: string; created_at: string }[];
   swipes: { id: string; source_url: string | null; advertiser: string | null; notes: string | null; traits: { angle?: string; hook_type?: string; compliance_risk?: string } | null; added_by: string; created_at: string }[];
   scorecards: Scorecard[];
+  notebook: { date: string; phase: Phase; headline: string; thoughts: Thought[]; sentToSlack: boolean } | null;
   cost: { month: string; byTier: Record<"haiku" | "sonnet" | "opus", number>; tokens: Record<"haiku" | "sonnet" | "opus", number>; advisorCalls: number; totalUsd: number; limitUsd: number };
 };
 
@@ -106,6 +108,8 @@ export function BrainView({
         <AuditPanel findings={board.findings} />
       </div>
 
+      <NotebookPanel notebook={board.notebook} />
+
       <div className="grid gap-6 lg:grid-cols-2">
         <ExperimentsPanel experiments={board.experiments} />
         <LearningsPanel learnings={board.learnings} />
@@ -114,6 +118,50 @@ export function BrainView({
       <ScorecardsPanel cards={board.scorecards} />
       <SwipePanel swipes={board.swipes} />
     </div>
+  );
+}
+
+const THOUGHT_TONE: Record<ThoughtStatus, "bad" | "accent" | "neutral" | "good"> = { considering: "neutral", testing: "accent", ready: "good", done: "good", dropped: "bad" };
+const THOUGHT_LABEL: Record<ThoughtStatus, string> = { considering: "considering", testing: "testing", ready: "ready to act", done: "done", dropped: "dropped" };
+
+/** Migz's running thoughts, updated every night at 9pm (the same ones that go to the agent in Slack). */
+function NotebookPanel({ notebook }: { notebook: Board["notebook"] }) {
+  const description = !notebook
+    ? "Every night at 9pm Migz writes up the day and updates the thoughts it's carrying."
+    : notebook.phase === "collecting"
+      ? "Migz can't change anything during the first week of a batch, so it collects thoughts and tests them against each new day."
+      : "What Migz is considering, testing and ready to act on, carried from night to night.";
+  return (
+    <Panel>
+      <PanelHeader
+        title="Migz's notebook"
+        description={description}
+        action={notebook ? <span className="font-mono text-[11px] text-fg-faint">{DateTime.fromISO(notebook.date).toFormat("LLL d")} · {notebook.sentToSlack ? "sent to Slack" : "not sent to Slack"}</span> : undefined}
+      />
+      {notebook && notebook.thoughts.length ? (
+        <>
+          {notebook.headline && <p className="border-b border-line px-5 py-3 text-[13px] text-fg">{notebook.headline}</p>}
+          <ul className="divide-y divide-line">
+            {notebook.thoughts.map((t) => (
+              <li key={t.id} className="flex items-start gap-3 px-5 py-3">
+                <Badge tone={THOUGHT_TONE[t.status]}>{THOUGHT_LABEL[t.status]}</Badge>
+                <div className="min-w-0">
+                  <p className="text-[13px] text-fg">{t.text}</p>
+                  {t.note && <p className="mt-0.5 text-[12px] text-fg-muted">{t.note}</p>}
+                  <p className="mt-0.5 font-mono text-[11px] text-fg-faint">
+                    {t.kind} · since {DateTime.fromISO(t.since).toFormat("LLL d")} · night {t.nights}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : (
+        <EmptyState title={notebook ? "No open thoughts tonight" : "The first summary comes at 9pm"}>
+          {notebook ? "Migz has nothing it's weighing right now." : "After it, the thoughts Migz is carrying show here."}
+        </EmptyState>
+      )}
+    </Panel>
   );
 }
 

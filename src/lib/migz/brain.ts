@@ -3,6 +3,7 @@ import { DateTime } from "luxon";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
 import { buildSnapshot } from "@/lib/migz/snapshot";
+import { latestNotebook } from "@/lib/migz/notebook";
 import { ladder } from "@/lib/migz/vision";
 import { PULSE_KEEP, PULSE_KIND, RESEARCH_KIND, type BrainEvent, type BrainLive, type Scorecard } from "@/lib/migz/brain-types";
 
@@ -49,7 +50,7 @@ export async function getBrainLive(agent: Agent, afterId?: number): Promise<Brai
 /** Everything else on the page: findings, experiments, learnings, swipe file, scorecards, costs. */
 export async function getBrainBoard(agent: Agent) {
   const monthStart = DateTime.now().startOf("month").toUTC().toISO()!;
-  const [findings, experiments, learnings, swipes, calls, snapshot, ads] = await Promise.all([
+  const [findings, experiments, learnings, swipes, calls, snapshot, ads, notebook] = await Promise.all([
     supabaseAdmin.from("audit_findings").select("check_name, subject, severity, summary, first_seen, last_seen, status").eq("agent_id", agent.id).or(`status.eq.open,resolved_at.gte.${DateTime.now().minus({ days: 3 }).toUTC().toISO()}`).order("last_seen", { ascending: false }).limit(30),
     supabaseAdmin.from("experiments").select("id, hypothesis, lever, success_metric, variants, min_impressions, min_thruplays, status, verdict, winner_label, result, created_at, concluded_at").eq("agent_id", agent.id).order("created_at", { ascending: false }).limit(12),
     supabaseAdmin.from("learnings").select("id, insight, confidence, source, created_at").eq("agent_id", agent.id).eq("active", true).order("created_at", { ascending: false }).limit(24),
@@ -57,6 +58,7 @@ export async function getBrainBoard(agent: Agent) {
     supabaseAdmin.from("model_calls").select("tier, task, cost_usd, input_tokens, output_tokens, cache_read_tokens").eq("agent_id", agent.id).gte("created_at", monthStart),
     buildSnapshot(agent),
     supabaseAdmin.from("ads").select("meta_ad_id, name, status, adset_id, creatives(kind, hook, traits, script)").eq("agent_id", agent.id).eq("status", "ACTIVE"),
+    latestNotebook(agent.id),
   ]);
 
   const byTier = { haiku: 0, sonnet: 0, opus: 0 } as Record<"haiku" | "sonnet" | "opus", number>;
@@ -118,6 +120,7 @@ export async function getBrainBoard(agent: Agent) {
     learnings: learnings.data ?? [],
     swipes: swipes.data ?? [],
     scorecards,
+    notebook,
     cost: {
       month: DateTime.now().toFormat("LLLL"),
       byTier,
