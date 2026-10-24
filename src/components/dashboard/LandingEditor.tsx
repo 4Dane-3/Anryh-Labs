@@ -15,6 +15,8 @@ import {
 } from "@/app/dashboard/actions";
 import { PAGE_FONTS } from "@/lib/booking/page-fonts";
 import { uploadToSignedUrl } from "@/lib/dashboard/upload";
+import { safely } from "@/lib/dashboard/action-errors";
+import { clearDraft, readDraft, writeDraft } from "@/lib/dashboard/drafts";
 import { initials } from "@/lib/dashboard/format";
 import { Badge, Button, EmptyState, Label, Panel, PanelHeader, Switch, Tabs, inputClass } from "@/components/dashboard/ui";
 import { DEFAULT_TITLE } from "@/lib/campaign";
@@ -298,19 +300,32 @@ function TestimonialForm({
   onDone: () => void;
 }) {
   const router = useRouter();
+  const draftKey = `testimonial:${initial?.id ?? "new"}`;
   const [draft, setDraft] = useState(
-    initial
-      ? { ...initial, author_detail: initial.author_detail ?? "", permission_confirmed: true }
-      : emptyDraft,
+    () =>
+      readDraft<typeof emptyDraft>(draftKey) ??
+      (initial ? { ...initial, author_detail: initial.author_detail ?? "", permission_confirmed: true } : emptyDraft),
   );
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
+  // Keep what's typed in this browser until it's saved, so a reload or a failed save never loses it
+  useEffect(() => {
+    writeDraft(draftKey, draft);
+  }, [draftKey, draft]);
+
+  const discard = () => {
+    clearDraft(draftKey);
+    onDone();
+  };
+
   const save = () =>
     startTransition(async () => {
       setError(null);
-      const res = await saveTestimonial({ ...draft, id: initial?.id });
+      // A failed request (page out of date, connection) comes back as a message, not a crash
+      const res = await safely(() => saveTestimonial({ ...draft, id: initial?.id }));
       if (!res.ok) return setError(res.error);
+      clearDraft(draftKey);
       router.refresh();
       onDone();
     });
@@ -377,7 +392,7 @@ function TestimonialForm({
           <Button variant="primary" size="sm" onClick={save} disabled={pending}>
             {initial ? "Save" : "Add testimonial"}
           </Button>
-          <Button variant="ghost" size="sm" onClick={onDone}>
+          <Button variant="ghost" size="sm" onClick={discard}>
             Cancel
           </Button>
         </div>
@@ -389,18 +404,30 @@ function TestimonialForm({
 function TestimonialsList({ testimonials, onChanged }: { testimonials: Testimonial[]; onChanged: () => void }) {
   const router = useRouter();
   const [editing, setEditing] = useState<string | "new" | null>(null);
+  const [listError, setListError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
+
+  // After a reload, bring back a new testimonial that was being typed but wasn't saved
+  useEffect(() => {
+    // Browser storage only exists on the client, so this can't be known while rendering on the server
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (readDraft("testimonial:new")) setEditing("new");
+  }, []);
 
   const togglePublished = (t: Testimonial) =>
     startTransition(async () => {
-      await saveTestimonial({ ...t, author_detail: t.author_detail ?? "", published: !t.published, permission_confirmed: true });
+      setListError(null);
+      const res = await safely(() => saveTestimonial({ ...t, author_detail: t.author_detail ?? "", published: !t.published, permission_confirmed: true }));
+      if (!res.ok) return setListError(res.error);
       router.refresh();
       onChanged();
     });
 
   const remove = (id: string) =>
     startTransition(async () => {
-      await deleteTestimonial(id);
+      setListError(null);
+      const res = await safely(() => deleteTestimonial(id));
+      if (!res.ok) return setListError(res.error);
       router.refresh();
       onChanged();
     });
@@ -423,6 +450,7 @@ function TestimonialsList({ testimonials, onChanged }: { testimonials: Testimoni
           )
         }
       />
+      {listError && <p className="border-b border-line px-5 py-3 text-[13px] text-bad">{listError}</p>}
       <AnimatePresence initial={false}>{editing === "new" && <TestimonialForm key="new" onDone={done} />}</AnimatePresence>
 
       {testimonials.length ? (
