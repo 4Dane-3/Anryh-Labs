@@ -613,6 +613,26 @@ assert.match(halfMigration, /numeric\(2, 1\)/); assert.match(halfMigration, /rat
 ok("half stars: ratings round to the nearest half (0.5 to 5), whole numbers still work, and the database allows exactly half steps");
 
 
+// Failed saves: a request that can't complete becomes a message, and typed text is kept
+const { friendlyActionError, safely } = await import("@/lib/dashboard/action-errors");
+assert.match(friendlyActionError(new Error('Server Action "abc123" was not found on the server.')), /updated while this page was open.*what you typed is kept/i);
+assert.match(friendlyActionError(new TypeError("Failed to fetch")), /Couldn't reach Migz.*what you typed is kept/i);
+assert.match(friendlyActionError(new Error("boom")), /didn't save.*what you typed is kept/i);
+assert.deepEqual(await safely(async () => ({ ok: true as const })), { ok: true }, "a normal result passes through");
+assert.deepEqual(await safely(async () => ({ ok: false as const, error: "Add the client's name" })), { ok: false, error: "Add the client's name" }, "a server message passes through");
+const failed = await safely(async () => { throw new Error("Server Action x was not found on the server"); });
+assert.equal(failed.ok, false); assert.match((failed as { error: string }).error, /Reload the page/);
+const { readDraft, writeDraft, clearDraft } = await import("@/lib/dashboard/drafts");
+const mem = new Map<string, string>();
+const fake = { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => void mem.set(k, v), removeItem: (k: string) => void mem.delete(k) };
+writeDraft("testimonial:new", { quote: "Great service" }, fake);
+assert.deepEqual(readDraft("testimonial:new", fake), { quote: "Great service" }, "a draft survives a reload");
+clearDraft("testimonial:new", fake); assert.equal(readDraft("testimonial:new", fake), null, "and is gone once saved or cancelled");
+const blocked = { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); }, removeItem: () => { throw new Error("blocked"); } };
+assert.equal(readDraft("x", blocked), null); writeDraft("x", 1, blocked); clearDraft("x", blocked);
+ok("failed saves: stale page, offline and unknown errors become a message that keeps the text, server messages pass through, drafts survive and clear, blocked storage is harmless");
+
+
 // Nightly summary: 9pm in every timezone, the first-week phase, and thoughts carried night to night
 const { nightlyDue, phaseOf, mergeThoughts, carryOver, NIGHTLY_HOUR } = await import("@/lib/migz/nightly-core");
 const { DateTime: LuxonDT } = await import("luxon");

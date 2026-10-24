@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { requireAgent, devAgentSlug, getViewAs, isAnryhAdmin } from "@/lib/auth";
 import { Sidebar } from "@/components/dashboard/Sidebar";
+import { UpdateNotice } from "@/components/dashboard/UpdateNotice";
 
 // Server actions run here too; "Review now" runs a full Migz review (Meta sync + Claude)
 export const maxDuration = 300;
@@ -21,6 +22,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         setupDone={!!agent.onboarding_completed_at}
         staff={staff && !viewing}
       />
+      <UpdateNotice version={process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.VERCEL_DEPLOYMENT_ID ?? "dev"} />
       {viewing && (
         <div className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-2 border-b border-brand/30 bg-[#2a1d0f]/95 px-4 py-2 text-[13px] backdrop-blur sm:px-8">
           <p className="text-fg">
