@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useId, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { setAdsPaused, startDeposit } from "@/app/dashboard/actions";
@@ -79,12 +79,15 @@ export function AddFunds() {
           {pending ? "Starting…" : `Add ${cents > 0 ? usd(cents) : "funds"}`}
         </Button>
       </div>
-      <p className={cn("mt-3 text-[13px]", tooSmall ? "text-bad" : "text-fg-muted")}>
-        {tooSmall
-          ? `The minimum is ${usd(MIN_DEPOSIT_CENTS)}: enough for 2 campaigns at $10/day for 2 weeks.`
-          : cents > 0
-            ? `${usd(forAds)} goes to your ads, ${usd(cents - forAds, { cents: (cents - forAds) % 100 !== 0 })} is the Anryh Labs fee (${FEE_RATE * 100}%). That runs ${funds} campaign${funds === 1 ? "" : "s"} at $10/day for 2 weeks.`
-            : null}
+      <p className={cn("relative mt-3 text-[13px]", tooSmall ? "text-bad" : "text-fg-muted")}>
+        {tooSmall ? (
+          `The minimum is ${usd(MIN_DEPOSIT_CENTS)}: enough for 2 campaigns at $10/day for 2 weeks.`
+        ) : cents > 0 ? (
+          <>
+            {`${usd(forAds)} goes to your ads, ${usd(cents - forAds, { cents: (cents - forAds) % 100 !== 0 })} is the Anryh Labs fee (${FEE_RATE * 100}%). That runs ${funds} campaign${funds === 1 ? "" : "s"} at $10/day for 2 weeks. `}
+            <WhyFee />
+          </>
+        ) : null}
       </p>
       <AnimatePresence>
         {message && (
@@ -100,6 +103,67 @@ export function AddFunds() {
       </AnimatePresence>
       <p className="mt-3 text-xs text-fg-faint">Card payments are processed securely by Stripe.</p>
     </div>
+  );
+}
+
+/**
+ * "Why 20%?": what the fee pays for. Opens on hover or keyboard focus, and on tap for phones. The note
+ * spans the line above the text (positioned on the paragraph), so it never runs off a narrow screen.
+ */
+function WhyFee() {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLButtonElement>(null);
+  const id = useId();
+
+  useEffect(() => {
+    if (!open) return;
+    const outside = (e: PointerEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("pointerdown", outside);
+    document.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("pointerdown", outside);
+      document.removeEventListener("keydown", esc);
+    };
+  }, [open]);
+
+  return (
+    <>
+      <button
+        ref={ref}
+        type="button"
+        aria-expanded={open}
+        aria-describedby={open ? id : undefined}
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        // A tap also fires hover and focus first, so it opens rather than toggles; a tap elsewhere closes it
+        onClick={() => setOpen(true)}
+        className="whitespace-nowrap text-brand underline decoration-brand/50 decoration-dotted underline-offset-2 hover:decoration-solid focus-visible:outline-none focus-visible:decoration-solid"
+      >
+        Why {FEE_RATE * 100}%?
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.span
+            id={id}
+            role="tooltip"
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 4 }}
+            transition={{ duration: 0.15 }}
+            className="absolute bottom-full left-0 z-20 mb-2 block w-full max-w-sm rounded-lg border border-line-strong bg-ink-high px-3.5 py-3 text-[12.5px] leading-relaxed text-fg-muted shadow-lg shadow-black/40"
+          >
+            <span className="block font-medium text-fg">What the {FEE_RATE * 100}% covers</span>
+            Everything Migz does for you besides the ad spend itself: any creatives it generates for your ads (images and
+            videos), and the AI cost of managing your ads every day: reviewing results, adjusting budgets and launching new tests.
+          </motion.span>
+        )}
+      </AnimatePresence>
+    </>
   );
 }
 
