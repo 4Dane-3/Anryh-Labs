@@ -10,6 +10,7 @@ import {
   CalendarDays,
   Film,
   Gauge,
+  Gift,
   ListChecks,
   LogOut,
   Menu,
@@ -35,6 +36,7 @@ const NAV = [
   { href: "/dashboard/landing", label: "My page", icon: PanelsTopLeft },
   { href: "/dashboard/questions", label: "Questions", icon: ListChecks },
   { href: "/dashboard/settings", label: "Settings", icon: Settings },
+  { href: "/dashboard/affiliates", label: "Affiliates", icon: Gift },
 ];
 
 type AgentSummary = { name: string; slug: string; photoUrl: string | null };

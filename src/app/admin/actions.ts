@@ -5,6 +5,7 @@ import { isAnryhAdmin } from "@/lib/auth";
 import { createSupabaseServer } from "@/lib/supabase-server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { scanAll } from "@/lib/admin/health";
+import { approveJoinRequest, declineJoinRequest, setReferralPaused, setReferrer } from "@/lib/referrals";
 
 type Result = { ok: true; message?: string } | { ok: false; error: string };
 
@@ -41,4 +42,38 @@ export async function scanNow(): Promise<Result> {
   revalidatePath("/admin");
   if ("skipped" in r) return { ok: false, error: "Run the admin_alerts migration first." };
   return { ok: true, message: r.new ? `${r.new} new problem${r.new === 1 ? "" : "s"} found${r.pinged ? ", Slack pinged" : ""}.` : "Scanned every account: nothing new." };
+}
+
+// ---------- Affiliates ----------
+
+/** Approves a join request: creates their account (linked to the referrer) and their login. */
+export async function approveJoin(id: string): Promise<Result> {
+  const who = await staffEmail();
+  if (!who) return { ok: false, error: "Staff only." };
+  const r = await approveJoinRequest(id, who);
+  revalidatePath("/admin");
+  return r;
+}
+
+export async function declineJoin(id: string): Promise<Result> {
+  const who = await staffEmail();
+  if (!who) return { ok: false, error: "Staff only." };
+  const r = await declineJoinRequest(id, who);
+  revalidatePath("/admin");
+  return r;
+}
+
+/** Links an existing agent to the agent who referred them (or unlinks with null). */
+export async function linkReferrer(agentId: string, referrerId: string | null): Promise<Result> {
+  if (!(await staffEmail())) return { ok: false, error: "Staff only." };
+  const r = await setReferrer(agentId, referrerId);
+  revalidatePath("/admin");
+  return r;
+}
+
+export async function pauseReferralCredit(agentId: string, paused: boolean): Promise<Result> {
+  if (!(await staffEmail())) return { ok: false, error: "Staff only." };
+  const r = await setReferralPaused(agentId, paused);
+  revalidatePath("/admin");
+  return r;
 }
