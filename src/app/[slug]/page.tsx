@@ -115,7 +115,7 @@ export default async function AgentPage({ params, searchParams }: Props) {
               {avgRating !== null && (
                 <p className="mt-0.5 flex items-center gap-1.5 text-sm text-slate-600">
                   <Stars value={avgRating} />
-                  <span>{ratingText(Math.round(avgRating * 10) / 10)} · {rated.length} review{rated.length === 1 ? "" : "s"}</span>
+                  <span>{ratingText(Math.round(avgRating * 10) / 10)}</span>
                 </p>
               )}
             </div>
