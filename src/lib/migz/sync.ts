@@ -102,7 +102,45 @@ export async function syncAgent(agent: Agent) {
       .eq("agent_id", agent.id);
   }
 
+  // 3b. Ads archived or deleted in Meta (by Migz, the agent or in Ads Manager) aren't in that listing:
+  // mark them so they stop counting as live (scorecards, live-ad counts, the review)
+  await markGoneAds(agent, account, new Set(ads.map((a) => a.id)));
+
   await rollUp(agent, since, until);
+}
+
+/** Looks up our ads Meta's ad listing didn't return and records whether each was archived or deleted. */
+async function markGoneAds(agent: Agent, account: string, listed: Set<string>) {
+  const { data: ours } = await supabaseAdmin
+    .from("ads")
+    .select("meta_ad_id")
+    .eq("agent_id", agent.id)
+    .not("status", "in", "(ARCHIVED,DELETED)");
+  const missing = (ours ?? []).map((a) => a.meta_ad_id).filter((id) => !listed.has(id));
+  if (!missing.length) return 0;
+  let found: Map<string, string>;
+  try {
+    const gone = await graphAll<{ id: string; effective_status: string }>(`${account}/ads`, {
+      fields: "id,effective_status",
+      filtering: JSON.stringify([
+        { field: "id", operator: "IN", value: missing },
+        { field: "effective_status", operator: "IN", value: ["ARCHIVED", "DELETED"] },
+      ]),
+      limit: 500,
+    });
+    found = new Map(gone.map((g) => [g.id, g.effective_status]));
+  } catch (e) {
+    // Never guess: if Meta can't say, leave the ads as they are until the next sync
+    console.error("couldn't look up archived ads", e instanceof Error ? e.message : e);
+    return 0;
+  }
+  const now = new Date().toISOString();
+  for (const id of missing) {
+    // Not in either listing: Meta has removed it entirely
+    const status = found.get(id) === "ARCHIVED" ? "ARCHIVED" : "DELETED";
+    await supabaseAdmin.from("ads").update({ status, updated_at: now }).eq("meta_ad_id", id).eq("agent_id", agent.id);
+  }
+  return missing.length;
 }
 
 /** Dashboard daily totals + one ad-spend ledger entry per day (idempotent via external_id). */
