@@ -20,6 +20,7 @@ export type Agent = {
   email: string;
   timezone: string;
   slot_minutes: number;
+  slot_interval_minutes?: number | null; // start-time spacing (null = the call length); missing before its migration
   buffer_minutes: number;
   min_notice_hours: number;
   max_days_ahead: number;
@@ -125,6 +126,7 @@ export async function getSlotBoard(agent: Agent): Promise<{ open: string[]; take
   const config: SlotConfig = {
     timezone: agent.timezone,
     slotMinutes: agent.slot_minutes,
+    intervalMinutes: agent.slot_interval_minutes ?? null,
     bufferMinutes: agent.buffer_minutes,
     minNoticeHours: agent.min_notice_hours,
     maxDaysAhead: agent.max_days_ahead,

@@ -10,6 +10,7 @@ import { Button, Label, Panel, PanelHeader, Switch, inputClass } from "@/compone
 type Range = { start_time: string; end_time: string };
 type Settings = {
   slot_minutes: number;
+  slot_interval_minutes: number; // 0 = same as the call length
   buffer_minutes: number;
   min_notice_hours: number;
   max_days_ahead: number;
@@ -19,6 +20,7 @@ const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"
 
 const OPTIONS: Record<keyof Settings, { label: string; values: [number, string][] }> = {
   slot_minutes: { label: "Call length", values: [[15, "15 min"], [20, "20 min"], [30, "30 min"], [45, "45 min"], [60, "1 hour"]] },
+  slot_interval_minutes: { label: "Start times", values: [[0, "Same as call length"], [15, "Every 15 min"], [30, "Every 30 min"], [60, "Every hour"]] },
   buffer_minutes: { label: "Break between calls", values: [[0, "None"], [5, "5 min"], [10, "10 min"], [15, "15 min"], [30, "30 min"]] },
   min_notice_hours: { label: "Minimum notice", values: [[0, "None"], [1, "1 hour"], [2, "2 hours"], [4, "4 hours"], [12, "12 hours"], [24, "1 day"], [48, "2 days"]] },
   max_days_ahead: { label: "How far ahead people can book", values: [[7, "1 week"], [14, "2 weeks"], [21, "3 weeks"], [30, "30 days"], [60, "60 days"]] },

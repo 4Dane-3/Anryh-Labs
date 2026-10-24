@@ -62,6 +62,7 @@ export async function cancelBooking(bookingId: string): Promise<Result> {
 type HoursInput = {
   rules: { weekday: number; start_time: string; end_time: string }[];
   slot_minutes: number;
+  slot_interval_minutes?: number; // 0 = same as the call length
   buffer_minutes: number;
   min_notice_hours: number;
   max_days_ahead: number;
@@ -80,19 +81,27 @@ export async function saveWorkingHours(input: HoursInput): Promise<Result> {
   }
   const within = (v: number, min: number, max: number) => Number.isInteger(v) && v >= min && v <= max;
   if (!within(input.slot_minutes, 10, 120)) return fail("Call length must be 10–120 minutes.");
+  const interval = input.slot_interval_minutes ?? 0;
+  if (interval !== 0 && !within(interval, 10, 240)) return fail("Start times must be 10–240 minutes apart.");
   if (!within(input.buffer_minutes, 0, 120)) return fail("Buffer must be 0–120 minutes.");
   if (!within(input.min_notice_hours, 0, 168)) return fail("Notice must be 0–168 hours.");
   if (!within(input.max_days_ahead, 1, 90)) return fail("Booking window must be 1–90 days.");
 
-  const { error: settingsError } = await supabaseAdmin
+  const settings = {
+    slot_minutes: input.slot_minutes,
+    buffer_minutes: input.buffer_minutes,
+    min_notice_hours: input.min_notice_hours,
+    max_days_ahead: input.max_days_ahead,
+  };
+  let { error: settingsError } = await supabaseAdmin
     .from("agents")
-    .update({
-      slot_minutes: input.slot_minutes,
-      buffer_minutes: input.buffer_minutes,
-      min_notice_hours: input.min_notice_hours,
-      max_days_ahead: input.max_days_ahead,
-    })
+    .update({ ...settings, slot_interval_minutes: interval || null })
     .eq("id", agent.id);
+  // Before the slot_interval migration: save the rest, and only complain if a spacing was chosen
+  if (settingsError && (settingsError.code === "PGRST204" || settingsError.code === "42703")) {
+    if (interval) return fail("Start-time spacing isn't set up yet. Choose \"Same as call length\" for now.");
+    ({ error: settingsError } = await supabaseAdmin.from("agents").update(settings).eq("id", agent.id));
+  }
   if (settingsError) return fail("Couldn't save your booking settings.");
 
   const { error: deleteError } = await supabaseAdmin
