@@ -18,8 +18,8 @@ export async function GET(req: Request) {
     `DTSTAMP:${stamp(new Date())}`,
     `DTSTART:${stamp(new Date(booking.starts_at))}`,
     `DTEND:${stamp(new Date(booking.ends_at))}`,
-    `SUMMARY:${escapeIcs(`Life insurance call with ${agent.full_name}`)}`,
-    `DESCRIPTION:${escapeIcs(`Your scheduled call with ${agent.full_name}.`)}`,
+    `SUMMARY:${escapeIcs(`Life insurance consultation with ${agent.full_name}`)}`,
+    `DESCRIPTION:${escapeIcs(`Your scheduled consultation with ${agent.full_name}.`)}`,
     "END:VEVENT",
     "END:VCALENDAR",
   ].join("\r\n");

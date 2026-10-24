@@ -258,7 +258,7 @@ export function BookingWidget({
           <div className="font-semibold">
             {when} at {fmtTime(picked)}
           </div>
-          <div className="text-blue-800/80">{slotMinutes}-minute call with {firstName}</div>
+          <div className="text-blue-800/80">{slotMinutes}-minute consultation with {firstName}</div>
         </div>
 
         {page > 0 ? (
@@ -268,7 +268,7 @@ export function BookingWidget({
                 Before you book · {page} of {questionSteps.length} · {STEP_TITLES[step - 1]}
               </p>
               <p className="mt-1 text-sm text-slate-600">
-                {firstName} asks these before confirming your call. Questions marked{" "}
+                {firstName} asks these before confirming your consultation. Questions marked{" "}
                 <span className="text-red-600">*</span> are required.
               </p>
             </div>

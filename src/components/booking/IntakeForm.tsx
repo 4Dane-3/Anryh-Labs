@@ -260,7 +260,7 @@ export function IntakeForm({
         <CheckCircle2 className="size-14 text-green-600" />
         <h2 className="mt-4 text-3xl font-bold tracking-tight">Thank you!</h2>
         <p className="mt-2 text-lg text-slate-600">
-          {agentFirstName} will review your answers before your call.
+          {agentFirstName} will review your answers before your consultation.
         </p>
         {steps.length > 0 && (
           <button

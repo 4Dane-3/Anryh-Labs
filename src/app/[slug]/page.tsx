@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { BadgeCheck, CalendarCheck, Clock, MessageCircle, SearchCheck, ShieldCheck, Star } from "lucide-react";
+import { BadgeCheck, CalendarCheck, Clock, MessageCircle, SearchCheck, ShieldCheck } from "lucide-react";
+import { ratingText, Stars } from "@/components/ui/stars";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { getAgentBySlug, getIntakeQuestions } from "@/lib/booking/data";
 import { preBookingQuestions } from "@/lib/booking/questions";
@@ -22,9 +23,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const agent = await getAgentBySlug(slug);
   if (!agent) return {};
   return {
-    title: `Book a free call with ${agent.full_name}`,
+    title: `Book a free consultation with ${agent.full_name}`,
     description:
-      agent.headline ?? `Book a life insurance call with ${agent.full_name}.`,
+      agent.headline ?? `Book a life insurance consultation with ${agent.full_name}.`,
   };
 }
 
@@ -112,9 +113,9 @@ export default async function AgentPage({ params, searchParams }: Props) {
                 </p>
               )}
               {avgRating !== null && (
-                <p className="mt-0.5 flex items-center gap-1 text-sm text-slate-600">
-                  <Star className="size-4 fill-amber-400 text-amber-400" />
-                  {avgRating.toFixed(1)} · {rated.length} review{rated.length === 1 ? "" : "s"}
+                <p className="mt-0.5 flex items-center gap-1.5 text-sm text-slate-600">
+                  <Stars value={avgRating} />
+                  <span>{ratingText(Math.round(avgRating * 10) / 10)} · {rated.length} review{rated.length === 1 ? "" : "s"}</span>
                 </p>
               )}
             </div>
@@ -127,14 +128,14 @@ export default async function AgentPage({ params, searchParams }: Props) {
           )}
 
           <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-sm text-slate-600">
-            <li className="flex items-center gap-1.5"><Clock className="size-4 text-blue-700" /> Free {slotMinutes}-min call</li>
+            <li className="flex items-center gap-1.5"><Clock className="size-4 text-blue-700" /> Free {slotMinutes}-min consultation</li>
             <li className="flex items-center gap-1.5"><BadgeCheck className="size-4 text-blue-700" /> No obligation</li>
           </ul>
         </header>
 
         <aside id="book" className="min-w-0 scroll-mt-4 lg:sticky lg:top-8 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:self-start">
           <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 sm:p-6">
-            <h2 className="text-lg font-bold sm:text-xl">Book your free call with {firstName}</h2>
+            <h2 className="text-lg font-bold sm:text-xl">Book your free consultation with {firstName}</h2>
             <p className="mb-4 mt-0.5 text-sm text-slate-500">Pick a time. It takes under a minute.</p>
             <BookingWidget
               slug={agent.slug}
@@ -148,7 +149,7 @@ export default async function AgentPage({ params, searchParams }: Props) {
 
         <section className="min-w-0 space-y-10 lg:col-start-1">
           <div>
-            <h2 className="text-lg font-semibold">How the call works</h2>
+            <h2 className="text-lg font-semibold">How the consultation works</h2>
             <ul className="mt-4 space-y-4">
               {steps.map(({ icon: Icon, title, body }) => (
                 <li key={title} className="flex gap-3.5">
@@ -170,16 +171,7 @@ export default async function AgentPage({ params, searchParams }: Props) {
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 {testimonials.map((t) => (
                   <figure key={t.id} className="rounded-xl bg-slate-50 p-5 ring-1 ring-slate-200">
-                    {t.rating && (
-                      <div className="mb-2 flex gap-0.5" aria-label={`${t.rating} out of 5 stars`}>
-                        {Array.from({ length: 5 }, (_, i) => (
-                          <Star
-                            key={i}
-                            className={i < t.rating! ? "size-4 fill-amber-400 text-amber-400" : "size-4 text-slate-300"}
-                          />
-                        ))}
-                      </div>
-                    )}
+                    {t.rating && <Stars value={Number(t.rating)} className="mb-2" />}
                     <blockquote className="text-[15px] leading-relaxed text-slate-700">“{t.quote}”</blockquote>
                     <figcaption className="mt-3 text-sm">
                       <span className="font-medium text-slate-900">{t.author_name}</span>
@@ -196,7 +188,7 @@ export default async function AgentPage({ params, searchParams }: Props) {
         </section>
       </main>
 
-      <StickyBookBar firstName={firstName} preview={preview} />
+      <StickyBookBar preview={preview} />
 
       <footer className="mx-auto max-w-5xl px-4 pb-28 text-xs lg:pb-10 leading-relaxed text-slate-400 sm:px-6">
         <p>
