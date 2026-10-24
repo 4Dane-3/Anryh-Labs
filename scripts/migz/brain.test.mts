@@ -602,6 +602,17 @@ assert.deepEqual(migrationFonts, PAGE_FONT_KEYS, "the migration's allowed fonts 
 ok("page fonts: Arial by default, unknown fonts fall back to it, the database allows exactly the picker's fonts");
 
 
+// Half-star ratings: rounded to the nearest half, 0.5 to 5; the database allows exactly those steps
+const { halfStars, ratingText } = await import("@/components/ui/stars");
+assert.equal(halfStars(4.5), 4.5); assert.equal(halfStars(4), 4); assert.equal(halfStars(4.7), 4.5); assert.equal(halfStars(4.8), 5);
+assert.equal(halfStars(0.5), 0.5); assert.equal(halfStars(0.2), null, "under half a star is no rating");
+assert.equal(halfStars(7), 5); assert.equal(halfStars(null), null); assert.equal(halfStars(Number.NaN), null);
+assert.equal(ratingText(4.5), "4.5"); assert.equal(ratingText(5), "5");
+const halfMigration = (await import("node:fs")).readFileSync("supabase/migrations/20261108000000_half_star_ratings.sql", "utf8");
+assert.match(halfMigration, /numeric\(2, 1\)/); assert.match(halfMigration, /rating \* 2 = round\(rating \* 2\)/);
+ok("half stars: ratings round to the nearest half (0.5 to 5), whole numbers still work, and the database allows exactly half steps");
+
+
 // Nightly summary: 9pm in every timezone, the first-week phase, and thoughts carried night to night
 const { nightlyDue, phaseOf, mergeThoughts, carryOver, NIGHTLY_HOUR } = await import("@/lib/migz/nightly-core");
 const { DateTime: LuxonDT } = await import("luxon");

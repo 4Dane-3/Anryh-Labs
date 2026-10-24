@@ -5,10 +5,10 @@ import { CalendarDays, ChevronDown } from "lucide-react";
 import { track } from "@/lib/booking/track";
 
 /**
- * Phones only: a "Book a free call" bar pinned to the bottom once the booking card has scrolled out of
+ * Phones only: a "Book a free consultation" bar pinned to the bottom once the booking card has scrolled out of
  * view (after the visitor has read past it), so booking is always one tap away.
  */
-export function StickyBookBar({ firstName, preview }: { firstName: string; preview: boolean }) {
+export function StickyBookBar({ preview }: { preview: boolean }) {
   const [show, setShow] = useState(false);
   useEffect(() => {
     const card = document.getElementById("book");
@@ -33,7 +33,7 @@ export function StickyBookBar({ firstName, preview }: { firstName: string; previ
         }}
         className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-blue-700 text-base font-semibold text-white active:bg-blue-800"
       >
-        <CalendarDays className="size-5" /> Book a free call with {firstName}
+        <CalendarDays className="size-5" /> Book a free consultation
       </button>
     </div>
   );

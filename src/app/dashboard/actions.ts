@@ -302,7 +302,8 @@ export async function saveTestimonial(input: {
   if (!author_name) return fail("Add the client's name (first name and last initial is fine).");
   if (quote.length < 10) return fail("The testimonial needs at least a sentence.");
   if (!input.permission_confirmed) return fail("Confirm the client gave permission to share this.");
-  const rating = input.rating && input.rating >= 1 && input.rating <= 5 ? Math.round(input.rating) : null;
+  // Whole or half stars, 0.5 to 5
+  const rating = typeof input.rating === "number" && Number.isFinite(input.rating) && input.rating >= 0.5 && input.rating <= 5 ? Math.round(input.rating * 2) / 2 : null;
 
   const row = {
     author_name,
@@ -316,6 +317,8 @@ export async function saveTestimonial(input: {
   const { error } = input.id
     ? await supabaseAdmin.from("testimonials").update(row).eq("id", input.id).eq("agent_id", agent.id)
     : await supabaseAdmin.from("testimonials").insert({ ...row, agent_id: agent.id, sort: Date.now() % 1_000_000_000 });
+  // Before the half-star migration the column only takes whole numbers
+  if (error && rating !== null && !Number.isInteger(rating)) return fail("Half stars aren't set up yet. Pick a whole star for now.");
   if (error) return fail("Couldn't save the testimonial.");
   revalidatePath("/dashboard/landing");
   revalidatePath(`/${agent.slug}`);

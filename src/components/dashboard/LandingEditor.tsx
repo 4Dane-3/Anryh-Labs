@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { Camera, Monitor, Pencil, Plus, RotateCw, Smartphone, Star, Trash2, X } from "lucide-react";
+import { Camera, Monitor, Pencil, Plus, RotateCw, Smartphone, Trash2, X } from "lucide-react";
+import { ratingText, Stars } from "@/components/ui/stars";
 import {
   createPhotoUpload,
   deleteTestimonial,
@@ -356,27 +357,7 @@ function TestimonialForm({
           />
         </div>
         <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-          <div className="flex items-center gap-1" role="radiogroup" aria-label="Star rating">
-            {[1, 2, 3, 4, 5].map((n) => (
-              <button
-                key={n}
-                type="button"
-                role="radio"
-                aria-checked={draft.rating === n}
-                aria-label={`${n} star${n > 1 ? "s" : ""}`}
-                onClick={() => setDraft({ ...draft, rating: draft.rating === n ? null : n })}
-                className="p-0.5"
-              >
-                <Star
-                  className={cn(
-                    "size-5 transition-colors",
-                    draft.rating && n <= draft.rating ? "fill-brand text-brand" : "text-fg-faint",
-                  )}
-                />
-              </button>
-            ))}
-            <span className="ml-2 text-[12px] text-fg-faint">{draft.rating ? "" : "No rating"}</span>
-          </div>
+          <StarPicker value={draft.rating} onChange={(rating) => setDraft({ ...draft, rating })} />
           <label className="flex items-center gap-2 text-[13px] text-fg-muted">
             <Switch label="Show on my page" checked={draft.published} onChange={(v) => setDraft({ ...draft, published: v })} />
             Show on my page
@@ -463,7 +444,7 @@ function TestimonialsList({ testimonials, onChanged }: { testimonials: Testimoni
                       <p className="mt-1.5 text-[12px] text-fg-muted">
                         {t.author_name}
                         {t.author_detail && <span className="text-fg-faint"> · {t.author_detail}</span>}
-                        {t.rating && <span className="text-fg-faint"> · {t.rating}★</span>}
+                        {t.rating && <span className="text-fg-faint"> · {ratingText(Number(t.rating))}★</span>}
                       </p>
                     </div>
                     <div className="flex shrink-0 items-start gap-1">
@@ -587,6 +568,43 @@ function PagePreview({ slug, version }: { slug: string; version: number }) {
         )}
       </div>
     </Panel>
+  );
+}
+
+// ---------- Star rating ----------
+
+/** Pick a rating in half steps: tap the left half of a star for x.5, the right half for the whole star. */
+function StarPicker({ value, onChange }: { value: number | null; onChange: (v: number | null) => void }) {
+  const [hover, setHover] = useState<number | null>(null);
+  const shown = hover ?? value;
+  const pick = (v: number) => onChange(value === v ? null : v);
+  return (
+    <div className="flex items-center gap-2">
+      <div className="relative" onMouseLeave={() => setHover(null)}>
+        <Stars value={shown} size="size-6" filled="fill-brand text-brand" empty="text-fg-faint" className="gap-1" />
+        {/* Ten invisible half-width buttons over the stars: 0.5, 1, 1.5 ... 5 */}
+        <div role="radiogroup" aria-label="Star rating" className="absolute inset-0 flex">
+          {Array.from({ length: 10 }, (_, k) => {
+            const v = (k + 1) / 2;
+            return (
+              <button
+                key={v}
+                type="button"
+                role="radio"
+                aria-checked={value === v}
+                aria-label={`${v} star${v === 1 ? "" : "s"}`}
+                onClick={() => pick(v)}
+                onMouseEnter={() => setHover(v)}
+                onFocus={() => setHover(v)}
+                onBlur={() => setHover(null)}
+                className="h-full flex-1 cursor-pointer"
+              />
+            );
+          })}
+        </div>
+      </div>
+      <span className="min-w-[4.5rem] text-[12px] text-fg-muted">{shown ? `${ratingText(shown)} of 5` : "No rating"}</span>
+    </div>
   );
 }
 
