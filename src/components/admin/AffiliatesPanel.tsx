@@ -17,26 +17,28 @@ const ago = (iso: string) => DateTime.fromISO(iso).toRelative() ?? "";
 type Msg = { ok: boolean; text: string } | null;
 type Result = { ok: true; message?: string } | { ok: false; error: string };
 
-function useAction() {
+/** `report` sends the result somewhere that outlives this row (an approved request leaves the list). */
+function useAction(report?: (m: Msg) => void) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<Msg>(null);
+  const show = report ?? setMsg;
   const run = (fn: () => Promise<Result>) =>
     start(async () => {
-      setMsg(null);
+      show(null);
       try {
         const r = await fn();
-        setMsg(r.ok ? { ok: true, text: r.message ?? "Saved." } : { ok: false, text: r.error });
+        show(r.ok ? { ok: true, text: r.message ?? "Saved." } : { ok: false, text: r.error });
         if (r.ok) router.refresh();
       } catch {
-        setMsg({ ok: false, text: "That didn't go through. Reload and try again." });
+        show({ ok: false, text: "That didn't go through. Reload and try again." });
       }
     });
   return { pending, msg, run };
 }
 
-function Request({ r }: { r: AdminAffiliates["pending"][number] }) {
-  const { pending, msg, run } = useAction();
+function Request({ r, report }: { r: AdminAffiliates["pending"][number]; report: (m: Msg) => void }) {
+  const { pending, run } = useAction(report);
   return (
     <li className="px-5 py-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -58,7 +60,6 @@ function Request({ r }: { r: AdminAffiliates["pending"][number] }) {
           </Button>
         </div>
       </div>
-      {msg && <p className={cn("mt-2 text-[12px]", msg.ok ? "text-good" : "text-bad")}>{msg.text}</p>}
     </li>
   );
 }
@@ -109,6 +110,9 @@ function AgentRow({ a, all }: { a: AdminAffiliates["agents"][number]; all: Admin
 }
 
 export function AffiliatesPanel({ data }: { data: AdminAffiliates }) {
+  // Approve/decline results stay here: an approved request leaves the list, and its message says how
+  // the new agent signs in
+  const [notice, setNotice] = useState<Msg>(null);
   const earned = data.agents.reduce((s, a) => s + a.earnedCents, 0);
   const linked = data.agents.filter((a) => a.referredBy).length;
   return (
@@ -123,9 +127,17 @@ export function AffiliatesPanel({ data }: { data: AdminAffiliates }) {
       ) : (
         <>
           <div className="border-b border-line">
+            {notice && (
+              <div className={cn("mx-5 mt-4 flex items-start justify-between gap-3 rounded-lg border px-3.5 py-2.5 text-[13px]", notice.ok ? "border-good/30 bg-good/10 text-fg" : "border-bad/30 bg-bad/10 text-fg")}>
+                <span>{notice.text}</span>
+                <button type="button" onClick={() => setNotice(null)} aria-label="Dismiss" className="shrink-0 text-fg-faint hover:text-fg">
+                  <X className="size-3.5" />
+                </button>
+              </div>
+            )}
             <p className="px-5 pt-4 font-mono text-[11px] text-fg-faint">Requests to join</p>
             {data.pending.length ? (
-              <ul className="divide-y divide-line">{data.pending.map((r) => <Request key={r.id} r={r} />)}</ul>
+              <ul className="divide-y divide-line">{data.pending.map((r) => <Request key={r.id} r={r} report={setNotice} />)}</ul>
             ) : (
               <p className="px-5 pb-4 pt-1.5 text-[13px] text-fg-muted">Nothing waiting. Requests from agents&apos; invite links show up here and in your Slack.</p>
             )}
