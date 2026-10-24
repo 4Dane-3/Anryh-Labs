@@ -10,6 +10,8 @@ import type { Severity } from "@/lib/admin/issues";
 import { resolveAlert, scanNow, setAgentModelBudget } from "@/app/admin/actions";
 import { TIER } from "@/components/dashboard/brain/model";
 import { PageAnalyticsPanel } from "@/components/admin/PageAnalytics";
+import { AffiliatesPanel } from "@/components/admin/AffiliatesPanel";
+import type { AdminAffiliates } from "@/lib/referrals";
 import { Badge, Button, EmptyState, inputClass, Panel, PanelHeader } from "@/components/dashboard/ui";
 import { cn } from "@/lib/utils";
 
@@ -340,7 +342,7 @@ function AccountsPanel({ data }: { data: AdminOverview }) {
   );
 }
 
-export function AdminView({ initial }: { initial: AdminOverview }) {
+export function AdminView({ initial, affiliates }: { initial: AdminOverview; affiliates: AdminAffiliates }) {
   const { data, setData, now } = useOverview(initial);
   const [pending, start] = useTransition();
   const [note, setNote] = useState<string | null>(null);
@@ -401,6 +403,8 @@ export function AdminView({ initial }: { initial: AdminOverview }) {
       </div>
 
       <AgentsPanel data={data} now={now} />
+
+      <AffiliatesPanel data={affiliates} />
 
       <PageAnalyticsPanel agents={data.agents.map((x) => ({ id: x.id, name: x.name, slug: x.slug }))} />
 

@@ -16,6 +16,7 @@ const KIND_LABEL: Record<string, string> = {
   fee: "Fee",
   refund: "Refund",
   adjustment: "Adjustment",
+  referral_credit: "Referral credit",
 };
 
 export default async function FundsPage({ searchParams }: { searchParams: Promise<{ deposit?: string }> }) {

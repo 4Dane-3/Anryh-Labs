@@ -669,6 +669,34 @@ assert.ok(ec.detailOf(rep({ message: "y".repeat(2000) })).length <= 600);
 ok("error reporting: same problem groups across ids and query strings, noise (extensions, chunk loads, dropped connections) is ignored, crashes and server errors are critical, Slack message names the agent, can't mention anyone and links to their page");
 
 
+// Affiliates: 1% credit, refunds take their share back, join form checks, page addresses
+const rc = await import("@/lib/referrals-core");
+assert.deepEqual([35_000, 70_000, 100_000, 12_345, 0, -500, 1.5].map(rc.referralCreditCents), [350, 700, 1000, 123, 0, 0, 0], "1% of the deposit, rounded to the cent");
+assert.deepEqual(rc.reversalShares({ depositCents: 35_000, feeCents: -7_000, creditCents: 350, amountCents: 35_000 }), { refundCents: 35_000, feeBackCents: 7_000, creditBackCents: 350, adMoneyCents: 28_000 }, "a full refund: the agent loses the $280 of ad money, the referrer the $3.50");
+assert.deepEqual(rc.reversalShares({ depositCents: 35_000, feeCents: -7_000, creditCents: 350, amountCents: 17_500 }), { refundCents: 17_500, feeBackCents: 3_500, creditBackCents: 175, adMoneyCents: 14_000 }, "half refunded, half reversed");
+assert.equal(rc.reversalShares({ depositCents: 35_000, feeCents: -7_000, creditCents: 0, amountCents: 99_999 }).refundCents, 35_000, "never more than the deposit");
+assert.equal(rc.reversalShares({ depositCents: 35_000, feeCents: -7_000, creditCents: 350, amountCents: 0 }).creditBackCents, 0);
+assert.deepEqual(rc.parseStates("IL, fl / Texas; new york\nXX, Illinois"), ["IL", "FL", "TX", "NY"], "codes and names, unknown dropped, no repeats");
+assert.deepEqual(rc.parseStates("IL FL tx"), ["IL", "FL", "TX"]);
+assert.deepEqual(rc.parseStates(""), []);
+const okJoin = rc.validateJoin({ fullName: "  Jane   Doe ", email: "Jane@Example.COM ", phone: "(312) 555-0100", states: "IL, FL", note: " hi " });
+assert.ok(okJoin.ok && okJoin.value.email === "jane@example.com" && okJoin.value.fullName === "Jane Doe" && okJoin.value.note === "hi" && okJoin.value.states.join() === "IL,FL");
+const badJoin = rc.validateJoin({ fullName: "J", email: "nope", phone: "123", states: "Narnia" });
+assert.ok(!badJoin.ok && badJoin.errors.fullName && badJoin.errors.email && badJoin.errors.phone && badJoin.errors.states, "every bad field says why");
+assert.ok(rc.validateJoin({ fullName: "Jane Doe", email: "jane@example.com" }).ok, "phone, states and note are optional");
+assert.equal(rc.slugFor("José O'Neil", new Set()), "jose-oneil");
+assert.equal(rc.slugFor("Miguel Cruz", new Set(["miguel-cruz", "miguel-cruz-2"])), "miguel-cruz-3", "unique");
+assert.equal(rc.slugFor("Join", new Set()), "join-2", "never a path the site uses");
+assert.equal(rc.slugFor("!!!", new Set()), "agent");
+assert.ok(rc.slugFor("A".repeat(200), new Set()).length <= 48);
+const me = { id: "a", email: "Miguel@x.com", stripe_customer_id: "cus_1" };
+assert.ok(rc.selfReferral(me, { ...me }), "same agent");
+assert.ok(rc.selfReferral({ id: "b", email: "miguel@x.com " }, me), "same email");
+assert.ok(rc.selfReferral({ id: "b", email: "b@x.com", stripe_customer_id: "cus_1" }, me), "same card customer");
+assert.equal(rc.selfReferral({ id: "b", email: "b@x.com", stripe_customer_id: null }, me), null);
+ok("affiliates: 1% of each deposit, refunds and chargebacks take back their share (agent loses only the ad money), join form checks each field, states by code or name, unique page addresses that avoid site paths, no self-referral by id, email or card");
+
+
 // Nightly summary: 9pm in every timezone, the first-week phase, and thoughts carried night to night
 const { nightlyDue, phaseOf, mergeThoughts, carryOver, NIGHTLY_HOUR } = await import("@/lib/migz/nightly-core");
 const { DateTime: LuxonDT } = await import("luxon");

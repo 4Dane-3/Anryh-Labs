@@ -1,5 +1,5 @@
 import type Stripe from "stripe";
-import { recordDeposit, stripe } from "@/lib/stripe";
+import { reconcileRefunds, recordDeposit, recordDispute, stripe } from "@/lib/stripe";
 
 // Stripe calls this when a Checkout payment completes. The signature is checked against
 // STRIPE_WEBHOOK_SECRET (each endpoint, test or live, has its own), so nobody else can add funds.
@@ -30,6 +30,25 @@ export async function POST(req: Request) {
       // 500 makes Stripe retry later, which is what we want if the database hiccuped
       return Response.json({ error: "Couldn't record the deposit" }, { status: 500 });
     }
+  }
+
+  // Money going back: a refund, or a chargeback (and the chargeback's result). Each takes back its share
+  // of the deposit, the fee and any referral credit; repeats are counted once.
+  try {
+    if (event.type === "charge.refunded" || event.type === "charge.refund.updated") {
+      const obj = event.data.object as Stripe.Charge | Stripe.Refund;
+      const chargeId = obj.object === "charge" ? null : typeof obj.charge === "string" ? obj.charge : obj.charge?.id;
+      if (obj.object !== "charge" && !chargeId) return Response.json({ ok: true, ignored: "refund without a charge" });
+      const charge = obj.object === "charge" ? obj : await stripe().charges.retrieve(chargeId!);
+      return Response.json({ ok: true, recorded: await reconcileRefunds(charge) });
+    }
+    if (event.type === "charge.dispute.created" || event.type === "charge.dispute.closed") {
+      const moved = await recordDispute(event.data.object as Stripe.Dispute, event.type === "charge.dispute.closed");
+      return Response.json({ ok: true, recorded: !!moved });
+    }
+  } catch (e) {
+    console.error(`stripe ${event.type} failed`, e);
+    return Response.json({ error: "Couldn't record that" }, { status: 500 });
   }
   return Response.json({ ok: true });
 }

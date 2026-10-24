@@ -22,7 +22,7 @@ export type IssueReport = {
 export const MAX_NEW_ALERTS_PER_HOUR = 40; // beyond this, new kinds of error are counted in the log but not stored
 export const REMIND_EVERY_HOURS = 6; // an error still happening pings again after this long
 
-const RESERVED = new Set(["dashboard", "admin", "api", "login", "auth", "privacy", "terms", "contact", "companies", "our-story", "open-source-apps", "data-deletion"]);
+const RESERVED = new Set(["dashboard", "admin", "api", "login", "auth", "privacy", "terms", "contact", "companies", "our-story", "open-source-apps", "data-deletion", "join"]);
 const firstSegment = (path: string) => path.split("?")[0].split("/").filter(Boolean)[0] ?? "";
 
 export function areaOf(path: string): Area {
