@@ -179,7 +179,8 @@ async function pingStaff(fresh: { agent: { slug: string; name: string }; issue: 
 /** Scans every active agent (until the deadline), saves the alerts and pings staff about new ones. */
 export async function scanAll(deadlineMs: number) {
   if (!(await alertsReady())) return { skipped: "admin_alerts migration not run" };
-  const { data: agents } = await supabaseAdmin.from("agents").select("*").eq("active", true).order("created_at");
+  // The end-to-end test's throwaway agents (e2e-*) only exist while a test runs: never alert on them
+  const { data: agents } = await supabaseAdmin.from("agents").select("*").eq("active", true).not("slug", "like", "e2e-%").order("created_at");
   const fresh: { agent: { slug: string; name: string }; issue: Issue }[] = [];
   const results: Record<string, number> = {};
   for (const agent of (agents ?? []) as Agent[]) {
