@@ -2,12 +2,15 @@
 
 import { useEffect } from "react";
 import { friendlyActionError } from "@/lib/dashboard/action-errors";
+import { reportClientError } from "@/lib/error-report";
 
 // Replaces a blank "application error" when something in the dashboard throws. The usual cause is a page
 // that was open while Migz was updated, which a reload fixes.
 export default function DashboardError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   useEffect(() => {
     console.error("dashboard error", error.message, error.digest ?? "");
+    // Server errors carry a digest and were already reported by the server with their real message
+    if (!error.digest) reportClientError("boundary", error);
   }, [error]);
   return (
     <div className="mx-auto mt-24 max-w-md rounded-xl border border-line bg-ink-raised px-6 py-8 text-center">

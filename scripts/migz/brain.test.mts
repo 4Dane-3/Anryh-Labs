@@ -633,6 +633,42 @@ assert.equal(readDraft("x", blocked), null); writeDraft("x", 1, blocked); clearD
 ok("failed saves: stale page, offline and unknown errors become a message that keeps the text, server messages pass through, drafts survive and clear, blocked storage is harmless");
 
 
+// Error reporting: grouped by problem, noise ignored, a clear Slack message
+const ec = await import("@/lib/admin/error-core");
+assert.deepEqual(["/dashboard/landing", "/admin", "/miguel-cruz", "/miguel-cruz/prepare", "/", "/privacy", "/login"].map(ec.areaOf), ["dashboard", "admin", "booking page", "booking page", "site", "site", "site"]);
+assert.equal(ec.slugOf("/miguel-cruz/prepare"), "miguel-cruz"); assert.equal(ec.slugOf("/dashboard/brain"), null);
+const rep = (over: Partial<import("@/lib/admin/error-core").IssueReport> = {}) => ({ kind: "window" as const, path: "/dashboard/landing", message: "Cannot read properties of undefined (reading 'x')", ...over });
+assert.equal(ec.issueKey(rep()), ec.issueKey(rep({ path: "/dashboard/landing?tab=testimonials" })), "the query string doesn't make a new problem");
+assert.equal(ec.issueKey(rep({ message: 'Server Action "abc123def" was not found' })), ec.issueKey(rep({ message: 'Server Action "zzz999" was not found' })), "ids in a message group together");
+assert.equal(ec.issueKey(rep({ message: "Item 4f8d0d5e-1b2c-4d3e-8f9a-0b1c2d3e4f5a failed at 12:03" })), ec.issueKey(rep({ message: "Item 11111111-2222-3333-4444-555555555555 failed at 99:99" })));
+assert.notEqual(ec.issueKey(rep()), ec.issueKey(rep({ path: "/dashboard/brain" })), "a different page is a different problem");
+assert.notEqual(ec.issueKey(rep()), ec.issueKey(rep({ message: "Something else" })), "a different message is a different problem");
+assert.notEqual(ec.issueKey(rep()), ec.issueKey(rep({ kind: "server" })), "a browser error and a server error are kept apart");
+assert.ok(ec.issueKey(rep()).startsWith("site_error:dashboard:"));
+for (const noise of ["ResizeObserver loop completed with undelivered notifications.", "Script error.", "Non-Error promise rejection captured with value: Object Not Found Matching Id:3", "Loading chunk 123 failed.", "NEXT_REDIRECT", "The user aborted a request."])
+  assert.equal(ec.shouldIgnore(rep({ message: noise })), true, noise);
+assert.equal(ec.shouldIgnore(rep({ message: "Failed to fetch" })), true, "a dropped connection in the browser isn't a bug");
+assert.equal(ec.shouldIgnore(rep({ kind: "action", message: "Failed to fetch" })), false, "but a failed save is reported");
+assert.equal(ec.shouldIgnore(rep({ message: "TypeError: x is undefined", stack: "at chrome-extension://abc/content.js:1" })), true, "browser extensions");
+assert.equal(ec.shouldIgnore(rep({ path: "/api/errors", kind: "server" })), true, "the reporter never reports itself");
+assert.equal(ec.shouldIgnore(rep()), false);
+assert.deepEqual([ec.severityOf(rep({ kind: "boundary" })), ec.severityOf(rep({ kind: "server" })), ec.severityOf(rep({ kind: "action" })), ec.severityOf(rep())], ["critical", "critical", "warn", "warn"]);
+assert.equal(ec.titleOf(rep({ agentName: "Miguel Cruz" })), "Error in Miguel Cruz's dashboard");
+assert.equal(ec.titleOf(rep({ path: "/miguel-cruz", agentName: "Miguel Cruz" })), "Error on Miguel Cruz's booking page");
+assert.equal(ec.titleOf(rep({ path: "/admin" })), "Error in the admin dashboard");
+assert.equal(ec.titleOf(rep({ path: "/" })), "Error on the site");
+const slackMsg = ec.issueSlackMessage(rep({ kind: "boundary", agentName: "Miguel Cruz", agentSlug: "miguel-cruz", message: "Boom <@U123> & <!channel>", digest: "d123", ua: "Safari" }), { appUrl: "https://anryhlabs.com" });
+const sj = JSON.stringify(slackMsg.blocks);
+assert.match(slackMsg.text, /Error in Miguel Cruz's dashboard: Boom/);
+assert.ok(!sj.includes("<@U123>") && !sj.includes("<!channel>") && sj.includes("&lt;@U123&gt;"), "error text can't mention anyone");
+assert.match(sj, /The page crashed/); assert.match(sj, /\/dashboard\/landing/); assert.match(sj, /Miguel Cruz \(\/miguel-cruz\)/);
+assert.match(sj, /admin\/view\/miguel-cruz\?to=%2Fdashboard%2Flanding/, "a button to see their page as they do");
+assert.match(ec.issueSlackMessage(rep(), { appUrl: "https://a.b", reminder: true }).text, /^Still happening: /);
+assert.ok(JSON.stringify(ec.issueSlackMessage(rep({ message: "x".repeat(5000) }), { appUrl: "https://a.b" }).blocks).length < 3000, "long messages are cut");
+assert.ok(ec.detailOf(rep({ message: "y".repeat(2000) })).length <= 600);
+ok("error reporting: same problem groups across ids and query strings, noise (extensions, chunk loads, dropped connections) is ignored, crashes and server errors are critical, Slack message names the agent, can't mention anyone and links to their page");
+
+
 // Nightly summary: 9pm in every timezone, the first-week phase, and thoughts carried night to night
 const { nightlyDue, phaseOf, mergeThoughts, carryOver, NIGHTLY_HOUR } = await import("@/lib/migz/nightly-core");
 const { DateTime: LuxonDT } = await import("luxon");
