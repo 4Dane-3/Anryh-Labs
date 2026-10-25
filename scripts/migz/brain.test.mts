@@ -718,6 +718,33 @@ assert.equal(call.callButtonShows({ ...ag, call_button: false }, rules, monAt(10
 assert.equal(call.callButtonShows({ ...ag, call_phone: null }, rules, monAt(10)), false, "no number, no button");
 ok("call now: US numbers in any format, bad ones refused, shows only during working hours in the agent's timezone (unless always on), never without a number");
 
+
+// AI budget paced across the month: today's allowance = what's left ÷ days left
+const pace = await import("@/lib/migz/budget-pace");
+const d1 = pace.pacedBudget({ limitUsd: 31, monthSpentUsd: 0, todaySpentUsd: 0, daysLeft: 31 });
+assert.equal(d1.dailyUsd, 1, "$31 over a 31-day month = $1 a day");
+const busy = pace.pacedBudget({ limitUsd: 31, monthSpentUsd: 5, todaySpentUsd: 5, daysLeft: 31 });
+assert.equal(busy.dailyUsd, 1, "today's own spend doesn't shrink today's allowance");
+assert.equal(busy.dayRatio, 5);
+assert.equal(planTier("operator", busy)?.tier, "haiku", "over today's allowance: cheaper models for the rest of the day");
+assert.equal(planTier("scout", busy), null, "and optional work stops");
+assert.ok(Math.abs(pace.pacedBudget({ limitUsd: 31, monthSpentUsd: 5, todaySpentUsd: 0, daysLeft: 30 }).dailyUsd - 26 / 30) < 1e-9, "a busy day is made up for by smaller days after it");
+assert.equal(pace.pacedBudget({ limitUsd: 31, monthSpentUsd: 0, todaySpentUsd: 0, daysLeft: 21 }).dailyUsd, 31 / 21, "quiet days carry forward");
+const mid = pace.pacedBudget({ limitUsd: 30, monthSpentUsd: 10.4, todaySpentUsd: 0.4, daysLeft: 20 });
+assert.ok(Math.abs(mid.dailyUsd - 1) < 1e-9 && Math.abs(mid.dayRatio - 0.4) < 1e-9);
+assert.equal(planTier("operator", mid)?.tier, "sonnet", "within today's share: normal models");
+const last = pace.pacedBudget({ limitUsd: 30, monthSpentUsd: 29, todaySpentUsd: 0, daysLeft: 1 });
+assert.equal(last.dailyUsd, 1, "the last day gets whatever is left");
+const over = pace.pacedBudget({ limitUsd: 30, monthSpentUsd: 31, todaySpentUsd: 0, daysLeft: 5 });
+assert.equal(over.dailyUsd, 0);
+assert.ok(over.ratio > 1 && planTier("operator", over)?.degraded, "month used up: degraded, as before");
+assert.equal(pace.pacedBudget({ limitUsd: Infinity, monthSpentUsd: 3, todaySpentUsd: 3, daysLeft: 9 }).ratio, 0, "no budget (staff tools)");
+const w = pace.budgetWindow("America/Chicago", new Date("2026-10-25T04:30:00Z")); // 11:30pm Oct 24 in Chicago
+assert.equal(w.daysLeft, 8, "Oct 24 → 8 days left including today");
+assert.equal(w.dayStart, "2026-10-24T05:00:00.000Z");
+assert.equal(w.monthStart, "2026-10-01T05:00:00.000Z", "the month starts at midnight in the agent's timezone");
+ok("AI budget pacing: daily allowance = what's left ÷ days left, a busy day moves Migz to cheaper models until tomorrow, quiet days carry forward, the month still caps it, days and months in the agent's timezone");
+
 // Placements: never the Audience Network or Messenger
 const metaAds = await import("@/lib/meta/ads");
 assert.deepEqual(metaAds.placementTargeting([]), { publisher_platforms: ["facebook", "instagram"] }, "automatic = Facebook and Instagram only");

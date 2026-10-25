@@ -74,5 +74,6 @@ export type LiveStats = {
   hours: { hour: number; spendCents: number; impressions: number }[]; // 0-23 in the ad account's timezone, up to now
   ads: { adId: string; name: string; spendCents: number; impressions: number; linkClicks: number }[];
   batch: { spentCents: number; budgetCents: number; day: number; days: number } | null;
-  migz: { todayUsd: number; monthUsd: number; limitUsd: number; callsToday: number };
+  // No dollar amounts: agents never see what Migz's AI costs (staff see it in the admin dashboard)
+  migz: { callsToday: number; pace: "normal" | "saving" | "light" };
 };

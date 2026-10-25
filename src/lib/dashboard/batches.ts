@@ -228,7 +228,7 @@ export async function recommendWithMigz(
   const fallback = { ...recommendOption(input.options, input.focus, input.history), by: "rules" as const };
   if (input.options.length < 2) return fallback;
   try {
-    const budget = await monthlyBudget(agent.id, agent.migz_model_budget_cents ?? 3000);
+    const budget = await monthlyBudget(agent.id, agent.migz_model_budget_cents ?? 3000, agent.timezone);
     const plan = planTier("batch_plan", budget);
     if (!plan) return fallback;
     const { data: learnings } = await supabaseAdmin.from("learnings").select("insight, confidence").eq("agent_id", agent.id).eq("active", true).order("created_at", { ascending: false }).limit(8);

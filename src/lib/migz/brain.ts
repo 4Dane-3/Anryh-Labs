@@ -47,29 +47,17 @@ export async function getBrainLive(agent: Agent, afterId?: number): Promise<Brai
   };
 }
 
-/** Everything else on the page: findings, experiments, learnings, swipe file, scorecards, costs. */
+/** Everything else on the page: findings, experiments, learnings, swipe file, scorecards. No AI costs: agents never see those. */
 export async function getBrainBoard(agent: Agent) {
-  const monthStart = DateTime.now().startOf("month").toUTC().toISO()!;
-  const [findings, experiments, learnings, swipes, calls, snapshot, ads, notebook] = await Promise.all([
+  const [findings, experiments, learnings, swipes, snapshot, ads, notebook] = await Promise.all([
     supabaseAdmin.from("audit_findings").select("check_name, subject, severity, summary, first_seen, last_seen, status").eq("agent_id", agent.id).or(`status.eq.open,resolved_at.gte.${DateTime.now().minus({ days: 3 }).toUTC().toISO()}`).order("last_seen", { ascending: false }).limit(30),
     supabaseAdmin.from("experiments").select("id, hypothesis, lever, success_metric, variants, min_impressions, min_thruplays, status, verdict, winner_label, result, created_at, concluded_at").eq("agent_id", agent.id).order("created_at", { ascending: false }).limit(12),
     supabaseAdmin.from("learnings").select("id, insight, confidence, source, created_at").eq("agent_id", agent.id).eq("active", true).order("created_at", { ascending: false }).limit(24),
     supabaseAdmin.from("swipe_files").select("id, source_url, advertiser, notes, traits, added_by, created_at").or(`agent_id.is.null,agent_id.eq.${agent.id}`).order("created_at", { ascending: false }).limit(12),
-    supabaseAdmin.from("model_calls").select("tier, task, cost_usd, input_tokens, output_tokens, cache_read_tokens").eq("agent_id", agent.id).gte("created_at", monthStart),
     buildSnapshot(agent),
     supabaseAdmin.from("ads").select("meta_ad_id, name, status, adset_id, creatives(kind, hook, traits, script)").eq("agent_id", agent.id).eq("status", "ACTIVE"),
     latestNotebook(agent.id),
   ]);
-
-  const byTier = { haiku: 0, sonnet: 0, opus: 0 } as Record<"haiku" | "sonnet" | "opus", number>;
-  const tokens = { haiku: 0, sonnet: 0, opus: 0 } as Record<"haiku" | "sonnet" | "opus", number>;
-  let advisorCalls = 0;
-  for (const c of calls.data ?? []) {
-    const t = c.tier as "haiku" | "sonnet" | "opus";
-    byTier[t] += Number(c.cost_usd);
-    tokens[t] += c.input_tokens + c.output_tokens + c.cache_read_tokens;
-    if (c.task === "advisor") advisorCalls++;
-  }
 
   // Scorecards: each live ad against its own ad set's average, through the diagnosis ladder
   const scorecards: Scorecard[] = [];
@@ -121,14 +109,6 @@ export async function getBrainBoard(agent: Agent) {
     swipes: swipes.data ?? [],
     scorecards,
     notebook,
-    cost: {
-      month: DateTime.now().toFormat("LLLL"),
-      byTier,
-      tokens,
-      advisorCalls,
-      totalUsd: byTier.haiku + byTier.sonnet + byTier.opus,
-      limitUsd: (agent.migz_model_budget_cents ?? 3000) / 100,
-    },
   };
 }
 

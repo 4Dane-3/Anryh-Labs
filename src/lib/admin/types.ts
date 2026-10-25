@@ -41,6 +41,8 @@ export type AdminAgentRow = {
   instagramId: string | null;
   modelBudgetCents: number;
   modelSpentUsd: number; // this month
+  modelTodayUsd: number; // today, in the agent's timezone
+  modelDailyUsd: number; // today's paced allowance (what's left ÷ days left)
 };
 
 /** A service Migz depends on, shared by every account. */

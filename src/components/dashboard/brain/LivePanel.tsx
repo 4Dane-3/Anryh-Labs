@@ -296,11 +296,14 @@ export function LivePanel({ events, agentId }: { events: BrainEvent[]; agentId: 
           {t ? <Flash value={t.bookedCalls}>{t.bookedCalls}</Flash> : "–"}
         </Tile>
         <Tile
-          label="Migz thinking cost"
-          sub={stats ? `${stats.migz.callsToday} model call${stats.migz.callsToday === 1 ? "" : "s"} today` : null}
+          label="Migz thinking today"
+          sub={
+            stats
+              ? { normal: "model calls · full speed", saving: "model calls · research paused for today", light: "model calls · lighter models until midnight" }[stats.migz.pace]
+              : null
+          }
         >
-          {stats ? <Flash value={stats.migz.monthUsd.toFixed(3)}><Ticker value={stats.migz.monthUsd * 100} format={(c) => `$${(c / 100).toFixed(2)}`} /></Flash> : "–"}
-          {stats && <span className="ml-1 text-[11px] text-fg-faint">this month</span>}
+          {stats ? <Flash value={stats.migz.callsToday}><Ticker value={stats.migz.callsToday} format={int} /></Flash> : "–"}
         </Tile>
       </div>
 

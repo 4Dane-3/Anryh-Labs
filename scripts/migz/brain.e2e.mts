@@ -561,10 +561,16 @@ try {
   const newer = await getBrainLive(agent as never, live.events.at(-3)!.id);
   assert.equal(newer.events.length, 2);
   const board = await getBrainBoard(agent as never);
-  assert.ok(board.cost.byTier.opus > 0 && board.cost.byTier.haiku > 0 && board.cost.advisorCalls >= 3);
+  // Agents never see AI costs: the board carries none (staff read them from model_calls)
+  assert.ok(!("cost" in board) && !JSON.stringify(board).includes("cost_usd"));
+  const { data: costRows } = await db.from("model_calls").select("tier, task, cost_usd").eq("agent_id", AGENT_ID);
+  const tierCost = (t: string) => (costRows ?? []).filter((c) => c.tier === t).reduce((s, c) => s + Number(c.cost_usd), 0);
+  assert.ok(tierCost("opus") > 0 && tierCost("haiku") > 0 && (costRows ?? []).filter((c) => c.task === "advisor").length >= 3);
   assert.ok(board.scorecards.length >= 2 && board.scorecards.some((s) => s.hook_rate !== null));
   assert.ok(board.experiments.some((e) => e.status === "concluded")); assert.ok(board.learnings.length >= 3);
-  ok(`events polled incrementally; cost by tier $${board.cost.totalUsd.toFixed(4)}; ${board.scorecards.length} scorecards; experiments + learnings present`);
+  const liveStats = await (await import("@/lib/migz/live")).getLiveStats(agent as never).catch(() => null);
+  if (liveStats) assert.ok(!/usd/i.test(JSON.stringify(liveStats.migz)), "live stats carry call counts, not dollars");
+  ok(`events polled incrementally; no AI costs on the board; costs by tier logged ($${(tierCost("haiku") + tierCost("sonnet") + tierCost("opus")).toFixed(4)}); ${board.scorecards.length} scorecards; experiments + learnings present`);
 
   await db.from("agents").update({ migz_model_budget_cents: 3000 }).eq("id", AGENT_ID); // back to the normal tiers after step 7
   // ===== 8b =====

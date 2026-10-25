@@ -579,7 +579,7 @@ export async function addSwipe(input: { url: string; advertiser: string; notes: 
     .single();
   if (error || !data) return fail("Couldn't save that example.");
   if (process.env.ANTHROPIC_API_KEY) {
-    const budget = await monthlyBudget(agent.id, agent.migz_model_budget_cents ?? 3000);
+    const budget = await monthlyBudget(agent.id, agent.migz_model_budget_cents ?? 3000, agent.timezone);
     await traitSwipe(data.id, { agentId: agent.id, runId: null, budget, createMessage: defaultCreateMessage }).catch(() => null);
   }
   revalidatePath("/dashboard/brain");

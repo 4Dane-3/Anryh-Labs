@@ -1,4 +1,5 @@
 import "server-only";
+import { budgetWindow, pacedBudget } from "@/lib/migz/budget-pace";
 import { DateTime } from "luxon";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
@@ -13,7 +14,16 @@ import type { AdminAlert, AdminOverview, AdminAgentRow } from "@/lib/admin/types
 
 const RECENT_RESOLVED_DAYS = 3;
 
-async function agentRow(agent: Agent, alerts: AdminAlert[], working: string | null, modelSpentUsd: number): Promise<AdminAgentRow> {
+async function agentRow(agent: Agent, alerts: AdminAlert[], working: string | null, calls: { cost_usd: number; created_at: string }[]): Promise<AdminAgentRow> {
+  const w = budgetWindow(agent.timezone);
+  const monthCalls = calls.filter((c) => c.created_at >= w.monthStart);
+  const modelSpentUsd = monthCalls.reduce((s, c) => s + Number(c.cost_usd), 0);
+  const pace = pacedBudget({
+    limitUsd: (agent.migz_model_budget_cents ?? 3000) / 100,
+    monthSpentUsd: modelSpentUsd,
+    todaySpentUsd: monthCalls.filter((c) => c.created_at >= w.dayStart).reduce((s, c) => s + Number(c.cost_usd), 0),
+    daysLeft: w.daysLeft,
+  });
   const [batch, balance, run, live, liveAds] = await Promise.all([
     getActiveBatch(agent.id),
     getBalanceCents(agent.id),
@@ -49,6 +59,8 @@ async function agentRow(agent: Agent, alerts: AdminAlert[], working: string | nu
     instagramId: agent.meta_instagram_id,
     modelBudgetCents: agent.migz_model_budget_cents ?? 3000,
     modelSpentUsd,
+    modelTodayUsd: pace.todayUsd,
+    modelDailyUsd: pace.dailyUsd,
   };
 }
 
@@ -64,16 +76,17 @@ const SERVICES = [
 
 export async function getAdminOverview(): Promise<AdminOverview> {
   const since = DateTime.now().minus({ days: RECENT_RESOLVED_DAYS }).toUTC().toISO()!;
-  const monthStart = DateTime.now().startOf("month").toUTC().toISO()!;
+  // A day early covers every agent's month start, whatever their timezone
+  const monthStart = DateTime.now().startOf("month").minus({ days: 1 }).toUTC().toISO()!;
   const [{ data: agents }, openRes, recentRes, { data: events }, { data: calls }] = await Promise.all([
     supabaseAdmin.from("agents").select("*").eq("active", true).order("full_name"),
     supabaseAdmin.from("admin_alerts").select("*").is("resolved_at", null).order("first_seen", { ascending: false }).limit(200),
     supabaseAdmin.from("admin_alerts").select("*").not("resolved_at", "is", null).gte("resolved_at", since).order("resolved_at", { ascending: false }).limit(40),
     supabaseAdmin.from("migz_events").select("id, agent_id, step, tier, summary, started_at, finished_at").order("id", { ascending: false }).limit(30),
-    supabaseAdmin.from("model_calls").select("agent_id, cost_usd").gte("created_at", monthStart),
+    supabaseAdmin.from("model_calls").select("agent_id, cost_usd, created_at").gte("created_at", monthStart),
   ]);
-  const spent = new Map<string, number>();
-  for (const c of calls ?? []) if (c.agent_id) spent.set(c.agent_id, (spent.get(c.agent_id) ?? 0) + Number(c.cost_usd));
+  const callsBy = new Map<string, { cost_usd: number; created_at: string }[]>();
+  for (const c of calls ?? []) if (c.agent_id) callsBy.set(c.agent_id, [...(callsBy.get(c.agent_id) ?? []), c]);
   const list = (agents ?? []) as Agent[];
   const names = new Map(list.map((a) => [a.id, { name: a.full_name, slug: a.slug }]));
   const toAlert = (r: Record<string, unknown>): AdminAlert => ({
@@ -98,7 +111,7 @@ export async function getAdminOverview(): Promise<AdminOverview> {
   const working = new Map<string, string>();
   for (const e of events ?? []) if (!e.finished_at && new Date(e.started_at).getTime() > fresh && !working.has(e.agent_id)) working.set(e.agent_id, e.summary);
 
-  const rows = await Promise.all(list.map((a) => agentRow(a, open, working.get(a.id) ?? null, spent.get(a.id) ?? 0)));
+  const rows = await Promise.all(list.map((a) => agentRow(a, open, working.get(a.id) ?? null, callsBy.get(a.id) ?? [])));
   return {
     at: new Date().toISOString(),
     alertsReady: !openRes.error,

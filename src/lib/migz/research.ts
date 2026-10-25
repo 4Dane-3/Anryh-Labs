@@ -112,7 +112,7 @@ export async function researchTick(agent: Agent, createMessage: CreateMessage = 
   const { data: run } = await supabaseAdmin.from("migz_runs").select("status, started_at").eq("agent_id", agent.id).order("started_at", { ascending: false }).limit(1).maybeSingle();
   if (run?.status === "running" && Date.now() - new Date(run.started_at).getTime() < 10 * 60_000) return "review_running";
 
-  const [budget, today] = await Promise.all([monthlyBudget(agent.id, agent.migz_model_budget_cents ?? 3000), spentToday(agent)]);
+  const [budget, today] = await Promise.all([monthlyBudget(agent.id, agent.migz_model_budget_cents ?? 3000, agent.timezone), spentToday(agent)]);
   const plan = planTier("scout", budget); // null near the month's budget: research is the most optional work
   if (!plan) return "budget";
   if (today >= RESEARCH_DAILY_USD) return "daily_cap";
