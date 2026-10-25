@@ -86,7 +86,7 @@ export const MIGZ_TOOLS: Anthropic.Beta.BetaTool[] = [
   tool("resume_ad", "Turn a paused ad back on.", {
     ad_id: { type: "string" },
   }),
-  tool("set_placements", "Set where an ad set's ads appear. An empty list means automatic (Advantage+) placements, usually the best default. Not allowed while learning. Keeping only Facebook or only Instagram needs that platform to book calls clearly cheaper (see results_by_platform_last_14_days); the system checks.", {
+  tool("set_placements", "Set where an ad set's ads appear. An empty list means automatic placements within Facebook and Instagram (never the Audience Network or Messenger), usually the best default. Not allowed while learning. Keeping only Facebook or only Instagram needs that platform to book calls clearly cheaper (see results_by_platform_last_14_days); the system checks.", {
     adset_id: { type: "string" },
     placements: { type: "array", items: { type: "string", enum: PLACEMENTS } },
   }),
