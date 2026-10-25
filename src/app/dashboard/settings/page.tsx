@@ -1,15 +1,16 @@
 import { requireAgent } from "@/lib/auth";
 import { PageHeader } from "@/components/dashboard/ui";
-import { GhostBookingsForm, MigzModeForm, NotificationSettings } from "@/components/dashboard/SettingsForms";
+import { CallButtonForm, GhostBookingsForm, MigzModeForm, NotificationSettings } from "@/components/dashboard/SettingsForms";
 
 export default async function SettingsPage() {
   const agent = await requireAgent();
 
   return (
     <>
-      <PageHeader title="Settings" description="Notifications and your timezone. You sign in with an emailed link, so there is no password to manage." />
+      <PageHeader title="Settings" description="Your booking page options, notifications and your timezone. You sign in with an emailed link, so there is no password to manage." />
       <div className="max-w-2xl space-y-3">
         <MigzModeForm mode={agent.migz_mode} />
+        <CallButtonForm initial={{ on: !!agent.call_button, phone: agent.call_phone ?? null, hoursOnly: agent.call_hours_only !== false }} />
         <GhostBookingsForm on={!!agent.ghost_bookings} />
         <NotificationSettings
           initial={{

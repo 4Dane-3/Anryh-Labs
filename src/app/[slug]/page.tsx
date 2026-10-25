@@ -7,7 +7,8 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import { getAgentBySlug, getIntakeQuestions } from "@/lib/booking/data";
 import { preBookingQuestions } from "@/lib/booking/questions";
 import { BookingWidget } from "@/components/booking/BookingWidget";
-import { AboutAgent, StickyBookBar } from "@/components/booking/PageBits";
+import { AboutAgent, CallNow, StickyBookBar } from "@/components/booking/PageBits";
+import { callButtonShows, displayPhone } from "@/lib/booking/call";
 import { DEFAULT_TITLE } from "@/lib/campaign";
 import { pageFont } from "@/lib/booking/page-fonts";
 
@@ -59,7 +60,7 @@ export default async function AgentPage({ params, searchParams }: Props) {
   // Embedded in the agent's dashboard: show the real page, but booking is switched off
   const preview = query?.preview === "1";
 
-  const [{ data: testimonials }, questions] = await Promise.all([
+  const [{ data: testimonials }, questions, { data: hours }] = await Promise.all([
     supabaseAdmin
       .from("testimonials")
       .select("id, author_name, author_detail, quote, rating")
@@ -67,7 +68,10 @@ export default async function AgentPage({ params, searchParams }: Props) {
       .eq("published", true)
       .order("sort"),
     getIntakeQuestions(agent.id),
+    supabaseAdmin.from("availability_rules").select("weekday, start_time, end_time").eq("agent_id", agent.id),
   ]);
+  // "Call now", when the agent turned it on (and, if they chose, only while they're open)
+  const call = callButtonShows(agent, hours ?? []) && agent.call_phone ? { phone: agent.call_phone, firstName: agent.full_name.split(" ")[0] } : null;
   const requiredSteps = agent.required_intake_steps ?? [];
 
   const firstName = agent.full_name.split(" ")[0];
@@ -137,6 +141,7 @@ export default async function AgentPage({ params, searchParams }: Props) {
           <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 sm:p-6">
             <h2 className="text-lg font-bold sm:text-xl">Book your free consultation with {firstName}</h2>
             <p className="mb-4 mt-0.5 text-sm text-slate-500">Pick a time. It takes under a minute.</p>
+            {call && <CallNow phone={call.phone} display={displayPhone(call.phone)} firstName={call.firstName} preview={preview} />}
             <BookingWidget
               slug={agent.slug}
               firstName={firstName}
@@ -188,7 +193,7 @@ export default async function AgentPage({ params, searchParams }: Props) {
         </section>
       </main>
 
-      <StickyBookBar preview={preview} />
+      <StickyBookBar preview={preview} call={call} />
 
       <footer className="mx-auto max-w-5xl px-4 pb-28 text-xs lg:pb-10 leading-relaxed text-slate-400 sm:px-6">
         <p>

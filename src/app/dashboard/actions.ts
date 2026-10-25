@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { isAnryhAdmin, requireAgent } from "@/lib/auth";
+import { usPhone } from "@/lib/booking/call";
 import { integrations, migzReadyFor } from "@/lib/integrations";
 import { batchPacing, buildEvalContext, retargetNow, runMigz } from "@/lib/migz/agent";
 import { applyPayload } from "@/lib/migz/executor";
@@ -520,6 +521,22 @@ export async function setGhostBookings(on: boolean): Promise<Result> {
   const agent = await requireAgent();
   const { error } = await supabaseAdmin.from("agents").update({ ghost_bookings: !!on }).eq("id", agent.id);
   if (error) return fail(error.code === "42703" ? "Ghost bookings aren't set up yet." : "Couldn't save that.");
+  revalidatePath("/dashboard/settings");
+  revalidatePath(`/${agent.slug}`);
+  return { ok: true };
+}
+
+/** "Call now" on the booking page: on/off, the number it dials, and whether it shows only during working hours. */
+export async function setCallButton(input: { on: boolean; phone: string; hoursOnly: boolean }): Promise<Result> {
+  const agent = await requireAgent();
+  const phone = input.phone.trim() ? usPhone(input.phone) : null;
+  if (input.phone.trim() && !phone) return fail("Enter a 10-digit US phone number.");
+  if (input.on && !phone) return fail("Add the number people should call first.");
+  const { error } = await supabaseAdmin
+    .from("agents")
+    .update({ call_button: !!input.on, call_phone: phone, call_hours_only: !!input.hoursOnly })
+    .eq("id", agent.id);
+  if (error) return fail(error.code === "42703" ? "The call button isn't set up yet." : "Couldn't save that.");
   revalidatePath("/dashboard/settings");
   revalidatePath(`/${agent.slug}`);
   return { ok: true };

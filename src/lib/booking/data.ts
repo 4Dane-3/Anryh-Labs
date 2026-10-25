@@ -52,6 +52,9 @@ export type Agent = {
   stripe_customer_id?: string | null; // saved from the first paid deposit
   page_font?: string; // booking page font key (see lib/booking/page-fonts.ts); missing before its migration
   ghost_bookings?: boolean; // hold back some open times so the calendar looks busy (missing before its migration)
+  call_button?: boolean; // "Call now" on the booking page (missing before its migration)
+  call_phone?: string | null; // E.164, the number that button dials
+  call_hours_only?: boolean; // show it only during working hours
 };
 
 export type Booking = {
