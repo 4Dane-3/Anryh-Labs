@@ -18,6 +18,7 @@ export const PAGE_EVENTS = [
   "sticky_click",
   "bio_expand",
   "leave",
+  "call_click",
 ] as const;
 export type PageEvent = (typeof PAGE_EVENTS)[number];
 
@@ -98,8 +99,10 @@ export function track(name: PageEvent, meta?: Queued["meta"]) {
   if (!slug) return;
   queue.push({ name, meta });
   if (timer) clearTimeout(timer);
-  // Batches quick bursts (picking a day then a time); "booked" goes out at once before the page changes
-  if (name === "booked" || name === "submit") flush();
+  // Batches quick bursts (picking a day then a time); "booked" goes out at once before the page changes,
+  // and a call tap by beacon, since the phone's dialer takes over straight away
+  if (name === "call_click") flush(true);
+  else if (name === "booked" || name === "submit") flush();
   else timer = setTimeout(() => flush(), 1500);
 }
 

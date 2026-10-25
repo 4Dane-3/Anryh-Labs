@@ -697,6 +697,28 @@ assert.equal(rc.selfReferral({ id: "b", email: "b@x.com", stripe_customer_id: nu
 ok("affiliates: 1% of each deposit, refunds and chargebacks take back their share (agent loses only the ad money), join form checks each field, states by code or name, unique page addresses that avoid site paths, no self-referral by id, email or card");
 
 
+// Call now button: US numbers, and showing only while the agent is open
+const call = await import("@/lib/booking/call");
+assert.deepEqual(["(312) 555-0100", "312.555.0100", "+1 312 555 0100", "13125550100", "3125550100"].map(call.usPhone), Array(5).fill("+13125550100"));
+assert.deepEqual(["555-0100", "0125550100", "1125550100", "44 20 7946 0958", ""].map(call.usPhone), [null, null, null, null, null], "too short, bad area code, not US");
+assert.equal(call.displayPhone("+13125550100"), "(312) 555-0100");
+const rules = [{ weekday: 1, start_time: "09:00:00", end_time: "17:00:00" }]; // Mondays 9-5
+const monAt = (h: number, m = 0) => new Date(`2026-10-26T${String(h + 5).padStart(2, "0")}:${String(m).padStart(2, "0")}:00Z`); // Chicago is UTC-5 on Oct 26
+assert.equal(call.withinHours(rules, "America/Chicago", monAt(9)), true, "opens at 9");
+assert.equal(call.withinHours(rules, "America/Chicago", monAt(16, 59)), true);
+assert.equal(call.withinHours(rules, "America/Chicago", monAt(17)), false, "closed at 5");
+assert.equal(call.withinHours(rules, "America/Chicago", monAt(8, 59)), false);
+assert.equal(call.withinHours(rules, "America/New_York", monAt(9)), true, "10am in New York");
+assert.equal(call.withinHours(rules, "America/Chicago", new Date("2026-10-27T15:00:00Z")), false, "Tuesday: no hours");
+const ag = { call_button: true, call_phone: "+13125550100", call_hours_only: true, timezone: "America/Chicago" };
+assert.equal(call.callButtonShows(ag, rules, monAt(10)), true);
+assert.equal(call.callButtonShows(ag, rules, monAt(20)), false, "hidden after hours");
+assert.equal(call.callButtonShows({ ...ag, call_hours_only: false }, rules, monAt(20)), true, "always on");
+assert.equal(call.callButtonShows({ ...ag, call_button: false }, rules, monAt(10)), false);
+assert.equal(call.callButtonShows({ ...ag, call_phone: null }, rules, monAt(10)), false, "no number, no button");
+ok("call now: US numbers in any format, bad ones refused, shows only during working hours in the agent's timezone (unless always on), never without a number");
+
+
 // Nightly summary: 9pm in every timezone, the first-week phase, and thoughts carried night to night
 const { nightlyDue, phaseOf, mergeThoughts, carryOver, NIGHTLY_HOUR } = await import("@/lib/migz/nightly-core");
 const { DateTime: LuxonDT } = await import("luxon");

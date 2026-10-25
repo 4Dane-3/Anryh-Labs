@@ -26,7 +26,7 @@ export type PageAnalytics = {
   scroll: { depth: number; pct: number | null }[];
   sources: { source: string; sessions: number; booked: number }[];
   daily: { date: string; sessions: number; booked: number }[];
-  extras: { stickyClicks: number; bioExpands: number; errors: number };
+  extras: { stickyClicks: number; bioExpands: number; errors: number; callVisits: number; callTaps: number };
   recent: { at: string; source: string; device: string; furthest: string; seconds: number | null; booked: boolean }[];
 };
 
@@ -120,7 +120,14 @@ export function pageAnalytics(rows: EventRow[], days: number, timezone: string, 
     scroll,
     sources: [...sourceMap].map(([source, v]) => ({ source, ...v })).sort((a, b) => b.sessions - a.sessions),
     daily,
-    extras: { stickyClicks: count("sticky_click"), bioExpands: count("bio_expand"), errors: count("booking_error") },
+    extras: {
+      stickyClicks: count("sticky_click"),
+      bioExpands: count("bio_expand"),
+      errors: count("booking_error"),
+      // "Call now": visits that tapped it (a tap opens the dialer; whether the call connected isn't known)
+      callVisits: visits.filter((ev) => has(ev, ["call_click"])).length,
+      callTaps: count("call_click"),
+    },
     recent: visits
       .slice()
       .sort((a, b) => b[0].created_at.localeCompare(a[0].created_at))

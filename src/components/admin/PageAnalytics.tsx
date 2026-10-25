@@ -155,13 +155,14 @@ export function PageAnalyticsPanel({ agents }: { agents: { id: string; name: str
         <EmptyState title="No visits in this period">Visits show here as people open {agent?.name ?? "this agent"}&apos;s booking page (preview views from the dashboard don&apos;t count).</EmptyState>
       ) : (
         <div className={cn("space-y-6 p-5", loading && "opacity-80")}>
-          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 lg:grid-cols-7">
             <Tile label="Visits" value={a.sessions} sub={`last ${a.days} days`} />
             <Tile label="Booked" value={a.booked} sub={`${pct(a.conversion, 1)} of visits`} />
             <Tile label="Saw the times" value={pct(a.funnel[1].pct)} sub="booking card came into view" />
             <Tile label="Time on page" value={a.medianSeconds === null ? "–" : `${a.medianSeconds}s`} sub="median" />
             <Tile label="On a phone" value={pct(a.mobileShare)} sub="of visits" />
             <Tile label="Used Soonest" value={pct(a.soonestShare)} sub="of those who picked a time" />
+            <Tile label="Tapped Call" value={a.extras.callVisits} sub={a.sessions ? `${pct(a.extras.callVisits / a.sessions, 1)} of visits` : "no visits"} />
           </div>
 
           {a.biggestDrop && (
@@ -208,7 +209,7 @@ export function PageAnalyticsPanel({ agents }: { agents: { id: string; name: str
                 </tbody>
               </table>
               <p className="mt-3 font-mono text-[11px] text-fg-muted">
-                {a.extras.stickyClicks} sticky-bar taps · {a.extras.bioExpands} bio &quot;Read more&quot; · {a.extras.errors} booking errors
+                {a.extras.stickyClicks} sticky-bar taps · {a.extras.callTaps} call taps · {a.extras.bioExpands} bio &quot;Read more&quot; · {a.extras.errors} booking errors
               </p>
             </div>
             <div className="min-w-0">
