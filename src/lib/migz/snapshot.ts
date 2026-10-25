@@ -355,7 +355,7 @@ export async function buildSnapshot(agent: Agent) {
           daily_budget: `$${(s.daily_budget_cents / 100).toFixed(2)}`,
           meta_learning_status: s.learning_status ?? "unknown",
           last_changed: DateTime.fromISO(s.last_edited_at).toRelative({ base: DateTime.now() }),
-          placements: s.placements.length ? s.placements : "automatic (Advantage+)",
+          placements: s.placements.length ? s.placements : "automatic (Facebook and Instagram only)",
           ad_set_average_last_14_days: adsetAverage(s.id),
           results_by_platform_last_14_days: presentPlatforms(platformsBySet.get(s.id) ?? emptyPlatformStats(), untrackedBySet.get(s.id) ?? 0),
           results_by_placement_last_14_days: [...(placementsBySet.get(s.id) ?? new Map<string, Totals>())]

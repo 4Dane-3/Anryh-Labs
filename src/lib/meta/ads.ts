@@ -31,9 +31,17 @@ const PLACEMENT_POSITIONS: Record<Placement, { platform: "facebook" | "instagram
   instagram_stories: { platform: "instagram", position: "story" },
 };
 
-/** Targeting fields for manual placements; an empty list means Advantage+ (automatic) placements. */
-function placementTargeting(placements: Placement[]) {
-  if (!placements.length) return {};
+// Ads only ever run on Facebook and Instagram. Meta's fully automatic placements also include the
+// Audience Network (ads inside other apps and games) and Messenger: there, clicks are cheap but mostly
+// accidental or paid for (rewarded video), so they eat the budget and never book. Never use them.
+export const PLATFORMS = ["facebook", "instagram"] as const;
+
+/**
+ * Targeting fields for placements. An empty list means automatic placements, but only within
+ * Facebook and Instagram: Meta picks the positions there, never the Audience Network or Messenger.
+ */
+export function placementTargeting(placements: Placement[]) {
+  if (!placements.length) return { publisher_platforms: [...PLATFORMS] };
   const fb = placements.filter((p) => PLACEMENT_POSITIONS[p].platform === "facebook");
   const ig = placements.filter((p) => PLACEMENT_POSITIONS[p].platform === "instagram");
   return {
@@ -156,7 +164,31 @@ export async function setPlacements(adsetId: string, placements: Placement[]) {
   delete targeting.publisher_platforms;
   delete targeting.facebook_positions;
   delete targeting.instagram_positions;
+  delete targeting.audience_network_positions;
+  delete targeting.messenger_positions;
   await graph("POST", adsetId, { targeting: { ...targeting, ...placementTargeting(placements) } });
+}
+
+/** True when an ad set's targeting can deliver outside Facebook and Instagram (no platform list counts). */
+export function reachesOtherApps(targeting: Record<string, unknown> | undefined) {
+  const platforms = targeting?.publisher_platforms;
+  if (!Array.isArray(platforms) || !platforms.length) return true;
+  return platforms.some((p) => !(PLATFORMS as readonly string[]).includes(String(p)));
+}
+
+/** Takes an ad set off the Audience Network and Messenger, keeping its Facebook and Instagram positions. */
+export async function keepToFacebookAndInstagram(adsetId: string) {
+  const current = await getAdSet(adsetId);
+  if (!reachesOtherApps(current.targeting)) return false;
+  const targeting = { ...(current.targeting ?? {}) };
+  const kept = Array.isArray(targeting.publisher_platforms)
+    ? (targeting.publisher_platforms as string[]).filter((p) => (PLATFORMS as readonly string[]).includes(p))
+    : [];
+  delete targeting.audience_network_positions;
+  delete targeting.messenger_positions;
+  targeting.publisher_platforms = kept.length ? kept : [...PLATFORMS];
+  await graph("POST", adsetId, { targeting });
+  return true;
 }
 
 /** Re-targets an ad set to a set of states, keeping the rest of its targeting (placements etc.). */
