@@ -83,6 +83,10 @@ export async function syncAgent(agent: Agent) {
       try {
         await keepToFacebookAndInstagram(adset.meta_adset_id);
         await supabaseAdmin.from("ad_sets").update({ last_edited_at: new Date().toISOString() }).eq("id", adset.id);
+        // Results with those placements aren't comparable: count from tomorrow, the first full day without them
+        const tomorrow = DateTime.now().setZone(agent.timezone).plus({ days: 1 }).toISODate()!;
+        if (!agent.results_from || agent.results_from < tomorrow)
+          await supabaseAdmin.from("agents").update({ results_from: tomorrow }).eq("id", agent.id);
       } catch (e) {
         console.error("couldn't take an ad set off the Audience Network", adset.meta_adset_id, e instanceof Error ? e.message : e);
       }

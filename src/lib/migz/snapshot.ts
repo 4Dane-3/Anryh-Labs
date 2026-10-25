@@ -21,8 +21,11 @@ import { emptyPlatformStats, platformOf, PLATFORMS, strongerPlatform, type Platf
  */
 export async function buildSnapshot(agent: Agent) {
   const today = DateTime.now().setZone(agent.timezone).startOf("day");
-  const since14 = today.minus({ days: LOOKBACK_DAYS - 1 }).toISODate()!;
-  const since3 = today.minus({ days: 2 }).toISODate()!;
+  // Results before results_from aren't comparable (e.g. Audience Network clicks before placements were
+  // fixed), so neither window reaches back past it
+  const floor = (d: string) => (agent.results_from && agent.results_from > d ? agent.results_from : d);
+  const since14 = floor(today.minus({ days: LOOKBACK_DAYS - 1 }).toISODate()!);
+  const since3 = floor(today.minus({ days: 2 }).toISODate()!);
 
   const [campaigns, adsets, ads, insights, bookings, library, jobs, actions, balance, placementRows, visitRows, batch] = await Promise.all([
     // Campaigns a batch retired are paused and out of play: they don't count toward budgets or reviews
@@ -257,9 +260,12 @@ export async function buildSnapshot(agent: Agent) {
     beingMadeByFormat[f] = (beingMadeByFormat[f] ?? 0) + 1;
   }
 
-  const revisionsFrom = agent.campaign_started_on
-    ? DateTime.fromISO(agent.campaign_started_on, { zone: agent.timezone }).plus({ days: REVISE_AFTER_DAYS }).toISODate()!
+  // The first week collects results: from the campaign's start, or from results_from when the results
+  // had to start over (a fresh week of comparable data before anything is revised)
+  const collectFrom = agent.campaign_started_on
+    ? agent.results_from && agent.results_from > agent.campaign_started_on ? agent.results_from : agent.campaign_started_on
     : null;
+  const revisionsFrom = collectFrom ? DateTime.fromISO(collectFrom, { zone: agent.timezone }).plus({ days: REVISE_AFTER_DAYS }).toISODate()! : null;
   const adsetsByTopic = new Map<string, string[]>();
   for (const c of campaigns.data ?? []) {
     if (!c.topic) continue;
@@ -307,6 +313,12 @@ export async function buildSnapshot(agent: Agent) {
         : "no active batch",
       campaign: {
         started_on: agent.campaign_started_on ?? "not started",
+        ...(agent.results_from && agent.campaign_started_on && agent.results_from > agent.campaign_started_on
+          ? {
+              results_counted_from: agent.results_from,
+              results_note: `Results start over from ${agent.results_from}: before it the ads also ran on the Audience Network (in-app placements with mostly accidental clicks), which restarted Meta's learning when it was turned off. Every number here is from ${agent.results_from} on. Don't rely on earlier conclusions about which ads or formats do best; re-check them on these numbers.`,
+            }
+          : {}),
         runs_until: agent.campaign_ends_on ?? (agent.campaign_days === 0 ? "ongoing (no end date)" : "no end date set"),
         days_left: daysLeft(agent.campaign_ends_on, agent.timezone),
         // The plan the agent was shown: results first, then revisions, then check they worked
