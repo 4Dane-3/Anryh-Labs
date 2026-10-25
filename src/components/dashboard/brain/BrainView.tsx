@@ -27,7 +27,6 @@ type Board = {
   swipes: { id: string; source_url: string | null; advertiser: string | null; notes: string | null; traits: { angle?: string; hook_type?: string; compliance_risk?: string } | null; added_by: string; created_at: string }[];
   scorecards: Scorecard[];
   notebook: { date: string; phase: Phase; headline: string; thoughts: Thought[]; sentToSlack: boolean } | null;
-  cost: { month: string; byTier: Record<"haiku" | "sonnet" | "opus", number>; tokens: Record<"haiku" | "sonnet" | "opus", number>; advisorCalls: number; totalUsd: number; limitUsd: number };
 };
 
 const pct = (v: number | null, d = 1) => (v === null ? "–" : `${(v * 100).toFixed(d)}%`);
