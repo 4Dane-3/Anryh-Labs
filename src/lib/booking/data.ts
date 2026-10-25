@@ -55,6 +55,7 @@ export type Agent = {
   call_button?: boolean; // "Call now" on the booking page (missing before its migration)
   call_phone?: string | null; // E.164, the number that button dials
   call_hours_only?: boolean; // show it only during working hours
+  results_from?: string | null; // results before this date aren't comparable (placements changed); missing before its migration
 };
 
 export type Booking = {
