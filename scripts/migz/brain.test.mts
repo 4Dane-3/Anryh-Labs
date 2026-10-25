@@ -745,6 +745,20 @@ assert.equal(w.dayStart, "2026-10-24T05:00:00.000Z");
 assert.equal(w.monthStart, "2026-10-01T05:00:00.000Z", "the month starts at midnight in the agent's timezone");
 ok("AI budget pacing: daily allowance = what's left ÷ days left, a busy day moves Migz to cheaper models until tomorrow, quiet days carry forward, the month still caps it, days and months in the agent's timezone");
 
+
+// Auditor pacing: expected spend counts from when the ads started, not the 1st of the month
+const { pacingExpectation } = await import("@/lib/migz/team/auditor");
+const auditAt = new Date("2026-10-25T01:30:00Z"); // 8:30pm Oct 24 in Chicago
+const miguel = pacingExpectation({ dailyCents: 2000, startedOn: "2026-10-22", timezone: "America/Chicago", now: auditAt });
+assert.ok(Math.abs(miguel.days - (2 + 20.5 / 24)) < 1e-6, "started Oct 22: 2.85 days, not 24");
+assert.equal(miguel.expected, 5708, "$20/day × 2.85 days ≈ $57, so $53 spent is on pace");
+assert.ok(5324 >= miguel.expected * 0.6, "Miguel's real $53.24 isn't under-delivering");
+const fullMonth = pacingExpectation({ dailyCents: 2000, startedOn: "2026-09-10", timezone: "America/Chicago", now: auditAt });
+assert.ok(Math.abs(fullMonth.days - (23 + 20.5 / 24)) < 1e-6, "started last month: counted from Oct 1");
+assert.equal(pacingExpectation({ dailyCents: 2000, startedOn: null, timezone: "America/Chicago", now: auditAt }).days, fullMonth.days, "unknown start: from the 1st");
+assert.equal(pacingExpectation({ dailyCents: 2000, startedOn: "2026-10-30", timezone: "America/Chicago", now: auditAt }).expected, 0, "not started yet: nothing expected");
+ok("auditor pacing: expected spend = daily budget × days since the ads started (or the 1st), up to now, so a new account isn't flagged as under-delivering");
+
 // Placements: never the Audience Network or Messenger
 const metaAds = await import("@/lib/meta/ads");
 assert.deepEqual(metaAds.placementTargeting([]), { publisher_platforms: ["facebook", "instagram"] }, "automatic = Facebook and Instagram only");

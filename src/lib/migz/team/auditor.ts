@@ -90,15 +90,15 @@ export async function runChecks(agent: Agent, snapshot: Snapshot): Promise<RawFi
   else if (metas > ours * 1.5 + 1)
     out.push({ check: "tracking", subject: "dedupe", severity: "warn", facts: `Meta counted ${metas} Schedule events against ${ours} real bookings in 7 days: pixel and CAPI events may not be deduplicated.`, evidence: { our_bookings: ours, meta_schedule_events: metas } });
 
-  // 5. Pacing against the month (expected = daily cap x days so far)
-  const day = DateTime.now().setZone(agent.timezone).day;
+  // 5. Pacing: spend so far this month against the daily budget, counted from when the ads started
   const spent = (monthSpend ?? []).reduce((s, r) => s + r.spend_cents, 0);
-  const expected = agent.daily_budget_cents * day;
+  const { days, expected } = pacingExpectation({ dailyCents: agent.daily_budget_cents, startedOn: agent.campaign_started_on ?? null, timezone: agent.timezone });
+  const since = days < DateTime.now().setZone(agent.timezone).day ? ` since the ads started (${days.toFixed(1)} days)` : " this month";
   const liveSets = snapshot.guardAdsets.filter((a) => a.status === "ACTIVE");
-  if (expected > 0 && spent > expected * 1.1)
-    out.push({ check: "pacing", subject: "month", severity: "warn", facts: `Spent $${(spent / 100).toFixed(2)} this month vs $${(expected / 100).toFixed(2)} planned (${Math.round((spent / expected) * 100)}%).`, evidence: { spent_cents: spent, expected_cents: expected } });
-  else if (liveSets.length && day > 3 && expected > 0 && spent < expected * 0.6)
-    out.push({ check: "pacing", subject: "month", severity: "warn", facts: `Only $${(spent / 100).toFixed(2)} of $${(expected / 100).toFixed(2)} planned has spent this month (${Math.round((spent / expected) * 100)}%): ads are under-delivering.`, evidence: { spent_cents: spent, expected_cents: expected } });
+  if (expected > 0 && days >= 1 && spent > expected * 1.1)
+    out.push({ check: "pacing", subject: "month", severity: "warn", facts: `Spent $${(spent / 100).toFixed(2)}${since} vs $${(expected / 100).toFixed(2)} planned (${Math.round((spent / expected) * 100)}%).`, evidence: { spent_cents: spent, expected_cents: expected, days: Math.round(days * 10) / 10 } });
+  else if (liveSets.length && days >= 3 && expected > 0 && spent < expected * 0.6)
+    out.push({ check: "pacing", subject: "month", severity: "warn", facts: `Only $${(spent / 100).toFixed(2)} of $${(expected / 100).toFixed(2)} planned has spent${since} (${Math.round((spent / expected) * 100)}%): ads are under-delivering.`, evidence: { spent_cents: spent, expected_cents: expected, days: Math.round(days * 10) / 10 } });
 
   // 6. Learning phase stuck or limited
   for (const s of snapshot.guardAdsets) {
@@ -172,6 +172,21 @@ const RANK: Record<Severity, number> = { critical: 0, warn: 1, info: 2 };
 const step = (s: Severity, to: Severity) => (Math.abs(RANK[s] - RANK[to]) <= 1 ? to : s);
 
 /**
+ * How much the ads should have spent by now this month: the daily budget times the days they've been
+ * running, counted from the later of the 1st of the month and the day the ads started, up to now.
+ */
+export function pacingExpectation(input: { dailyCents: number; startedOn: string | null; timezone: string; now?: Date }) {
+  const now = DateTime.fromJSDate(input.now ?? new Date()).setZone(input.timezone);
+  const monthStart = now.startOf("month");
+  const started = input.startedOn ? DateTime.fromISO(input.startedOn, { zone: input.timezone }).startOf("day") : monthStart;
+  const from = started > monthStart ? started : monthStart;
+  const days = Math.max(0, now.diff(from, "days").days);
+  return { days, expected: Math.round(input.dailyCents * days) };
+}
+
+const sameEvidence = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+
+/**
  * Runs the checks, has Haiku word them (only when the set of findings changed since last time), and
  * syncs audit_findings. Returns the open findings and whether anything new and serious appeared.
  */
@@ -181,7 +196,7 @@ export async function audit(agent: Agent, snapshot: Snapshot, ctx: { runId: stri
 
   const { data: existing } = await supabaseAdmin
     .from("audit_findings")
-    .select("check_name, subject, severity, summary")
+    .select("check_name, subject, severity, summary, evidence")
     .eq("agent_id", agent.id)
     .eq("status", "open")
     // Only the auditor's own checks: routines file and resolve theirs (fatigue, spend anomalies)
@@ -222,7 +237,8 @@ export async function audit(agent: Agent, snapshot: Snapshot, ctx: { runId: stri
     return {
       ...f,
       severity: w ? step(f.severity, w.severity) : (old?.severity as Severity) ?? f.severity,
-      summary: w?.summary ?? old?.summary ?? f.facts,
+      // Keep the last wording only while its numbers still hold; otherwise the plain facts, which are current
+      summary: w?.summary ?? (old && sameEvidence(old.evidence, f.evidence) ? old.summary : f.facts),
       isNew: !old,
     };
   });
