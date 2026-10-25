@@ -25,7 +25,7 @@ export async function resolveAlert(id: number): Promise<Result> {
   return { ok: true };
 }
 
-/** The monthly AI budget for one agent. Over it, Migz moves work to cheaper models instead of stopping. */
+/** The monthly AI budget for one agent, paced into a daily allowance. Over it, Migz moves work to cheaper models instead of stopping. */
 export async function setAgentModelBudget(agentId: string, cents: number): Promise<Result> {
   if (!(await staffEmail())) return { ok: false, error: "Staff only." };
   if (!Number.isInteger(cents) || cents < 0 || cents > 100_000) return { ok: false, error: "Enter a budget between $0 and $1,000." };

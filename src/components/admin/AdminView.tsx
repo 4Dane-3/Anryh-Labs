@@ -297,7 +297,7 @@ function BudgetEditor({ agent }: { agent: AdminAgentRow }) {
       <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/[0.07]">
         <div className={cn("h-full rounded-full", used >= 1 ? "bg-bad" : used >= 0.8 ? "bg-brand" : "bg-good")} style={{ width: `${used * 100}%` }} />
       </div>
-      <p className="mt-1 font-mono text-[11px] text-fg-muted">${agent.modelSpentUsd.toFixed(2)} used this month of ${budget.toFixed(2)}. Over it, Migz moves work to cheaper models instead of stopping.</p>
+      <p className="mt-1 font-mono text-[11px] text-fg-muted">${agent.modelSpentUsd.toFixed(2)} used this month of ${budget.toFixed(2)} · today ${agent.modelTodayUsd.toFixed(2)} of a ${agent.modelDailyUsd.toFixed(2)} daily allowance (what&apos;s left ÷ days left, so it lasts the month). Over either, Migz moves work to cheaper models instead of stopping.</p>
     </div>
   );
 }

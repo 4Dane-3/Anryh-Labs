@@ -3,10 +3,11 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { BetaMessage, MessageCreateParamsNonStreaming } from "@anthropic-ai/sdk/resources/beta/messages/messages";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { costUsd, MODELS, supportsFallbacks, tierOf, WEB_SEARCH_USD_PER_SEARCH, type ModelTier, type TokenUsage } from "@/lib/migz/models";
+import { budgetWindow, pacedBudget, type Budget } from "@/lib/migz/budget-pace";
 
-// Every model call goes through here: the task decides the tier, the agent's monthly model budget can
-// push work to a cheaper tier, and each call (and each advisor consultation inside it) is logged with
-// tokens, cost and latency.
+// Every model call goes through here: the task decides the tier, the agent's model budget (monthly,
+// paced into a daily allowance, see budget-pace.ts) can push work to a cheaper tier, and each call (and
+// each advisor consultation inside it) is logged with tokens, cost and latency.
 
 export type CreateMessage = (params: MessageCreateParamsNonStreaming) => Promise<BetaMessage>;
 
@@ -39,29 +40,33 @@ const TASK_TIER: Record<Task, ModelTier> = {
   nightly: "sonnet",
 };
 
-export type Budget = { limitUsd: number; spentUsd: number; ratio: number };
+export type { Budget };
 
-export async function monthlyBudget(agentId: string | null, limitCents: number): Promise<Budget> {
-  if (!agentId) return { limitUsd: Infinity, spentUsd: 0, ratio: 0 };
-  const monthStart = new Date();
-  monthStart.setUTCDate(1);
-  monthStart.setUTCHours(0, 0, 0, 0);
+/** This month's model spend for an agent, and today's paced allowance, in the agent's own timezone. */
+export async function monthlyBudget(agentId: string | null, limitCents: number, timezone = "UTC"): Promise<Budget> {
+  if (!agentId) return pacedBudget({ limitUsd: Infinity, monthSpentUsd: 0, todaySpentUsd: 0, daysLeft: 1 });
+  const w = budgetWindow(timezone);
   const { data } = await supabaseAdmin
     .from("model_calls")
-    .select("cost_usd")
+    .select("cost_usd, created_at")
     .eq("agent_id", agentId)
-    .gte("created_at", monthStart.toISOString());
-  const spentUsd = (data ?? []).reduce((s, r) => s + Number(r.cost_usd), 0);
-  const limitUsd = limitCents / 100;
-  return { limitUsd, spentUsd, ratio: limitUsd > 0 ? spentUsd / limitUsd : spentUsd > 0 ? Infinity : 0 };
+    .gte("created_at", w.monthStart);
+  let month = 0;
+  let today = 0;
+  for (const r of data ?? []) {
+    month += Number(r.cost_usd);
+    if (r.created_at >= w.dayStart) today += Number(r.cost_usd);
+  }
+  return pacedBudget({ limitUsd: limitCents / 100, monthSpentUsd: month, todaySpentUsd: today, daysLeft: w.daysLeft });
 }
 
 /**
- * The tier a task runs on given this month's model spend. Degrades instead of failing:
- *  - at 80% of the budget the market scout and the live monitor's notes stop (the most optional work);
+ * The tier a task runs on given the model spend, against whichever is tighter: today's allowance or
+ * the month's budget. Degrades instead of failing:
+ *  - at 80% the market scout and the live monitor's notes stop (the most optional work);
  *  - at 100%, drafting and the review itself move from Sonnet to Haiku, and the memo from Opus to
- *    Sonnet. The Opus advisor check on spend-affecting actions is never removed (it rides on the
- *    operator call as the advisor tool, whichever executor runs it).
+ *    Sonnet, until the next day (or month). The Opus advisor check on spend-affecting actions is never
+ *    removed (it rides on the operator call as the advisor tool, whichever executor runs it).
  * Returns null when the task should be skipped.
  */
 export function planTier(task: Task, budget: Budget): { tier: ModelTier; degraded: boolean } | null {

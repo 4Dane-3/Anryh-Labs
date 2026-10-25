@@ -53,7 +53,7 @@ export async function getLiveStats(agent: Agent, opts: { fresh?: boolean; date?:
     supabaseAdmin.from("ad_sets").select("daily_budget_cents, ad_campaigns!inner(retired_at)").eq("agent_id", agent.id).eq("status", "ACTIVE").is("ad_campaigns.retired_at", null),
     supabaseAdmin.from("bookings").select("attribution").eq("agent_id", agent.id).gte("created_at", dayStart.toUTC().toISO()!).lt("created_at", dayStart.plus({ days: 1 }).toUTC().toISO()!),
     supabaseAdmin.from("model_calls").select("cost_usd, created_at").eq("agent_id", agent.id).gte("created_at", monthStart),
-    monthlyBudget(agent.id, agent.migz_model_budget_cents ?? 3000),
+    monthlyBudget(agent.id, agent.migz_model_budget_cents ?? 3000, agent.timezone),
     getActiveBatch(agent.id),
     supabaseAdmin.from("ad_metrics_daily").select("spend_cents").eq("agent_id", agent.id).eq("date", dayStart.toISODate()!).maybeSingle(),
   ]);
@@ -102,6 +102,7 @@ export async function getLiveStats(agent: Agent, opts: { fresh?: boolean; date?:
       todayUsd: callsToday.reduce((s, c) => s + Number(c.cost_usd), 0),
       monthUsd: budget.spentUsd,
       limitUsd: budget.limitUsd,
+      dailyUsd: budget.dailyUsd,
       callsToday: callsToday.length,
     },
   };
@@ -202,11 +203,11 @@ async function pulse(agent: Agent, createMessage: CreateMessage) {
   ].filter(Boolean);
   await recalling({ summary: `Recalled ${recalled.join(", ")}`, evidence: { kind: PULSE_KIND } });
 
-  // 3. Sonnet: a short note (skipped near the month's model budget; the numbers above still update)
-  const budget = await monthlyBudget(agent.id, agent.migz_model_budget_cents ?? 3000);
+  // 3. Sonnet: a short note (skipped near today's share of the model budget; the numbers above still update)
+  const budget = await monthlyBudget(agent.id, agent.migz_model_budget_cents ?? 3000, agent.timezone);
   const plan = planTier("watch", budget);
   if (!plan) {
-    await emit({ ...base, step: "watching", tier: "code", summary: "Sonnet is resting to save this month's model budget; Migz keeps reading the numbers", evidence: { kind: PULSE_KIND, today: t } });
+    await emit({ ...base, step: "watching", tier: "code", summary: "Sonnet is resting to keep today within its share of the month's AI budget; Migz keeps reading the numbers", evidence: { kind: PULSE_KIND, today: t } });
     return "pulsed";
   }
   const thinking = await begin({ ...base, step: "watching", tier: plan.tier, summary: "Comparing today with earlier checks" });

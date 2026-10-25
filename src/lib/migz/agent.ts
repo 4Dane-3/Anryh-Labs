@@ -535,7 +535,7 @@ export async function runMigz(
     if (await syncTargeting(agent, runId)) snapshot = await buildSnapshot(agent);
     if (pacing && (await paceBudgets(agent, runId, pacing))) snapshot = await buildSnapshot(agent);
 
-    const budget = await monthlyBudget(agent.id, agent.migz_model_budget_cents ?? 3000);
+    const budget = await monthlyBudget(agent.id, agent.migz_model_budget_cents ?? 3000, agent.timezone);
     const team = { runId, budget, createMessage };
     const audited = await audit(agent, snapshot, team);
     await alertCriticalFindings(agent, audited.findings).catch(() => {});
@@ -556,7 +556,7 @@ export async function runMigz(
           }
         : {}),
       open_audit_findings: audited.findings.slice(0, 10).map((f) => ({ check: f.check, severity: f.severity, summary: f.summary })),
-      model_budget_this_month: `$${budget.spentUsd.toFixed(2)} of $${budget.limitUsd.toFixed(2)}`,
+      model_budget_this_month: `$${budget.spentUsd.toFixed(2)} of $${budget.limitUsd.toFixed(2)}; today $${budget.todayUsd.toFixed(2)} of a $${budget.dailyUsd.toFixed(2)} daily allowance (what's left ÷ days left)`,
     };
     Object.assign(teamContext, routines.context);
     const extraReasons: string[] = [...routines.reasons];

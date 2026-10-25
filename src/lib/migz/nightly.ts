@@ -208,7 +208,7 @@ export async function writeNightly(
   const changeList = (changes.data ?? []).map((c) => ({ title: c.title, detail: String(c.detail ?? "").slice(0, 240) }));
 
   // Migz's own words, from the model; if it can't run tonight the numbers and page notes still go out
-  const budget = await monthlyBudget(agent.id, agent.migz_model_budget_cents ?? 3000);
+  const budget = await monthlyBudget(agent.id, agent.migz_model_budget_cents ?? 3000, agent.timezone);
   const plan = planTier("nightly", budget);
   let narrative: Narrative = { headline: "Tonight's numbers", happened: [], budget_read: "", next: [], page_note: "", fallback: true };
   let thoughts: Thought[] = carried.map((x) => ({ ...x, nights: x.nights + 1 }));

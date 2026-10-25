@@ -37,7 +37,7 @@ export async function gatherHealth(agent: Agent, now = Date.now()): Promise<Heal
     supabaseAdmin.from("migz_runs").select("status, started_at, error").eq("agent_id", agent.id).neq("status", "running").order("started_at", { ascending: false }).limit(1).maybeSingle(),
     supabaseAdmin.from("creative_jobs").select("id, stage, updated_at, brief, launch_adset_id").eq("agent_id", agent.id).in("stage", ["generating", "meta_processing", "stored"]),
     supabaseAdmin.from("ad_actions").select("id", { count: "exact", head: true }).eq("agent_id", agent.id).eq("status", "proposed").lt("created_at", new Date(now - 86_400_000).toISOString()),
-    monthlyBudget(agent.id, agent.migz_model_budget_cents ?? 3000),
+    monthlyBudget(agent.id, agent.migz_model_budget_cents ?? 3000, agent.timezone),
     getActiveBatch(agent.id),
   ]);
 
@@ -106,7 +106,7 @@ export async function gatherHealth(agent: Agent, now = Date.now()): Promise<Heal
     jobs: (jobs.data ?? [])
       .filter((j) => j.stage !== "stored" || j.launch_adset_id) // a stored library creative isn't waiting on anything
       .map((j) => ({ id: j.id, stage: j.stage, updated_at: j.updated_at, brief: briefLabel(j.brief as AnyBrief) })),
-    modelBudgetRatio: budget.ratio,
+    modelBudgetRatio: budget.monthRatio, // the month's budget; running through a day's allowance is normal pacing
     staleProposals: proposals.count ?? 0,
   };
 }
