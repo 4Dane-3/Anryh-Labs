@@ -2,7 +2,7 @@ import "server-only";
 import { DateTime } from "luxon";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
-import { actionValue, getAdInsights, getAdSet, getPlacementInsights, scheduleConversions } from "@/lib/meta/ads";
+import { actionValue, getAdInsights, getAdSet, getPlacementInsights, keepToFacebookAndInstagram, reachesOtherApps, scheduleConversions } from "@/lib/meta/ads";
 import { graphAll } from "@/lib/meta/graph";
 
 export const LOOKBACK_DAYS = 14;
@@ -69,7 +69,9 @@ export async function syncAgent(agent: Agent) {
     if (error) throw new Error(`Couldn't save placement insights: ${error.message}`);
   }
 
-  // 2. Ad sets: budget, status, learning phase
+  // 2. Ad sets: budget, status, learning phase. Any running ad set that can reach the Audience Network
+  // or Messenger (automatic placements switched on in Ads Manager, say) is put back on Facebook and
+  // Instagram only: those placements spend the budget on accidental clicks that never book.
   const { data: adsets } = await supabaseAdmin
     .from("ad_sets")
     .select("id, meta_adset_id")
@@ -77,6 +79,14 @@ export async function syncAgent(agent: Agent) {
     .neq("status", "DELETED");
   for (const adset of adsets ?? []) {
     const live = await getAdSet(adset.meta_adset_id);
+    if (live.status === "ACTIVE" && reachesOtherApps(live.targeting)) {
+      try {
+        await keepToFacebookAndInstagram(adset.meta_adset_id);
+        await supabaseAdmin.from("ad_sets").update({ last_edited_at: new Date().toISOString() }).eq("id", adset.id);
+      } catch (e) {
+        console.error("couldn't take an ad set off the Audience Network", adset.meta_adset_id, e instanceof Error ? e.message : e);
+      }
+    }
     await supabaseAdmin
       .from("ad_sets")
       .update({

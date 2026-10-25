@@ -697,6 +697,19 @@ assert.equal(rc.selfReferral({ id: "b", email: "b@x.com", stripe_customer_id: nu
 ok("affiliates: 1% of each deposit, refunds and chargebacks take back their share (agent loses only the ad money), join form checks each field, states by code or name, unique page addresses that avoid site paths, no self-referral by id, email or card");
 
 
+// Placements: never the Audience Network or Messenger
+const metaAds = await import("@/lib/meta/ads");
+assert.deepEqual(metaAds.placementTargeting([]), { publisher_platforms: ["facebook", "instagram"] }, "automatic = Facebook and Instagram only");
+assert.deepEqual(metaAds.placementTargeting(["instagram_reels"]), { publisher_platforms: ["instagram"], instagram_positions: ["reels"] });
+assert.equal(metaAds.reachesOtherApps(undefined), true, "no targeting = automatic everywhere");
+assert.equal(metaAds.reachesOtherApps({ geo_locations: {} }), true, "no platform list = automatic everywhere");
+assert.equal(metaAds.reachesOtherApps({ publisher_platforms: ["facebook", "instagram", "audience_network"] }), true);
+assert.equal(metaAds.reachesOtherApps({ publisher_platforms: ["facebook", "messenger"] }), true);
+assert.equal(metaAds.reachesOtherApps({ publisher_platforms: ["facebook", "instagram"] }), false);
+assert.equal(metaAds.reachesOtherApps({ publisher_platforms: ["instagram"] }), false);
+ok("placements: automatic means Facebook and Instagram only; any ad set that can reach the Audience Network or Messenger is caught");
+
+
 // Nightly summary: 9pm in every timezone, the first-week phase, and thoughts carried night to night
 const { nightlyDue, phaseOf, mergeThoughts, carryOver, NIGHTLY_HOUR } = await import("@/lib/migz/nightly-core");
 const { DateTime: LuxonDT } = await import("luxon");
