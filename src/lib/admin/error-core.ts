@@ -66,7 +66,8 @@ export const issueKey = (r: Pick<IssueReport, "kind" | "path" | "message">) =>
   `site_error:${areaOf(r.path)}:${hash(`${r.kind === "server" ? "server" : "browser"}|${normalizePath(r.path)}|${normalizeMessage(r.message)}`)}`;
 
 // Noise that isn't a problem with the site: browser quirks, extensions, a stale tab's missing script
-// (the "Migz was just updated" notice covers that), and navigation redirects
+// (the "Migz was just updated" notice covers that), navigation redirects, and an Android in-app browser
+// (Facebook, Instagram) whose own bridge script fails after the visitor closes it
 const IGNORED = [
   /ResizeObserver loop/i,
   /^script error\.?$/i,
@@ -75,6 +76,7 @@ const IGNORED = [
   /AbortError|aborted/i,
   /loading (css )?chunk [\w-]+ failed|ChunkLoadError|Failed to load chunk/i,
   /NEXT_REDIRECT|NEXT_NOT_FOUND|NEXT_HTTP_ERROR_FALLBACK/,
+  /Java object is gone/i,
 ];
 // A dropped connection in the browser isn't a bug (a failed save still reports as "action")
 const NETWORK = /^(failed to fetch|load failed|networkerror|network request failed)/i;
