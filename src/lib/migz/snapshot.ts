@@ -280,7 +280,9 @@ export async function buildSnapshot(agent: Agent) {
   const collectFrom = agent.campaign_started_on
     ? agent.results_from && agent.results_from > agent.campaign_started_on ? agent.results_from : agent.campaign_started_on
     : null;
-  const revisionsFrom = collectFrom ? DateTime.fromISO(collectFrom, { zone: agent.timezone }).plus({ days: REVISE_AFTER_DAYS }).toISODate()! : null;
+  // The sprint reads 3 days, a renewed batch continues (revises from day one), other batches read 7
+  const collectDays = batch?.collect_days ?? REVISE_AFTER_DAYS;
+  const revisionsFrom = collectFrom ? DateTime.fromISO(collectFrom, { zone: agent.timezone }).plus({ days: collectDays }).toISODate()! : null;
   // A campaign with no topic runs ads on every focus topic, so its ad sets count for each of them
   const adsetsByTopic = new Map<string, string[]>();
   for (const c of campaigns.data ?? []) {
@@ -375,7 +377,7 @@ export async function buildSnapshot(agent: Agent) {
         phase: !revisionsFrom
           ? "not started"
           : today.toISODate()! < revisionsFrom
-            ? `collecting results: the first ${REVISE_AFTER_DAYS} days are for data. Build and launch creative for every focus topic, but don't pause ads, move budget or change placements yet (the system refuses). Compare the ads from ${revisionsFrom}.`
+            ? `collecting results: the first ${collectDays} days are for data. Build and launch creative for every focus topic, but don't pause ads, move budget or change placements yet (the system refuses). Compare the ads from ${revisionsFrom}.`
             : "revising: compare the ads (and the campaigns, if there are several), revise what's losing (hooks, copy, budget between ad sets when there's more than one), then judge whether each change helped before the campaign ends",
         note: agent.campaign_ends_on ? "The agent chose this length. Pace tests so winners are found with time left to benefit; don't start long tests near the end." : undefined,
       },
@@ -495,6 +497,7 @@ export async function buildSnapshot(agent: Agent) {
     focus,
     balanceCents: balance,
     revisionsFrom,
+    collectDays,
     quoteMode: (agent.quote_mode ?? "folded") as QuoteMode,
     bookedLast7,
     pageFunnel: pageEvents.error ? null : { visits: funnel.visits, pickedTime: funnel.pickedTime, booked: funnel.booked },

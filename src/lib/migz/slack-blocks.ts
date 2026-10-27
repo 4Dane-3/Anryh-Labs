@@ -228,6 +228,30 @@ export function batchEndedMessage(input: { budgetCents: number; spentCents: numb
   };
 }
 
+export function batchRenewedMessage(input: { budgetCents: number; days: number; dailyCents: number; balanceCents: number; dashboardUrl: string }): SlackMessage {
+  return {
+    text: `Keep going: your next ${input.days}-day batch started (${usd(input.budgetCents)})`,
+    blocks: [
+      header(":repeat: Your next batch started"),
+      section(
+        `Keep going started the same plan again: *${usd(input.budgetCents)}* over ${input.days} days (about ${usd(input.dailyCents)}/day), taken from your balance. ${usd(input.balanceCents)} is left in your balance.\nMigz carries what it learned into this one and can revise from day one.`,
+      ),
+      actions(button("See the batch", `${input.dashboardUrl}/dashboard`, true)),
+    ],
+  };
+}
+
+export function batchRenewBlockedMessage(input: { reason: string; stopped: boolean; dashboardUrl: string }): SlackMessage {
+  return {
+    text: input.stopped ? "Keep going stopped" : "Your next batch hasn't started",
+    blocks: [
+      header(input.stopped ? ":octagonal_sign: Keep going stopped" : ":hourglass_flowing_sand: Your next batch hasn't started"),
+      section(input.reason),
+      actions(button(input.stopped ? "Start a batch" : "Open your dashboard", `${input.dashboardUrl}/dashboard`, true)),
+    ],
+  };
+}
+
 // ---------- The nightly summary (9pm in the agent's timezone) ----------
 
 export type NightlyContent = {

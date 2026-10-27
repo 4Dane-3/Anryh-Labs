@@ -5,19 +5,19 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Loader2, Sparkles } from "lucide-react";
 import { planBatch, type BatchPlanResult } from "@/app/dashboard/actions";
 import { Button, Label, inputClass } from "@/components/dashboard/ui";
-import { depositFor, REVISE_AFTER_DAYS } from "@/lib/campaign";
-import { MIN_BATCH_CENTS, type BatchOptionKey } from "@/lib/batch";
+import { depositFor } from "@/lib/campaign";
+import { MIN_BATCH_CENTS, SPRINT_MIN_BATCH_CENTS, type BatchOptionKey } from "@/lib/batch";
 import { usd } from "@/lib/dashboard/format";
 import { cn } from "@/lib/utils";
 
-export type BatchChoice = { budgetCents: number; option: BatchOptionKey; recommended: BatchOptionKey; reason: string; autoRun: boolean };
+export type BatchChoice = { budgetCents: number; option: BatchOptionKey; recommended: BatchOptionKey; reason: string; autoRun: boolean; renew: boolean };
 
 const RUN_MODES = [
   { auto: true, title: "Let Migz run it", detail: "Migz launches ads and makes changes on its own, within the budget and guardrails. You get a Slack update for everything it does." },
   { auto: false, title: "Ask me first", detail: "Migz proposes each new ad and change. Nothing goes live until you approve it in the Brain or on the Overview." },
 ] as const;
 
-const QUICK = [28_000, 42_000, 56_000, 84_000]; // ad spend: $20, $30, $40 and $60 a day for two weeks
+const QUICK = [28_000, 42_000, 56_000, 70_000, 84_000]; // ad spend: $20, $30 and $40 a day for two weeks, $700 ($50/day for two weeks or $100/day for a week), $60 a day
 
 const whole = (cents: number) => usd(cents, { cents: cents % 100 !== 0 });
 
@@ -52,6 +52,7 @@ export function BatchPlanner({
   const [error, setError] = useState<string | null>(null);
   const [plannedFor, setPlannedFor] = useState(0);
   const [autoRun, setAutoRun] = useState(initialAutoRun);
+  const [renew, setRenew] = useState(false);
 
   const budgetCents = Math.round(Number(amount.replace(/[^0-9.]/g, "")) * 100) || 0;
   const tooSmall = budgetCents > 0 && budgetCents < MIN_BATCH_CENTS;
@@ -81,7 +82,7 @@ export function BatchPlanner({
     startConfirming(async () => {
       if (!plan || !picked) return;
       setError(null);
-      const res = await onConfirm({ budgetCents: plannedFor, option: picked, recommended: plan.recommended.key, reason: plan.recommended.reason, autoRun });
+      const res = await onConfirm({ budgetCents: plannedFor, option: picked, recommended: plan.recommended.key, reason: plan.recommended.reason, autoRun, renew });
       if (!res.ok) setError(res.error);
     });
 
@@ -124,7 +125,7 @@ export function BatchPlanner({
         <p className={cn("mt-2 text-[13px]", tooSmall ? "text-bad" : "text-fg-muted")}>
           {tooSmall
             ? `The smallest batch is ${whole(MIN_BATCH_CENTS)} of ad spend (a ${whole(depositFor(MIN_BATCH_CENTS))} deposit with the 20% fee).`
-            : `This is ad spend from your balance (${usd(balanceCents, { cents: true })} available). Migz decides how to split it and for how long, at least 2 weeks.`}
+            : `This is ad spend from your balance (${usd(balanceCents, { cents: true })} available). Migz decides how to split it and for how long: two weeks or more, or a one-week sprint from ${whole(SPRINT_MIN_BATCH_CENTS)}.`}
           {budgetCents > balanceCents && !tooSmall && <span className="text-brand"> That&apos;s more than your balance; add {whole(depositFor(budgetCents - balanceCents))} in funds first.</span>}
         </p>
       </div>
@@ -175,7 +176,7 @@ export function BatchPlanner({
             </div>
           )}
 
-          <div role="radiogroup" aria-label="How to spend this batch" className="grid gap-2 sm:grid-cols-3">
+          <div role="radiogroup" aria-label="How to spend this batch" className={cn("grid gap-2", plan.options.length > 3 ? "sm:grid-cols-2" : "sm:grid-cols-3")}>
             {plan.options.map((o) => (
               <button
                 key={o.key}
@@ -206,16 +207,16 @@ export function BatchPlanner({
           {chosen && (
             <ol className="space-y-1 text-[13px] text-fg-muted">
               <li>
-                <span className="mr-2 font-mono text-[11px] text-brand">1</span>Days 1–{REVISE_AFTER_DAYS}: Migz builds ads for {chosen.exploreCents ? "both campaigns" : chosen.campaigns.length === 1 ? "the campaign" : "every campaign"} and collects results. No changes while the data comes in.
+                <span className="mr-2 font-mono text-[11px] text-brand">1</span>Days 1–{chosen.collectDays}: Migz builds ads for {chosen.exploreCents ? "both campaigns" : chosen.campaigns.length === 1 ? "the campaign" : "every campaign"} and collects results. No changes while the data comes in.
               </li>
               <li>
-                <span className="mr-2 font-mono text-[11px] text-brand">2</span>After {REVISE_AFTER_DAYS} days: it revises what&apos;s underperforming (hooks, copy{chosen.exploreCents ? ", and moves the winners from exploration into the main campaign" : chosen.campaigns.length > 1 ? ", budget between campaigns" : ""}).
+                <span className="mr-2 font-mono text-[11px] text-brand">2</span>After {chosen.collectDays} days: it revises what&apos;s underperforming (hooks, copy{chosen.exploreCents ? ", and moves the winners from exploration into the main campaign" : chosen.campaigns.length > 1 ? ", budget between campaigns" : ""}).
               </li>
               <li>
                 <span className="mr-2 font-mono text-[11px] text-brand">3</span>Through day {chosen.days}: it checks whether those changes actually brought more booked calls, and keeps what works.
               </li>
               <li className="pt-1 text-[12px] text-fg-faint">
-                It never goes over {whole(plannedFor)}. Meta can spend up to 25% over a daily budget on a busy day, so Migz paces the last week to leave room, and the ads stop on day {chosen.days} on their own. Anything left over stays in your balance.
+                It never goes over {whole(plannedFor)}. Meta can spend up to 25% over a daily budget on a busy day, so Migz paces {chosen.days <= 7 ? "the whole week" : "the last week"} to leave room{chosen.days <= 7 ? ", which can keep a day a little under " + whole(chosen.dailyCents) : ""}, and the ads stop on day {chosen.days} on their own. Anything left over stays in your balance.
               </li>
             </ol>
           )}
@@ -241,6 +242,28 @@ export function BatchPlanner({
               ))}
             </div>
           </div>
+
+          <button
+            type="button"
+            role="switch"
+            aria-checked={renew}
+            onClick={() => setRenew(!renew)}
+            className={cn(
+              "flex w-full items-start gap-3 rounded-lg border px-4 py-3 text-left transition-colors",
+              renew ? "border-brand/60 bg-brand/[0.08]" : "border-line hover:border-line-strong hover:bg-white/[0.03]",
+            )}
+          >
+            <span aria-hidden="true" className={cn("relative mt-0.5 h-5 w-9 shrink-0 rounded-full transition-colors", renew ? "bg-brand" : "bg-white/[0.12]")}>
+              <span className={cn("absolute top-0.5 size-4 rounded-full bg-white transition-[left]", renew ? "left-[18px]" : "left-0.5")} />
+            </span>
+            <span>
+              <span className="block text-sm font-medium text-fg">Keep going</span>
+              <span className="mt-1 block text-[12px] leading-snug text-fg-muted">
+                {chosen ? `When this batch ends, the same ${whole(plannedFor)} batch starts again from your balance, so the ads never stop between weeks. ` : ""}
+                It only starts if your balance covers it (it never charges a card), and Migz can revise from day one. Turn it off any time from the batch card.
+              </span>
+            </span>
+          </button>
 
           <div className="flex flex-wrap items-center gap-3">
             <Button variant="primary" onClick={confirm} disabled={confirming || !picked || !!stale || overBalance}>

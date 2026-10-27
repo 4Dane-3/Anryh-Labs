@@ -3,6 +3,7 @@ import type { Agent } from "@/lib/booking/data";
 import { isCronRequest } from "@/lib/cron-auth";
 import { migzReadyFor } from "@/lib/integrations";
 import { runMigz } from "@/lib/migz/agent";
+import { renewBatches } from "@/lib/dashboard/renew";
 
 export const maxDuration = 300;
 
@@ -22,6 +23,12 @@ export async function GET(req: Request) {
     .eq("status", "proposed")
     .lt("created_at", new Date(Date.now() - PROPOSAL_TTL_HOURS * 3_600_000).toISOString());
 
+  // "Keep going": batches that ended and were set to renew start again from the agent's balance, before reviews
+  const renewals = await renewBatches(deadline - 60_000).catch((e) => {
+    console.error("renewals failed", e);
+    return {};
+  });
+
   const dueBefore = new Date(Date.now() - REVIEW_EVERY_HOURS * 3_600_000).toISOString();
   const { data } = await supabaseAdmin
     .from("agents")
@@ -34,7 +41,7 @@ export async function GET(req: Request) {
     .order("migz_last_run_at", { ascending: true, nullsFirst: true })
     .limit(10);
 
-  const results: Record<string, unknown> = {};
+  const results: Record<string, unknown> = Object.keys(renewals).length ? { renewals } : {};
   for (const agent of (data ?? []) as Agent[]) {
     if (Date.now() > deadline) break;
     if (!migzReadyFor(agent)) {
