@@ -155,7 +155,7 @@ export function PageAnalyticsPanel({ agents }: { agents: { id: string; name: str
         <EmptyState title="No visits in this period">Visits show here as people open {agent?.name ?? "this agent"}&apos;s booking page (preview views from the dashboard don&apos;t count).</EmptyState>
       ) : (
         <div className={cn("space-y-6 p-5", loading && "opacity-80")}>
-          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 lg:grid-cols-7">
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 lg:grid-cols-8">
             <Tile label="Visits" value={a.sessions} sub={`last ${a.days} days`} />
             <Tile label="Booked" value={a.booked} sub={`${pct(a.conversion, 1)} of visits`} />
             <Tile label="Saw the times" value={pct(a.funnel[1].pct)} sub="booking card came into view" />
@@ -163,6 +163,7 @@ export function PageAnalyticsPanel({ agents }: { agents: { id: string; name: str
             <Tile label="On a phone" value={pct(a.mobileShare)} sub="of visits" />
             <Tile label="Used Soonest" value={pct(a.soonestShare)} sub="of those who picked a time" />
             <Tile label="Tapped Call" value={a.extras.callVisits} sub={a.sessions ? `${pct(a.extras.callVisits / a.sessions, 1)} of visits` : "no visits"} />
+            <Tile label="Asked for a quote" value={a.extras.quoteVisits} sub={a.sessions ? `${pct(a.extras.quoteVisits / a.sessions, 1)} of visits` : "no visits"} />
           </div>
 
           {a.biggestDrop && (

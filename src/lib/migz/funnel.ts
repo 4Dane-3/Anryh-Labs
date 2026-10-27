@@ -12,6 +12,7 @@ export type BookingFunnel = {
   pressedConfirm: number;
   booked: number;
   tappedCall: number; // tapped "Call now" instead (a call isn't a booking, so it never shows as one)
+  quoteRequests: number; // asked for a quote instead of booking (the agent calls them back)
   errors: number;
 };
 
@@ -49,6 +50,7 @@ export function adFunnel(rows: EventRow[], days: number, timezone: string, now =
     pressedConfirm: step("submit"),
     booked: a.booked,
     tappedCall: a.extras.callVisits,
+    quoteRequests: a.extras.quoteVisits,
     errors: a.extras.errors,
   };
 }
@@ -59,7 +61,8 @@ export function adFunnel(rows: EventRow[], days: number, timezone: string, now =
  */
 export function funnelVerdict(f: BookingFunnel, linkClicks: number | null = null): FunnelVerdict {
   const calls = f.tappedCall ? ` ${f.tappedCall} tapped Call instead, and calls don't show up as bookings.` : "";
-  const v = (stage: FunnelVerdict["stage"], fix: FunnelVerdict["fix"], text: string): FunnelVerdict => ({ stage, fix, text: text + calls });
+  const quotes = f.quoteRequests ? ` ${f.quoteRequests} asked for a quote instead; the agent calling them back quickly is what turns those into calls.` : "";
+  const v = (stage: FunnelVerdict["stage"], fix: FunnelVerdict["fix"], text: string): FunnelVerdict => ({ stage, fix, text: text + calls + quotes });
 
   if (f.errors >= 2) return v("booking_errors", "page", `${f.errors} people hit an error while booking. Fix that before anything else; no ad can book through a broken form.`);
   if (linkClicks !== null && linkClicks >= MIN_FUNNEL_VISITS && f.visits < linkClicks * 0.4)
@@ -70,7 +73,7 @@ export function funnelVerdict(f: BookingFunnel, linkClicks: number | null = null
   if (f.sawTimes / f.visits < 0.5)
     return v("leave_before_times", "both", `Only ${pct(f.sawTimes, f.visits)} of ${f.visits} ad visitors stayed long enough to see the times. Usually the ad promised something the top of the page doesn't show (it should be a free call with the agent), or the clicks were curious rather than interested. Make the ads' offer match the page before making more creative.`);
   if (f.pickedTime / f.sawTimes < 0.3)
-    return v("no_time_picked", "page", `${f.sawTimes} of ${f.visits} ad visitors saw the times but only ${f.pickedTime} picked one (${pct(f.pickedTime, f.sawTimes)}). The ads are bringing people; the calendar is where they stop: too few or inconvenient times, or picking a time isn't obvious on a phone. Fix the page before changing the ads.`);
+    return v("no_time_picked", "page", `${f.sawTimes} of ${f.visits} ad visitors saw the times but only ${f.pickedTime} picked one (${pct(f.pickedTime, f.sawTimes)}). The ads are bringing people; the calendar is where they stop: too few or inconvenient times, picking a time isn't obvious on a phone, or a call is too big a first step for people who just saw an ad. Offer a lighter step (a free quote request the agent calls back) and fix the page before changing the ads.`);
   if (f.pickedTime >= 5 && f.startedForm / f.pickedTime < 0.6)
     return v("form_not_started", "page", `${f.pickedTime} ad visitors picked a time but only ${f.startedForm} started their details. The step after picking a time loses them: fewer required questions usually helps.`);
   if (f.startedForm >= 5 && f.pressedConfirm / f.startedForm < 0.6)

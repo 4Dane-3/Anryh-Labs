@@ -1,7 +1,7 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
-import { createAd, createAdCreative, setDailyBudget, setPlacements, setStatus, videoState } from "@/lib/meta/ads";
+import { createAd, createAdCreative, setDailyBudget, setOptimizationEvent, setPlacements, setStatus, videoState } from "@/lib/meta/ads";
 import { MetaApiError } from "@/lib/meta/graph";
 import { isTestMode } from "@/lib/migz/test-mode";
 import { enqueueGeneration, enqueueLaunch } from "@/lib/migz/creative-jobs";
@@ -108,6 +108,19 @@ export async function applyPayload(
         // Rebuilds now: retires the old campaigns, makes the one campaign and carries the best ads over
         await inMeta(() => syncCampaignPlan(agent, opts.runId ?? null, { ...batch, campaigns, applied_at: null }));
         return { ok: true, result: { campaigns } };
+      }
+      case "set_quote_option": {
+        const { error } = await supabaseAdmin.from("agents").update({ quote_mode: payload.mode }).eq("id", agent.id);
+        if (error) throw new Error(`Couldn't change the quote option: ${error.message}`);
+        return { ok: true, result: { quote_mode: payload.mode } };
+      }
+      case "set_optimization_event": {
+        await inMeta(() => setOptimizationEvent(payload.adset_id, process.env.META_PIXEL_ID!, payload.event));
+        await supabaseAdmin
+          .from("ad_sets")
+          .update({ optimization_event: payload.event, last_edited_at: now, updated_at: now })
+          .eq("meta_adset_id", payload.adset_id);
+        return { ok: true, result: { optimization_event: payload.event } };
       }
       case "hold":
         return { ok: true, result: {} };

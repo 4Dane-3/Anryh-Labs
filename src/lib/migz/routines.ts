@@ -9,7 +9,7 @@ import { callModel, jsonOf, planTier, type Budget, type CreateMessage } from "@/
 import type { Snapshot } from "@/lib/migz/snapshot";
 import { writeWeeklySlack } from "@/lib/migz/team/clerk";
 import { getBatchHistory } from "@/lib/dashboard/batches";
-import { budgetMath, ownCostPerCall, PLAYBOOK, scaleAdvice, type BudgetMath } from "@/lib/migz/playbook";
+import { adsForBudget, budgetMath, ownCostPerCall, PLAYBOOK, scaleAdvice, SCHEDULE_FROM_CALLS_PER_WEEK, type BudgetMath } from "@/lib/migz/playbook";
 
 // The routines a good media buyer runs on a calendar, as code that creates findings and context:
 //  daily     spend anomalies (pacing, disapprovals and tracking are checked by the auditor every run)
@@ -154,6 +154,32 @@ async function weeklyMemo(agent: Agent, snapshot: Snapshot, team: Team, strategy
 type Strategy = { math: BudgetMath; scale: ReturnType<typeof scaleAdvice>; findings: { check: string; summary: string }[]; newlyFlagged: boolean };
 
 /**
+ * What Meta should optimize for, and whether the page needs its lighter step to give it leads: LEAD while
+ * the account books under SCHEDULE_FROM_CALLS_PER_WEEK calls a week, SCHEDULE from there. Pure.
+ */
+export function signalAdvice(input: {
+  adsets: Snapshot["guardAdsets"];
+  bookedLast7: number;
+  quoteMode: Snapshot["quoteMode"];
+  pageIsTheBottleneck: boolean;
+}): { subject: "lead" | "schedule" | "quote"; text: string } | null {
+  const main = input.adsets.find((s) => s.status === "ACTIVE" && s.role !== "explore");
+  if (!main) return null;
+  const booked = `${input.bookedLast7} booked call${input.bookedLast7 === 1 ? "" : "s"} in the last 7 days`;
+  const event = main.optimization_event ?? "SCHEDULE";
+  if (event === "SCHEDULE" && input.bookedLast7 < SCHEDULE_FROM_CALLS_PER_WEEK && input.quoteMode !== "off")
+    return {
+      subject: "lead",
+      text: `Ad set ${main.meta_adset_id} optimizes for booked calls with ${booked}, far under the ~50 a week Meta learns from, so it's spending blind. Switch it to LEAD with set_optimization_event (quote requests and bookings both count); cost per booked call stays the scoreboard.${input.pageIsTheBottleneck && input.quoteMode === "folded" ? " The page is where ad visitors stop, so also open the quote option for them (set_quote_option open_for_ads)." : ""}`,
+    };
+  if (event === "LEAD" && input.bookedLast7 >= SCHEDULE_FROM_CALLS_PER_WEEK)
+    return { subject: "schedule", text: `${booked}: enough for Meta to learn from bookings directly. Switch ad set ${main.meta_adset_id} to SCHEDULE with set_optimization_event when the next batch starts, so it finds people who book rather than people who ask for quotes.` };
+  if (input.pageIsTheBottleneck && input.quoteMode === "folded")
+    return { subject: "quote", text: "Ad visitors see the times but almost none pick one. Open the quote option for them (set_quote_option open_for_ads): it's a smaller first step, and the agent turns quote requests into calls." };
+  return null;
+}
+
+/**
  * The strategist's checks on every review: whether the account is built the way its budget needs
  * (budget math) and whether the ads' visitors stop on the booking page. Both are filed as findings the
  * review reads; they resolve themselves once fixed.
@@ -164,7 +190,7 @@ async function strategyChecks(agent: Agent, snapshot: Snapshot): Promise<Strateg
   const math = budgetMath({ dailyCents: agent.daily_budget_cents, adsets: liveMain, costPerCallCents: ownCostPerCall(history.spentCents, history.bookedCalls) });
   const scale = scaleAdvice({ spentCents: history.spentCents, bookedCalls: history.bookedCalls, extraCents: Math.max(agent.daily_budget_cents * 14, 28_000) });
 
-  const { data: open } = await supabaseAdmin.from("audit_findings").select("check_name, subject").eq("agent_id", agent.id).eq("status", "open").in("check_name", ["strategy_structure", "strategy_bottleneck"]);
+  const { data: open } = await supabaseAdmin.from("audit_findings").select("check_name, subject").eq("agent_id", agent.id).eq("status", "open").in("check_name", ["strategy_structure", "strategy_bottleneck", "strategy_signal", "strategy_ads"]);
   const wasOpen = new Set((open ?? []).map((f) => `${f.check_name}|${f.subject}`));
   const findings: Strategy["findings"] = [];
   let newlyFlagged = false;
@@ -183,6 +209,24 @@ async function strategyChecks(agent: Agent, snapshot: Snapshot): Promise<Strateg
   const pageFix = typeof page === "object" && (page.fix_is_in === "page" || page.fix_is_in === "both") ? page : null;
   if (pageFix) await file("strategy_bottleneck", pageFix.fix_is_in, pageFix.verdict, { visits_from_ads: pageFix.visits_from_ads, saw_the_times: pageFix.saw_the_times, picked_a_time: pageFix.picked_a_time });
   await resolveOthers(agent.id, "strategy_bottleneck", pageFix ? [pageFix.fix_is_in] : []);
+
+  // What Meta learns from, and the lighter step on the page that gives it something to learn from
+  const signal = signalAdvice({
+    adsets: snapshot.guardAdsets,
+    bookedLast7: snapshot.bookedLast7,
+    quoteMode: snapshot.quoteMode,
+    pageIsTheBottleneck: !!pageFix && pageFix.picked_a_time / Math.max(1, pageFix.saw_the_times) < 0.3,
+  });
+  if (signal) await file("strategy_signal", signal.subject, signal.text, { booked_last_7_days: snapshot.bookedLast7, quote_mode: snapshot.quoteMode });
+  await resolveOthers(agent.id, "strategy_signal", signal ? [signal.subject] : []);
+
+  // More live ads than the budget can give a fair read
+  const crowded = snapshot.guardAdsets.filter((s) => s.status === "ACTIVE" && s.role !== "explore" && s.ads.filter((a) => a.status === "ACTIVE").length > adsForBudget(s.daily_budget_cents));
+  for (const s of crowded) {
+    const live = s.ads.filter((a) => a.status === "ACTIVE").length;
+    await file("strategy_ads", s.meta_adset_id, `Ad set ${s.meta_adset_id} runs ${live} live ads on $${(s.daily_budget_cents / 100).toFixed(2)}/day, which gives ${adsForBudget(s.daily_budget_cents)} a fair read (about $50 a week each). Pause the weakest by results (booked calls, then click-through on 300+ impressions) once revisions are open, not the ones Meta spent least on.`, { live, daily_cents: s.daily_budget_cents });
+  }
+  await resolveOthers(agent.id, "strategy_ads", crowded.map((s) => s.meta_adset_id));
 
   return { math, scale, findings, newlyFlagged };
 }

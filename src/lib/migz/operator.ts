@@ -52,6 +52,7 @@ const GENERATION_TOOLS = ["generate_video", "generate_image", "generate_carousel
 export function affectsSpend(payload: ActionPayload) {
   switch (payload.tool) {
     case "hold":
+    case "set_quote_option": // the booking page, not spend
       return false;
     case "generate_video":
     case "generate_image":
@@ -260,6 +261,12 @@ export async function runOperator(env: OperatorEnv, extras: ExtraTool[], opts: {
 
       const actionId = await logAction(agent.id, { ...base, status: "applied" });
       const applied = await applyPayload(agent, evaluated.payload, actionId, { runId, title: evaluated.title });
+      // Later calls in this review check against the new state
+      if (applied.ok && evaluated.payload.tool === "set_quote_option") env.ctx.quoteMode = evaluated.payload.mode;
+      if (applied.ok && evaluated.payload.tool === "set_optimization_event") {
+        const { adset_id, event } = evaluated.payload;
+        env.ctx.adsets = env.ctx.adsets.map((s) => (s.meta_adset_id === adset_id ? { ...s, optimization_event: event, last_edited_at: new Date().toISOString() } : s));
+      }
       await supabaseAdmin
         .from("ad_actions")
         .update(applied.ok ? { result: applied.result } : { status: "failed", result: { error: applied.error } })

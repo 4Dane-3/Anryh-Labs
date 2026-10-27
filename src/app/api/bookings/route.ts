@@ -6,7 +6,7 @@ import { missingRequired, preBookingQuestions, type IntakeAnswers } from "@/lib/
 import { CONSENT_TEXT } from "@/lib/booking/constants";
 import { newBookingMessage } from "@/lib/booking/format";
 import { sendSlackMessage } from "@/lib/slack";
-import { sendScheduleEvent } from "@/lib/meta/capi";
+import { sendConversionEvents } from "@/lib/meta/capi";
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
@@ -103,12 +103,13 @@ export async function POST(req: Request) {
     });
   }
 
-  // Tell Meta a call was booked so ad sets optimizing for SCHEDULE learn from it (no-op until configured)
+  // Tell Meta a call was booked: Schedule counts it on its own, Lead feeds ad sets optimizing for LEAD (no-op until configured)
   const origin = new URL(req.url).origin;
   after(async () => {
     try {
-      await sendScheduleEvent({
-        bookingId: booking.id,
+      await sendConversionEvents({
+        events: ["Schedule", "Lead"],
+        eventId: booking.id,
         email: input.email,
         phone: input.phone,
         pageUrl: `${origin}/${agent.slug}`,

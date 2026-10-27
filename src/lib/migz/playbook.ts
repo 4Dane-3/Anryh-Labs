@@ -8,6 +8,19 @@ export const LEARNING_EVENTS_PER_WEEK = 50;
 export const PLANNING_COST_PER_CALL_CENTS = 6000;
 /** Booked calls needed before the account's own cost per call replaces the planning estimate. */
 export const MIN_CALLS_FOR_OWN_COST = 3;
+/** Below this many impressions an ad's click-through is noise: rank it after the ads that have a real read. */
+export const MIN_IMPRESSIONS_TO_RANK = 300;
+/** Booked calls a week before Meta should optimize for them directly; under it, optimize for leads. */
+export const SCHEDULE_FROM_CALLS_PER_WEEK = 10;
+/** Ad spend one ad needs in a week to get a fair read (about 25 clicks at a typical $2 click). */
+export const AD_READ_CENTS_PER_WEEK = 5000;
+export const MIN_LIVE_ADS = 3;
+export const MAX_LIVE_ADS = 6;
+
+/** How many live ads a main ad set's daily budget can give a fair read: 3 at $20/day, 6 from about $43/day. */
+export function adsForBudget(dailyCents: number) {
+  return Math.max(MIN_LIVE_ADS, Math.min(MAX_LIVE_ADS, Math.floor((dailyCents * 7) / AD_READ_CENTS_PER_WEEK)));
+}
 
 export const PLAYBOOK = `The playbook (how a senior media buyer runs a small life insurance agent's Meta ads)
 
@@ -17,6 +30,7 @@ The goal
 
 Structure follows the budget
 - Meta learns per ad set and needs about 50 conversions a week in one ad set to finish learning. A small agent's budget never gets close, so every dollar should feed one ad set: one campaign, one ad set, all the agent's topics as ads inside it, 3 to 5 live ads. Splitting $20/day across 3 ad sets gives each about $7, roughly one booked call a week each: three ad sets that never learn instead of one that does.
+- How many ads: each one needs about $50 a week to get a fair read, so $20/day carries 3 live ads, $30/day 4, and $45/day or more 6 (never more: Meta puts most of the money into 2 or 3 anyway, and the rest teach nothing).
 - Add a second ad set only for an exploration campaign (new creative tested apart from the proven ads) and only when the budget gives each at least $20/day.
 - If an account is already split thinner than its budget supports, consolidate now, carrying the best ads over. One learning restart now beats weeks of ad sets that can't learn.
 
@@ -29,16 +43,28 @@ Creative
 - Give each ad about 1,000 impressions or $15 before judging it; weigh 14 days over 3.
 - Make more of what wins (new hooks on a winning body, the winning message in another format) before inventing new angles.
 
+Reading thin data
+- Spend is not performance. With no conversions Meta is guessing where to put money, so the ad it spent most on is not the best ad. Rank ads by booked calls, then leads, then link click-through, and only on ads with 300+ impressions; under that, a difference of 1 to 5 clicks is noise. Say "leaning" rather than "winner" until the numbers hold.
+- When every ad is inside the noise, the creative isn't the decision: keep them all, add one ad that tests the next thing (a new offer or call to action), and spend enough to get a read. The data that is clear usually points at the page.
+
 Diagnose the funnel before touching creative
 - Few people tap -> creative (hook, then body, then copy).
 - People tap but don't reach the page -> the page is slow or the clicks are accidental.
 - People reach the page but leave before the times -> the ad promises something the top of the page doesn't show.
-- People see the times but don't pick one -> the calendar (too few or inconvenient times, unclear on a phone). New ads won't fix it.
+- People see the times but don't pick one -> the calendar (too few or inconvenient times, unclear on a phone), or the step is too big for cold traffic. New ads won't fix it.
+- Clicks cost a normal amount but almost nobody picks a time -> the ad's visitors aren't ready to commit to a call. Lower the first step: show the quote request ("Get a free quote": name and phone, the agent calls back) open to ad visitors, and point the ads' call to action at it. Booking stays first on the page for people who are ready; quote requests become calls when the agent calls back within minutes.
+
+The lowest step people will take, and what Meta learns from
+- Meta optimizes for one event and needs about 50 a week in an ad set to learn. A small account books a few calls a week, so an ad set optimizing for booked calls spends blind. Optimize for leads (a quote request or a booked call both count) until the account books about 10 calls a week, then switch to booked calls.
+- Leads are how Meta learns; booked calls are still the scoreboard. Judge ads and batches by cost per booked call (cost per lead next to it), never by leads alone: cheap leads that never answer the phone are not a win.
+- Switching the event restarts learning: do it once, early in a batch (or when a new batch starts), never in its last days.
+- If quote requests rise and bookings fall, the quote option is taking people who would have booked: fold it back under the calendar.
 - People pick a time but don't finish -> the form asks too much.
 
 Budget moves
 - Change a working ad set's budget by at most 20 to 30% at a time, at most every 3 days; bigger jumps restart learning.
 - Scale what books: once cost per booked call is known and steady, recommend more money (a bigger next batch, an exploration campaign) and say how many more calls it should bring at the account's own cost per call.
+- Buy a real read: when a batch ends with every ad inside the noise (under 300 impressions each, or a handful of clicks apart), the next batch should put the money into one campaign at a budget that gives every live ad its $50 a week, such as $50/day for 14 days with 6 ads, rather than repeat a small batch that can't tell the ads apart. Never split a small budget across two batches or campaigns to compare them.
 - A batch needs time: 7 days to collect results, then revisions, then time to see them work. Don't restructure in a batch's last few days.`;
 
 export type BudgetMath = {
@@ -49,6 +75,8 @@ export type BudgetMath = {
   callsPerWeekPerAdset: number;
   /** The daily budget at which one ad set could reach Meta's learning threshold. */
   learningDailyCents: number;
+  /** Live ads one ad set at this budget can give a fair read (adsForBudget). */
+  ads: number;
   verdict: "consolidate" | "keep";
   text: string;
 };
@@ -76,10 +104,12 @@ export function budgetMath(input: { dailyCents: number; adsets: number; costPerC
   const base = `${usd(input.dailyCents)}/day at ${costWords} is about ${calls(callsPerWeek)} booked call${callsPerWeek >= 0.95 && callsPerWeek < 1.05 ? "" : "s"} a week.`;
   // More ad sets than the budget can feed: each gets a slice too small to learn from
   const consolidate = adsets > 1 && perAdset < LEARNING_EVENTS_PER_WEEK;
+  const ads = adsForBudget(input.dailyCents);
+  const adsText = ` It gives ${ads} live ads about $50 a week each, enough to tell them apart.`;
   const text = consolidate
-    ? `${base} Split across ${adsets} ad sets that's about ${usd(input.dailyCents / adsets)}/day and ${calls(perAdset)} a week each, and Meta needs about ${LEARNING_EVENTS_PER_WEEK} a week in one ad set to learn. Put it all in one ad set with every topic's ads inside it.`
-    : `${base} One ad set gets all of it, so Meta learns from every visit and booking in one place.`;
-  return { costPerCallCents: cost, costSource, callsPerWeek, adsets, callsPerWeekPerAdset: perAdset, learningDailyCents, verdict: consolidate ? "consolidate" : "keep", text };
+    ? `${base} Split across ${adsets} ad sets that's about ${usd(input.dailyCents / adsets)}/day and ${calls(perAdset)} a week each, and Meta needs about ${LEARNING_EVENTS_PER_WEEK} a week in one ad set to learn. Put it all in one ad set with every topic's ads inside it.${adsText}`
+    : `${base} One ad set gets all of it, so Meta learns from every visit and booking in one place.${adsText}`;
+  return { costPerCallCents: cost, costSource, callsPerWeek, adsets, callsPerWeekPerAdset: perAdset, learningDailyCents, ads, verdict: consolidate ? "consolidate" : "keep", text };
 }
 
 /** How many more booked calls more money should bring, at the account's own cost per call (null before it has one). */

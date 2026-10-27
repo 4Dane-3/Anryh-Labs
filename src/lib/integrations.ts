@@ -7,7 +7,7 @@ import { stripeReady } from "@/lib/stripe";
 export const integrations = {
   /** Meta Marketing API via a Business Manager system user (Migz manages campaigns with it). */
   meta: Boolean(process.env.META_SYSTEM_USER_TOKEN),
-  /** Pixel used for SCHEDULE optimization and Conversions API events. */
+  /** Pixel used for LEAD optimization and Conversions API events. */
   metaPixel: Boolean(process.env.META_PIXEL_ID),
   /** ElevenLabs: speaks the narrator's voiceover laid over Migz videos. */
   elevenlabs: Boolean(process.env.ELEVENLABS_API_KEY),

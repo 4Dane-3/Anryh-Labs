@@ -9,7 +9,8 @@ import { buildSnapshot, type Snapshot } from "@/lib/migz/snapshot";
 import { syncAgent } from "@/lib/migz/sync";
 import { begin, emit, metaStep } from "@/lib/migz/events";
 import { closeEndedBatch, ensureBatchSetAside, getActiveBatch, type Batch } from "@/lib/dashboard/batches";
-import { campaignEnded, campaignLabels, daysLeft as daysLeftIn, pickCarryOver, planTopic } from "@/lib/campaign";
+import { campaignEnded, campaignLabels, daysLeft as daysLeftIn, pickCarryOver, planTopic, type AdResults } from "@/lib/campaign";
+import { adsForBudget } from "@/lib/migz/playbook";
 import { cleanFocus, isTopic, type TopicKey } from "@/lib/migz/topics";
 import { MIN_ADSET_BUDGET_CENTS } from "@/lib/migz/guardrails";
 import { isTestMode } from "@/lib/migz/test-mode";
@@ -93,6 +94,9 @@ export async function buildEvalContext(agent: Agent, snapshot: Snapshot): Promis
     batchDaysLeft: agent.campaign_ends_on ? daysLeftIn(agent.campaign_ends_on, agent.timezone) : null,
     ...(snapshot.creditsRecentlyRefused ? { maxGenerations: 1 } : {}),
     openGenerations: snapshot.openGenerations,
+    quoteMode: snapshot.quoteMode,
+    bookedLast7: snapshot.bookedLast7,
+    pageFunnel: snapshot.pageFunnel,
     scriptedAds,
     reusableAds,
     libraryCreativeIds: new Set(snapshot.forModel.creatives_not_running.map((c) => c.creative_id)),
@@ -361,6 +365,7 @@ export async function syncCampaignPlan(agent: Agent, runId: string | null, batch
         status: "ACTIVE",
         daily_budget_cents: centsFor(i),
         states: agent.licensed_states,
+        optimization_event: "LEAD",
       });
     }
     const main = claimed.find((c) => c.role === "main");
@@ -395,19 +400,16 @@ export async function syncCampaignPlan(agent: Agent, runId: string | null, batch
   return true;
 }
 
-// Live ads a one-campaign batch starts with: enough to compare, few enough that each gets real spend
-const CARRY_OVER_ADS = 4;
-
 /**
- * Copies the best live ads from retired ad sets into the campaign's ad set, up to CARRY_OVER_ADS live
- * ads, so a batch that folds several campaigns into one doesn't start from nothing (which ones:
+ * Copies the best live ads from retired ad sets into the campaign's ad set, up to as many live ads as
+ * its budget can give a fair read (adsForBudget), so a batch that folds several campaigns into one doesn't start from nothing (which ones:
  * pickCarryOver; how: copyAdInto). Returns how many were carried over.
  */
 async function carryOverAds(agent: Agent, target: { campaignId: string; topic: TopicKey | null }, sourceAdsetIds: string[]) {
   if (!sourceAdsetIds.length) return 0;
   const { data: set } = await supabaseAdmin
     .from("ad_sets")
-    .select("id, meta_adset_id")
+    .select("id, meta_adset_id, daily_budget_cents")
     .eq("campaign_id", target.campaignId)
     .eq("status", "ACTIVE")
     .order("created_at")
@@ -423,18 +425,35 @@ async function carryOverAds(agent: Agent, target: { campaignId: string; topic: T
       .eq("status", "ACTIVE")
       .not("meta_creative_id", "is", null),
   ]);
-  const room = CARRY_OVER_ADS - (live?.length ?? 0);
+  const room = adsForBudget(set.daily_budget_cents) - (live?.length ?? 0);
   if (room <= 0 || !candidates?.length) return 0;
 
   const since = DateTime.now().setZone(agent.timezone).minus({ days: 13 }).toISODate()!;
-  const { data: rows } = await supabaseAdmin
-    .from("ad_insights_daily")
-    .select("meta_ad_id, spend_cents")
-    .eq("agent_id", agent.id)
-    .gte("date", since)
-    .in("meta_ad_id", candidates.map((a) => a.meta_ad_id));
-  const spent = new Map<string, number>();
-  for (const r of rows ?? []) spent.set(r.meta_ad_id, (spent.get(r.meta_ad_id) ?? 0) + r.spend_cents);
+  const [{ data: rows }, { data: booked }] = await Promise.all([
+    supabaseAdmin
+      .from("ad_insights_daily")
+      .select("meta_ad_id, impressions, clicks")
+      .eq("agent_id", agent.id)
+      .gte("date", since)
+      .in("meta_ad_id", candidates.map((a) => a.meta_ad_id)),
+    supabaseAdmin
+      .from("bookings")
+      .select("attribution")
+      .eq("agent_id", agent.id)
+      .gte("created_at", DateTime.fromISO(since, { zone: agent.timezone }).toUTC().toISO()!),
+  ]);
+  const results = new Map<string, AdResults>();
+  const entry = (id: string) => results.get(id) ?? results.set(id, { impressions: 0, clicks: 0, booked: 0 }).get(id)!;
+  for (const r of rows ?? []) {
+    const e = entry(r.meta_ad_id);
+    e.impressions += r.impressions;
+    e.clicks += r.clicks;
+  }
+  // Meta fills utm_content with the ad id
+  for (const b of booked ?? []) {
+    const adId = (b.attribution as Record<string, string> | null)?.utm_content;
+    if (adId && candidates.some((a) => a.meta_ad_id === adId)) entry(adId).booked++;
+  }
 
   // An ad's topic: the creative's tag, else the topic of the campaign it ran in
   type Nested = { creatives: { script?: { topic?: string } | null } | null; ad_sets: { ad_campaigns: { topic: string | null } | null } | null };
@@ -443,7 +462,7 @@ async function carryOverAds(agent: Agent, target: { campaignId: string; topic: T
       const n = a as unknown as Nested;
       return { ...a, topic: n.creatives?.script?.topic ?? n.ad_sets?.ad_campaigns?.topic ?? null };
     }),
-    { room, topic: target.topic, spentCents: spent, running: new Set((live ?? []).map((a) => a.creative_id).filter(Boolean)) },
+    { room, topic: target.topic, results, running: new Set((live ?? []).map((a) => a.creative_id).filter(Boolean)) },
   );
 
   for (const a of picks) await copyAdInto(agent, a, set.meta_adset_id);
