@@ -7,7 +7,7 @@ import { setAdsPaused, startDeposit } from "@/app/dashboard/actions";
 import { usd } from "@/lib/dashboard/format";
 import {
   adSpendCents,
-  CAMPAIGN_DAILY_CENTS,
+  BUDGETS,
   depositFor,
   FEE_RATE,
   MIN_DEPOSIT_CENTS,
@@ -16,8 +16,8 @@ import {
 import { Button, Switch, inputClass } from "@/components/dashboard/ui";
 import { cn } from "@/lib/utils";
 
-// Deposits that fund 2, 3, 4 and 6 campaigns at $10/day for two weeks, after the fee
-const PRESETS = [2, 3, 4, 6].map((n) => ({ campaigns: n, cents: depositFor(n * CAMPAIGN_DAILY_CENTS * TEST_DAYS) }));
+// Deposits that fund $20, $30, $40 and $60 a day of ads for two weeks, after the fee
+const PRESETS = BUDGETS.map((perDay) => ({ perDay, cents: depositFor(perDay * 100 * TEST_DAYS) }));
 
 export function AddFunds() {
   const [amount, setAmount] = useState<number>(MIN_DEPOSIT_CENTS);
@@ -28,8 +28,8 @@ export function AddFunds() {
   const cents = custom ? Math.round(Number(custom.replace(/[^0-9.]/g, "")) * 100) : amount;
   const tooSmall = cents > 0 && cents < MIN_DEPOSIT_CENTS;
   const forAds = adSpendCents(cents);
-  // Two-week campaigns at $10/day this deposit pays for
-  const funds = Math.floor(forAds / (CAMPAIGN_DAILY_CENTS * TEST_DAYS));
+  // The daily spend this deposit pays for over two weeks
+  const perDay = Math.floor(forAds / TEST_DAYS / 100) * 100;
 
   const go = () =>
     startTransition(async () => {
@@ -59,7 +59,7 @@ export function AddFunds() {
             )}
           >
             <span className="block text-sm font-medium tabular-nums">{usd(p.cents)}</span>
-            <span className="block text-[11px] text-fg-faint">{p.campaigns} campaigns</span>
+            <span className="block text-[11px] text-fg-faint">${p.perDay}/day</span>
           </button>
         ))}
       </div>
@@ -81,10 +81,10 @@ export function AddFunds() {
       </div>
       <p className={cn("relative mt-3 text-[13px]", tooSmall ? "text-bad" : "text-fg-muted")}>
         {tooSmall ? (
-          `The minimum is ${usd(MIN_DEPOSIT_CENTS)}: enough for 2 campaigns at $10/day for 2 weeks.`
+          `The minimum is ${usd(MIN_DEPOSIT_CENTS)}: enough for $20/day of ads for 2 weeks.`
         ) : cents > 0 ? (
           <>
-            {`${usd(forAds)} goes to your ads, ${usd(cents - forAds, { cents: (cents - forAds) % 100 !== 0 })} is the Anryh Labs fee (${FEE_RATE * 100}%). That runs ${funds} campaign${funds === 1 ? "" : "s"} at $10/day for 2 weeks. `}
+            {`${usd(forAds)} goes to your ads, ${usd(cents - forAds, { cents: (cents - forAds) % 100 !== 0 })} is the Anryh Labs fee (${FEE_RATE * 100}%). That runs your ads at about ${usd(perDay, { cents: false })}/day for 2 weeks. `}
             <WhyFee />
           </>
         ) : null}

@@ -167,7 +167,7 @@ export function batchSetupMessage(input: {
       section(
         [
           `*${n} campaign${n === 1 ? "" : "s"}:* ${esc(input.campaigns.join(", "))}`,
-          `*Budget:* ${usd(input.perCampaignCents)}/day each${input.days ? ` for ${input.days} days` : ""}${input.endsOn ? ` (ends ${input.endsOn})` : ""}`,
+          `*Budget:* ${usd(input.perCampaignCents)}/day${n === 1 ? "" : " each"}${input.days ? ` for ${input.days} days` : ""}${input.endsOn ? ` (ends ${input.endsOn})` : ""}`,
           `*Who sees it:* adults in ${esc(input.states.join(", "))}`,
         ].join("\n"),
       ),

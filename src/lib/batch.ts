@@ -1,23 +1,22 @@
-import {
-  allocateCampaigns,
-  CAMPAIGN_DAILY_CENTS,
-  MAX_CAMPAIGNS,
-  MIN_AD_BALANCE_CENTS,
-  TEST_DAYS,
-} from "@/lib/campaign";
+import { MIN_AD_BALANCE_CENTS, TEST_DAYS } from "@/lib/campaign";
 import { DateTime } from "luxon";
 import { TOPICS, type TopicKey } from "@/lib/migz/topics";
 
 // Campaign batches: the agent says how much to put in, Migz lays out ways to spend it. Pure helpers
 // (client-safe) so the dialog, the setup page, the start action and the tests all agree.
 //
+// Every batch runs one campaign with one ad set, and the agent's topics are compared ad by ad inside
+// it. At these budgets, splitting the money across campaigns leaves each one too little to learn from
+// (Meta learns per ad set) and they bid against each other for the same people.
+//
 // Hard limits on every option: at least 14 days (7 days of results, then 7 to revise and check the
-// changes worked), at least $10/day per campaign, and the total never above the batch budget.
+// changes worked), aiming for $20/day, and the total never above the batch budget.
 
 export const MIN_BATCH_CENTS = MIN_AD_BALANCE_CENTS; // $280 of ads = the $350 minimum deposit after the fee
 export const MIN_BATCH_DAYS = TEST_DAYS;
 export const MAX_BATCH_DAYS = 42;
 
+// "spread" (several campaigns side by side) is only on older batches; new ones are one campaign
 export type BatchOptionKey = "focused" | "balanced" | "spread";
 
 export type BatchOption = {
@@ -41,61 +40,48 @@ export type BatchHistory = {
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 const dollars = (cents: number) => `$${(cents / 100).toFixed(cents % 100 ? 2 : 0)}`;
 
-/** The most campaigns a budget can run for the minimum length at $10/day each. */
-export function maxCampaigns(budgetCents: number) {
-  return Math.min(MAX_CAMPAIGNS, Math.floor(budgetCents / (CAMPAIGN_DAILY_CENTS * MIN_BATCH_DAYS)));
-}
-
-/** "Mortgage protection and Final expense", "Final expense (2 campaigns) and Income protection". */
+/** "Final expense", "All your topics" (one campaign with ads on each focus topic). Older batches had several. */
 export function listCampaignTopics(slots: (TopicKey | null)[]) {
   const counts = new Map<string, number>();
   for (const t of slots) counts.set(t ?? "", (counts.get(t ?? "") ?? 0) + 1);
   const parts = [...counts].map(([t, n]) => {
-    const label = t ? TOPICS[t as TopicKey].label : "Booked calls";
+    const label = t ? TOPICS[t as TopicKey].label : "All your topics";
     return n > 1 ? `${label} (${n} campaigns)` : label;
   });
   return parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0] ?? "";
 }
 
-function option(key: BatchOptionKey, budgetCents: number, campaigns: (TopicKey | null)[], days: number): BatchOption {
+function option(key: "focused" | "balanced", budgetCents: number, topic: TopicKey | null, focus: TopicKey[], days: number): BatchOption {
   const dailyCents = Math.floor(budgetCents / days);
-  const perCampaignCents = Math.floor(dailyCents / campaigns.length);
-  const per = dollars(perCampaignCents);
-  const n = campaigns.length;
-  const copy: Record<BatchOptionKey, { title: string; blurb: string }> = {
+  const per = dollars(dailyCents);
+  const labels = focus.map((t) => TOPICS[t].label);
+  const list = labels.length > 1 ? `${labels.slice(0, -1).join(", ")} and ${labels.at(-1)}` : labels[0] ?? "";
+  const copy = {
     focused: {
       title: "Focused",
-      blurb: `All in on ${listCampaignTopics(campaigns)}: one campaign at ${per}/day for ${days} days. Deeper data on one topic; Migz compares ads inside it instead of campaigns.`,
+      blurb: `All in on ${listCampaignTopics([topic])}: one campaign at ${per}/day for ${days} days, with every ad on that topic. Migz compares hooks and formats inside it.`,
     },
     balanced: {
-      title: "Balanced",
-      blurb: `${listCampaignTopics(campaigns)}: ${n} campaigns at ${per}/day each for ${days} days, so each focus gets its own test.`,
-    },
-    spread: {
-      title: "Spread",
-      blurb: `${n} campaigns at ${per}/day each for ${days} days: ${listCampaignTopics(campaigns)}. Tests the most angles at once, then Migz backs the winners.`,
+      title: "All your topics",
+      blurb: `One campaign at ${per}/day for ${days} days, with ads on ${list} side by side. Meta puts the money behind the ads that book, and Migz compares the topics ad by ad.`,
     },
   };
-  return { key, ...copy[key], campaigns, days, dailyCents, perCampaignCents };
+  return { key, ...copy[key], campaigns: [topic], days, dailyCents, perCampaignCents: dailyCents };
 }
 
 /**
- * The ways Migz could spend a batch: one focused campaign (on the agent's best topic once there is one,
- * otherwise the main focus), one campaign per focus, or as many campaigns as the money allows. Options
- * that come out the same are dropped. Empty when the budget is under the minimum.
+ * The ways Migz could spend a batch, all as one campaign: focused on one topic (the agent's best once
+ * there is one, otherwise the main focus), or ads on every focus topic side by side. With a single
+ * focus they're the same, so there's one option. Both aim for $20/day and run longer with more money.
+ * Empty when the budget is under the minimum.
  */
 export function batchOptions(budgetCents: number, focus: TopicKey[], bestTopic: TopicKey | null = null): BatchOption[] {
   if (budgetCents < MIN_BATCH_CENTS) return [];
-  const maxN = Math.max(2, maxCampaigns(budgetCents));
-  // Focused aims for $20/day (enough for Meta to learn quickly) and runs longer with more money
+  const days = clamp(Math.floor(budgetCents / 2000), MIN_BATCH_DAYS, MAX_BATCH_DAYS);
   const lead = bestTopic ?? focus[0] ?? null;
-  const focused = option("focused", budgetCents, [lead], clamp(Math.floor(budgetCents / 2000), MIN_BATCH_DAYS, MAX_BATCH_DAYS));
-  // Balanced: one per focus (2 at least, so there's a comparison), aiming for $15/day each
-  const nb = Math.min(maxN, Math.max(2, focus.length));
-  const balanced = option("balanced", budgetCents, allocateCampaigns(focus, nb), clamp(Math.floor(budgetCents / (nb * 1500)), MIN_BATCH_DAYS, MAX_BATCH_DAYS));
-  // Spread: as many campaigns as the minimum length allows
-  const spread = option("spread", budgetCents, allocateCampaigns(focus, maxN), MIN_BATCH_DAYS);
-  return [focused, balanced, ...(spread.campaigns.length > balanced.campaigns.length ? [spread] : [])];
+  const focused = option("focused", budgetCents, lead, focus, days);
+  if (focus.length < 2) return [focused];
+  return [focused, option("balanced", budgetCents, null, focus, days)];
 }
 
 /** Cost per booked call by topic, for topics with enough calls to trust. */
@@ -120,16 +106,11 @@ export function recommendOption(options: BatchOption[], focus: TopicKey[], histo
   if (best && has("focused")) {
     return { key: "focused", reason: `${TOPICS[best].label} books calls clearly cheaper than your other topics, so putting this batch behind it should bring the most calls.` };
   }
+  if (!has("balanced")) return { key: "focused", reason: "One campaign on your focus, so all the money and data go to one place while Migz compares ads inside it." };
   if (history.bookedCalls < 3) {
-    return {
-      key: "balanced",
-      reason: focus.length > 1
-        ? "There isn't enough booking data yet to pick a winner, so one campaign per focus finds your best topic fastest."
-        : "There isn't enough booking data yet, so two campaigns on your focus let Migz compare two approaches.",
-    };
+    return { key: "balanced", reason: "There isn't enough booking data yet to pick a winner, so one campaign runs ads on each of your topics and Meta backs whichever ones book." };
   }
-  if (has("spread")) return { key: "spread", reason: "No topic is a clear winner yet, so testing more campaigns at once should find one sooner." };
-  return { key: "balanced", reason: "No topic is a clear winner yet, so each focus keeps its own campaign while Migz learns." };
+  return { key: "balanced", reason: "No topic books clearly cheaper yet, so keep ads on all of them in one campaign while Migz learns." };
 }
 
 /** Booked calls the budget should bring, from the agent's own cost per call. Null until there's data. */

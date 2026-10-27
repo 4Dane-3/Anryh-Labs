@@ -39,7 +39,7 @@ type Props = {
 const TITLES: Record<string, { title: string; blurb: string }> = {
   profile: { title: "Your profile", blurb: "Your name, photo and a short bio. People see this before they book." },
   page: { title: "Your booking page", blurb: "The hours you take calls, and a look at the page your ads send people to." },
-  funds: { title: "Add funds", blurb: `Money for your Meta ads. The minimum is ${usd(MIN_DEPOSIT_CENTS)}: 2 campaigns at $10 a day for 2 weeks.` },
+  funds: { title: "Add funds", blurb: `Money for your Meta ads. The minimum is ${usd(MIN_DEPOSIT_CENTS)}: $20 a day of ads for 2 weeks.` },
   plan: { title: "Plan your first batch", blurb: "What to promote and how much to put in. Migz plans the campaigns and how long they run." },
   creatives: { title: "Videos and images", blurb: "Let Migz make your ads' videos and photos, or bring your own." },
 };
@@ -107,7 +107,7 @@ function PlanStep({ plan, balanceCents, onSaved }: { plan: Props["plan"]; balanc
       <div>
         <Label>What do you want to promote?</Label>
         <p className="mb-2 text-[12px] text-fg-faint">
-          Pick up to {MAX_FOCUS}, in order. Each can get its own campaign, and extra campaigns go to your main focus first.
+          Pick up to {MAX_FOCUS}, in order. Migz runs ads on each one inside a single campaign, with the most new ads on your main focus.
         </p>
         <div className="grid gap-2 sm:grid-cols-2">
           {TOPIC_KEYS.map((k) => {

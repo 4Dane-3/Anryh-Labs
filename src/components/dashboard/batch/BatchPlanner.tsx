@@ -17,7 +17,7 @@ const RUN_MODES = [
   { auto: false, title: "Ask me first", detail: "Migz proposes each new ad and change. Nothing goes live until you approve it in the Brain or on the Overview." },
 ] as const;
 
-const QUICK = [28_000, 42_000, 56_000, 84_000]; // ad spend: 2, 3, 4 and 6 two-week campaigns
+const QUICK = [28_000, 42_000, 56_000, 84_000]; // ad spend: $20, $30, $40 and $60 a day for two weeks
 
 const whole = (cents: number) => usd(cents, { cents: cents % 100 !== 0 });
 

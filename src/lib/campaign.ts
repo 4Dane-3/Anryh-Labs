@@ -14,21 +14,18 @@ export const DURATIONS = [
   { days: 0, label: "Ongoing" }, // 0 = no end date
 ] as const;
 
-// Each campaign Migz runs gets $10/day. Two is the minimum, so Migz always has a second campaign to
-// compare against; two weeks gives 7 days of results to revise on and 7 more to see if the changes worked.
-export const CAMPAIGN_DAILY_CENTS = 1000;
-export const MIN_CAMPAIGNS = 2;
-export const MAX_CAMPAIGNS = 6;
+// Migz runs one campaign with one ad set, and the agent's topics are compared ad by ad inside it. $20/day
+// is the least that gives Meta enough to learn from; two weeks gives 7 days of results to revise on and
+// 7 more to see if the changes worked.
+export const MIN_DAILY_CENTS = 2000;
 export const TEST_DAYS = 14;
 export const REVISE_AFTER_DAYS = 7;
 
-export const BUDGETS = [20, 30, 40, 60] as const; // dollars per day: 2, 3, 4 and 6 campaigns
-
-export const MIN_DAILY_CENTS = MIN_CAMPAIGNS * CAMPAIGN_DAILY_CENTS;
+export const BUDGETS = [20, 30, 40, 60] as const; // dollars per day
 export const MAX_DAILY_CENTS = 100_000;
 
 // Anryh Labs keeps 20% of each deposit; the rest is ad spend. The minimum deposit funds the minimum plan:
-// $350 -> $280 of ads = 2 campaigns x $10/day x 14 days.
+// $350 -> $280 of ads = $20/day x 14 days.
 export const FEE_RATE = 0.2;
 export const MIN_DEPOSIT_CENTS = 35_000;
 export const MAX_DEPOSIT_CENTS = 1_000_000;
@@ -46,28 +43,19 @@ export function depositFor(adCents: number) {
 /** The least an ad balance needs to start: what the minimum deposit leaves after the fee. */
 export const MIN_AD_BALANCE_CENTS = adSpendCents(MIN_DEPOSIT_CENTS);
 
-/** How many campaigns a daily budget runs, at $10/day each (at least 1, at most MAX_CAMPAIGNS). */
-export function campaignCount(dailyCents: number) {
-  return Math.min(MAX_CAMPAIGNS, Math.max(1, Math.floor(dailyCents / CAMPAIGN_DAILY_CENTS)));
-}
+/** The topic the agent's one campaign serves: their only focus, or null (ads on every focus topic). */
+export const planTopic = (focus: readonly TopicKey[]): TopicKey | null => (focus.length === 1 ? focus[0] : null);
 
 /**
- * Which focus topic each campaign serves. One campaign per focus, top focus first, while the budget
- * covers them; with more campaigns than focuses the extras follow the focus order (4 campaigns over
- * 3 focuses = 2 on the main focus, 1 on each of the others). With no focus, campaigns have no topic.
+ * Campaign names that read well in Meta and in the dashboard: "Final expense", "Final expense + Whole life"
+ * for one campaign over several topics, or "Final expense B" when an older batch ran two on one topic.
  */
-export function allocateCampaigns(focus: readonly TopicKey[], count: number): (TopicKey | null)[] {
-  if (!focus.length) return Array.from({ length: count }, () => null);
-  return Array.from({ length: count }, (_, i) => focus[i % focus.length]);
-}
-
-/** Campaign names that read well in Meta and in the dashboard: "Final expense", or "Final expense B". */
-export function campaignLabels(slots: readonly (TopicKey | null)[]) {
+export function campaignLabels(slots: readonly (TopicKey | null)[], focus: readonly TopicKey[] = []) {
   const seen = new Map<string, number>();
   const totals = new Map<string, number>();
   for (const t of slots) totals.set(t ?? "", (totals.get(t ?? "") ?? 0) + 1);
   return slots.map((t) => {
-    const base = t ? TOPICS[t].label : "Booked calls";
+    const base = t ? TOPICS[t].label : focus.length ? focus.map((f) => TOPICS[f].label).join(" + ") : "Booked calls";
     const n = (seen.get(t ?? "") ?? 0) + 1;
     seen.set(t ?? "", n);
     return (totals.get(t ?? "") ?? 0) > 1 ? `${base} ${String.fromCharCode(64 + n)}` : base;
@@ -107,4 +95,26 @@ export function estimate(dailyCents: number, days: number | null | undefined, ba
     fullyFunded: total !== null ? balanceCents >= total : false,
     shortfallCents: total !== null ? Math.max(0, total - balanceCents) : null,
   };
+}
+
+/**
+ * Which live ads a one-campaign batch carries over from the campaigns it retires: most spend first
+ * (where Meta was putting the money), only ads on the campaign's topic when it has one, one ad per
+ * creative (including ones the campaign already runs), and no more than `room`.
+ */
+export function pickCarryOver<T extends { meta_ad_id: string; creative_id: string | null; topic: string | null }>(
+  candidates: T[],
+  opts: { room: number; topic: TopicKey | null; spentCents: Map<string, number>; running: Set<string> },
+): T[] {
+  const have = new Set(opts.running);
+  const picks: T[] = [];
+  const bySpend = [...candidates].sort((a, b) => (opts.spentCents.get(b.meta_ad_id) ?? 0) - (opts.spentCents.get(a.meta_ad_id) ?? 0));
+  for (const a of bySpend) {
+    if (picks.length >= opts.room) break;
+    if (opts.topic && a.topic !== opts.topic) continue;
+    if (a.creative_id && have.has(a.creative_id)) continue;
+    if (a.creative_id) have.add(a.creative_id);
+    picks.push(a);
+  }
+  return picks;
 }
