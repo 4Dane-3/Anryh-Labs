@@ -16,6 +16,7 @@ import { cleanFocus, type TopicKey } from "@/lib/migz/topics";
 import { PAGE_FONT_KEYS } from "@/lib/booking/page-font-keys";
 import { endDate, MAX_DEPOSIT_CENTS, MIN_DEPOSIT_CENTS } from "@/lib/campaign";
 import { batchOptions, bestTopic, exploreAdvice, findOption, MIN_BATCH_CENTS, outcomeEstimate, type BatchOption, type BatchOptionKey } from "@/lib/batch";
+import { budgetMath, ownCostPerCall } from "@/lib/migz/playbook";
 import { closeEndedBatch, ensureBatchSetAside, getActiveBatch, getBatchHistory, getOpenBatch, recommendWithMigz } from "@/lib/dashboard/batches";
 import { getBalanceCents } from "@/lib/dashboard/queries";
 import { checkoutReturnBase, createDepositCheckout } from "@/lib/stripe";
@@ -605,6 +606,8 @@ export type BatchPlanResult =
       advice: ReturnType<typeof exploreAdvice>;
       /** Why the ads haven't booked, from where their visitors stop on the booking page (null when nothing stands out). */
       diagnosis: { fix: "ads" | "page" | "both"; text: string } | null;
+      /** What the recommended plan's daily spend should buy, at the agent's cost per call or a typical one. */
+      math: string;
       balanceCents: number;
     }
   | { ok: false; error: string };
@@ -626,7 +629,9 @@ export async function planBatch(budgetCents: number, topics?: string[]): Promise
   // Only once the ads have run: a first batch has no visits to diagnose
   const verdict = history.spentCents > 0 ? history.page?.verdict : null;
   const diagnosis = verdict && verdict.fix !== "none" ? { fix: verdict.fix, text: verdict.text } : null;
-  return { ok: true, options, recommended, estimate: outcomeEstimate(budgetCents, history), advice: exploreAdvice(budgetCents), diagnosis, balanceCents };
+  const pick = options.find((o) => o.key === recommended.key) ?? options[0];
+  const math = budgetMath({ dailyCents: pick.perCampaignCents, adsets: 1, costPerCallCents: ownCostPerCall(history.spentCents, history.bookedCalls) }).text;
+  return { ok: true, options, recommended, estimate: outcomeEstimate(budgetCents, history), advice: exploreAdvice(budgetCents), diagnosis, math, balanceCents };
 }
 
 type BatchChoice = { budgetCents: number; option: string; recommended?: string | null; reason?: string | null; autoRun?: boolean };
@@ -671,6 +676,7 @@ async function activateBatch(agent: Agent, batchId: string, row: { days: number;
       ads_paused: false,
       migz_mode: mode,
       migz_last_run_at: null,
+      migz_last_weekly_at: null, // the strategist's memo runs on the batch's first review
       migz_last_operator_at: null,
     })
     .eq("id", agent.id);

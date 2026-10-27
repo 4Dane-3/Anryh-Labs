@@ -7,6 +7,7 @@ import { recommendOption, type BatchHistory, type BatchOption, type BatchOptionK
 import { callModel, defaultCreateMessage, jsonOf, monthlyBudget, planTier, type CreateMessage } from "@/lib/migz/router";
 import { notifyBatchEnded } from "@/lib/migz/notify";
 import { adFunnel, funnelVerdict } from "@/lib/migz/funnel";
+import { budgetMath, ownCostPerCall, PLAYBOOK } from "@/lib/migz/playbook";
 import type { EventRow } from "@/lib/admin/page-analytics";
 
 export type Batch = {
@@ -243,7 +244,9 @@ const PLAN_SCHEMA = {
   additionalProperties: false,
 };
 
-const PLAN_SYSTEM = `You are Migz AI, the media buyer running Meta ads for an independent life insurance agent. The agent is putting a new batch of money into their ads and you're choosing how to spend it, from the options given. The goal is the most booked calls for the money. Focused and balanced are one campaign with one ad set, so all the money and data stay in one place; explore (offered only when the budget covers $20/day for each) adds an exploration campaign where new creative is tested before the winners move into the main campaign. Guidance: when explore is offered it's usually best, because testing new ads in the main ad set restarts its learning every time; otherwise, with little or no booking data, ads on all the agent's topics side by side (balanced) find the best topic fastest, since Meta backs whichever ads book; once one topic clearly books cheaper, focusing on it usually brings the most calls. booking_page shows where the people who tapped the ads stopped on the agent's booking page. When the ads haven't booked calls, use it to explain why in the reason: if fix_is_in is "page", say plainly that the ads are bringing people and what on the page stops them, since more ad money alone won't fix it; the option you pick still follows the guidance above. Use only the agent's own numbers you're given; never invent results. Write the reason for the agent: plain words, no jargon, no promises.`;
+const PLAN_SYSTEM = `You are Migz AI, a senior media buyer running Meta ads for an independent life insurance agent. The agent is putting a new batch of money into their ads and you're choosing how to deploy it, from the options given. The goal is the most booked calls from the money, and more money behind what works. budget_math says what each option's daily spend should buy at this account's cost per booked call (or a typical one until it has bookings): put that number in the reason, so the agent sees what the money is for. Focused and balanced are one campaign with one ad set, so all the money and data stay in one place; explore (offered only when the budget covers $20/day for each) adds an exploration campaign where new creative is tested before the winners move into the main campaign. Guidance: when explore is offered it's usually best, because testing new ads in the main ad set restarts its learning every time; otherwise, with little or no booking data, ads on all the agent's topics side by side (balanced) find the best topic fastest, since Meta backs whichever ads book; once one topic clearly books cheaper, focusing on it usually brings the most calls. booking_page shows where the people who tapped the ads stopped on the agent's booking page. When the ads haven't booked calls, use it to explain why in the reason: if fix_is_in is "page", say plainly that the ads are bringing people and what on the page stops them, since more ad money alone won't fix it; the option you pick still follows the guidance above. Use only the agent's own numbers you're given; never invent results. Write the reason for the agent: plain words, no jargon, no promises ("about", "should").
+
+${PLAYBOOK}`;
 
 /**
  * Migz's pick among the options, with its reason. Sonnet decides from the agent's own history and
@@ -264,7 +267,11 @@ export async function recommendWithMigz(
     const facts = {
       batch_budget: `$${(input.budgetCents / 100).toFixed(2)} of ad spend`,
       focus_in_order: input.focus.map((t) => TOPICS[t].label),
-      options: input.options.map((o) => ({ option: o.key, plan: o.blurb })),
+      options: input.options.map((o) => ({
+        option: o.key,
+        plan: o.blurb,
+        budget_math: budgetMath({ dailyCents: o.perCampaignCents, adsets: 1, costPerCallCents: ownCostPerCall(input.history.spentCents, input.history.bookedCalls) }).text,
+      })),
       history: {
         spent_so_far: `$${(input.history.spentCents / 100).toFixed(2)}`,
         booked_calls_so_far: input.history.bookedCalls,

@@ -1002,4 +1002,32 @@ assert.equal(booking.fix, "none"); assert.match(booking.text, /4 of 40 ad visito
 assert.match(funnelVerdict(F({ visits: 224, sawTimes: 175, pickedTime: 1, tappedCall: 3 })).text, /3 tapped Call instead/);
 ok("booking-page funnel: ad visits only; page vs ads verdicts (times, form, errors, clicks not arriving, too few visits)");
 
+// The strategist's playbook: budget math decides the structure, more money is advised from the account's own cost per call
+const { budgetMath, scaleAdvice, ownCostPerCall, PLAYBOOK } = await import("@/lib/migz/playbook");
+const split = budgetMath({ dailyCents: 1810, adsets: 3, costPerCallCents: null });
+assert.equal(split.verdict, "consolidate", "Miguel's $18.10/day across 3 ad sets");
+assert.equal(split.costSource, "estimate");
+assert.match(split.text, /\$18\/day at about \$60 per booked call .* about 2\.1 booked calls a week\. Split across 3 ad sets that's about \$6\/day and 0\.7 a week each/);
+const oneSet = budgetMath({ dailyCents: 2000, adsets: 1, costPerCallCents: null });
+assert.equal(oneSet.verdict, "keep"); assert.match(oneSet.text, /One ad set gets all of it/);
+assert.equal(oneSet.learningDailyCents, 42857, "one ad set needs about $429/day to reach 50 calls a week at $60");
+assert.equal(ownCostPerCall(12000, 2), null, "2 bookings is too few to trust"); assert.equal(ownCostPerCall(15000, 3), 5000);
+assert.equal(budgetMath({ dailyCents: 2000, adsets: 1, costPerCallCents: 5000 }).costSource, "account");
+assert.equal(scaleAdvice({ spentCents: 10000, bookedCalls: 1, extraCents: 28000 }), null);
+assert.match(scaleAdvice({ spentCents: 15000, bookedCalls: 3, extraCents: 28000 })!.text, /At your \$50 per booked call, another \$280 of ad spend should bring about 5\.6 more booked calls/);
+assert.match(PLAYBOOK, /never treat a lower spend as a result/);
+
+// restructure: only a split account with a running batch and time left to learn
+const { checkRestructure } = await import("@/lib/migz/guardrails");
+const rset = (id: string, role = "main", status = "ACTIVE") => ({ meta_adset_id: id, status, role, daily_budget_cents: 600, learning_status: "LEARNING", last_edited_at: "2026-10-25T00:00:00Z", ads: [] });
+const rctx = (adsets: ReturnType<typeof rset>[], batchDaysLeft: number | null | undefined) => ({ ...gctx, adsets, batchDaysLeft });
+assert.equal(checkRestructure(rctx([rset("a"), rset("b"), rset("c")], 9)), null, "3 live main ad sets, 9 days left: restructure");
+assert.match(checkRestructure(rctx([rset("a"), rset("x", "explore")], 9)) ?? "", /already runs one main ad set/, "exploration doesn't count as a split");
+assert.match(checkRestructure(rctx([rset("a"), rset("b", "main", "PAUSED")], 9)) ?? "", /already runs one main ad set/);
+assert.match(checkRestructure(rctx([rset("a"), rset("b")], 3)) ?? "", /Only 3 days left/);
+assert.match(checkRestructure(rctx([rset("a"), rset("b")], null)) ?? "", /isn't one with an end date/);
+const rs = evalTool("restructure", { title: "Fold into one ad set", reason: "3 ad sets can't each learn on $18/day" }, { ...rctx([rset("a"), rset("b")], 9), scriptedAds: new Map(), libraryCreativeIds: new Set<string>() });
+assert.ok(rs.ok && rs.payload.tool === "restructure" && rs.kind === "budget");
+ok("strategist: budget math (consolidate a split budget, own cost per call after 3 bookings), scale advice, restructure guardrail");
+
 console.log(`\nALL ${n} UNIT GROUPS PASSED`);

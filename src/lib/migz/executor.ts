@@ -7,6 +7,9 @@ import { isTestMode } from "@/lib/migz/test-mode";
 import { enqueueGeneration, enqueueLaunch } from "@/lib/migz/creative-jobs";
 import { metaStep } from "@/lib/migz/events";
 import type { ActionPayload } from "@/lib/migz/tools";
+import { planTopic } from "@/lib/campaign";
+import { EXPLORE } from "@/lib/batch";
+import { cleanFocus } from "@/lib/migz/topics";
 
 export type ApplyResult = { ok: true; result: Record<string, unknown> } | { ok: false; error: string };
 
@@ -92,6 +95,19 @@ export async function applyPayload(
           return id;
         });
         return { ok: true, result: { ad_id: adId } };
+      }
+      case "restructure": {
+        const { getActiveBatch } = await import("@/lib/dashboard/batches");
+        // Loaded at call time: agent.ts imports this module
+        const { syncCampaignPlan } = await import("@/lib/migz/agent");
+        const batch = await getActiveBatch(agent.id);
+        if (!batch) throw new Error("There's no running batch to restructure.");
+        const focus = cleanFocus(agent.ad_focus);
+        const campaigns = [planTopic(focus) ?? "", ...(batch.campaigns.includes(EXPLORE) ? [EXPLORE] : [])];
+        await supabaseAdmin.from("campaign_batches").update({ campaigns, applied_at: null }).eq("id", batch.id);
+        // Rebuilds now: retires the old campaigns, makes the one campaign and carries the best ads over
+        await inMeta(() => syncCampaignPlan(agent, opts.runId ?? null, { ...batch, campaigns, applied_at: null }));
+        return { ok: true, result: { campaigns } };
       }
       case "hold":
         return { ok: true, result: {} };

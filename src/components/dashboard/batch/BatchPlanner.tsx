@@ -147,7 +147,7 @@ export function BatchPlanner({
             <p className="mt-2 text-[12px] text-fg-faint">
               {plan.estimate
                 ? `At your ${whole(plan.estimate.costPerCallCents)} per booked call so far, ${whole(plannedFor)} should bring roughly ${plan.estimate.low}–${plan.estimate.high} booked calls. Results vary week to week.`
-                : "Migz will estimate booked calls once your ads have a few bookings; this first batch is what sets that baseline."}
+                : plan.math}
             </p>
           </div>
 
