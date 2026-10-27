@@ -706,8 +706,8 @@ try {
   assert.match(String((snapNew.forModel.agent.campaign as { phase: string }).phase), /collecting results/);
   const ctxNew = await buildEvalContext((await getAgent()) as never, snapNew);
   const { checkPauseAd, checkBudgetChange } = await import("@/lib/migz/guardrails");
-  assert.match(checkPauseAd(ctxNew, "ad_x") ?? "", /first week of results/);
-  assert.match(checkBudgetChange(ctxNew, "adset_1", 1100) ?? "", /first week of results/);
+  assert.match(checkPauseAd(ctxNew, "ad_x") ?? "", /collecting its first results/);
+  assert.match(checkBudgetChange(ctxNew, "adset_1", 1100) ?? "", /collecting its first results/);
   await db.from("agents").update({ campaign_started_on: null }).eq("id", AGENT_ID);
   ok("$40/day over 3 focuses = 4 campaigns (2 on the main focus), $10/day each; the first week refuses revisions");
 

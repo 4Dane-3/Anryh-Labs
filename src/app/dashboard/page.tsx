@@ -178,6 +178,7 @@ export default async function OverviewPage() {
             progress={batchProgress}
             past={pastBatches}
             timezone={agent.timezone}
+            balanceCents={balance}
           />
         </Panel>
       </div>

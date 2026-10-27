@@ -27,9 +27,16 @@ export type Batch = {
   created_at: string;
   started_at: string | null;
   ended_at: string | null;
+  /** Days at the start that only collect results (the sprint reads 3; a renewal continues, so 0). */
+  collect_days: number;
+  /** Keep going: starts the same plan again when it ends, from the free balance. */
+  renew: boolean;
+  /** Why the last attempt to renew didn't happen (balance too low, ads paused...). */
+  renew_blocked: string | null;
 };
 
-const COLS = "id, status, budget_cents, option, campaigns, days, daily_cents, recommended_option, reason, starts_on, ends_on, applied_at, result, created_at, started_at, ended_at";
+export const BATCH_COLS = "id, status, budget_cents, option, campaigns, days, daily_cents, recommended_option, reason, starts_on, ends_on, applied_at, result, created_at, started_at, ended_at, collect_days, renew, renew_blocked";
+const COLS = BATCH_COLS;
 
 /** The batch that's planned or running, if any. Null before the batches migration too. */
 export async function getOpenBatch(agentId: string): Promise<Batch | null> {
@@ -258,7 +265,9 @@ export async function recommendWithMigz(
   createMessage: CreateMessage = defaultCreateMessage,
 ): Promise<{ key: BatchOptionKey; reason: string; by: "migz" | "rules" }> {
   const fallback = { ...recommendOption(input.options, input.focus, input.history), by: "rules" as const };
-  if (input.options.length < 2) return fallback;
+  // Migz recommends among the 14-day plans; the one-week sprint is the agent's own call
+  const options = input.options.filter((o) => o.key !== "sprint");
+  if (options.length < 2) return fallback;
   try {
     const budget = await monthlyBudget(agent.id, agent.migz_model_budget_cents ?? 3000, agent.timezone);
     const plan = planTier("batch_plan", budget);
@@ -267,7 +276,7 @@ export async function recommendWithMigz(
     const facts = {
       batch_budget: `$${(input.budgetCents / 100).toFixed(2)} of ad spend`,
       focus_in_order: input.focus.map((t) => TOPICS[t].label),
-      options: input.options.map((o) => ({
+      options: options.map((o) => ({
         option: o.key,
         plan: o.blurb,
         budget_math: budgetMath({ dailyCents: o.perCampaignCents, adsets: 1, costPerCallCents: ownCostPerCall(input.history.spentCents, input.history.bookedCalls) }).text,
@@ -309,7 +318,7 @@ export async function recommendWithMigz(
       },
     });
     const pick = jsonOf<{ option: BatchOptionKey; reason: string }>(res.message);
-    if (!pick || !input.options.some((o) => o.key === pick.option) || !pick.reason?.trim()) return fallback;
+    if (!pick || !options.some((o) => o.key === pick.option) || !pick.reason?.trim()) return fallback;
     return { key: pick.option, reason: pick.reason.trim().slice(0, 400), by: "migz" };
   } catch (e) {
     console.error("batch recommendation failed", e);

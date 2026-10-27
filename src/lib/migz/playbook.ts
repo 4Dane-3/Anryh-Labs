@@ -65,7 +65,8 @@ Budget moves
 - Change a working ad set's budget by at most 20 to 30% at a time, at most every 3 days; bigger jumps restart learning.
 - Scale what books: once cost per booked call is known and steady, recommend more money (a bigger next batch, an exploration campaign) and say how many more calls it should bring at the account's own cost per call.
 - Buy a real read: when a batch ends with every ad inside the noise (under 300 impressions each, or a handful of clicks apart), the next batch should put the money into one campaign at a budget that gives every live ad its $50 a week, such as $50/day for 14 days with 6 ads, rather than repeat a small batch that can't tell the ads apart. Never split a small budget across two batches or campaigns to compare them.
-- A batch needs time: 7 days to collect results, then revisions, then time to see them work. Don't restructure in a batch's last few days.`;
+- A batch needs time: 7 days to collect results, then revisions, then time to see them work. Don't restructure in a batch's last few days.
+- A one-week sprint reads its first 3 days, then revises for the last 4: trim the ads that are clearly behind on day 4, not before. When a batch renews ("Keep going"), the account already has data and Migz can revise from the first day; the ad set keeps its learning, so change as little as the numbers justify and never restart it for its own sake.`;
 
 export type BudgetMath = {
   costPerCallCents: number;

@@ -97,7 +97,7 @@ export function learningReason(adset: AdSetState, now: Date) {
 export function revisionWait(ctx: GuardContext) {
   if (!ctx.revisionsFrom || ctx.now >= ctx.revisionsFrom) return null;
   const date = ctx.revisionsFrom.toISOString().slice(0, 10);
-  return `The campaign is still collecting its first week of results; revisions (pausing ads, moving budget, changing placements) start on ${date}. Build and launch creative now, and hold everything else until then.`;
+  return `The campaign is still collecting its first results; revisions (pausing ads, moving budget, changing placements) start on ${date}. Build and launch creative now, and hold everything else until then.`;
 }
 
 export function checkBudgetChange(ctx: GuardContext, adsetId: string, newCents: number) {

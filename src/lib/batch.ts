@@ -1,4 +1,4 @@
-import { depositFor, MIN_AD_BALANCE_CENTS, TEST_DAYS } from "@/lib/campaign";
+import { depositFor, MIN_AD_BALANCE_CENTS, REVISE_AFTER_DAYS, SPRINT_COLLECT_DAYS, SPRINT_DAYS, TEST_DAYS } from "@/lib/campaign";
 import { DateTime } from "luxon";
 import { TOPICS, type TopicKey } from "@/lib/migz/topics";
 import type { BookingFunnel, FunnelVerdict } from "@/lib/migz/funnel";
@@ -15,18 +15,26 @@ import type { BookingFunnel, FunnelVerdict } from "@/lib/migz/funnel";
 // isn't restarted by every test. Every plan advises how much more would make room for one.
 //
 // Hard limits on every option: at least 14 days (7 days of results, then 7 to revise and check the
-// changes worked), at least $20/day per campaign, and the total never above the batch budget.
+// changes worked), at least $20/day per campaign, and the total never above the batch budget. The one
+// exception is the one-week sprint: 7 days at $50/day or more, read for 3 days then revised for 4. A
+// batch can also be set to renew: it starts again when it ends, from the free ad balance (see renew.ts).
+
 
 export const MIN_BATCH_CENTS = MIN_AD_BALANCE_CENTS; // $280 of ads = the $350 minimum deposit after the fee
 export const MIN_BATCH_DAYS = TEST_DAYS;
 export const MAX_BATCH_DAYS = 42;
 
 // "spread" (several campaigns side by side) is only on older batches
-export type BatchOptionKey = "focused" | "balanced" | "explore" | "spread";
+export type BatchOptionKey = "focused" | "balanced" | "explore" | "spread" | "sprint";
 
 /** A campaign in a plan: one topic, null for every focus topic, or the exploration campaign. */
 export const EXPLORE = "explore";
 export type CampaignSlot = TopicKey | null | typeof EXPLORE;
+
+/** The least a sprint spends a day: enough that 5 or 6 ads each get about $50 of reading in the first 3 days. */
+export const SPRINT_MIN_DAILY_CENTS = 5000;
+/** The smallest sprint: $50/day for a week ($350 of ad spend). */
+export const SPRINT_MIN_BATCH_CENTS = SPRINT_MIN_DAILY_CENTS * SPRINT_DAYS;
 
 export const MAIN_MIN_DAILY_CENTS = 2000;
 export const EXPLORE_MIN_DAILY_CENTS = 2000;
@@ -41,6 +49,8 @@ export type BatchOption = {
   dailyCents: number; // all campaigns together
   perCampaignCents: number; // the main campaign's share
   exploreCents: number; // the exploration campaign's share (0 without one)
+  /** Days at the start that only collect results; Migz revises after them. */
+  collectDays: number;
   blurb: string;
 };
 
@@ -113,6 +123,7 @@ function exploreOption(budgetCents: number, main: TopicKey | null): BatchOption 
     dailyCents,
     perCampaignCents: mainCents,
     exploreCents,
+    collectDays: REVISE_AFTER_DAYS,
     blurb: `A main campaign at ${dollars(mainCents)}/day with your proven ${what}, plus an exploration campaign at ${dollars(exploreCents)}/day for ${days} days. New hooks, formats and topics are tested in exploration first; Migz moves the winners into the main campaign, so it keeps learning instead of restarting with every new ad.`,
   };
 }
@@ -132,7 +143,29 @@ function option(key: "focused" | "balanced", budgetCents: number, topic: TopicKe
       blurb: `One campaign at ${per}/day for ${days} days, with ads on ${list} side by side. Meta puts the money behind the ads that book, and Migz compares the topics ad by ad.`,
     },
   };
-  return { key, ...copy[key], campaigns: [topic], days, dailyCents, perCampaignCents: dailyCents, exploreCents: 0 };
+  return { key, ...copy[key], campaigns: [topic], days, dailyCents, perCampaignCents: dailyCents, exploreCents: 0, collectDays: REVISE_AFTER_DAYS };
+}
+
+/**
+ * One week, one campaign, the whole budget spread over 7 days: a harder push than the 14-day plans. Meta
+ * learns in a few days, so most of the money goes to ads that have already learned, and Migz can start
+ * trimming on day 4. Offered from $50/day. Not recommended automatically: it's the agent's call.
+ */
+function sprintOption(budgetCents: number, main: TopicKey | null): BatchOption | null {
+  if (budgetCents < SPRINT_MIN_BATCH_CENTS) return null;
+  const dailyCents = Math.floor(budgetCents / SPRINT_DAYS);
+  const what = main ? `${TOPICS[main].label} ads` : "ads on all your topics";
+  return {
+    key: "sprint",
+    title: "One-week sprint",
+    campaigns: [main],
+    days: SPRINT_DAYS,
+    dailyCents,
+    perCampaignCents: dailyCents,
+    exploreCents: 0,
+    collectDays: SPRINT_COLLECT_DAYS,
+    blurb: `One campaign at about ${dollars(dailyCents)}/day for ${SPRINT_DAYS} days with ${what}. Migz reads the first ${SPRINT_COLLECT_DAYS} days, then trims what isn't working for the last ${SPRINT_DAYS - SPRINT_COLLECT_DAYS}. A week is short: turn on Keep going and the same batch starts again when it ends, from your balance.`,
+  };
 }
 
 /**
@@ -147,7 +180,8 @@ export function batchOptions(budgetCents: number, focus: TopicKey[], bestTopic: 
   const lead = bestTopic ?? focus[0] ?? null;
   const single = focus.length < 2 ? [option("focused", budgetCents, lead, focus, days)] : [option("focused", budgetCents, lead, focus, days), option("balanced", budgetCents, null, focus, days)];
   const explore = exploreOption(budgetCents, bestTopic ?? (focus.length === 1 ? focus[0] : null));
-  return explore ? [...single, explore] : single;
+  const sprint = sprintOption(budgetCents, bestTopic ?? (focus.length === 1 ? focus[0] : null));
+  return [...single, ...(explore ? [explore] : []), ...(sprint ? [sprint] : [])];
 }
 
 /** Cost per booked call by topic, for topics with enough calls to trust. */

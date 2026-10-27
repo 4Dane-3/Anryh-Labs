@@ -14,15 +14,15 @@ import { defaultCreateMessage, monthlyBudget } from "@/lib/migz/router";
 import { traitSwipe } from "@/lib/migz/team/scout";
 import { cleanFocus, type TopicKey } from "@/lib/migz/topics";
 import { PAGE_FONT_KEYS } from "@/lib/booking/page-font-keys";
-import { endDate, MAX_DEPOSIT_CENTS, MIN_DEPOSIT_CENTS } from "@/lib/campaign";
+import { MAX_DEPOSIT_CENTS, MIN_DEPOSIT_CENTS } from "@/lib/campaign";
 import { batchOptions, bestTopic, exploreAdvice, findOption, MIN_BATCH_CENTS, outcomeEstimate, type BatchOption, type BatchOptionKey } from "@/lib/batch";
 import { budgetMath, ownCostPerCall } from "@/lib/migz/playbook";
-import { closeEndedBatch, ensureBatchSetAside, getActiveBatch, getBatchHistory, getOpenBatch, recommendWithMigz } from "@/lib/dashboard/batches";
+import { closeEndedBatch, getActiveBatch, getBatchHistory, getOpenBatch, recommendWithMigz } from "@/lib/dashboard/batches";
+import { activateBatch } from "@/lib/dashboard/start-batch";
 import { getBalanceCents } from "@/lib/dashboard/queries";
 import { checkoutReturnBase, createDepositCheckout } from "@/lib/stripe";
 import { setupBlockers } from "@/lib/dashboard/setup";
 import type { Agent } from "@/lib/booking/data";
-import { DateTime } from "luxon";
 import { recheck, type ActionPayload } from "@/lib/migz/tools";
 import { STEP_TITLES, type IntakeQuestion, type QuestionKind } from "@/lib/booking/questions";
 
@@ -634,7 +634,7 @@ export async function planBatch(budgetCents: number, topics?: string[]): Promise
   return { ok: true, options, recommended, estimate: outcomeEstimate(budgetCents, history), advice: exploreAdvice(budgetCents), diagnosis, math, balanceCents };
 }
 
-type BatchChoice = { budgetCents: number; option: string; recommended?: string | null; reason?: string | null; autoRun?: boolean };
+type BatchChoice = { budgetCents: number; option: string; recommended?: string | null; reason?: string | null; autoRun?: boolean; renew?: boolean };
 
 /** The mode a batch runs in: the agent's choice when they made one, otherwise what they had (never "off"). */
 const modeFor = (agent: Agent, autoRun: boolean | undefined) =>
@@ -653,40 +653,11 @@ async function resolveChoice(agent: Agent, input: BatchChoice, focus: TopicKey[]
     campaigns: chosen.campaigns.map((t) => t ?? ""),
     days: chosen.days,
     daily_cents: chosen.dailyCents,
-    recommended_option: ["focused", "balanced", "explore", "spread"].includes(input.recommended ?? "") ? input.recommended : null,
+    collect_days: chosen.collectDays,
+    renew: input.renew === true,
+    recommended_option: ["focused", "balanced", "explore", "spread", "sprint"].includes(input.recommended ?? "") ? input.recommended : null,
     reason: clean(input.reason, 400) || null,
   };
-}
-
-/** Starts a batch: sets the daily spend and dates it implies, then Migz reviews in the background. */
-async function activateBatch(agent: Agent, batchId: string, row: { days: number; daily_cents: number }, mode: "approve" | "auto") {
-  const today = DateTime.now().setZone(agent.timezone).toISODate()!;
-  const ends = endDate(today, row.days);
-  await supabaseAdmin
-    .from("campaign_batches")
-    .update({ status: "active", starts_on: today, ends_on: ends, started_at: new Date().toISOString(), applied_at: null })
-    .eq("id", batchId);
-  const { error } = await supabaseAdmin
-    .from("agents")
-    .update({
-      daily_budget_cents: row.daily_cents,
-      campaign_days: row.days,
-      campaign_started_on: today,
-      campaign_ends_on: ends,
-      ads_paused: false,
-      migz_mode: mode,
-      migz_last_run_at: null,
-      migz_last_weekly_at: null, // the strategist's memo runs on the batch's first review
-      migz_last_operator_at: null,
-    })
-    .eq("id", agent.id);
-  if (error) throw new Error("Couldn't start the batch.");
-  const fresh = (await supabaseAdmin.from("agents").select("*").eq("id", agent.id).single()).data as Agent;
-  // The batch's money comes out of the balance now (what it doesn't spend comes back when it ends)
-  await ensureBatchSetAside(fresh);
-  after(async () => {
-    await runMigz(fresh, { trigger: "manual" }).catch((e) => console.error("batch review crashed", e));
-  });
 }
 
 /** "Start campaign batch" on the overview: the agent's money, Migz's plan, live right away. */
@@ -712,6 +683,27 @@ export async function startBatch(input: BatchChoice): Promise<Result> {
     await activateBatch(agent, batch.id, row, modeFor(agent, input.autoRun));
   } catch (e) {
     return fail(e instanceof Error ? e.message : "Couldn't start the batch.");
+  }
+  revalidatePath("/dashboard", "layout");
+  return { ok: true };
+}
+
+/**
+ * "Keep going": the running (or planned) batch starts again when it ends, from the free ad balance. Turning
+ * it off also cancels a renewal that's waiting on funds. Never charges a card.
+ */
+export async function setBatchRenew(on: boolean): Promise<Result> {
+  const agent = await requireAgent();
+  const open = await getOpenBatch(agent.id);
+  if (open) {
+    const { error } = await supabaseAdmin.from("campaign_batches").update({ renew: on, renew_blocked: null }).eq("id", open.id);
+    if (error) return fail("Couldn't change Keep going. If this keeps happening, the sprint and renewal migration may not have run yet.");
+  } else if (!on) {
+    // No batch running: this cancels a renewal waiting on funds
+    const { error } = await supabaseAdmin.from("campaign_batches").update({ renew: false, renew_blocked: null }).eq("agent_id", agent.id).eq("status", "ended").eq("renew", true);
+    if (error) return fail("Couldn't change Keep going.");
+  } else {
+    return fail("Start a batch first; Keep going repeats the batch that's running.");
   }
   revalidatePath("/dashboard", "layout");
   return { ok: true };

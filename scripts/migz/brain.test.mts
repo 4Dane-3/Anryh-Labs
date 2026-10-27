@@ -275,7 +275,7 @@ ok("required questions and required steps: asked before booking with what they d
 const { checkPauseAd: pauseCheck, checkPlacements: placementCheck } = await import("@/lib/migz/guardrails");
 const early = { ...gctx, revisionsFrom: new Date("2026-10-22T05:00:00Z") };
 assert.match(pauseCheck(early, "a") ?? "", /revisions .* start on 2026-10-22/);
-assert.match(placementCheck(early, "A") ?? "", /first week/);
+assert.match(placementCheck(early, "A") ?? "", /collecting its first results/);
 assert.equal(placementCheck({ ...gctx, revisionsFrom: new Date("2026-10-19T05:00:00Z") }, "A"), null);
 ok("pauses, budget and placement edits wait for the campaign's first 7 days of results");
 
@@ -287,9 +287,9 @@ const min2 = batchOptions(28_000, ["final_expense", "mortgage_protection"]);
 assert.deepEqual(min2.map((o) => [o.key, o.campaigns, o.days, o.dailyCents]), [["focused", ["final_expense"], 14, 2000], ["balanced", [null], 14, 2000]], "$280: one campaign at $20/day for 2 weeks, on the main focus or on both");
 assert.deepEqual(batchOptions(28_000, ["final_expense"]).map((o) => o.key), ["focused"], "one focus: one option");
 const big = batchOptions(70_000, [...three]);
-assert.deepEqual(big.map((o) => [o.key, o.campaigns, o.days, o.perCampaignCents, o.exploreCents]), [["focused", ["final_expense"], 35, 2000, 0], ["balanced", [null], 35, 2000, 0], ["explore", [null, "explore"], 14, 3000, 2000]], "single campaigns run longer, never wider; $700 also covers main + exploration");
+assert.deepEqual(big.map((o) => [o.key, o.campaigns, o.days, o.perCampaignCents, o.exploreCents]), [["focused", ["final_expense"], 35, 2000, 0], ["balanced", [null], 35, 2000, 0], ["explore", [null, "explore"], 14, 3000, 2000], ["sprint", [null], 7, 10_000, 0]], "single campaigns run longer, never wider; $700 also covers main + exploration, or a one-week sprint at $100/day");
 for (const o of big) {
-  assert.ok(o.days >= 14 && o.perCampaignCents >= 2000 && (o.exploreCents === 0 || o.exploreCents >= 2000), `${o.key} keeps the limits`);
+  assert.ok((o.key === "sprint" ? o.days === 7 && o.perCampaignCents >= 5000 : o.days >= 14) && o.perCampaignCents >= 2000 && (o.exploreCents === 0 || o.exploreCents >= 2000), `${o.key} keeps the limits`);
   assert.ok(o.dailyCents * o.days <= 70_000, `${o.key} stays within the batch`);
 }
 assert.match(big[1].blurb, /Final expense, Mortgage protection and Income protection side by side/);
@@ -314,7 +314,7 @@ ok("batches: one campaign at $20+/day for 14+ days, focused on one topic or on a
 const { splitDaily, exploreAdvice, EXPLORE_MIN_BATCH_CENTS } = await import("@/lib/batch");
 assert.equal(EXPLORE_MIN_BATCH_CENTS, 56_000, "$20/day main + $20/day exploring for 14 days");
 assert.ok(!batchOptions(55_900, ["final_expense"]).some((o) => o.key === "explore"), "a cent short: no exploration");
-assert.deepEqual(batchOptions(56_000, ["final_expense"]).map((o) => [o.key, o.campaigns, o.perCampaignCents, o.exploreCents]), [["focused", ["final_expense"], 2000, 0], ["explore", ["final_expense", "explore"], 2000, 2000]]);
+assert.deepEqual(batchOptions(56_000, ["final_expense"]).map((o) => [o.key, o.campaigns, o.perCampaignCents, o.exploreCents]), [["focused", ["final_expense"], 2000, 0], ["explore", ["final_expense", "explore"], 2000, 2000], ["sprint", ["final_expense"], 8000, 0]]);
 assert.equal(batchOptions(56_000, ["mortgage_protection", "final_expense"], "final_expense").at(-1)!.campaigns[0], "final_expense", "a clear winner leads the main campaign");
 assert.deepEqual(splitDaily(5000, [null, "explore"]), [3000, 2000]);
 assert.deepEqual(splitDaily(10_000, [null, "explore"]), [6000, 4000], "exploration gets 40%");
@@ -1124,5 +1124,38 @@ assert.equal(sig({ adsets: [lset({ optimization_event: "LEAD" })] })?.subject, "
 assert.equal(sig({ adsets: [lset({ optimization_event: "LEAD" })], quoteMode: "open_for_ads" }), null, "both done");
 assert.equal(sig({ adsets: [lset({ optimization_event: "LEAD" })], bookedLast7: 10 })?.subject, "schedule");
 ok("conversion path: ads per budget, quote option and optimization event guardrails, the strategist's signal advice");
+
+// --- One-week sprint and Keep going
+const { batchOptions: bopts, findOption: fopt, recommendOption: recOpt, SPRINT_MIN_BATCH_CENTS } = await import("@/lib/batch");
+const at700 = bopts(70_000, ["final_expense"]);
+const sprint700 = at700.find((o) => o.key === "sprint")!;
+assert.ok(sprint700, "$700 offers a one-week sprint");
+assert.deepEqual([sprint700.days, sprint700.dailyCents, sprint700.perCampaignCents, sprint700.exploreCents, sprint700.collectDays], [7, 10_000, 10_000, 0, 3], "$100/day for 7 days, read for 3 days");
+assert.deepEqual(at700.filter((o) => o.key !== "sprint").map((o) => [o.key, o.days]), [["focused", 35], ["explore", 14]], "the longer plans are unchanged");
+assert.ok(at700.filter((o) => o.key !== "sprint").every((o) => o.collectDays === 7), "other plans still collect for 7 days");
+assert.equal(bopts(SPRINT_MIN_BATCH_CENTS, ["final_expense"]).some((o) => o.key === "sprint"), true, "$350 is $50/day for a week");
+assert.equal(bopts(SPRINT_MIN_BATCH_CENTS - 100, ["final_expense"]).some((o) => o.key === "sprint"), false, "under $50/day a week reads too thin");
+assert.equal(fopt(70_000, ["final_expense"], "sprint")?.days, 7, "the server re-derives the sprint from the budget");
+assert.notEqual(recOpt(at700, ["final_expense"], { spentCents: 0, bookedCalls: 0, batches: 0, byTopic: {} }).key, "sprint", "Migz never recommends the sprint on its own");
+const { renewalGate, RENEW_WINDOW_DAYS } = await import("@/lib/renew-core");
+const rnow = new Date("2026-11-04T10:00:00Z");
+const rbatch = (over: Record<string, unknown> = {}) => ({ renew: true, status: "ended", ended_at: "2026-11-04T05:00:00Z", budget_cents: 70_000, result: { spent_cents: 61_000 }, ...over });
+const ragent = (over: Record<string, unknown> = {}) => ({ ads_paused: false, migz_mode: "auto", hasMeta: true, onboarded: true, focusCount: 1, ...over });
+const gate = (b: Record<string, unknown> = {}, a: Record<string, unknown> = {}, balanceCents = 70_000) => renewalGate({ batch: rbatch(b) as never, agent: ragent(a), balanceCents, now: rnow });
+assert.deepEqual(gate(), { action: "renew" }, "ended, delivered, balance covers it");
+assert.equal(gate({ renew: false }).action, "skip");
+assert.equal(gate({ status: "active" }).action, "skip");
+const short = gate({}, {}, 52_000);
+assert.ok(short.action === "wait" && /\$520, \$180 short of the \$700/.test(short.reason) && /Add about \$225 in funds/.test(short.reason), "waits for funds and says how much (with the 20% fee)");
+assert.equal(gate({}, { ads_paused: true }).action, "wait");
+assert.equal(gate({}, { migz_mode: "off" }).action, "wait");
+const dead = gate({ result: { spent_cents: 20_000 } });
+assert.ok(dead.action === "stop" && /spent only \$200 of its \$700/.test(dead.reason), "ads that didn't deliver aren't repeated");
+assert.equal(gate({ ended_at: "2026-10-30T10:00:00Z" }).action, "stop", `gives up ${RENEW_WINDOW_DAYS} days after the batch ended`);
+assert.equal(gate({}, { focusCount: 0 }).action, "stop");
+const { batchRenewedMessage, batchRenewBlockedMessage } = await import("@/lib/migz/slack-blocks");
+assert.match(batchRenewedMessage({ budgetCents: 70_000, days: 7, dailyCents: 10_000, balanceCents: 12_500, dashboardUrl: "https://x.test" }).text, /next 7-day batch started \(\$700\)/);
+assert.match(JSON.stringify(batchRenewBlockedMessage({ reason: "short", stopped: true, dashboardUrl: "https://x.test" }).blocks), /Keep going stopped/);
+ok("one-week sprint and Keep going: sprint from $350, $700 = $100/day for 7 days read for 3, never recommended, renewal gate (funds, paused, dead ads, 3-day window), Slack notices");
 
 console.log(`\nALL ${n} UNIT GROUPS PASSED`);

@@ -5,14 +5,31 @@ import type { Batch } from "@/lib/dashboard/batches";
 import { listCampaignTopics, type CampaignSlot } from "@/lib/batch";
 import { usd } from "@/lib/dashboard/format";
 import { EmptyState, PanelHeader } from "@/components/dashboard/ui";
+import { KeepGoing } from "@/components/dashboard/batch/KeepGoing";
+import { depositFor } from "@/lib/campaign";
 
-const TITLES: Record<string, string> = { focused: "Focused", balanced: "Balanced", spread: "Spread" };
+const TITLES: Record<string, string> = { focused: "Focused", balanced: "Balanced", spread: "Spread", explore: "Main + exploration", sprint: "One-week sprint" };
 const whole = (cents: number) => usd(cents, { cents: cents % 100 !== 0 && cents < 100_00 });
 const topicsOf = (b: Batch) => b.campaigns.map((t) => (t || null) as CampaignSlot);
 const range = (b: Batch, zone: string) =>
   b.starts_on && b.ends_on
     ? `${DateTime.fromISO(b.starts_on, { zone }).toFormat("LLL d")} – ${DateTime.fromISO(b.ends_on, { zone }).toFormat("LLL d")}`
     : `${b.days} days`;
+
+/** What Keep going will do next, and whether the balance wouldn't cover it. */
+function keepNote(batch: Batch, balanceCents: number, zone: string, unspentCents = 0): { note: string; warn: boolean } {
+  const need = batch.budget_cents;
+  if (batch.status === "ended") {
+    return { note: batch.renew_blocked ?? "Your next batch starts within the hour.", warn: true };
+  }
+  if (!batch.renew) return { note: `When this batch ends, the same ${whole(need)} batch starts again from your balance. Turn it on to keep the ads running without a gap. It never charges a card.`, warn: false };
+  const next = batch.ends_on ? DateTime.fromISO(batch.ends_on, { zone }).plus({ days: 1 }).toFormat("LLL d") : "when it ends";
+  // The unspent part of this batch comes back before the next one starts
+  const short = need - (balanceCents + unspentCents);
+  return short > 0
+    ? { note: `The next ${whole(need)} batch starts ${next} from your balance, which is ${whole(balanceCents)} now. Add about ${whole(depositFor(short))} in funds before then, or it waits for them.`, warn: true }
+    : { note: `The next ${whole(need)} batch starts ${next}, paid from your balance (${whole(balanceCents)} free now). Turn this off and it just ends.`, warn: false };
+}
 
 /** The running batch (spend against its budget, day, booked calls), or what's next, plus the last few batches. */
 export function BatchCard({
@@ -21,14 +38,19 @@ export function BatchCard({
   progress,
   past,
   timezone,
+  balanceCents,
 }: {
   active: Batch | null;
   planned: Batch | null;
   progress: { spentCents: number; bookedCalls: number; day: number; daysLeft: number | null } | null;
   past: Batch[];
   timezone: string;
+  /** The free ad balance, which Keep going draws the next batch from. */
+  balanceCents: number;
 }) {
   const ended = past.filter((b) => b.status === "ended").slice(0, 3);
+  // Keep going, on the running batch or waiting on funds after one that just ended
+  const waiting = !active ? ended.find((b) => b.renew) ?? null : null;
   return (
     <div className="flex h-full flex-col">
       <PanelHeader
@@ -67,6 +89,7 @@ export function BatchCard({
             <p className="mt-0.5 text-[13px] text-fg-muted">{listCampaignTopics(topicsOf(active))}</p>
           </div>
           {active.reason && <p className="border-t border-line pt-3 text-[12px] text-fg-faint">Why this plan: {active.reason}</p>}
+          <KeepGoing on={active.renew} {...keepNote(active, balanceCents, timezone, Math.max(0, active.budget_cents - progress.spentCents))} />
         </div>
       ) : planned ? (
         <div className="px-5 py-4 text-[13px] text-fg-muted">
@@ -79,6 +102,12 @@ export function BatchCard({
         </div>
       ) : (
         <EmptyState title="No batch running">Start a campaign batch and Migz plans how to spend it for the most booked calls.</EmptyState>
+      )}
+
+      {waiting && (
+        <div className="px-5 pb-4">
+          <KeepGoing on {...keepNote(waiting, balanceCents, timezone)} />
+        </div>
       )}
 
       {ended.length > 0 && (

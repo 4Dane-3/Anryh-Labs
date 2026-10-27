@@ -11,6 +11,8 @@ import {
   type NightlyContent,
   researchIdeaMessage,
   batchEndedMessage,
+  batchRenewBlockedMessage,
+  batchRenewedMessage,
   batchSetupMessage,
   creativeReadyMessage,
   reviewSummaryMessage,
@@ -102,6 +104,14 @@ export async function notifyReviewSummary(agent: Recipient, runId: string, summa
       dashboardUrl: appUrl(),
     }),
   );
+}
+
+export async function notifyBatchRenewed(agent: Recipient, input: { budgetCents: number; days: number; dailyCents: number; balanceCents: number }) {
+  return send(agent, batchRenewedMessage({ ...input, dashboardUrl: appUrl() }));
+}
+
+export async function notifyBatchRenewBlocked(agent: Recipient, input: { reason: string; stopped: boolean }) {
+  return send(agent, batchRenewBlockedMessage({ ...input, dashboardUrl: appUrl() }));
 }
 
 export async function notifyBatchEnded(agent: Recipient, input: { budgetCents: number; spentCents: number; bookedCalls: number }) {

@@ -21,6 +21,9 @@ export const DURATIONS = [
 export const MIN_DAILY_CENTS = 2000;
 export const TEST_DAYS = 14;
 export const REVISE_AFTER_DAYS = 7;
+/** A one-week sprint reads its first 3 days (about $50 an ad at $100/day), then revises for the last 4. */
+export const SPRINT_DAYS = 7;
+export const SPRINT_COLLECT_DAYS = 3;
 
 export const BUDGETS = [20, 30, 40, 60] as const; // dollars per day
 export const MAX_DAILY_CENTS = 100_000;

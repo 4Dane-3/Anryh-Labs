@@ -5,7 +5,6 @@ import { getSlotBoard, type Agent } from "@/lib/booking/data";
 import { pageAnalytics, type EventRow } from "@/lib/admin/page-analytics";
 import { recordEventAlert } from "@/lib/admin/alerts";
 import { getActiveBatch, getBatchProgress } from "@/lib/dashboard/batches";
-import { REVISE_AFTER_DAYS } from "@/lib/campaign";
 import { buildSnapshot } from "@/lib/migz/snapshot";
 import { syncAgent } from "@/lib/migz/sync";
 import { getLiveStats } from "@/lib/migz/live";
@@ -251,7 +250,7 @@ export async function writeNightly(
                 phase,
                 collecting_until: phase === "collecting" ? revisionsFrom : null,
                 days_until_changes: phase === "collecting" && revisionsFrom ? Math.round(DateTime.fromISO(revisionsFrom, { zone: agent.timezone }).diff(dayStart, "days").days) : 0,
-                batch_rule: `the first ${REVISE_AFTER_DAYS} days of a batch are only for collecting results`,
+                batch_rule: `the first ${snapshot.collectDays} days of this batch are only for collecting results`,
                 ...(agent.results_from && agent.campaign_started_on && agent.results_from > agent.campaign_started_on && localDate < (revisionsFrom ?? "")
                   ? {
                       results_start_over: `Results count from ${agent.results_from}. Before it the ads also ran on the Audience Network (mostly accidental clicks in other apps), so earlier click rates and "winners" aren't reliable. Drop or rewrite any thought that rests on them, and say plainly that the week of collecting restarted on ${agent.results_from}.`,
