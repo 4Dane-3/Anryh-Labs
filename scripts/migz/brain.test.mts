@@ -1037,4 +1037,25 @@ const rs = evalTool("restructure", { title: "Fold into one ad set", reason: "3 a
 assert.ok(rs.ok && rs.payload.tool === "restructure" && rs.kind === "budget");
 ok("strategist: budget math (consolidate a split budget, own cost per call after 3 bookings), scale advice, restructure guardrail");
 
+// The ad finder: overnight passes, every topic and platform, only ads with evidence they're winning
+const finder = await import("@/lib/migz/team/finder");
+assert.equal(finder.FINDER_DAILY_USD, 5);
+assert.equal(finder.finderWindow(new Date("2026-10-27T07:30:00Z")), true, "2:30am Central: searching");
+assert.equal(finder.finderWindow(new Date("2026-10-27T11:30:00Z")), false, "6:30am Central: done for the night");
+assert.equal(finder.finderWindow(new Date("2026-10-27T05:30:00Z")), false, "12:30am Central: not yet");
+const night = new Date("2026-10-27T07:00:00Z");
+const pairs = new Set(Array.from({ length: 32 }, (_, k) => { const q = finder.finderQuery(k, night); return `${q.topic}|${q.platform}`; }));
+assert.equal(pairs.size, 32, "32 passes cover every topic on every platform");
+assert.notDeepEqual(finder.finderQuery(0, night), finder.finderQuery(0, new Date("2026-10-28T07:00:00Z")), "each night starts somewhere new");
+const findTraits = { angle: "a", hook_type: "story", opening_image: "i", emotional_tone: "warm", setting: "home", text_legibility: "clear", claims: [], compliance_risk: "low", format: "reel", offer: "free call" };
+const finds = finder.parseFinds(`notes <finds>{"finds":[
+  {"source_url":"https://example.com/a","platform":"TikTok","advertiser":"X","description":"A daughter finds a note","win_evidence":"Ran 74 days","win_score":3,"traits":${JSON.stringify(findTraits)}},
+  {"source_url":"https://example.com/b","platform":"Meta","advertiser":"Y","description":"Stock family","win_evidence":"shown as an example","win_score":1,"traits":${JSON.stringify(findTraits)}},
+  {"source_url":"not a url","platform":"Meta","advertiser":"Z","description":"d","win_evidence":"30 days","win_score":2,"traits":${JSON.stringify(findTraits)}}
+]}</finds>`);
+assert.deepEqual(finds.map((f) => f.source_url), ["https://example.com/a"], "no evidence or no real link: not filed");
+assert.deepEqual(finder.parseFinds("no tags here"), []);
+assert.deepEqual(finder.parseFinds("<finds>{bad json</finds>"), []);
+ok("ad finder: overnight window, every topic and platform, only ads with evidence they're winning, $5/day");
+
 console.log(`\nALL ${n} UNIT GROUPS PASSED`);

@@ -15,6 +15,7 @@ export type Task =
   | "audit" // Haiku: rank and explain the auditor's checks
   | "librarian" // Haiku: precedent from this agent's history
   | "scout" // Haiku + web search: what works in life-insurance ads
+  | "ad_finder" // Haiku + web search, nightly: winning life insurance ads across platforms
   | "swipe_traits" // Haiku: traits for a pasted swipe example
   | "copy_check" // Haiku: compliance pre-check on new copy
   | "feed" // Haiku: activity-feed and Slack wording
@@ -29,6 +30,7 @@ const TASK_TIER: Record<Task, ModelTier> = {
   audit: "haiku",
   librarian: "haiku",
   scout: "haiku",
+  ad_finder: "haiku",
   swipe_traits: "haiku",
   copy_check: "haiku",
   feed: "haiku",
