@@ -9,7 +9,7 @@ import { buildSnapshot, type Snapshot } from "@/lib/migz/snapshot";
 import { syncAgent } from "@/lib/migz/sync";
 import { begin, emit, metaStep } from "@/lib/migz/events";
 import { closeEndedBatch, ensureBatchSetAside, getActiveBatch, type Batch } from "@/lib/dashboard/batches";
-import { campaignEnded, campaignLabels, pickCarryOver, planTopic } from "@/lib/campaign";
+import { campaignEnded, campaignLabels, daysLeft as daysLeftIn, pickCarryOver, planTopic } from "@/lib/campaign";
 import { cleanFocus, isTopic, type TopicKey } from "@/lib/migz/topics";
 import { MIN_ADSET_BUDGET_CENTS } from "@/lib/migz/guardrails";
 import { isTestMode } from "@/lib/migz/test-mode";
@@ -90,6 +90,7 @@ export async function buildEvalContext(agent: Agent, snapshot: Snapshot): Promis
     videosThisRun: 0,
     testMode: isTestMode(),
     revisionsFrom: snapshot.revisionsFrom ? DateTime.fromISO(snapshot.revisionsFrom, { zone: agent.timezone }).toJSDate() : null,
+    batchDaysLeft: agent.campaign_ends_on ? daysLeftIn(agent.campaign_ends_on, agent.timezone) : null,
     ...(snapshot.creditsRecentlyRefused ? { maxGenerations: 1 } : {}),
     openGenerations: snapshot.openGenerations,
     scriptedAds,
@@ -223,7 +224,7 @@ async function syncCampaignSwitch(agent: Agent, runId: string) {
  * what it retired are carried into the main one (carryOverAds).
  * Returns true when it changed anything.
  */
-async function syncCampaignPlan(agent: Agent, runId: string, batch: Batch | null) {
+export async function syncCampaignPlan(agent: Agent, runId: string | null, batch: Batch | null) {
   const focus = cleanFocus(agent.ad_focus);
   const slots: CampaignSlot[] = batch ? batch.campaigns.map((t) => (t === EXPLORE ? EXPLORE : isTopic(t) ? t : null)) : [planTopic(focus)];
   const roleOf = (slot: CampaignSlot) => (slot === EXPLORE ? "explore" : "main");

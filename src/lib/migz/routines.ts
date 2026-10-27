@@ -8,11 +8,15 @@ import { present } from "@/lib/migz/metrics";
 import { callModel, jsonOf, planTier, type Budget, type CreateMessage } from "@/lib/migz/router";
 import type { Snapshot } from "@/lib/migz/snapshot";
 import { writeWeeklySlack } from "@/lib/migz/team/clerk";
+import { getBatchHistory } from "@/lib/dashboard/batches";
+import { budgetMath, ownCostPerCall, PLAYBOOK, scaleAdvice, type BudgetMath } from "@/lib/migz/playbook";
 
 // The routines a good media buyer runs on a calendar, as code that creates findings and context:
 //  daily     spend anomalies (pacing, disapprovals and tracking are checked by the auditor every run)
 //  ~3.5 days fatigue check and the creative refresh queue
 //  weekly    winners/losers, scale and consolidation candidates, the Opus strategy memo, Slack report
+//  every run the strategist's checks: is the account built the way its budget needs, and is the
+//            bottleneck the ads or the booking page (findings the review acts on)
 
 export const DAILY_HOURS = 24;
 export const FATIGUE_HOURS = 84; // every 3.5 days
@@ -67,14 +71,34 @@ const MEMO_SCHEMA = {
     learned: { type: "array", items: { type: "string" }, description: "What this week taught, each one specific with numbers." },
     test_next: { type: "array", items: { type: "string" } },
     stop: { type: "array", items: { type: "string" } },
+    growth: {
+      type: "object",
+      description: "The money call for the agent: put more behind what's working, keep going, or fix something first so more money can book.",
+      properties: {
+        move: { type: "string", enum: ["add_budget", "keep_going", "fix_first"] },
+        why: { type: "string", description: "For the agent, in plain words, with this account's numbers (cost per booked call when there is one)." },
+      },
+      required: ["move", "why"],
+      additionalProperties: false,
+    },
   },
-  required: ["headline", "learned", "test_next", "stop"],
+  required: ["headline", "learned", "test_next", "stop", "growth"],
   additionalProperties: false,
 };
 
-const MEMO_SYSTEM = `You are the senior strategist on Migz AI's ad team, writing the weekly strategy memo for one independent life insurance agent's Meta ads. You get the week's scoreboard, experiments, learnings, audit findings and actions. Say what was learned (specific, with numbers, compared against this account's own averages), what to test next (one lever at a time, with the metric that decides it), and what to stop. Results from the last 24 hours are incomplete because of attribution delay; weigh them lightly. Don't invent numbers.`;
+type Memo = { headline: string; learned: string[]; test_next: string[]; stop: string[]; growth: { move: "add_budget" | "keep_going" | "fix_first"; why: string } };
 
-async function weeklyMemo(agent: Agent, snapshot: Snapshot, team: Team) {
+const MEMO_SYSTEM = `You are the senior strategist on Migz AI's ad team: a media buyer with years of running Meta ads for independent life insurance agents. Each week you write the strategy memo for one agent. You get the week's scoreboard, experiments, learnings, audit findings, actions, the strategist's checks (budget_math: what the budget buys and how many ad sets it supports; booking_page: where the ads' visitors stop) and, once the account has bookings, what more money should bring.
+
+Say what was learned (specific, with numbers, compared against this account's own averages), what to test next (one lever at a time, with the metric that decides it), what to stop, and the growth call:
+- add_budget: the ads book at a cost per call worth scaling. Say how much more and how many more calls it should bring, from more_money_should_bring.
+- fix_first: something stops the money from turning into bookings (the booking page, the account's structure, tracking). Name it and what to change.
+- keep_going: the plan is sound and needs more data; say what the next week should show.
+Results from the last 24 hours are incomplete because of attribution delay; weigh them lightly. Don't invent numbers.
+
+${PLAYBOOK}`;
+
+async function weeklyMemo(agent: Agent, snapshot: Snapshot, team: Team, strategy: Strategy) {
   const plan = planTier("memo", team.budget);
   if (!plan) return null;
   const since = DateTime.now().minus({ days: 7 }).toUTC().toISO()!;
@@ -85,7 +109,17 @@ async function weeklyMemo(agent: Agent, snapshot: Snapshot, team: Team) {
     supabaseAdmin.from("ad_actions").select("title, detail, status, created_at").eq("agent_id", agent.id).gte("created_at", since).order("created_at"),
   ]);
   const board = scoreboard(snapshot).map((r) => ({ ad: r.ad, adset: r.adset, ...present(r.d), fatigue: r.fatigue.signals }));
-  const input = { account_last_14_days: snapshot.forModel.account_last_14_days, scoreboard: board, experiments, learnings, open_findings: findings, actions_this_week: actions };
+  const input = {
+    account_last_14_days: snapshot.forModel.account_last_14_days,
+    budget_math: strategy.math.text,
+    booking_page: snapshot.forModel.booking_page_last_14_days,
+    more_money_should_bring: strategy.scale?.text ?? "unknown until the account has a few booked calls",
+    scoreboard: board,
+    experiments,
+    learnings,
+    open_findings: findings,
+    actions_this_week: actions,
+  };
 
   const done = await begin({ agentId: agent.id, runId: team.runId, step: "remembering", tier: plan.tier, model: null, summary: "Writing the weekly strategy memo" });
   const res = await callModel({
@@ -102,14 +136,55 @@ async function weeklyMemo(agent: Agent, snapshot: Snapshot, team: Team) {
       messages: [{ role: "user", content: JSON.stringify(input) }],
     },
   });
-  const memo = jsonOf<{ headline: string; learned: string[]; test_next: string[]; stop: string[] }>(res.message);
+  const memo = jsonOf<Memo>(res.message);
   if (memo?.learned.length) {
     await supabaseAdmin.from("learnings").insert(
       memo.learned.slice(0, 5).map((insight) => ({ agent_id: agent.id, insight: insight.slice(0, 400), confidence: "medium", source: "memo", evidence: { week_ending: DateTime.now().toISODate() } })),
     );
   }
+  if (memo?.growth) {
+    // The money call stays in front of every review until next week's memo replaces it
+    await resolveOthers(agent.id, "strategy_growth", [memo.growth.move]);
+    await upsertFinding(agent.id, { check: "strategy_growth", subject: memo.growth.move, severity: memo.growth.move === "fix_first" ? "warn" : "info", summary: memo.growth.why.slice(0, 600), evidence: { week_ending: DateTime.now().toISODate() } });
+  }
   await done({ summary: memo ? `Strategy memo: ${memo.headline}` : "Couldn't write this week's memo", evidence: memo ?? {}, inputTokens: res.usage.input, outputTokens: res.usage.output, model: res.model });
   return memo;
+}
+
+type Strategy = { math: BudgetMath; scale: ReturnType<typeof scaleAdvice>; findings: { check: string; summary: string }[]; newlyFlagged: boolean };
+
+/**
+ * The strategist's checks on every review: whether the account is built the way its budget needs
+ * (budget math) and whether the ads' visitors stop on the booking page. Both are filed as findings the
+ * review reads; they resolve themselves once fixed.
+ */
+async function strategyChecks(agent: Agent, snapshot: Snapshot): Promise<Strategy> {
+  const history = await getBatchHistory(agent);
+  const liveMain = snapshot.guardAdsets.filter((s) => s.status === "ACTIVE" && s.role !== "explore").length;
+  const math = budgetMath({ dailyCents: agent.daily_budget_cents, adsets: liveMain, costPerCallCents: ownCostPerCall(history.spentCents, history.bookedCalls) });
+  const scale = scaleAdvice({ spentCents: history.spentCents, bookedCalls: history.bookedCalls, extraCents: Math.max(agent.daily_budget_cents * 14, 28_000) });
+
+  const { data: open } = await supabaseAdmin.from("audit_findings").select("check_name, subject").eq("agent_id", agent.id).eq("status", "open").in("check_name", ["strategy_structure", "strategy_bottleneck"]);
+  const wasOpen = new Set((open ?? []).map((f) => `${f.check_name}|${f.subject}`));
+  const findings: Strategy["findings"] = [];
+  let newlyFlagged = false;
+  const file = async (check: string, subject: string, summary: string, evidence: Record<string, unknown>) => {
+    await upsertFinding(agent.id, { check, subject, severity: "warn", summary, evidence });
+    findings.push({ check, summary });
+    if (!wasOpen.has(`${check}|${subject}`)) newlyFlagged = true;
+  };
+
+  if (math.verdict === "consolidate") {
+    await file("strategy_structure", "split", `${math.text} Use restructure to fold it into one campaign with one ad set.`, { adsets: liveMain, daily_cents: agent.daily_budget_cents, calls_per_week_per_adset: math.callsPerWeekPerAdset });
+  }
+  await resolveOthers(agent.id, "strategy_structure", math.verdict === "consolidate" ? ["split"] : []);
+
+  const page = snapshot.forModel.booking_page_last_14_days;
+  const pageFix = typeof page === "object" && (page.fix_is_in === "page" || page.fix_is_in === "both") ? page : null;
+  if (pageFix) await file("strategy_bottleneck", pageFix.fix_is_in, pageFix.verdict, { visits_from_ads: pageFix.visits_from_ads, saw_the_times: pageFix.saw_the_times, picked_a_time: pageFix.picked_a_time });
+  await resolveOthers(agent.id, "strategy_bottleneck", pageFix ? [pageFix.fix_is_in] : []);
+
+  return { math, scale, findings, newlyFlagged };
 }
 
 /**
@@ -122,6 +197,17 @@ export async function runRoutines(agent: Agent, snapshot: Snapshot, team: Team, 
   const context: Record<string, unknown> = {};
   const stamps: Record<string, string> = {};
   if (!snapshot.hasCampaign) return { reasons, context };
+
+  const strategy = await strategyChecks(agent, snapshot);
+  const { data: growth } = await supabaseAdmin.from("audit_findings").select("subject, summary").eq("agent_id", agent.id).eq("check_name", "strategy_growth").eq("status", "open").maybeSingle();
+  context.strategist = {
+    note: "The strategist's standing calls for this account. Act on them in this review where the tools allow, and explain in your summary when you can't yet.",
+    budget_math: strategy.math.text,
+    calls: strategy.findings.map((f) => f.summary),
+    growth: growth ? { move: growth.subject, why: growth.summary } : "the weekly memo hasn't made a growth call yet",
+    ...(strategy.scale ? { more_money_should_bring: strategy.scale.text } : {}),
+  };
+  if (strategy.newlyFlagged) reasons.push("the strategist flagged the account's setup");
 
   if (due.daily) {
     // Spend anomaly: yesterday vs the 7 days before it (yesterday is complete, today isn't)
@@ -172,7 +258,7 @@ export async function runRoutines(agent: Agent, snapshot: Snapshot, team: Team, 
       consolidation_candidates: thin.map((s) => ({ adset_id: s.meta_adset_id, note: "Under $10/day: too thin to exit learning; consider merging." })),
       attribution_note: "Results from the last 24 hours are incomplete (attribution delay).",
     };
-    const memo = await weeklyMemo(agent, snapshot, team);
+    const memo = await weeklyMemo(agent, snapshot, team, strategy);
     if (memo) {
       context.strategy_memo = memo;
       if (agent.slack_user_id && process.env.SLACK_BOT_TOKEN) {

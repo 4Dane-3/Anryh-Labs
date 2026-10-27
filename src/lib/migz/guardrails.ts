@@ -52,6 +52,8 @@ export type GuardContext = {
   /** MIGZ_TEST_MODE: ads are built paused, so launching into a paused ad set is allowed. */
   testMode?: boolean;
   openGenerations: number;
+  /** Days left in the running batch (null when there's no batch, or it has no end date). */
+  batchDaysLeft?: number | null;
 };
 
 const isActive = (status: string) => status === "ACTIVE";
@@ -174,6 +176,18 @@ export function checkLaunchTarget(ctx: GuardContext, adsetId: string) {
  * the main ad set, and the main ad set left alone for 3 days (each promotion restarts its learning, so
  * winners are promoted together rather than one by one).
  */
+export const MIN_RESTRUCTURE_DAYS_LEFT = 4; // a rebuilt ad set needs a few days to learn before the batch ends
+
+/** Restructure folds a split account into one campaign with one ad set (plus exploration, if the batch has it). */
+export function checkRestructure(ctx: GuardContext) {
+  const main = ctx.adsets.filter((s) => isActive(s.status) && s.role !== "explore");
+  if (main.length <= 1) return "The account already runs one main ad set; there's nothing to fold together.";
+  if (ctx.batchDaysLeft === undefined || ctx.batchDaysLeft === null) return "Restructuring rebuilds the running batch, and there isn't one with an end date.";
+  if (ctx.batchDaysLeft < MIN_RESTRUCTURE_DAYS_LEFT)
+    return `Only ${ctx.batchDaysLeft} day${ctx.batchDaysLeft === 1 ? "" : "s"} left in this batch: a rebuilt ad set wouldn't have time to learn. The next batch starts as one campaign anyway.`;
+  return null;
+}
+
 export function checkPromoteAd(ctx: GuardContext, adId: string) {
   const wait = revisionWait(ctx);
   if (wait) return wait;

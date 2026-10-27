@@ -22,6 +22,7 @@ import {
   checkGeneration,
   checkLaunchTarget,
   checkPromoteAd,
+  checkRestructure,
   promotionTarget,
   variantTarget,
   checkPauseAd,
@@ -234,6 +235,7 @@ export const MIGZ_TOOLS: Anthropic.Beta.BetaTool[] = [
   tool("promote_ad", "Move a proven ad from the exploration campaign into the main campaign: it's copied into the main ad set (same creative and copy) and paused in exploration, freeing room for the next test. Needs 1,000+ impressions in exploration, under 5 live ads in the main ad set (pause its weakest first), and the main ad set left alone for 3 days. Each promotion restarts the main ad set's learning, so promote only clear winners, together in one review.", {
     ad_id: { type: "string", description: "The exploration ad to promote." },
   }),
+  tool("restructure", "Fold an account that's split across several campaigns or ad sets into one campaign with one ad set (plus the exploration campaign, if the batch has one), carrying the best live ads over. Use it when the strategist says the budget is split thinner than it can feed: every dollar then trains one ad set. It restarts learning once, so do it as soon as the split is found, not near a batch's end. Allowed during the results phase.", {}),
   tool("hold", "Record a deliberate decision not to change something, e.g. while ad sets are learning or results are steady. Use once per review at most.", {
     kind: { type: "string", enum: ["budget", "creative", "audience", "other"] },
   }),
@@ -251,6 +253,7 @@ export type ActionPayload =
   | { tool: "launch_creative"; creative_id: string; adset_id: string; primary_text: string; headline: string }
   | { tool: "write_copy_variants"; source_ad_id: string; adset_id: string; variants: { primary_text: string; headline: string }[] }
   | { tool: "promote_ad"; ad_id: string; adset_id: string }
+  | { tool: "restructure" }
   | { tool: "hold" };
 
 export type EvalContext = GuardContext & {
@@ -279,6 +282,7 @@ const KIND: Record<ActionPayload["tool"], string> = {
   launch_creative: "creative",
   write_copy_variants: "creative",
   promote_ad: "creative",
+  restructure: "budget",
   hold: "other",
 };
 
@@ -485,6 +489,10 @@ export function evaluate(name: string, raw: unknown, ctx: EvalContext): Evaluate
       const err = checkPromoteAd(ctx, adId);
       return err ? fail(err) : done({ tool: "promote_ad", ad_id: adId, adset_id: promotionTarget(ctx)! });
     }
+    case "restructure": {
+      const err = checkRestructure(ctx);
+      return err ? fail(err) : done({ tool: "restructure" });
+    }
     case "hold": {
       const kind = ["budget", "creative", "audience", "other"].includes(String(input.kind)) ? String(input.kind) : "other";
       return done({ tool: "hold" }, kind);
@@ -518,6 +526,8 @@ export function recheck(payload: ActionPayload, ctx: EvalContext): string | null
       return ctx.reusableAds?.has(payload.source_ad_id) ? checkLaunchTarget(ctx, payload.adset_id) : "That ad can no longer be reused.";
     case "promote_ad":
       return checkPromoteAd(ctx, payload.ad_id) ?? (promotionTarget(ctx) === payload.adset_id ? null : "The main ad set changed since this was proposed.");
+    case "restructure":
+      return checkRestructure(ctx);
     case "hold":
       return null;
   }
