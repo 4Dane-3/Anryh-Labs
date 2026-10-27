@@ -26,7 +26,7 @@ export type PageAnalytics = {
   scroll: { depth: number; pct: number | null }[];
   sources: { source: string; sessions: number; booked: number }[];
   daily: { date: string; sessions: number; booked: number }[];
-  extras: { stickyClicks: number; bioExpands: number; errors: number; callVisits: number; callTaps: number };
+  extras: { stickyClicks: number; bioExpands: number; errors: number; callVisits: number; callTaps: number; quoteVisits: number };
   recent: { at: string; source: string; device: string; furthest: string; seconds: number | null; booked: boolean }[];
 };
 
@@ -127,6 +127,8 @@ export function pageAnalytics(rows: EventRow[], days: number, timezone: string, 
       // "Call now": visits that tapped it (a tap opens the dialer; whether the call connected isn't known)
       callVisits: visits.filter((ev) => has(ev, ["call_click"])).length,
       callTaps: count("call_click"),
+      // "Get a free quote": visits that sent a request (a lighter step than booking, so never counted as one)
+      quoteVisits: visits.filter((ev) => has(ev, ["quote_submit"])).length,
     },
     recent: visits
       .slice()

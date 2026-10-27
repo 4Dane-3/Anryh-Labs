@@ -23,6 +23,8 @@ import {
   checkLaunchTarget,
   checkPromoteAd,
   checkRestructure,
+  checkQuoteMode,
+  checkOptimizationEvent,
   promotionTarget,
   variantTarget,
   checkPauseAd,
@@ -32,6 +34,7 @@ import {
   type GuardContext,
 } from "@/lib/migz/guardrails";
 import { isTopic, TOPIC_KEYS } from "@/lib/migz/topics";
+import { QUOTE_MODES, type QuoteMode } from "@/lib/booking/constants";
 
 // The actions Migz can take, as Claude tools. Every call is validated (shape, guardrails, ad copy
 // rules) before anything happens; a rejected call returns the reason so Claude can adapt.
@@ -236,6 +239,18 @@ export const MIGZ_TOOLS: Anthropic.Beta.BetaTool[] = [
     ad_id: { type: "string", description: "The exploration ad to promote." },
   }),
   tool("restructure", "Fold an account that's split across several campaigns or ad sets into one campaign with one ad set (plus the exploration campaign, if the batch has one), carrying the best live ads over. Use it when the strategist says the budget is split thinner than it can feed: every dollar then trains one ad set. It restarts learning once, so do it as soon as the split is found, not near a batch's end. Allowed during the results phase.", {}),
+  tool(
+    "set_quote_option",
+    "Change how the agent's booking page shows \"Get a free quote\" (name and phone, the agent calls back): folded under the calendar (the default), open_for_ads (shown open to visitors who came from an ad, so the lighter step is the first thing they see), or off. Open it when ad visitors see the times but almost none book (the step is too big for cold traffic); fold it back if quote requests rise while bookings fall. Changes the page, not spend; allowed any time.",
+    { mode: { type: "string", enum: [...QUOTE_MODES] } },
+    false,
+  ),
+  tool(
+    "set_optimization_event",
+    "Change the conversion Meta optimizes an ad set for: LEAD (quote requests and booked calls both count) or SCHEDULE (booked calls only). Use LEAD while the account books under 10 calls a week, so Meta has enough events to learn from; switch to SCHEDULE once it books about 10 a week. Restarts the ad set's learning: do it once, early in a batch, together with other restarting changes. Allowed while results are being collected.",
+    { adset_id: { type: "string" }, event: { type: "string", enum: ["LEAD", "SCHEDULE"] } },
+    false,
+  ),
   tool("hold", "Record a deliberate decision not to change something, e.g. while ad sets are learning or results are steady. Use once per review at most.", {
     kind: { type: "string", enum: ["budget", "creative", "audience", "other"] },
   }),
@@ -254,6 +269,8 @@ export type ActionPayload =
   | { tool: "write_copy_variants"; source_ad_id: string; adset_id: string; variants: { primary_text: string; headline: string }[] }
   | { tool: "promote_ad"; ad_id: string; adset_id: string }
   | { tool: "restructure" }
+  | { tool: "set_quote_option"; mode: QuoteMode }
+  | { tool: "set_optimization_event"; adset_id: string; event: "LEAD" | "SCHEDULE" }
   | { tool: "hold" };
 
 export type EvalContext = GuardContext & {
@@ -283,6 +300,8 @@ const KIND: Record<ActionPayload["tool"], string> = {
   write_copy_variants: "creative",
   promote_ad: "creative",
   restructure: "budget",
+  set_quote_option: "other",
+  set_optimization_event: "audience",
   hold: "other",
 };
 
@@ -493,6 +512,17 @@ export function evaluate(name: string, raw: unknown, ctx: EvalContext): Evaluate
       const err = checkRestructure(ctx);
       return err ? fail(err) : done({ tool: "restructure" });
     }
+    case "set_quote_option": {
+      const mode = str(input.mode, 20);
+      const err = checkQuoteMode(ctx, mode);
+      return err ? fail(err) : done({ tool: "set_quote_option", mode: mode as QuoteMode });
+    }
+    case "set_optimization_event": {
+      const adsetId = str(input.adset_id, 40);
+      const event = str(input.event, 20);
+      const err = checkOptimizationEvent(ctx, adsetId, event);
+      return err ? fail(err) : done({ tool: "set_optimization_event", adset_id: adsetId, event: event as "LEAD" | "SCHEDULE" });
+    }
     case "hold": {
       const kind = ["budget", "creative", "audience", "other"].includes(String(input.kind)) ? String(input.kind) : "other";
       return done({ tool: "hold" }, kind);
@@ -528,6 +558,10 @@ export function recheck(payload: ActionPayload, ctx: EvalContext): string | null
       return checkPromoteAd(ctx, payload.ad_id) ?? (promotionTarget(ctx) === payload.adset_id ? null : "The main ad set changed since this was proposed.");
     case "restructure":
       return checkRestructure(ctx);
+    case "set_quote_option":
+      return checkQuoteMode(ctx, payload.mode);
+    case "set_optimization_event":
+      return checkOptimizationEvent(ctx, payload.adset_id, payload.event);
     case "hold":
       return null;
   }

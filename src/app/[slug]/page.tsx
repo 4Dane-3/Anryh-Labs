@@ -7,6 +7,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import { getAgentBySlug, getIntakeQuestions } from "@/lib/booking/data";
 import { preBookingQuestions } from "@/lib/booking/questions";
 import { BookingWidget } from "@/components/booking/BookingWidget";
+import { QuoteForm } from "@/components/booking/QuoteForm";
 import { AboutAgent, CallNow, StickyBookBar } from "@/components/booking/PageBits";
 import { callButtonShows, displayPhone } from "@/lib/booking/call";
 import { DEFAULT_TITLE } from "@/lib/campaign";
@@ -149,6 +150,9 @@ export default async function AgentPage({ params, searchParams }: Props) {
               questions={preBookingQuestions(questions, requiredSteps)}
               requiredSteps={requiredSteps}
             />
+            {agent.quote_mode !== "off" && (
+              <QuoteForm slug={agent.slug} firstName={firstName} preview={preview} openForAds={agent.quote_mode === "open_for_ads"} />
+            )}
           </div>
         </aside>
 

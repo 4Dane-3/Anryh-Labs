@@ -245,13 +245,20 @@ assert.equal(adSpendCents(MIN_DEPOSIT_CENTS), 28_000); assert.equal(MIN_AD_BALAN
 assert.equal(MIN_DAILY_CENTS * TEST_DAYS, MIN_AD_BALANCE_CENTS, "the minimum deposit funds $20/day for two weeks");
 assert.equal(depositFor(28_000), 35_000); assert.equal(depositFor(42_000), 52_500);
 const cand = (id: string, creative: string | null, topic: string | null) => ({ meta_ad_id: id, creative_id: creative, topic });
-const spentCents = new Map([["a", 1654], ["b", 1051], ["c", 778], ["d", 475], ["e", 499], ["f", 5]]);
+const r = (impressions: number, clicks: number, booked = 0) => ({ impressions, clicks, booked });
+// a..e read in the same order as the old spend ranking, so the topic/creative cases below are unchanged
+const results = new Map([["a", r(900, 30)], ["b", r(800, 24)], ["c", r(700, 14)], ["d", r(200, 9)], ["e", r(400, 4)], ["f", r(50, 0)]]);
 const pool = [cand("a", "c1", "final_expense"), cand("b", "c2", "whole_life"), cand("c", "c3", "whole_life"), cand("d", "c4", "final_expense"), cand("e", "c5", "final_expense"), cand("f", "c3", "whole_life")];
-assert.deepEqual(pickCarryOver(pool, { room: 4, topic: null, spentCents, running: new Set() }).map((a) => a.meta_ad_id), ["a", "b", "c", "e"], "most spend first, any topic, up to the room left");
-assert.deepEqual(pickCarryOver(pool, { room: 4, topic: "final_expense", spentCents, running: new Set() }).map((a) => a.meta_ad_id), ["a", "e", "d"], "a one-topic campaign only takes its topic");
-assert.deepEqual(pickCarryOver(pool, { room: 4, topic: null, spentCents, running: new Set(["c1", "c3"]) }).map((a) => a.meta_ad_id), ["b", "e", "d"], "one ad per creative, counting what's already running");
-assert.equal(pickCarryOver(pool, { room: 0, topic: null, spentCents, running: new Set() }).length, 0);
-ok("one campaign per plan: on the only focus or across all of them; carried-over ads by spend, on topic, one per creative; $350 deposit = $280 of ads = $20/day for 2 weeks");
+assert.deepEqual(pickCarryOver(pool, { room: 4, topic: null, results, running: new Set() }).map((a) => a.meta_ad_id), ["a", "b", "c", "e"], "best click-through on a real read first, any topic, up to the room left");
+assert.deepEqual(pickCarryOver(pool, { room: 4, topic: "final_expense", results, running: new Set() }).map((a) => a.meta_ad_id), ["a", "e", "d"], "a one-topic campaign only takes its topic");
+assert.deepEqual(pickCarryOver(pool, { room: 4, topic: null, results, running: new Set(["c1", "c3"]) }).map((a) => a.meta_ad_id), ["b", "e", "d"], "one ad per creative, counting what's already running");
+assert.equal(pickCarryOver(pool, { room: 0, topic: null, results, running: new Set() }).length, 0);
+// Miguel's Oct 25-27: the ad Meta spent least on had the best read, and spend no longer decides
+const miguelAds = [cand("memories", "m1", null), cand("lasts", "m2", null), cand("stays", "m3", null), cand("planning", "m4", null)];
+const miguelResults = new Map([["memories", r(333, 9)], ["lasts", r(355, 7)], ["stays", r(309, 11)], ["planning", r(143, 4)]]);
+assert.deepEqual(pickCarryOver(miguelAds, { room: 4, topic: null, results: miguelResults, running: new Set() }).map((a) => a.meta_ad_id), ["stays", "memories", "lasts", "planning"], "click-through on 300+ impressions, then the ads too new to judge");
+assert.deepEqual(pickCarryOver(miguelAds, { room: 1, topic: null, results: new Map([...miguelResults, ["planning", r(143, 4, 1)]]), running: new Set() }).map((a) => a.meta_ad_id), ["planning"], "a booked call beats any click-through");
+ok("one campaign per plan: on the only focus or across all of them; carried-over ads by results (not spend), on topic, one per creative; $350 deposit = $280 of ads = $20/day for 2 weeks");
 
 // required questions
 const { missingRequired, preBookingQuestions, DEFAULT_QUESTIONS } = await import("@/lib/booking/questions");
@@ -991,8 +998,8 @@ const funnelRows = [
   fev("c", "view", { source: "direct" }), fev("c", "see_calendar"), fev("c", "booked"),
 ];
 const af = adFunnel(funnelRows, 14, "America/Chicago", new Date("2026-10-27T00:00:00Z"));
-assert.deepEqual(af, { visits: 2, sawTimes: 2, pickedTime: 1, startedForm: 1, pressedConfirm: 1, booked: 1, tappedCall: 1, errors: 0 }, "only visits from Meta ads count");
-const F = (o: Partial<typeof af>) => ({ visits: 0, sawTimes: 0, pickedTime: 0, startedForm: 0, pressedConfirm: 0, booked: 0, tappedCall: 0, errors: 0, ...o });
+assert.deepEqual(af, { visits: 2, sawTimes: 2, pickedTime: 1, startedForm: 1, pressedConfirm: 1, booked: 1, tappedCall: 1, quoteRequests: 0, errors: 0 }, "only visits from Meta ads count");
+const F = (o: Partial<typeof af>) => ({ visits: 0, sawTimes: 0, pickedTime: 0, startedForm: 0, pressedConfirm: 0, booked: 0, tappedCall: 0, quoteRequests: 0, errors: 0, ...o });
 // Miguel's week: people reach the times and stop there
 const miguelFunnel = funnelVerdict(F({ visits: 224, sawTimes: 175, pickedTime: 1 }), 260);
 assert.equal(miguelFunnel.stage, "no_time_picked"); assert.equal(miguelFunnel.fix, "page");
@@ -1007,6 +1014,7 @@ assert.equal(funnelVerdict(F({ visits: 40, sawTimes: 30, errors: 2 })).stage, "b
 const booking = funnelVerdict(F({ visits: 40, sawTimes: 30, pickedTime: 10, startedForm: 8, pressedConfirm: 6, booked: 4 }));
 assert.equal(booking.fix, "none"); assert.match(booking.text, /4 of 40 ad visitors booked \(10%\)/);
 assert.match(funnelVerdict(F({ visits: 224, sawTimes: 175, pickedTime: 1, tappedCall: 3 })).text, /3 tapped Call instead/);
+assert.match(funnelVerdict(F({ visits: 40, sawTimes: 35, pickedTime: 1, quoteRequests: 4 })).text, /4 asked for a quote instead/);
 ok("booking-page funnel: ad visits only; page vs ads verdicts (times, form, errors, clicks not arriving, too few visits)");
 
 // The strategist's playbook: budget math decides the structure, more money is advised from the account's own cost per call
@@ -1057,5 +1065,64 @@ assert.deepEqual(finds.map((f) => f.source_url), ["https://example.com/a"], "no 
 assert.deepEqual(finder.parseFinds("no tags here"), []);
 assert.deepEqual(finder.parseFinds("<finds>{bad json</finds>"), []);
 ok("ad finder: overnight window, every topic and platform, only ads with evidence they're winning, $5/day");
+
+// --- "Get a free quote" requests
+const { parseQuote } = await import("@/lib/booking/validate");
+const q1 = parseQuote({ slug: "miguel-cruz", name: " Ana Ruiz ", phone: "(312) 555-0199", coverage: "Final expense", bestTime: "Evening", consent: true, attribution: { utm_content: "plan-ahead", "bad key!": "x" } });
+assert.ok(q1.ok);
+assert.deepEqual(q1.data, { slug: "miguel-cruz", name: "Ana Ruiz", phone: "+13125550199", coverage: "Final expense", bestTime: "Evening", attribution: { utm_content: "plan-ahead" } });
+const q2 = parseQuote({ name: "Ana", phone: "3125550199", coverage: "Annuity", bestTime: "3am", consent: true });
+assert.ok(q2.ok && q2.data.coverage === null && q2.data.bestTime === null, "picks outside our lists are dropped, not rejected");
+const q3 = parseQuote({ name: "Ana", phone: "555-0199", consent: true });
+assert.ok(!q3.ok && /phone/.test(q3.error));
+const q4 = parseQuote({ name: "Ana", phone: "3125550199" });
+assert.ok(!q4.ok && /agree/.test(q4.error), "consent is required");
+const q5 = parseQuote({ name: "Ana", phone: "3125550199", consent: true, company: "Acme" });
+assert.ok(!q5.ok && q5.bot, "honeypot");
+const qa = pageAnalytics([
+  { session_id: "s1", name: "view", meta: { source: "facebook" }, created_at: new Date(Date.now() - 60_000).toISOString() },
+  { session_id: "s1", name: "quote_open", meta: null, created_at: new Date(Date.now() - 50_000).toISOString() },
+  { session_id: "s1", name: "quote_submit", meta: null, created_at: new Date(Date.now() - 40_000).toISOString() },
+  { session_id: "s2", name: "view", meta: { source: "facebook" }, created_at: new Date(Date.now() - 30_000).toISOString() },
+], 7, "America/Chicago");
+assert.equal(qa.extras.quoteVisits, 1);
+assert.equal(qa.booked, 0, "a quote request is never counted as a booking");
+ok("quote requests: parse, consent, honeypot, counted apart from bookings");
+
+// The conversion path: Migz's own calls on the quote option and what Meta optimizes for
+const { adsForBudget } = await import("@/lib/migz/playbook");
+assert.deepEqual([1866, 2000, 3000, 5000, 20000].map(adsForBudget), [3, 3, 4, 6, 6], "about $50 a week per live ad, 3 to 6");
+assert.match(budgetMath({ dailyCents: 5000, adsets: 1, costPerCallCents: null }).text, /gives 6 live ads about \$50 a week each/);
+const { checkQuoteMode, checkOptimizationEvent } = await import("@/lib/migz/guardrails");
+const lset = (over: Record<string, unknown> = {}) => ({ meta_adset_id: "s1", status: "ACTIVE", daily_budget_cents: 5000, learning_status: null, last_edited_at: "2026-10-01T00:00:00Z", ads: [], ...over });
+const lctx = (over: Record<string, unknown> = {}) => ({ now: new Date("2026-10-27T12:00:00Z"), dailyCapCents: 5000, adsets: [lset()], actionsThisRun: 0, generationsThisRun: 0, openGenerations: 0, batchDaysLeft: 10, quoteMode: "folded" as const, bookedLast7: 0, pageFunnel: { visits: 48, pickedTime: 2, booked: 0 }, ...over });
+assert.equal(checkQuoteMode(lctx(), "open_for_ads"), null, "48 ad visitors, 0 booked: open the lighter step");
+assert.match(checkQuoteMode(lctx({ pageFunnel: { visits: 12, pickedTime: 0, booked: 0 } }), "open_for_ads")!, /too few/);
+assert.match(checkQuoteMode(lctx({ pageFunnel: { visits: 40, pickedTime: 10, booked: 4 } }), "open_for_ads")!, /booking works/);
+assert.match(checkQuoteMode(lctx(), "folded")!, /already folded/);
+assert.match(checkQuoteMode(lctx({ pageFunnel: { visits: 60, pickedTime: 10, booked: 6 }, adsets: [lset({ optimization_event: "LEAD" })] }), "off")!, /optimizes for leads/);
+assert.equal(checkQuoteMode(lctx({ pageFunnel: { visits: 60, pickedTime: 10, booked: 6 } }), "off"), null);
+assert.match(checkQuoteMode(lctx(), "sideways")!, /must be one of/);
+assert.equal(checkOptimizationEvent(lctx(), "s1", "LEAD"), null, "0 bookings a week on SCHEDULE: switch to LEAD");
+assert.equal(checkOptimizationEvent(lctx({ now: new Date("2026-10-01T01:00:00Z") }), "s1", "LEAD"), null, "same sitting as the last change");
+assert.match(checkOptimizationEvent(lctx({ now: new Date("2026-10-02T12:00:00Z") }), "s1", "LEAD")!, /wait until 3 days/);
+assert.match(checkOptimizationEvent(lctx({ batchDaysLeft: 2 }), "s1", "LEAD")!, /2 days left/);
+assert.match(checkOptimizationEvent(lctx({ quoteMode: "off" }), "s1", "LEAD")!, /quote option is off/);
+assert.match(checkOptimizationEvent(lctx({ bookedLast7: 12 }), "s1", "LEAD")!, /keep SCHEDULE/);
+assert.match(checkOptimizationEvent(lctx({ adsets: [lset({ optimization_event: "LEAD" })] }), "s1", "SCHEDULE")!, /needs about 10 a week/);
+assert.equal(checkOptimizationEvent(lctx({ adsets: [lset({ optimization_event: "LEAD" })], bookedLast7: 11 }), "s1", "SCHEDULE"), null);
+assert.match(checkOptimizationEvent(lctx(), "s1", "SCHEDULE")!, /already optimizes/);
+const qctx = { ...lctx(), scriptedAds: new Map(), libraryCreativeIds: new Set<string>() };
+const qe = evalTool("set_quote_option", { mode: "open_for_ads", title: "Opened the quote option for ad visitors", reason: "42 of 48 saw the times, 2 picked one" }, qctx);
+assert.ok(qe.ok && qe.payload.tool === "set_quote_option" && qe.payload.mode === "open_for_ads");
+const oe = evalTool("set_optimization_event", { adset_id: "s1", event: "LEAD", title: "Optimizing for leads", reason: "0 bookings a week" }, qctx);
+assert.ok(oe.ok && oe.payload.tool === "set_optimization_event" && oe.payload.event === "LEAD");
+const { signalAdvice } = await import("@/lib/migz/routines");
+const sig = (over: Record<string, unknown> = {}) => signalAdvice({ adsets: [lset()] as never, bookedLast7: 0, quoteMode: "folded", pageIsTheBottleneck: true, ...over });
+assert.equal(sig()?.subject, "lead"); assert.match(sig()!.text, /spending blind.*open the quote option/);
+assert.equal(sig({ adsets: [lset({ optimization_event: "LEAD" })] })?.subject, "quote", "already on LEAD, page still stalls");
+assert.equal(sig({ adsets: [lset({ optimization_event: "LEAD" })], quoteMode: "open_for_ads" }), null, "both done");
+assert.equal(sig({ adsets: [lset({ optimization_event: "LEAD" })], bookedLast7: 10 })?.subject, "schedule");
+ok("conversion path: ads per budget, quote option and optimization event guardrails, the strategist's signal advice");
 
 console.log(`\nALL ${n} UNIT GROUPS PASSED`);

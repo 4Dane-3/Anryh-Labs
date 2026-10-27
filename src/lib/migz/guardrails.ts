@@ -1,4 +1,6 @@
 import { checkPlatformFocus, type PlatformStats } from "@/lib/migz/platforms";
+import { adsForBudget, SCHEDULE_FROM_CALLS_PER_WEEK } from "@/lib/migz/playbook";
+import { QUOTE_MODES, type QuoteMode } from "@/lib/booking/constants";
 
 // Hard limits on what Migz may do, enforced in code on every action (the model is told about them,
 // but never trusted to follow them). Pure functions so they can be unit-tested.
@@ -13,7 +15,6 @@ export const MAX_BUDGET_CHANGE = 0.3; // per action; bigger jumps destabilise de
 export const LEARNING_COOLDOWN_DAYS = 3; // after a significant edit, give Meta time to re-learn
 export const MIN_IMPRESSIONS_TO_JUDGE = 1000;
 export const MIN_SPEND_CENTS_TO_JUDGE = 1500;
-export const MAX_MAIN_ADS = 5; // live ads in a main ad set: more and each one gets too little spend to judge
 const SAME_SITTING_HOURS = 2; // promotions made together (e.g. approving one review's proposals) count as one restart
 
 export type AdState = {
@@ -35,6 +36,8 @@ export type AdSetState = {
   role?: "main" | "explore";
   /** Facebook vs Instagram, last 14 days (for focusing an ad set on one platform). */
   platforms?: PlatformStats;
+  /** The conversion Meta optimizes this ad set for (ad sets made before leads existed optimize for SCHEDULE). */
+  optimization_event?: "SCHEDULE" | "LEAD";
   ads: AdState[];
 };
 
@@ -54,6 +57,12 @@ export type GuardContext = {
   openGenerations: number;
   /** Days left in the running batch (null when there's no batch, or it has no end date). */
   batchDaysLeft?: number | null;
+  /** How the booking page shows "Get a free quote" (agents.quote_mode). */
+  quoteMode?: QuoteMode;
+  /** Booked calls in the last 7 days, from any source. */
+  bookedLast7?: number;
+  /** The booking page funnel for visits from ads, last 14 days. */
+  pageFunnel?: { visits: number; pickedTime: number; booked: number } | null;
 };
 
 const isActive = (status: string) => status === "ACTIVE";
@@ -188,6 +197,60 @@ export function checkRestructure(ctx: GuardContext) {
   return null;
 }
 
+const QUOTE_OPEN_BELOW = 0.05; // ad visitors booking under 5%: the step is too big for them
+
+/**
+ * The booking page's "Get a free quote": folded under the calendar (the default), open for visitors from
+ * ads, or off. Opening it needs enough ad visitors who mostly don't book; turning it off needs bookings
+ * coming in and an ad set that doesn't optimize for leads (quote requests are most of its leads).
+ */
+export function checkQuoteMode(ctx: GuardContext, mode: string) {
+  if (!QUOTE_MODES.includes(mode as QuoteMode)) return `Mode must be one of ${QUOTE_MODES.join(", ")}.`;
+  const current = ctx.quoteMode ?? "folded";
+  if (mode === current) return `The quote option is already ${mode}.`;
+  const f = ctx.pageFunnel;
+  if (mode === "open_for_ads") {
+    if (!f || f.visits < 20) return `Only ${f?.visits ?? 0} visits from ads in 14 days, too few to know the page needs a lighter step. Wait for 20.`;
+    if (f.booked / f.visits >= QUOTE_OPEN_BELOW)
+      return `${f.booked} of ${f.visits} ad visitors booked (${Math.round((f.booked / f.visits) * 100)}%): booking works, so keep the quote option folded and booking the main path.`;
+  }
+  if (mode === "off") {
+    if (ctx.adsets.some((s) => isActive(s.status) && s.optimization_event === "LEAD"))
+      return "An ad set optimizes for leads, and quote requests are most of them. Switch it to SCHEDULE first (set_optimization_event), or keep the quote option.";
+    if (!f || f.booked < 3) return "Bookings from ads are still too few to drop the quote option; it's the step most ad visitors take. Fold it instead if it seems to take bookings away.";
+  }
+  return null;
+}
+
+/**
+ * Which conversion an ad set optimizes for. LEAD (quote requests and bookings) while the account books
+ * under SCHEDULE_FROM_CALLS_PER_WEEK calls a week, SCHEDULE from there. A switch restarts learning, so not
+ * in a batch's last days or within 3 days of another change (changes made in one sitting count as one).
+ * Allowed while results are being collected: optimizing for an event that never happens is spending blind.
+ */
+export function checkOptimizationEvent(ctx: GuardContext, adsetId: string, event: string) {
+  if (event !== "LEAD" && event !== "SCHEDULE") return "Event must be LEAD or SCHEDULE.";
+  const adset = findAdSet(ctx, adsetId);
+  if (!adset) return `No ad set ${adsetId} in this account.`;
+  if (!isActive(adset.status)) return `Ad set ${adsetId} is ${adset.status}.`;
+  const current = adset.optimization_event ?? "SCHEDULE";
+  if (current === event) return `Ad set ${adsetId} already optimizes for ${event}.`;
+  if (ctx.batchDaysLeft === undefined || ctx.batchDaysLeft === null) return "There's no running batch with an end date; switch when the next batch starts.";
+  if (ctx.batchDaysLeft < MIN_RESTRUCTURE_DAYS_LEFT)
+    return `Only ${ctx.batchDaysLeft} day${ctx.batchDaysLeft === 1 ? "" : "s"} left in this batch: the ad set wouldn't have time to re-learn. Switch when the next batch starts.`;
+  const booked = ctx.bookedLast7 ?? 0;
+  if (event === "LEAD") {
+    if (ctx.quoteMode === "off") return "The quote option is off, so a lead would only ever be a booking. Turn it back on (set_quote_option) first.";
+    if (booked >= SCHEDULE_FROM_CALLS_PER_WEEK) return `${booked} booked calls in the last 7 days is enough for Meta to learn from bookings directly; keep SCHEDULE.`;
+  } else if (booked < SCHEDULE_FROM_CALLS_PER_WEEK) {
+    return `${booked} booked call${booked === 1 ? "" : "s"} in the last 7 days; Meta needs about ${SCHEDULE_FROM_CALLS_PER_WEEK} a week before optimizing for bookings beats optimizing for leads.`;
+  }
+  const hours = (ctx.now.getTime() - new Date(adset.last_edited_at).getTime()) / 3_600_000;
+  if (hours >= SAME_SITTING_HOURS && hours < LEARNING_COOLDOWN_DAYS * 24)
+    return `Ad set ${adsetId} changed ${hours < 24 ? "today" : `${Math.floor(hours / 24)} day(s) ago`}. Switching the event restarts learning again; wait until ${LEARNING_COOLDOWN_DAYS} days have passed.`;
+  return null;
+}
+
 export function checkPromoteAd(ctx: GuardContext, adId: string) {
   const wait = revisionWait(ctx);
   if (wait) return wait;
@@ -201,7 +264,8 @@ export function checkPromoteAd(ctx: GuardContext, adId: string) {
   if (!main) return "There's no live main ad set to promote into.";
   const live = main.ads.filter((a) => isActive(a.status));
   if (found.ad.creative_id && live.some((a) => a.creative_id === found.ad.creative_id)) return "That creative already runs in the main ad set.";
-  if (live.length >= MAX_MAIN_ADS) return `The main ad set already has ${live.length} live ads. Pause its weakest first, so the winner gets real spend.`;
+  const room = adsForBudget(main.daily_budget_cents);
+  if (live.length >= room) return `The main ad set already has ${live.length} live ads, as many as its $${(main.daily_budget_cents / 100).toFixed(2)}/day can give a fair read. Pause its weakest first, so the winner gets real spend.`;
   const hours = (ctx.now.getTime() - new Date(main.last_edited_at).getTime()) / 3_600_000;
   if (hours >= SAME_SITTING_HOURS && hours < LEARNING_COOLDOWN_DAYS * 24)
     return `The main ad set changed ${hours < 24 ? "today" : `${Math.floor(hours / 24)} day(s) ago`}. A promotion restarts its learning, so wait until ${LEARNING_COOLDOWN_DAYS} days have passed and promote the winners together.`;

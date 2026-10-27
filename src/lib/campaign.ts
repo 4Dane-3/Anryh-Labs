@@ -1,5 +1,6 @@
 import { DateTime } from "luxon";
 import { TOPICS, type TopicKey } from "@/lib/migz/topics";
+import { MIN_IMPRESSIONS_TO_RANK } from "@/lib/migz/playbook";
 
 // The campaign plan agents set on the Start here page: how long it runs and what it will roughly cost.
 // Pure helpers (no I/O) so the dashboard, the launch action and Migz all agree.
@@ -97,19 +98,39 @@ export function estimate(dailyCents: number, days: number | null | undefined, ba
   };
 }
 
+export type AdResults = { impressions: number; clicks: number; booked: number };
+
 /**
- * Which live ads a one-campaign batch carries over from the campaigns it retires: most spend first
- * (where Meta was putting the money), only ads on the campaign's topic when it has one, one ad per
- * creative (including ones the campaign already runs), and no more than `room`.
+ * Best ad first, by results rather than spend (with no conversions Meta's spend is a guess): booked calls,
+ * then link click-through for ads with a real read (MIN_IMPRESSIONS_TO_RANK), then the ads too new to
+ * judge, most impressions first.
+ */
+export function byResults(stats: Map<string, AdResults>) {
+  const get = (id: string) => stats.get(id) ?? { impressions: 0, clicks: 0, booked: 0 };
+  const read = (r: AdResults) => r.impressions >= MIN_IMPRESSIONS_TO_RANK;
+  return (a: { meta_ad_id: string }, b: { meta_ad_id: string }) => {
+    const x = get(a.meta_ad_id);
+    const y = get(b.meta_ad_id);
+    if (x.booked !== y.booked) return y.booked - x.booked;
+    if (read(x) !== read(y)) return read(x) ? -1 : 1;
+    if (read(x)) return y.clicks / y.impressions - x.clicks / x.impressions;
+    return y.impressions - x.impressions;
+  };
+}
+
+/**
+ * Which live ads a one-campaign batch carries over from the campaigns it retires: best results first
+ * (byResults), only ads on the campaign's topic when it has one, one ad per creative (including ones
+ * the campaign already runs), and no more than `room`.
  */
 export function pickCarryOver<T extends { meta_ad_id: string; creative_id: string | null; topic: string | null }>(
   candidates: T[],
-  opts: { room: number; topic: TopicKey | null; spentCents: Map<string, number>; running: Set<string> },
+  opts: { room: number; topic: TopicKey | null; results: Map<string, AdResults>; running: Set<string> },
 ): T[] {
   const have = new Set(opts.running);
   const picks: T[] = [];
-  const bySpend = [...candidates].sort((a, b) => (opts.spentCents.get(b.meta_ad_id) ?? 0) - (opts.spentCents.get(a.meta_ad_id) ?? 0));
-  for (const a of bySpend) {
+  const best = [...candidates].sort(byResults(opts.results));
+  for (const a of best) {
     if (picks.length >= opts.room) break;
     if (opts.topic && a.topic !== opts.topic) continue;
     if (a.creative_id && have.has(a.creative_id)) continue;

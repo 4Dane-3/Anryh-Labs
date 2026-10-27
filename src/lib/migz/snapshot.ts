@@ -13,6 +13,8 @@ import { getActiveBatch } from "@/lib/dashboard/batches";
 import { latestIdeas } from "@/lib/migz/research";
 import { notebookForReview } from "@/lib/migz/notebook";
 import { adFunnel, funnelVerdict } from "@/lib/migz/funnel";
+import { adsForBudget } from "@/lib/migz/playbook";
+import type { QuoteMode } from "@/lib/booking/constants";
 import type { EventRow } from "@/lib/admin/page-analytics";
 import { emptyPlatformStats, platformOf, PLATFORMS, strongerPlatform, type PlatformStats } from "@/lib/migz/platforms";
 
@@ -191,6 +193,7 @@ export async function buildSnapshot(agent: Agent) {
     daily_budget_cents: s.daily_budget_cents,
     learning_status: s.learning_status,
     last_edited_at: s.last_edited_at,
+    optimization_event: s.optimization_event === "LEAD" ? "LEAD" : "SCHEDULE",
     role: (campaigns.data ?? []).find((c) => c.id === s.campaign_id)?.role === "explore" ? "explore" : "main",
     platforms: platformsBySet.get(s.id) ?? emptyPlatformStats(),
     ads: (ads.data ?? [])
@@ -290,6 +293,9 @@ export async function buildSnapshot(agent: Agent) {
   const researchIdeas = await latestIdeas(agent.id);
   const notebook = await notebookForReview(agent.id);
 
+  const weekAgo = Date.now() - 7 * 86_400_000;
+  const bookedLast7 = (bookings.data ?? []).filter((b) => new Date(b.created_at).getTime() >= weekAgo).length;
+
   const funnel = adFunnel((pageEvents.data ?? []) as EventRow[], LOOKBACK_DAYS, agent.timezone);
   const verdict = funnelVerdict(funnel, pageEvents.error ? null : totals.link_clicks);
   const bookingPage = pageEvents.error
@@ -303,6 +309,7 @@ export async function buildSnapshot(agent: Agent) {
         pressed_confirm: funnel.pressedConfirm,
         booked: funnel.booked,
         tapped_call: funnel.tappedCall,
+        asked_for_a_quote: funnel.quoteRequests,
         booking_errors: funnel.errors,
         verdict: verdict.text,
         fix_is_in: verdict.fix,
@@ -328,6 +335,11 @@ export async function buildSnapshot(agent: Agent) {
         ? daysLeft(batch.ends_on, agent.timezone)
         : agent.daily_budget_cents ? Math.floor(balance / agent.daily_budget_cents) : null,
       ads_paused_by_agent: agent.ads_paused,
+      quote_option: {
+        mode: agent.quote_mode ?? "folded",
+        note: "\"Get a free quote\" on the booking page (name and phone, the agent calls back): folded under the calendar, open_for_ads (open for visitors from ads) or off. Change it with set_quote_option.",
+      },
+      booked_calls_last_7_days: bookedLast7,
       // Test mode keeps campaigns paused on purpose (set by the account manager, not something to fix)
       test_mode: process.env.MIGZ_TEST_MODE === "1"
         ? "on: campaigns stay paused and every ad you launch is built paused, so the agent can preview the finished ads in Meta Ads Manager and nothing delivers or spends. Build and launch ads as normal (launch creatives into the ad set), and don't ask the agent to turn the campaign on; the ads switch on when test mode ends"
@@ -407,6 +419,8 @@ export async function buildSnapshot(agent: Agent) {
           status: s.status,
           daily_budget: `$${(s.daily_budget_cents / 100).toFixed(2)}`,
           meta_learning_status: s.learning_status ?? "unknown",
+          optimizes_for: s.optimization_event === "LEAD" ? "LEAD (quote requests and booked calls)" : "SCHEDULE (booked calls only)",
+          live_ads_its_budget_can_read: adsForBudget(s.daily_budget_cents),
           last_changed: DateTime.fromISO(s.last_edited_at).toRelative({ base: DateTime.now() }),
           placements: s.placements.length ? s.placements : "automatic (Facebook and Instagram only)",
           ad_set_average_last_14_days: adsetAverage(s.id),
@@ -481,6 +495,9 @@ export async function buildSnapshot(agent: Agent) {
     focus,
     balanceCents: balance,
     revisionsFrom,
+    quoteMode: (agent.quote_mode ?? "folded") as QuoteMode,
+    bookedLast7,
+    pageFunnel: pageEvents.error ? null : { visits: funnel.visits, pickedTime: funnel.pickedTime, booked: funnel.booked },
   };
 }
 

@@ -7,6 +7,7 @@ import {
   type SlotConfig,
 } from "@/lib/booking/slots";
 import { DEFAULT_QUESTIONS, type IntakeQuestion } from "@/lib/booking/questions";
+import type { QuoteMode } from "@/lib/booking/constants";
 
 export type Agent = {
   id: string;
@@ -56,6 +57,7 @@ export type Agent = {
   call_phone?: string | null; // E.164, the number that button dials
   call_hours_only?: boolean; // show it only during working hours
   results_from?: string | null; // results before this date aren't comparable (placements changed); missing before its migration
+  quote_mode?: QuoteMode; // "Get a free quote" on the booking page (missing before its migration)
 };
 
 export type Booking = {

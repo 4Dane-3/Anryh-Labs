@@ -123,8 +123,9 @@ export async function createAdSet(
     optimization_goal: "OFFSITE_CONVERSIONS",
     bid_strategy: "LOWEST_COST_WITHOUT_CAP",
     destination_type: "WEBSITE",
-    // Optimize for booked calls: the landing page sends a "Schedule" event via the Conversions API
-    promoted_object: { pixel_id: input.pixelId, custom_event_type: "SCHEDULE" },
+    // Optimize for leads: booked calls and quote requests both send a "Lead" event via the Conversions API.
+    // Bookings alone are too rare for Meta to learn from at our budgets; booked calls stay the scoreboard.
+    promoted_object: { pixel_id: input.pixelId, custom_event_type: "LEAD" },
     targeting: {
       geo_locations: { regions },
       age_min: 18,
@@ -136,6 +137,11 @@ export async function createAdSet(
     ...(input.endTime ? { end_time: input.endTime } : {}),
   });
   return res.id;
+}
+
+/** Changes the conversion an ad set optimizes for (restarts its learning). */
+export async function setOptimizationEvent(adsetId: string, pixelId: string, event: "LEAD" | "SCHEDULE") {
+  await graph("POST", adsetId, { promoted_object: { pixel_id: pixelId, custom_event_type: event } });
 }
 
 /** Sets when Meta stops delivering an ad set. Moving it later restarts a completed ad set. */
