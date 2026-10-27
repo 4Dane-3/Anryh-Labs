@@ -82,7 +82,7 @@ export async function notifyCreativeReady(agent: Recipient, input: { brief: AnyB
 
 export async function notifyBatchSetup(
   agent: Recipient & Pick<Agent, "licensed_states" | "migz_mode">,
-  input: { budgetCents: number | null; days: number | null; campaigns: string[]; perCampaignCents: number; endsOn: string | null },
+  input: { budgetCents: number | null; days: number | null; campaigns: string[]; perCampaignCents: number; campaignCents?: number[]; endsOn: string | null },
 ) {
   return send(agent, batchSetupMessage({ ...input, states: agent.licensed_states, auto: agent.migz_mode === "auto", dashboardUrl: appUrl() }));
 }

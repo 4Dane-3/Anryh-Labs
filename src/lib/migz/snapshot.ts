@@ -7,7 +7,7 @@ import type { AdSetState } from "@/lib/migz/guardrails";
 import { LOOKBACK_DAYS } from "@/lib/migz/sync";
 import { briefLabel, isCarouselBrief, isImageBrief, isVideoBrief, type AnyBrief } from "@/lib/migz/brief";
 import { addRow, derive, emptyTotals, fatigue, present, type Totals } from "@/lib/migz/metrics";
-import { cleanFocus, TOPICS } from "@/lib/migz/topics";
+import { cleanFocus, isTopic, TOPICS } from "@/lib/migz/topics";
 import { daysLeft, REVISE_AFTER_DAYS } from "@/lib/campaign";
 import { getActiveBatch } from "@/lib/dashboard/batches";
 import { latestIdeas } from "@/lib/migz/research";
@@ -181,12 +181,14 @@ export async function buildSnapshot(agent: Agent) {
     daily_budget_cents: s.daily_budget_cents,
     learning_status: s.learning_status,
     last_edited_at: s.last_edited_at,
+    role: (campaigns.data ?? []).find((c) => c.id === s.campaign_id)?.role === "explore" ? "explore" : "main",
     platforms: platformsBySet.get(s.id) ?? emptyPlatformStats(),
     ads: (ads.data ?? [])
       .filter((a) => a.adset_id === s.id)
       .map((a) => ({
         meta_ad_id: a.meta_ad_id,
         status: a.status,
+        creative_id: a.creative_id,
         impressions: perAd.get(a.meta_ad_id)?.d14.impressions ?? 0,
         spend_cents: perAd.get(a.meta_ad_id)?.d14.spend_cents ?? 0,
         thruplays: perAd.get(a.meta_ad_id)?.d14.thruplays ?? 0,
@@ -266,11 +268,12 @@ export async function buildSnapshot(agent: Agent) {
     ? agent.results_from && agent.results_from > agent.campaign_started_on ? agent.results_from : agent.campaign_started_on
     : null;
   const revisionsFrom = collectFrom ? DateTime.fromISO(collectFrom, { zone: agent.timezone }).plus({ days: REVISE_AFTER_DAYS }).toISODate()! : null;
+  // A campaign with no topic runs ads on every focus topic, so its ad sets count for each of them
   const adsetsByTopic = new Map<string, string[]>();
   for (const c of campaigns.data ?? []) {
-    if (!c.topic) continue;
-    const ids = (adsets.data ?? []).filter((x) => x.campaign_id === c.id).map((x) => x.meta_adset_id);
-    adsetsByTopic.set(c.topic, [...(adsetsByTopic.get(c.topic) ?? []), ...ids]);
+    if (c.role === "explore") continue;
+    const ids = (adsets.data ?? []).filter((x) => x.campaign_id === c.id && x.status !== "PAUSED").map((x) => x.meta_adset_id);
+    for (const t of c.topic ? [c.topic] : focus) adsetsByTopic.set(t, [...(adsetsByTopic.get(t) ?? []), ...ids]);
   }
 
   // The research shift's latest ideas (market → history → clerk), as inspiration for new creatives
@@ -305,10 +308,16 @@ export async function buildSnapshot(agent: Agent) {
       batch: batch
         ? {
             budget: `$${(batch.budget_cents / 100).toFixed(2)} of ad spend over ${batch.days} days`,
-            plan: `${batch.option}: ${batch.campaigns.length} campaign${batch.campaigns.length === 1 ? "" : "s"} the agent chose`,
-            note: batch.campaigns.length === 1
-              ? "One focused campaign: there's no second campaign to compare against, so compare ads and formats within it."
-              : "Spend the batch to get the most booked calls; move budget between its campaigns once the results phase is over.",
+            plan: batch.option === "explore"
+              ? `a main campaign (${isTopic(batch.campaigns[0]) ? `ads on ${TOPICS[batch.campaigns[0]].label}` : "ads on every focus topic"}) plus an exploration campaign, one ad set each`
+              : batch.campaigns.length === 1
+                ? `one campaign with one ad set, ${isTopic(batch.campaigns[0]) ? `all ads on ${TOPICS[batch.campaigns[0]].label}` : "ads on every focus topic"} (the agent chose ${batch.option})`
+                : `${batch.option}: ${batch.campaigns.length} campaigns the agent chose (an older plan; the next batch runs as one campaign)`,
+            note: batch.option === "explore"
+              ? "Test new creative in the exploration ad set and promote the winners into the main one together, at most every 3 days. Keep the main ad set to proven ads. Don't add ad sets or campaigns."
+              : batch.campaigns.length === 1
+                ? "Everything runs in one ad set, so compare ads, hooks, formats and topics inside it. Don't add ad sets or campaigns."
+                : "Spend the batch to get the most booked calls; move budget between its campaigns once the results phase is over.",
           }
         : "no active batch",
       campaign: {
@@ -326,8 +335,8 @@ export async function buildSnapshot(agent: Agent) {
         phase: !revisionsFrom
           ? "not started"
           : today.toISODate()! < revisionsFrom
-            ? `collecting results: the first ${REVISE_AFTER_DAYS} days are for data. Build and launch creative for every campaign, but don't pause ads, move budget or change placements yet (the system refuses). Compare the campaigns from ${revisionsFrom}.`
-            : "revising: compare the campaigns and their ads, revise what's losing (hooks, copy, budget between campaigns), then judge whether each change helped before the campaign ends",
+            ? `collecting results: the first ${REVISE_AFTER_DAYS} days are for data. Build and launch creative for every focus topic, but don't pause ads, move budget or change placements yet (the system refuses). Compare the ads from ${revisionsFrom}.`
+            : "revising: compare the ads (and the campaigns, if there are several), revise what's losing (hooks, copy, budget between ad sets when there's more than one), then judge whether each change helped before the campaign ends",
         note: agent.campaign_ends_on ? "The agent chose this length. Pace tests so winners are found with time left to benefit; don't start long tests near the end." : undefined,
       },
       creative_generation: outOfCredits > 0
@@ -357,6 +366,9 @@ export async function buildSnapshot(agent: Agent) {
       campaign_id: c.meta_campaign_id,
       name: c.name,
       status: c.status,
+      role: c.role === "explore"
+        ? "exploration: new, untested creative launches here first; promote proven ads into the main campaign with promote_ad"
+        : "main: proven ads only, so its learning isn't restarted by every test",
       serves_topic: c.topic && c.topic in TOPICS ? `${c.topic} (${TOPICS[c.topic as keyof typeof TOPICS].label})` : "any topic",
       ad_sets: (adsets.data ?? [])
         .filter((s) => s.campaign_id === c.id)

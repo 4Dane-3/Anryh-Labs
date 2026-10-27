@@ -2,14 +2,13 @@ import Link from "next/link";
 import { DateTime } from "luxon";
 import { ArrowRight } from "lucide-react";
 import type { Batch } from "@/lib/dashboard/batches";
-import { listCampaignTopics } from "@/lib/batch";
+import { listCampaignTopics, type CampaignSlot } from "@/lib/batch";
 import { usd } from "@/lib/dashboard/format";
-import type { TopicKey } from "@/lib/migz/topics";
 import { EmptyState, PanelHeader } from "@/components/dashboard/ui";
 
 const TITLES: Record<string, string> = { focused: "Focused", balanced: "Balanced", spread: "Spread" };
 const whole = (cents: number) => usd(cents, { cents: cents % 100 !== 0 && cents < 100_00 });
-const topicsOf = (b: Batch) => b.campaigns.map((t) => (t || null) as TopicKey | null);
+const topicsOf = (b: Batch) => b.campaigns.map((t) => (t || null) as CampaignSlot);
 const range = (b: Batch, zone: string) =>
   b.starts_on && b.ends_on
     ? `${DateTime.fromISO(b.starts_on, { zone }).toFormat("LLL d")} – ${DateTime.fromISO(b.ends_on, { zone }).toFormat("LLL d")}`

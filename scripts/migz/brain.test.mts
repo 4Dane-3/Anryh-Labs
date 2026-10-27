@@ -232,20 +232,26 @@ assert.ok(frames!.every((x) => x.jpeg[0] === 0xff && x.jpeg[1] === 0xd8));
 ok("real ffmpeg pulls JPEG frames at 0/1/2/3s then every 3s from a 10s clip");
 
 // campaign plan + funds
-const { allocateCampaigns, campaignCount, campaignLabels, perCampaignCents, adSpendCents, depositFor, MIN_DEPOSIT_CENTS, MIN_AD_BALANCE_CENTS } = await import("@/lib/campaign");
-assert.deepEqual([campaignCount(2000), campaignCount(3000), campaignCount(4500), campaignCount(500), campaignCount(100_000)], [2, 3, 4, 1, 6]);
+const { planTopic, campaignLabels, pickCarryOver, perCampaignCents, adSpendCents, depositFor, MIN_DEPOSIT_CENTS, MIN_AD_BALANCE_CENTS, MIN_DAILY_CENTS, TEST_DAYS } = await import("@/lib/campaign");
 const three = ["final_expense", "mortgage_protection", "income_protection"] as const;
-assert.deepEqual(allocateCampaigns(three, 2), ["final_expense", "mortgage_protection"], "budget for 2: the top 2 focuses");
-assert.deepEqual(allocateCampaigns(three, 3), [...three], "budget for 3 with 3 focuses: one each, no doubling up");
-assert.deepEqual(allocateCampaigns(three, 4), ["final_expense", "mortgage_protection", "income_protection", "final_expense"], "4: the main focus gets the second");
-assert.deepEqual(allocateCampaigns(three, 5).filter((t) => t === "mortgage_protection").length, 2, "5: then focus 2");
-assert.deepEqual(allocateCampaigns(["final_expense"], 2), ["final_expense", "final_expense"]);
-assert.deepEqual(allocateCampaigns([], 2), [null, null]);
-assert.deepEqual(campaignLabels(allocateCampaigns(three, 4)), ["Final expense A", "Mortgage protection", "Income protection", "Final expense B"]);
+assert.equal(planTopic(["final_expense"]), "final_expense", "one focus: the campaign serves it");
+assert.equal(planTopic([...three]), null, "several: one campaign with ads on each");
+assert.equal(planTopic([]), null);
+assert.deepEqual(campaignLabels([null], [...three]), ["Final expense + Mortgage protection + Income protection"]);
+assert.deepEqual(campaignLabels([null]), ["Booked calls"], "no focus at all");
+assert.deepEqual(campaignLabels(["final_expense", "mortgage_protection", "final_expense"]), ["Final expense A", "Mortgage protection", "Final expense B"], "older batches with two on one topic");
 assert.equal(perCampaignCents(2500, 2), 1250);
 assert.equal(adSpendCents(MIN_DEPOSIT_CENTS), 28_000); assert.equal(MIN_AD_BALANCE_CENTS, 28_000);
+assert.equal(MIN_DAILY_CENTS * TEST_DAYS, MIN_AD_BALANCE_CENTS, "the minimum deposit funds $20/day for two weeks");
 assert.equal(depositFor(28_000), 35_000); assert.equal(depositFor(42_000), 52_500);
-ok("$10/day per campaign; one per focus while the budget covers them, extras follow the focus order; $350 deposit = $280 of ads after the 20% fee");
+const cand = (id: string, creative: string | null, topic: string | null) => ({ meta_ad_id: id, creative_id: creative, topic });
+const spentCents = new Map([["a", 1654], ["b", 1051], ["c", 778], ["d", 475], ["e", 499], ["f", 5]]);
+const pool = [cand("a", "c1", "final_expense"), cand("b", "c2", "whole_life"), cand("c", "c3", "whole_life"), cand("d", "c4", "final_expense"), cand("e", "c5", "final_expense"), cand("f", "c3", "whole_life")];
+assert.deepEqual(pickCarryOver(pool, { room: 4, topic: null, spentCents, running: new Set() }).map((a) => a.meta_ad_id), ["a", "b", "c", "e"], "most spend first, any topic, up to the room left");
+assert.deepEqual(pickCarryOver(pool, { room: 4, topic: "final_expense", spentCents, running: new Set() }).map((a) => a.meta_ad_id), ["a", "e", "d"], "a one-topic campaign only takes its topic");
+assert.deepEqual(pickCarryOver(pool, { room: 4, topic: null, spentCents, running: new Set(["c1", "c3"]) }).map((a) => a.meta_ad_id), ["b", "e", "d"], "one ad per creative, counting what's already running");
+assert.equal(pickCarryOver(pool, { room: 0, topic: null, spentCents, running: new Set() }).length, 0);
+ok("one campaign per plan: on the only focus or across all of them; carried-over ads by spend, on topic, one per creative; $350 deposit = $280 of ads = $20/day for 2 weeks");
 
 // required questions
 const { missingRequired, preBookingQuestions, DEFAULT_QUESTIONS } = await import("@/lib/booking/questions");
@@ -267,26 +273,83 @@ assert.equal(placementCheck({ ...gctx, revisionsFrom: new Date("2026-10-19T05:00
 ok("pauses, budget and placement edits wait for the campaign's first 7 days of results");
 
 // campaign batches
-const { batchOptions, recommendOption, outcomeEstimate, bestTopic, findOption, MIN_BATCH_CENTS } = await import("@/lib/batch");
+const { batchOptions, recommendOption, outcomeEstimate, bestTopic, findOption, listCampaignTopics, MIN_BATCH_CENTS } = await import("@/lib/batch");
 const noHistory = { spentCents: 0, bookedCalls: 0, batches: 0, byTopic: {} };
 assert.equal(batchOptions(MIN_BATCH_CENTS - 100, ["final_expense"]).length, 0, "under the minimum there are no options");
 const min2 = batchOptions(28_000, ["final_expense", "mortgage_protection"]);
-assert.deepEqual(min2.map((o) => [o.key, o.campaigns.length, o.days, o.perCampaignCents]), [["focused", 1, 14, 2000], ["balanced", 2, 14, 1000]], "$280: focused $20/day, or 2 × $10/day, both 2 weeks; spread adds nothing");
-const big = batchOptions(70_000, ["final_expense", "mortgage_protection", "income_protection"]);
-assert.deepEqual(big.map((o) => [o.key, o.campaigns.length, o.days]), [["focused", 1, 35], ["balanced", 3, 15], ["spread", 5, 14]]);
+assert.deepEqual(min2.map((o) => [o.key, o.campaigns, o.days, o.dailyCents]), [["focused", ["final_expense"], 14, 2000], ["balanced", [null], 14, 2000]], "$280: one campaign at $20/day for 2 weeks, on the main focus or on both");
+assert.deepEqual(batchOptions(28_000, ["final_expense"]).map((o) => o.key), ["focused"], "one focus: one option");
+const big = batchOptions(70_000, [...three]);
+assert.deepEqual(big.map((o) => [o.key, o.campaigns, o.days, o.perCampaignCents, o.exploreCents]), [["focused", ["final_expense"], 35, 2000, 0], ["balanced", [null], 35, 2000, 0], ["explore", [null, "explore"], 14, 3000, 2000]], "single campaigns run longer, never wider; $700 also covers main + exploration");
 for (const o of big) {
-  assert.ok(o.days >= 14 && o.perCampaignCents >= 1000, `${o.key} keeps the limits`);
+  assert.ok(o.days >= 14 && o.perCampaignCents >= 2000 && (o.exploreCents === 0 || o.exploreCents >= 2000), `${o.key} keeps the limits`);
   assert.ok(o.dailyCents * o.days <= 70_000, `${o.key} stays within the batch`);
 }
-assert.equal(recommendOption(big, ["final_expense", "mortgage_protection"], noHistory).key, "balanced", "no data: one per focus");
+assert.match(big[1].blurb, /Final expense, Mortgage protection and Income protection side by side/);
+assert.equal(listCampaignTopics([null]), "All your topics");
+assert.equal(listCampaignTopics([null, "explore"]), "All your topics and Exploration");
+assert.equal(recommendOption(big, [...three], noHistory).key, "explore", "when it fits, exploration keeps the main campaign learning");
+assert.equal(recommendOption(min2, ["final_expense", "mortgage_protection"], noHistory).key, "balanced", "no data: ads on every topic in one campaign");
+assert.equal(recommendOption(batchOptions(28_000, ["final_expense"]), ["final_expense"], noHistory).key, "focused");
 const history = { spentCents: 60_000, bookedCalls: 20, batches: 1, byTopic: { final_expense: { spentCents: 20_000, bookedCalls: 12 }, mortgage_protection: { spentCents: 40_000, bookedCalls: 8 } } };
 assert.equal(bestTopic(history), "final_expense", "$16.67 vs $50 per call is a clear winner");
-assert.equal(recommendOption(batchOptions(56_000, ["mortgage_protection", "final_expense"], "final_expense"), ["mortgage_protection", "final_expense"], history).key, "focused");
+assert.equal(recommendOption(batchOptions(42_000, ["mortgage_protection", "final_expense"], "final_expense"), ["mortgage_protection", "final_expense"], history).key, "focused", "a clear winner gets the batch");
+const withRoom = recommendOption(batchOptions(56_000, ["mortgage_protection", "final_expense"], "final_expense"), ["mortgage_protection", "final_expense"], history);
+assert.equal(withRoom.key, "explore", "with room to explore, the winner leads the main campaign instead");
+assert.match(withRoom.reason, /Final expense books calls clearly cheaper/);
 assert.equal(batchOptions(56_000, ["mortgage_protection", "final_expense"], "final_expense")[0].campaigns[0], "final_expense", "focused backs the winner, not just the first focus");
 assert.deepEqual(outcomeEstimate(56_000, history), { costPerCallCents: 3000, low: 14, high: 22 });
 assert.equal(outcomeEstimate(56_000, noHistory), null, "no estimate without the agent's own data");
 assert.equal(findOption(28_000, ["final_expense"], "spread"), null, "the server re-derives options; a made-up one is refused");
-ok("batches: focused / balanced / spread within 14+ days and $10+/day per campaign; recommendation and estimate from the agent's own results");
+ok("batches: one campaign at $20+/day for 14+ days, focused on one topic or on all of them; recommendation and estimate from the agent's own results");
+
+// exploration campaigns: what money unlocks one, how the day splits, and Migz's advice
+const { splitDaily, exploreAdvice, EXPLORE_MIN_BATCH_CENTS } = await import("@/lib/batch");
+assert.equal(EXPLORE_MIN_BATCH_CENTS, 56_000, "$20/day main + $20/day exploring for 14 days");
+assert.ok(!batchOptions(55_900, ["final_expense"]).some((o) => o.key === "explore"), "a cent short: no exploration");
+assert.deepEqual(batchOptions(56_000, ["final_expense"]).map((o) => [o.key, o.campaigns, o.perCampaignCents, o.exploreCents]), [["focused", ["final_expense"], 2000, 0], ["explore", ["final_expense", "explore"], 2000, 2000]]);
+assert.equal(batchOptions(56_000, ["mortgage_protection", "final_expense"], "final_expense").at(-1)!.campaigns[0], "final_expense", "a clear winner leads the main campaign");
+assert.deepEqual(splitDaily(5000, [null, "explore"]), [3000, 2000]);
+assert.deepEqual(splitDaily(10_000, [null, "explore"]), [6000, 4000], "exploration gets 40%");
+assert.deepEqual(splitDaily(4000, ["explore", null]), [2000, 2000], "in plan order; the main keeps its $20");
+assert.deepEqual(splitDaily(2000, ["final_expense", "whole_life"]), [1000, 1000], "older plans split evenly");
+assert.deepEqual(splitDaily(2000, [null]), [2000]);
+const advice = exploreAdvice(28_000)!;
+assert.deepEqual([advice.addCents, advice.totalCents, advice.depositCents], [28_000, 56_000, 35_000]);
+assert.match(advice.message, /Add \$280 to this batch \(\$560 in total\).*\$20\/day exploration campaign for 14 days/);
+assert.equal(exploreAdvice(56_000), null, "no advice once the option is on offer");
+assert.deepEqual(campaignLabels(["final_expense", "explore"]), ["Final expense", "Exploration"]);
+
+// new creative is tested in exploration; proven ads are promoted into the main ad set
+const xad = (id: string, impressions: number, creative = id, status = "ACTIVE") => ({ meta_ad_id: id, status, impressions, spend_cents: impressions * 5, creative_id: creative });
+const xctx = (mainAds: ReturnType<typeof xad>[], mainEdited = "2026-11-01T00:00:00Z", exploreAds = [xad("x1", 1400), xad("x2", 600)]) => ({
+  ...gctx,
+  now: new Date("2026-11-10T12:00:00Z"),
+  adsets: [
+    { meta_adset_id: "M", status: "ACTIVE", daily_budget_cents: 3000, learning_status: "LEARNING", last_edited_at: mainEdited, role: "main" as const, ads: mainAds },
+    { meta_adset_id: "X", status: "ACTIVE", daily_budget_cents: 2000, learning_status: "LEARNING", last_edited_at: "2026-11-01T00:00:00Z", role: "explore" as const, ads: exploreAds },
+  ],
+});
+const { checkLaunchTarget: launchCheck, checkPromoteAd, variantTarget } = await import("@/lib/migz/guardrails");
+const two = xctx([xad("m1", 3000), xad("m2", 2000)]);
+assert.match(launchCheck(two, "M") ?? "", /exploration ad set \(X\) first/, "new creative can't go straight into the main ad set");
+assert.equal(launchCheck(two, "X"), null);
+assert.equal(launchCheck(xctx([]), "M"), null, "an empty main ad set can take its first ads");
+assert.equal(launchCheck(gctx, "A"), null, "no exploration campaign: launch anywhere as before");
+assert.equal(variantTarget(two, "M"), "X", "variants of a main ad are tested in exploration");
+assert.equal(variantTarget(two, "X"), "X");
+assert.equal(variantTarget(gctx, "A"), "A");
+assert.equal(checkPromoteAd(two, "x1"), null, "1,400 impressions, room, main untouched for 9 days: promote (Meta's LEARNING status doesn't block it)");
+assert.match(checkPromoteAd(two, "x2") ?? "", /600 impressions/);
+assert.match(checkPromoteAd(two, "m1") ?? "", /isn't in the exploration campaign/);
+assert.match(checkPromoteAd(xctx([1, 2, 3, 4, 5].map((i) => xad(`m${i}`, 2000))), "x1") ?? "", /already has 5 live ads/);
+assert.match(checkPromoteAd(xctx([xad("m1", 3000)], "2026-11-09T00:00:00Z"), "x1") ?? "", /changed 1 day\(s\) ago/, "one restart every 3 days");
+assert.equal(checkPromoteAd(xctx([xad("m1", 3000)], "2026-11-10T11:00:00Z"), "x1"), null, "promotions made together count as one restart");
+assert.match(checkPromoteAd(xctx([xad("m1", 3000, "x1")]), "x1") ?? "", /already runs in the main ad set/);
+assert.match(checkPromoteAd({ ...two, revisionsFrom: new Date("2026-11-12T00:00:00Z") }, "x1") ?? "", /revisions/);
+const promoted = evalTool("promote_ad", { ad_id: "x1", title: "Promoted the porch video", reason: "1.9% click-through vs 1.1% in main" }, two);
+assert.deepEqual(promoted.ok && promoted.payload, { tool: "promote_ad", ad_id: "x1", adset_id: "M" });
+ok("exploration: $560 unlocks it, 40% of the day (at least $20), advice to add the rest; tests launch in exploration, winners are promoted with enough data, room and 3 days between restarts");
 
 // carousels
 const carouselInput = { concept: "Mortgage then coverage", topic: "mortgage_protection", style: "warm natural light", primary_text: "Who keeps paying the mortgage if you can't? A free call walks you through it.", launch_adset_id: "A", title: "t", reason: "r",
@@ -361,6 +424,8 @@ const mixed = sb.adsReviewedMessage({ approved: [{ ad: pv("A"), campaign: "Whole
 assert.equal(mixed.text, "Meta approved 2 ads, and didn't approve 1 ad");
 assert.match(JSON.stringify(mixed.blocks), /Meta said: _Financial claims_/);
 assert.equal(sb.adsReviewedMessage({ approved: [], rejected: [{ ad: pv("C"), campaign: "x", reason: null }], states: ["TX"], dashboardUrl: "u" }).text, "Meta didn't approve your new ad");
+const exploreMsg = sb.batchSetupMessage({ budgetCents: 70_000, days: 14, campaigns: ["Final expense + Whole life", "Exploration"], perCampaignCents: 3000, campaignCents: [3000, 2000], states: ["IL"], endsOn: "2026-11-20", auto: true, dashboardUrl: "u" });
+assert.match(JSON.stringify(exploreMsg.blocks), /Exploration \(\$20\/day\).*\$50\/day in total/);
 const setupMsg = sb.batchSetupMessage({ budgetCents: 28_000, days: 14, campaigns: ["Final expense", "Policy review"], perCampaignCents: 1000, states: ["IL", "OH"], endsOn: "2026-11-04", auto: false, dashboardUrl: "u" });
 assert.match(setupMsg.text, /Your \$280 campaign batch is set up/); assert.match(JSON.stringify(setupMsg.blocks), /Ask me first is on/);
 assert.match(sb.batchEndedMessage({ budgetCents: 28_000, spentCents: 25_000, bookedCalls: 10, dashboardUrl: "u" }).text, /10 booked calls from \$250/);

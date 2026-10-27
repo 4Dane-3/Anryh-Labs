@@ -207,14 +207,14 @@ export async function closeEndedBatch(agent: Agent) {
 const PLAN_SCHEMA = {
   type: "object",
   properties: {
-    option: { type: "string", enum: ["focused", "balanced", "spread"] },
+    option: { type: "string", enum: ["focused", "balanced", "explore"] },
     reason: { type: "string", description: "Why, in one or two plain sentences for the agent. Cite their numbers when there are any." },
   },
   required: ["option", "reason"],
   additionalProperties: false,
 };
 
-const PLAN_SYSTEM = `You are Migz AI, the media buyer running Meta ads for an independent life insurance agent. The agent is putting a new batch of money into their ads and you're choosing how to spend it, from the options given. The goal is the most booked calls for the money. Guidance: with little or no booking data, one campaign per focus (balanced) usually finds the best topic fastest; once one topic clearly books cheaper, focusing the batch on it usually brings the most calls; spreading wide suits a larger budget with no clear winner. A single focused campaign gives up the comparison between campaigns, so recommend it only with a reason. Use only the agent's own numbers you're given; never invent results. Write the reason for the agent: plain words, no jargon, no promises.`;
+const PLAN_SYSTEM = `You are Migz AI, the media buyer running Meta ads for an independent life insurance agent. The agent is putting a new batch of money into their ads and you're choosing how to spend it, from the options given. The goal is the most booked calls for the money. Focused and balanced are one campaign with one ad set, so all the money and data stay in one place; explore (offered only when the budget covers $20/day for each) adds an exploration campaign where new creative is tested before the winners move into the main campaign. Guidance: when explore is offered it's usually best, because testing new ads in the main ad set restarts its learning every time; otherwise, with little or no booking data, ads on all the agent's topics side by side (balanced) find the best topic fastest, since Meta backs whichever ads book; once one topic clearly books cheaper, focusing on it usually brings the most calls. Use only the agent's own numbers you're given; never invent results. Write the reason for the agent: plain words, no jargon, no promises.`;
 
 /**
  * Migz's pick among the options, with its reason. Sonnet decides from the agent's own history and

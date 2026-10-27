@@ -77,6 +77,22 @@ export async function applyPayload(
       }
       case "write_copy_variants":
         return { ok: true, result: { ad_ids: await inMeta(() => launchCopyVariants(agent, payload)) } };
+      case "promote_ad": {
+        const adId = await inMeta(async () => {
+          const { data: source } = await supabaseAdmin
+            .from("ads")
+            .select("id, meta_ad_id, meta_creative_id, creative_id, name, primary_text, headline")
+            .eq("agent_id", agent.id)
+            .eq("meta_ad_id", payload.ad_id)
+            .single();
+          if (!source?.meta_creative_id) throw new Error("That ad has no Meta creative to copy.");
+          const id = await copyAdInto(agent, source, payload.adset_id);
+          // A new ad is a significant edit: the main ad set's learning restarts from here
+          await supabaseAdmin.from("ad_sets").update({ last_edited_at: now, updated_at: now }).eq("meta_adset_id", payload.adset_id);
+          return id;
+        });
+        return { ok: true, result: { ad_id: adId } };
+      }
       case "hold":
         return { ok: true, result: {} };
     }
@@ -88,6 +104,34 @@ export async function applyPayload(
 }
 
 const appUrl = () => (process.env.APP_URL || "http://localhost:3000").replace(/\/$/, "");
+
+type CopySource = { id: string; meta_ad_id: string; meta_creative_id: string | null; creative_id: string | null; name: string; primary_text: string | null; headline: string | null };
+
+/**
+ * Runs an existing ad in another ad set: a new ad on the same Meta creative (so the same media and
+ * copy; it goes through Meta's review again), then the original is paused. Returns the new ad's id.
+ */
+export async function copyAdInto(agent: Agent, source: CopySource, targetMetaAdsetId: string) {
+  const { data: target } = await supabaseAdmin.from("ad_sets").select("id").eq("agent_id", agent.id).eq("meta_adset_id", targetMetaAdsetId).single();
+  if (!target || !source.meta_creative_id) throw new Error("Can't copy that ad: its creative or the target ad set is missing.");
+  const held = isTestMode();
+  const adId = await createAd(agent.meta_ad_account_id!, { name: source.name, adsetId: targetMetaAdsetId, creativeId: source.meta_creative_id, status: held ? "PAUSED" : "ACTIVE" });
+  await supabaseAdmin.from("ads").insert({
+    agent_id: agent.id,
+    adset_id: target.id,
+    creative_id: source.creative_id,
+    meta_ad_id: adId,
+    meta_creative_id: source.meta_creative_id,
+    name: source.name,
+    status: held ? "PAUSED" : "ACTIVE",
+    held_by_test_mode: held,
+    primary_text: source.primary_text,
+    headline: source.headline,
+  });
+  await setStatus(source.meta_ad_id, "PAUSED");
+  await supabaseAdmin.from("ads").update({ status: "PAUSED", updated_at: new Date().toISOString() }).eq("id", source.id);
+  return adId;
+}
 
 /** New ads in the same ad set reusing the source ad's Meta media with new copy. Returns the new ad ids. */
 async function launchCopyVariants(agent: Agent, payload: Extract<ActionPayload, { tool: "write_copy_variants" }>) {
@@ -109,6 +153,9 @@ async function launchCopyVariants(agent: Agent, payload: Extract<ActionPayload, 
   } else throw new Error("The source creative has no Meta media to reuse.");
 
   const account = agent.meta_ad_account_id!;
+  // Variants of a main ad launch into the exploration ad set (variantTarget), so look up where they land
+  const { data: target } = await supabaseAdmin.from("ad_sets").select("id").eq("agent_id", agent.id).eq("meta_adset_id", payload.adset_id).single();
+  if (!target) throw new Error("The ad set for these variants is gone.");
   const ids: string[] = [];
   for (const [i, v] of payload.variants.entries()) {
     const name = `${source.name.replace(/ · copy [A-Z]$/, "")} · copy ${String.fromCharCode(66 + i)}`.slice(0, 100);
@@ -125,7 +172,7 @@ async function launchCopyVariants(agent: Agent, payload: Extract<ActionPayload, 
     const adId = await createAd(account, { name, adsetId: payload.adset_id, creativeId: metaCreativeId, status: held ? "PAUSED" : "ACTIVE" });
     await supabaseAdmin.from("ads").insert({
       agent_id: agent.id,
-      adset_id: source.adset_id,
+      adset_id: target.id,
       creative_id: source.creative_id,
       meta_ad_id: adId,
       meta_creative_id: metaCreativeId,
