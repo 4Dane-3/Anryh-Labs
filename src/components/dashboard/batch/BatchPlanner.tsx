@@ -151,6 +151,15 @@ export function BatchPlanner({
             </p>
           </div>
 
+          {plan.diagnosis && (
+            <div className="rounded-lg border border-line px-4 py-3">
+              <p className="text-[13px] font-semibold text-fg">
+                {plan.diagnosis.fix === "page" ? "Your booking page is where people stop" : plan.diagnosis.fix === "both" ? "Your ads and page need to match" : "Your ads need more people"}
+              </p>
+              <p className="mt-1 text-[13px] text-fg-muted">{plan.diagnosis.text}</p>
+            </div>
+          )}
+
           {plan.advice && (
             <div className="flex flex-col gap-3 rounded-lg border border-line px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
               <div>

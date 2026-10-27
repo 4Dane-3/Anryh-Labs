@@ -975,4 +975,31 @@ assert.equal(isPulse({ evidence: { kind: "pulse" } }), true);
 assert.equal(isPulse({ evidence: {} }), false);
 ok("live monitor: check-ins every 10 minutes, none during a review; Sonnet notes stop near the model budget");
 
+// Booking-page funnel: ad visitors only, and a verdict on whether the ads or the page needs the work
+const { adFunnel, funnelVerdict } = await import("@/lib/migz/funnel");
+const fev = (sid: string, name: string, meta: Record<string, unknown> | null = null) => ({ session_id: sid, name, meta, created_at: "2026-10-26T15:00:00Z" });
+const funnelRows = [
+  fev("a", "view", { source: "meta" }), fev("a", "see_calendar"), fev("a", "pick_time"), fev("a", "form_start"), fev("a", "submit"), fev("a", "booked"),
+  fev("b", "view", { source: "facebook" }), fev("b", "see_calendar"), fev("b", "call_click"),
+  fev("c", "view", { source: "direct" }), fev("c", "see_calendar"), fev("c", "booked"),
+];
+const af = adFunnel(funnelRows, 14, "America/Chicago", new Date("2026-10-27T00:00:00Z"));
+assert.deepEqual(af, { visits: 2, sawTimes: 2, pickedTime: 1, startedForm: 1, pressedConfirm: 1, booked: 1, tappedCall: 1, errors: 0 }, "only visits from Meta ads count");
+const F = (o: Partial<typeof af>) => ({ visits: 0, sawTimes: 0, pickedTime: 0, startedForm: 0, pressedConfirm: 0, booked: 0, tappedCall: 0, errors: 0, ...o });
+// Miguel's week: people reach the times and stop there
+const miguelFunnel = funnelVerdict(F({ visits: 224, sawTimes: 175, pickedTime: 1 }), 260);
+assert.equal(miguelFunnel.stage, "no_time_picked"); assert.equal(miguelFunnel.fix, "page");
+assert.match(miguelFunnel.text, /175 of 224 .* only 1 picked one/);
+assert.equal(funnelVerdict(F({ visits: 8, sawTimes: 6 })).fix, "ads", "too few visits: the ads come first");
+assert.equal(funnelVerdict(F({ visits: 8 }), 60).stage, "clicks_not_arriving", "60 clicks but 8 visits: the page isn't being reached");
+assert.equal(funnelVerdict(F({ visits: 40, sawTimes: 12 })).fix, "both", "most leave before the times");
+assert.equal(funnelVerdict(F({ visits: 40, sawTimes: 30, pickedTime: 12, startedForm: 4 })).stage, "form_not_started");
+assert.equal(funnelVerdict(F({ visits: 40, sawTimes: 30, pickedTime: 12, startedForm: 10, pressedConfirm: 3 })).stage, "form_not_finished");
+assert.equal(funnelVerdict(F({ visits: 20, sawTimes: 10, pickedTime: 3, startedForm: 0 })).stage, "no_clear_drop", "3 picks is too few to judge the form");
+assert.equal(funnelVerdict(F({ visits: 40, sawTimes: 30, errors: 2 })).stage, "booking_errors", "errors come first");
+const booking = funnelVerdict(F({ visits: 40, sawTimes: 30, pickedTime: 10, startedForm: 8, pressedConfirm: 6, booked: 4 }));
+assert.equal(booking.fix, "none"); assert.match(booking.text, /4 of 40 ad visitors booked \(10%\)/);
+assert.match(funnelVerdict(F({ visits: 224, sawTimes: 175, pickedTime: 1, tappedCall: 3 })).text, /3 tapped Call instead/);
+ok("booking-page funnel: ad visits only; page vs ads verdicts (times, form, errors, clicks not arriving, too few visits)");
+
 console.log(`\nALL ${n} UNIT GROUPS PASSED`);

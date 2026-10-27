@@ -12,6 +12,8 @@ import { daysLeft, REVISE_AFTER_DAYS } from "@/lib/campaign";
 import { getActiveBatch } from "@/lib/dashboard/batches";
 import { latestIdeas } from "@/lib/migz/research";
 import { notebookForReview } from "@/lib/migz/notebook";
+import { adFunnel, funnelVerdict } from "@/lib/migz/funnel";
+import type { EventRow } from "@/lib/admin/page-analytics";
 import { emptyPlatformStats, platformOf, PLATFORMS, strongerPlatform, type PlatformStats } from "@/lib/migz/platforms";
 
 /**
@@ -27,7 +29,7 @@ export async function buildSnapshot(agent: Agent) {
   const since14 = floor(today.minus({ days: LOOKBACK_DAYS - 1 }).toISODate()!);
   const since3 = floor(today.minus({ days: 2 }).toISODate()!);
 
-  const [campaigns, adsets, ads, insights, bookings, library, jobs, actions, balance, placementRows, visitRows, batch] = await Promise.all([
+  const [campaigns, adsets, ads, insights, bookings, library, jobs, actions, balance, placementRows, visitRows, batch, pageEvents] = await Promise.all([
     // Campaigns a batch retired are paused and out of play: they don't count toward budgets or reviews
     supabaseAdmin.from("ad_campaigns").select("*").eq("agent_id", agent.id).is("retired_at", null),
     supabaseAdmin.from("ad_sets").select("*, ad_campaigns!inner(retired_at)").eq("agent_id", agent.id).neq("status", "DELETED").is("ad_campaigns.retired_at", null),
@@ -66,6 +68,14 @@ export async function buildSnapshot(agent: Agent) {
       .eq("agent_id", agent.id)
       .gte("created_at", DateTime.fromISO(since14, { zone: agent.timezone }).toUTC().toISO()!),
     getActiveBatch(agent.id),
+    // Each step of the booking page, to tell an ads problem from a page problem
+    supabaseAdmin
+      .from("page_events")
+      .select("session_id, name, meta, created_at")
+      .eq("agent_id", agent.id)
+      .gte("created_at", DateTime.fromISO(since14, { zone: agent.timezone }).toUTC().toISO()!)
+      .order("created_at")
+      .limit(20000),
   ]);
 
   // Booked calls per ad come from our bookings: Meta fills utm_content with the ad id
@@ -280,6 +290,24 @@ export async function buildSnapshot(agent: Agent) {
   const researchIdeas = await latestIdeas(agent.id);
   const notebook = await notebookForReview(agent.id);
 
+  const funnel = adFunnel((pageEvents.data ?? []) as EventRow[], LOOKBACK_DAYS, agent.timezone);
+  const verdict = funnelVerdict(funnel, pageEvents.error ? null : totals.link_clicks);
+  const bookingPage = pageEvents.error
+    ? "unknown (couldn't read the page's visits)"
+    : {
+        note: "The people who tapped an ad, step by step on the booking page. verdict says where they stop; fix_is_in says whether the ads or the page needs the work.",
+        visits_from_ads: funnel.visits,
+        saw_the_times: funnel.sawTimes,
+        picked_a_time: funnel.pickedTime,
+        started_details: funnel.startedForm,
+        pressed_confirm: funnel.pressedConfirm,
+        booked: funnel.booked,
+        tapped_call: funnel.tappedCall,
+        booking_errors: funnel.errors,
+        verdict: verdict.text,
+        fix_is_in: verdict.fix,
+      };
+
   const forModel = {
     migz_notebook: notebook,
     market_research_ideas: researchIdeas.length
@@ -361,6 +389,7 @@ export async function buildSnapshot(agent: Agent) {
       target: "each ad set runs 4:5 feed images, 9:16 Stories/Reels images and 9:16 reel videos; images are cheap, videos are limited to 1 new one per review. A 2-card carousel is an option when a message works as two beats",
     },
     account_last_14_days: present(derive(totals)),
+    booking_page_last_14_days: bookingPage,
     platform_split_last_14_days: presentPlatforms(accountPlatforms, [...untrackedBySet.values()].reduce((a, b) => a + b, 0)),
     campaigns: (campaigns.data ?? []).map((c) => ({
       campaign_id: c.meta_campaign_id,
