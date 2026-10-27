@@ -181,12 +181,14 @@ export async function buildSnapshot(agent: Agent) {
     daily_budget_cents: s.daily_budget_cents,
     learning_status: s.learning_status,
     last_edited_at: s.last_edited_at,
+    role: (campaigns.data ?? []).find((c) => c.id === s.campaign_id)?.role === "explore" ? "explore" : "main",
     platforms: platformsBySet.get(s.id) ?? emptyPlatformStats(),
     ads: (ads.data ?? [])
       .filter((a) => a.adset_id === s.id)
       .map((a) => ({
         meta_ad_id: a.meta_ad_id,
         status: a.status,
+        creative_id: a.creative_id,
         impressions: perAd.get(a.meta_ad_id)?.d14.impressions ?? 0,
         spend_cents: perAd.get(a.meta_ad_id)?.d14.spend_cents ?? 0,
         thruplays: perAd.get(a.meta_ad_id)?.d14.thruplays ?? 0,
@@ -269,6 +271,7 @@ export async function buildSnapshot(agent: Agent) {
   // A campaign with no topic runs ads on every focus topic, so its ad sets count for each of them
   const adsetsByTopic = new Map<string, string[]>();
   for (const c of campaigns.data ?? []) {
+    if (c.role === "explore") continue;
     const ids = (adsets.data ?? []).filter((x) => x.campaign_id === c.id && x.status !== "PAUSED").map((x) => x.meta_adset_id);
     for (const t of c.topic ? [c.topic] : focus) adsetsByTopic.set(t, [...(adsetsByTopic.get(t) ?? []), ...ids]);
   }
@@ -305,12 +308,16 @@ export async function buildSnapshot(agent: Agent) {
       batch: batch
         ? {
             budget: `$${(batch.budget_cents / 100).toFixed(2)} of ad spend over ${batch.days} days`,
-            plan: batch.campaigns.length === 1
-              ? `one campaign with one ad set, ${isTopic(batch.campaigns[0]) ? `all ads on ${TOPICS[batch.campaigns[0]].label}` : "ads on every focus topic"} (the agent chose ${batch.option})`
-              : `${batch.option}: ${batch.campaigns.length} campaigns the agent chose (an older plan; the next batch runs as one campaign)`,
-            note: batch.campaigns.length === 1
-              ? "Everything runs in one ad set, so compare ads, hooks, formats and topics inside it. Don't add ad sets or campaigns."
-              : "Spend the batch to get the most booked calls; move budget between its campaigns once the results phase is over.",
+            plan: batch.option === "explore"
+              ? `a main campaign (${isTopic(batch.campaigns[0]) ? `ads on ${TOPICS[batch.campaigns[0]].label}` : "ads on every focus topic"}) plus an exploration campaign, one ad set each`
+              : batch.campaigns.length === 1
+                ? `one campaign with one ad set, ${isTopic(batch.campaigns[0]) ? `all ads on ${TOPICS[batch.campaigns[0]].label}` : "ads on every focus topic"} (the agent chose ${batch.option})`
+                : `${batch.option}: ${batch.campaigns.length} campaigns the agent chose (an older plan; the next batch runs as one campaign)`,
+            note: batch.option === "explore"
+              ? "Test new creative in the exploration ad set and promote the winners into the main one together, at most every 3 days. Keep the main ad set to proven ads. Don't add ad sets or campaigns."
+              : batch.campaigns.length === 1
+                ? "Everything runs in one ad set, so compare ads, hooks, formats and topics inside it. Don't add ad sets or campaigns."
+                : "Spend the batch to get the most booked calls; move budget between its campaigns once the results phase is over.",
           }
         : "no active batch",
       campaign: {
@@ -359,6 +366,9 @@ export async function buildSnapshot(agent: Agent) {
       campaign_id: c.meta_campaign_id,
       name: c.name,
       status: c.status,
+      role: c.role === "explore"
+        ? "exploration: new, untested creative launches here first; promote proven ads into the main campaign with promote_ad"
+        : "main: proven ads only, so its learning isn't restarted by every test",
       serves_topic: c.topic && c.topic in TOPICS ? `${c.topic} (${TOPICS[c.topic as keyof typeof TOPICS].label})` : "any topic",
       ad_sets: (adsets.data ?? [])
         .filter((s) => s.campaign_id === c.id)

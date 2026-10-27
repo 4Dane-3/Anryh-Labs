@@ -2,20 +2,21 @@ import "server-only";
 import { DateTime } from "luxon";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
-import { createAd, createAdSet, createCampaign, getAdSet, setDailyBudget, setEndTime, setStates, setStatus, stateRegionKeys } from "@/lib/meta/ads";
-import { batchEndTime, pacedDailyCents } from "@/lib/batch";
+import { createAdSet, createCampaign, getAdSet, setDailyBudget, setEndTime, setStates, setStatus, stateRegionKeys } from "@/lib/meta/ads";
+import { batchEndTime, EXPLORE, pacedDailyCents, splitDaily, type CampaignSlot } from "@/lib/batch";
 import { isCarouselBrief, isVideoBrief, type AnyBrief, type CreativeBrief } from "@/lib/migz/brief";
 import { buildSnapshot, type Snapshot } from "@/lib/migz/snapshot";
 import { syncAgent } from "@/lib/migz/sync";
 import { begin, emit, metaStep } from "@/lib/migz/events";
 import { closeEndedBatch, ensureBatchSetAside, getActiveBatch, type Batch } from "@/lib/dashboard/batches";
-import { campaignEnded, campaignLabels, perCampaignCents, pickCarryOver, planTopic } from "@/lib/campaign";
+import { campaignEnded, campaignLabels, pickCarryOver, planTopic } from "@/lib/campaign";
 import { cleanFocus, isTopic, type TopicKey } from "@/lib/migz/topics";
 import { MIN_ADSET_BUDGET_CENTS } from "@/lib/migz/guardrails";
 import { isTestMode } from "@/lib/migz/test-mode";
 import { gateState, materialChanges, type GateState } from "@/lib/migz/gate";
 import { MODELS } from "@/lib/migz/models";
 import { runOperator, type ExtraTool } from "@/lib/migz/operator";
+import { copyAdInto } from "@/lib/migz/executor";
 import { defaultCreateMessage, monthlyBudget, type Budget, type CreateMessage } from "@/lib/migz/router";
 import { EXPERIMENT_TOOLS, experimentContext } from "@/lib/migz/experiments";
 import { diagnoseCreativeTool, watchNewCreatives } from "@/lib/migz/vision";
@@ -213,42 +214,49 @@ async function syncCampaignSwitch(agent: Agent, runId: string) {
 
 /**
  * Keeps one campaign per planned slot. With an active batch the slots are the batch's campaigns (the
- * plan the agent chose: one campaign, on one topic or on all of them); without one, a single campaign
- * over the focus topics. Older batches had several and keep them until the next batch. Creates the
- * missing ones; a campaign made before campaigns had topics takes the first slot left. The first review
- * of a new batch also pauses (retires) campaigns the batch doesn't use, brings back retired ones it
- * does, and gives every campaign its share of the batch's daily spend. A one-campaign batch keeps one ad
- * set, and the best live ads from what it retired are carried into it (carryOverAds).
+ * plan the agent chose: one main campaign, on one topic or on all of them, maybe with an exploration
+ * campaign); without one, a single campaign over the focus topics. Older batches had several and keep
+ * them until the next batch. Creates the missing ones; a campaign made before campaigns had topics takes
+ * the first main slot left. The first review of a new batch also pauses (retires) campaigns the batch
+ * doesn't use, brings back retired ones it does, and gives every campaign its share of the batch's daily
+ * spend (splitDaily). With one main campaign, each campaign keeps one ad set, and the best live ads from
+ * what it retired are carried into the main one (carryOverAds).
  * Returns true when it changed anything.
  */
 async function syncCampaignPlan(agent: Agent, runId: string, batch: Batch | null) {
   const focus = cleanFocus(agent.ad_focus);
-  const slots = batch ? batch.campaigns.map((t) => (isTopic(t) ? t : null)) : [planTopic(focus)];
-  const single = slots.length === 1;
+  const slots: CampaignSlot[] = batch ? batch.campaigns.map((t) => (t === EXPLORE ? EXPLORE : isTopic(t) ? t : null)) : [planTopic(focus)];
+  const roleOf = (slot: CampaignSlot) => (slot === EXPLORE ? "explore" : "main");
+  const topicOf = (slot: CampaignSlot) => (slot === EXPLORE ? null : slot);
+  const single = slots.filter((t) => t !== EXPLORE).length === 1;
   const applying = !!batch && !batch.applied_at;
   const { data: existing, error } = await supabaseAdmin
     .from("ad_campaigns")
-    .select("id, topic, meta_campaign_id, retired_at")
+    .select("id, topic, role, meta_campaign_id, retired_at")
     .eq("agent_id", agent.id)
     .not("status", "in", "(DELETED,ARCHIVED)");
   // Never guess: an unreadable list would look empty and duplicate every campaign in Meta
   if (error) throw new Error(`Couldn't read the agent's campaigns (have the latest migrations run?): ${error.message}`);
 
-  // A new batch may bring back a retired campaign for a topic it uses; otherwise retired ones stay out
+  // A new batch may bring back a retired campaign for a slot it uses; otherwise retired ones stay out
   const pool = (existing ?? []).filter((c) => applying || !c.retired_at);
   const claimed: typeof pool = [];
+  const slotOf = new Map<string, number>(); // campaign id -> its slot
   const missing: number[] = [];
-  for (const [i, topic] of slots.entries()) {
-    const pick = (ok: (c: (typeof pool)[number]) => boolean) => pool.findIndex(ok);
+  for (const [i, slot] of slots.entries()) {
+    const topic = topicOf(slot);
+    const role = roleOf(slot);
+    const pick = (ok: (c: (typeof pool)[number]) => boolean) => pool.findIndex((c) => c.role === role && ok(c));
     let j = pick((c) => c.topic === topic && !c.retired_at);
     if (j === -1) j = pick((c) => c.topic === topic);
-    if (j === -1) j = pick((c) => c.topic === null && !c.retired_at);
+    if (j === -1 && role === "main") j = pick((c) => c.topic === null && !c.retired_at);
     if (j === -1) {
       missing.push(i);
       continue;
     }
     const [c] = pool.splice(j, 1);
     claimed.push(c);
+    slotOf.set(c.id, i);
     if (c.topic !== topic) await supabaseAdmin.from("ad_campaigns").update({ topic }).eq("id", c.id);
   }
   const unused = pool.filter((c) => !c.retired_at);
@@ -257,8 +265,11 @@ async function syncCampaignPlan(agent: Agent, runId: string, batch: Batch | null
   if (!agent.licensed_states.length) throw new Error("Add the agent's licensed states before Migz can launch ads.");
   const account = agent.meta_ad_account_id!;
   const labels = campaignLabels(slots, focus);
-  const kept = applying ? claimed.length : (existing ?? []).filter((c) => !c.retired_at).length;
-  const budget = Math.max(MIN_ADSET_BUDGET_CENTS, perCampaignCents(agent.daily_budget_cents, kept + missing.length));
+  // Each slot's share of the daily spend; campaigns outside the plan (only before a new batch retires
+  // them) split evenly with the rest
+  const others = applying ? 0 : (existing ?? []).filter((c) => !c.retired_at && !slotOf.has(c.id)).length;
+  const shares = splitDaily(agent.daily_budget_cents, [...slots, ...Array.from({ length: others }, (): CampaignSlot => null)]);
+  const centsFor = (slot: number | undefined) => Math.max(MIN_ADSET_BUDGET_CENTS, shares[slot ?? slots.length] ?? shares.at(-1)!);
   const campaignStatus = isTestMode() ? "PAUSED" : "ACTIVE";
   // Meta stops delivery itself at the end of the batch's last day, even if our reviews stop running
   const endTime = batch?.ends_on ? batchEndTime(batch.ends_on, agent.timezone) : null;
@@ -313,6 +324,7 @@ async function syncCampaignPlan(agent: Agent, runId: string, batch: Batch | null
           await setStatus(set.meta_adset_id, "ACTIVE");
           await supabaseAdmin.from("ad_sets").update({ status: "ACTIVE", updated_at: now() }).eq("id", set.id);
         }
+        const budget = centsFor(slotOf.get(set.campaign_id));
         if (set.daily_budget_cents === budget) continue;
         await setDailyBudget(set.meta_adset_id, budget);
         await supabaseAdmin.from("ad_sets").update({ daily_budget_cents: budget, last_edited_at: now(), updated_at: now() }).eq("id", set.id);
@@ -326,7 +338,7 @@ async function syncCampaignPlan(agent: Agent, runId: string, batch: Batch | null
       const adsetId = await createAdSet(account, {
         campaignId,
         name: adsetName,
-        dailyBudgetCents: budget,
+        dailyBudgetCents: centsFor(i),
         pixelId: process.env.META_PIXEL_ID!,
         states: agent.licensed_states,
         placements: [],
@@ -335,33 +347,37 @@ async function syncCampaignPlan(agent: Agent, runId: string, batch: Batch | null
       });
       const { data: campaign } = await supabaseAdmin
         .from("ad_campaigns")
-        .insert({ agent_id: agent.id, meta_campaign_id: campaignId, name, status: campaignStatus, topic: slots[i] })
+        .insert({ agent_id: agent.id, meta_campaign_id: campaignId, name, status: campaignStatus, topic: topicOf(slots[i]), role: roleOf(slots[i]) })
         .select("id")
         .single();
-      claimed.push({ id: campaign!.id, topic: slots[i], meta_campaign_id: campaignId, retired_at: null });
+      claimed.push({ id: campaign!.id, topic: topicOf(slots[i]), role: roleOf(slots[i]), meta_campaign_id: campaignId, retired_at: null });
+      slotOf.set(campaign!.id, i);
       await supabaseAdmin.from("ad_sets").insert({
         agent_id: agent.id,
         campaign_id: campaign!.id,
         meta_adset_id: adsetId,
         name: adsetName,
         status: "ACTIVE",
-        daily_budget_cents: budget,
+        daily_budget_cents: centsFor(i),
         states: agent.licensed_states,
       });
     }
-    if (applying && single && claimed[0]) carried = await carryOverAds(agent, { campaignId: claimed[0].id, topic: slots[0] }, sources);
+    const main = claimed.find((c) => c.role === "main");
+    if (applying && single && main) carried = await carryOverAds(agent, { campaignId: main.id, topic: topicOf(slots[slotOf.get(main.id)!]) }, sources);
     if (applying) await supabaseAdmin.from("campaign_batches").update({ applied_at: now() }).eq("id", batch!.id);
   });
 
   const made = missing.map((i) => labels[i]);
-  const perDay = `$${(budget / 100).toFixed(2)}/day`;
+  const usd = (c: number) => `$${(c / 100).toFixed(2)}/day`;
+  const perDay = usd(centsFor(0));
+  const plan = slots.map((_, i) => `${labels[i]} at ${usd(centsFor(i))}`).join(" and ");
   await logAction(agent.id, {
     kind: "launch",
     title: applying
       ? `Set up your $${(batch!.budget_cents / 100).toFixed(0)} batch`
       : made.length === 1 ? `Set up your ${made[0]} campaign` : `Set up ${made.length} campaigns`,
     detail: applying
-      ? `${single ? `One campaign (${labels[0]})` : `${slots.length} campaigns (${labels.join(", ")})`} at ${perDay}${single ? "" : " each"} for ${batch!.days} days, targeting ${agent.licensed_states.join(", ")}.${made.length ? ` New: ${made.join(", ")}.` : ""}${unused.length ? ` Paused ${unused.length} campaign${unused.length === 1 ? "" : "s"} this batch doesn't use.` : ""}${carried ? ` Carried over ${carried} of the best live ad${carried === 1 ? "" : "s"} from them.` : ""} Ads go live as creatives are approved.`
+      ? `${slots.length === 1 ? "One campaign" : `${slots.length} campaigns`}: ${plan}, for ${batch!.days} days, targeting ${agent.licensed_states.join(", ")}.${made.length ? ` New: ${made.join(", ")}.` : ""}${unused.length ? ` Paused ${unused.length} campaign${unused.length === 1 ? "" : "s"} this batch doesn't use.` : ""}${carried ? ` Carried over ${carried} of the best live ad${carried === 1 ? "" : "s"} from them.` : ""} Ads go live as creatives are approved.`
       : `${made.join(", ")}. Each targets adults in ${agent.licensed_states.join(", ")} at ${perDay}, optimized for booked calls${existing?.length ? `; your other campaigns moved to ${perDay} so the total stays within your daily budget` : ""}. Ads go live as creatives are approved.`,
     status: "applied",
     tool: "system_setup",
@@ -371,7 +387,8 @@ async function syncCampaignPlan(agent: Agent, runId: string, batch: Batch | null
     budgetCents: batch?.budget_cents ?? null,
     days: batch?.days ?? null,
     campaigns: labels,
-    perCampaignCents: budget,
+    perCampaignCents: centsFor(0),
+    campaignCents: slots.map((_, i) => centsFor(i)),
     endsOn: batch?.ends_on ?? null,
   });
   return true;
@@ -383,8 +400,7 @@ const CARRY_OVER_ADS = 4;
 /**
  * Copies the best live ads from retired ad sets into the campaign's ad set, up to CARRY_OVER_ADS live
  * ads, so a batch that folds several campaigns into one doesn't start from nothing (which ones:
- * pickCarryOver). The new ads reuse the same Meta creative and go through Meta's review again; the
- * originals are paused. Returns how many were carried over.
+ * pickCarryOver; how: copyAdInto). Returns how many were carried over.
  */
 async function carryOverAds(agent: Agent, target: { campaignId: string; topic: TopicKey | null }, sourceAdsetIds: string[]) {
   if (!sourceAdsetIds.length) return 0;
@@ -429,25 +445,7 @@ async function carryOverAds(agent: Agent, target: { campaignId: string; topic: T
     { room, topic: target.topic, spentCents: spent, running: new Set((live ?? []).map((a) => a.creative_id).filter(Boolean)) },
   );
 
-  const held = isTestMode();
-  const account = agent.meta_ad_account_id!;
-  for (const a of picks) {
-    const adId = await createAd(account, { name: a.name, adsetId: set.meta_adset_id, creativeId: a.meta_creative_id!, status: held ? "PAUSED" : "ACTIVE" });
-    await supabaseAdmin.from("ads").insert({
-      agent_id: agent.id,
-      adset_id: set.id,
-      creative_id: a.creative_id,
-      meta_ad_id: adId,
-      meta_creative_id: a.meta_creative_id,
-      name: a.name,
-      status: held ? "PAUSED" : "ACTIVE",
-      held_by_test_mode: held,
-      primary_text: a.primary_text,
-      headline: a.headline,
-    });
-    await setStatus(a.meta_ad_id, "PAUSED");
-    await supabaseAdmin.from("ads").update({ status: "PAUSED", updated_at: new Date().toISOString() }).eq("id", a.id);
-  }
+  for (const a of picks) await copyAdInto(agent, a, set.meta_adset_id);
   return picks.length;
 }
 

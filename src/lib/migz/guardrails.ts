@@ -13,6 +13,8 @@ export const MAX_BUDGET_CHANGE = 0.3; // per action; bigger jumps destabilise de
 export const LEARNING_COOLDOWN_DAYS = 3; // after a significant edit, give Meta time to re-learn
 export const MIN_IMPRESSIONS_TO_JUDGE = 1000;
 export const MIN_SPEND_CENTS_TO_JUDGE = 1500;
+export const MAX_MAIN_ADS = 5; // live ads in a main ad set: more and each one gets too little spend to judge
+const SAME_SITTING_HOURS = 2; // promotions made together (e.g. approving one review's proposals) count as one restart
 
 export type AdState = {
   meta_ad_id: string;
@@ -20,6 +22,7 @@ export type AdState = {
   impressions: number; // last 14 days
   spend_cents: number; // last 14 days
   thruplays?: number; // last 14 days
+  creative_id?: string | null;
 };
 
 export type AdSetState = {
@@ -28,6 +31,8 @@ export type AdSetState = {
   daily_budget_cents: number;
   learning_status: string | null;
   last_edited_at: string;
+  /** "explore" for the exploration campaign's ad set (new creative is tested there first). */
+  role?: "main" | "explore";
   /** Facebook vs Instagram, last 14 days (for focusing an ad set on one platform). */
   platforms?: PlatformStats;
   ads: AdState[];
@@ -139,12 +144,58 @@ export function checkPlacements(ctx: GuardContext, adsetId: string, placements: 
   return checkPlatformFocus(adset.platforms, placements);
 }
 
+/** The live exploration ad set, when the plan has one. */
+export const exploreAdSet = (ctx: GuardContext) => ctx.adsets.find((a) => a.role === "explore" && isActive(a.status)) ?? null;
+const mainAdSet = (ctx: GuardContext) => ctx.adsets.find((a) => a.role !== "explore" && isActive(a.status)) ?? null;
+
+/**
+ * Where a variant of an existing ad launches: the exploration ad set when there is one and the source
+ * runs in a main ad set (tests never restart the main one), else the source's own ad set.
+ */
+export function variantTarget(ctx: GuardContext, sourceAdsetId: string) {
+  const explore = exploreAdSet(ctx);
+  return explore && findAdSet(ctx, sourceAdsetId)?.role !== "explore" ? explore.meta_adset_id : sourceAdsetId;
+}
+
 export function checkLaunchTarget(ctx: GuardContext, adsetId: string) {
   const adset = findAdSet(ctx, adsetId);
   if (!adset) return `No ad set ${adsetId} in this account.`;
   if (!isActive(adset.status) && !(ctx.testMode && adset.status === "PAUSED")) return `Ad set ${adsetId} is ${adset.status}.`;
+  // With an exploration campaign, new creative is tested there first; the main ad set only takes
+  // promoted winners (or its first ads, when it has none live)
+  const explore = exploreAdSet(ctx);
+  if (explore && adset.role !== "explore" && adset.ads.some((a) => isActive(a.status)))
+    return `New creative launches into the exploration ad set (${explore.meta_adset_id}) first, so the main ad set keeps learning. Promote it with promote_ad once it proves itself there.`;
   return null;
 }
+
+/**
+ * Moving a proven exploration ad into the main ad set: it needs enough data to not be luck, room in
+ * the main ad set, and the main ad set left alone for 3 days (each promotion restarts its learning, so
+ * winners are promoted together rather than one by one).
+ */
+export function checkPromoteAd(ctx: GuardContext, adId: string) {
+  const wait = revisionWait(ctx);
+  if (wait) return wait;
+  const found = findAd(ctx, adId);
+  if (!found) return `No ad ${adId} in this account.`;
+  if (found.adset.role !== "explore") return `Ad ${adId} isn't in the exploration campaign; only exploration ads are promoted.`;
+  if (!isActive(found.ad.status)) return `Ad ${adId} is ${found.ad.status}.`;
+  if (found.ad.impressions < MIN_IMPRESSIONS_TO_JUDGE)
+    return `Ad ${adId} has ${found.ad.impressions} impressions in exploration. Promote it after ${MIN_IMPRESSIONS_TO_JUDGE}, so the result isn't luck.`;
+  const main = mainAdSet(ctx);
+  if (!main) return "There's no live main ad set to promote into.";
+  const live = main.ads.filter((a) => isActive(a.status));
+  if (found.ad.creative_id && live.some((a) => a.creative_id === found.ad.creative_id)) return "That creative already runs in the main ad set.";
+  if (live.length >= MAX_MAIN_ADS) return `The main ad set already has ${live.length} live ads. Pause its weakest first, so the winner gets real spend.`;
+  const hours = (ctx.now.getTime() - new Date(main.last_edited_at).getTime()) / 3_600_000;
+  if (hours >= SAME_SITTING_HOURS && hours < LEARNING_COOLDOWN_DAYS * 24)
+    return `The main ad set changed ${hours < 24 ? "today" : `${Math.floor(hours / 24)} day(s) ago`}. A promotion restarts its learning, so wait until ${LEARNING_COOLDOWN_DAYS} days have passed and promote the winners together.`;
+  return null;
+}
+
+/** The main ad set a promoted ad goes into. */
+export const promotionTarget = (ctx: GuardContext) => mainAdSet(ctx)?.meta_adset_id ?? null;
 
 export function checkGeneration(ctx: GuardContext, kind: "image" | "video" = "image") {
   const cap = ctx.maxGenerations ?? MAX_GENERATIONS_PER_RUN;

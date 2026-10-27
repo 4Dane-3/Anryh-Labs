@@ -7,7 +7,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { ArrowUpRight, Check, Loader2 } from "lucide-react";
 import { launchCampaign, saveBatchPlan, setCreativeMode } from "@/app/dashboard/actions";
 import { BatchPlanner } from "@/components/dashboard/batch/BatchPlanner";
-import { listCampaignTopics } from "@/lib/batch";
+import { listCampaignTopics, type CampaignSlot } from "@/lib/batch";
 import { AddFunds } from "@/components/dashboard/FundsControls";
 import { ProfileForm, type Profile } from "@/components/dashboard/LandingEditor";
 import { Button, Label, Panel } from "@/components/dashboard/ui";
@@ -250,7 +250,7 @@ export function StartWizard(props: Props) {
     page: `Live at /${props.slug}`,
     funds: `${usd(props.balanceCents, { cents: true })} available`,
     plan: props.plan.batch
-      ? `${usd(props.plan.batch.budget_cents, { cents: false })} batch · ${listCampaignTopics(props.plan.batch.campaigns.map((t) => (t || null) as TopicKey | null))} · ${props.plan.batch.days} days`
+      ? `${usd(props.plan.batch.budget_cents, { cents: false })} batch · ${listCampaignTopics(props.plan.batch.campaigns.map((t) => (t || null) as CampaignSlot))} · ${props.plan.batch.days} days`
       : cleanFocus(props.plan.topics).map((t) => TOPICS[t].label).join(", "),
     creatives: props.creativeMode === "ai" ? "Migz creates them" : props.creativeMode === "upload" ? `${props.creativeCount} of your own` : "Yours plus Migz's",
   };

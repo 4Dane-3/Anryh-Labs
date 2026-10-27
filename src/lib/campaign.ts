@@ -50,12 +50,12 @@ export const planTopic = (focus: readonly TopicKey[]): TopicKey | null => (focus
  * Campaign names that read well in Meta and in the dashboard: "Final expense", "Final expense + Whole life"
  * for one campaign over several topics, or "Final expense B" when an older batch ran two on one topic.
  */
-export function campaignLabels(slots: readonly (TopicKey | null)[], focus: readonly TopicKey[] = []) {
+export function campaignLabels(slots: readonly (TopicKey | "explore" | null)[], focus: readonly TopicKey[] = []) {
   const seen = new Map<string, number>();
   const totals = new Map<string, number>();
   for (const t of slots) totals.set(t ?? "", (totals.get(t ?? "") ?? 0) + 1);
   return slots.map((t) => {
-    const base = t ? TOPICS[t].label : focus.length ? focus.map((f) => TOPICS[f].label).join(" + ") : "Booked calls";
+    const base = t === "explore" ? "Exploration" : t ? TOPICS[t].label : focus.length ? focus.map((f) => TOPICS[f].label).join(" + ") : "Booked calls";
     const n = (seen.get(t ?? "") ?? 0) + 1;
     seen.set(t ?? "", n);
     return (totals.get(t ?? "") ?? 0) > 1 ? `${base} ${String.fromCharCode(64 + n)}` : base;

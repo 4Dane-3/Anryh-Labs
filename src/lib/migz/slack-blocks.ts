@@ -151,6 +151,8 @@ export function batchSetupMessage(input: {
   days: number | null;
   campaigns: string[];
   perCampaignCents: number;
+  /** Each campaign's own daily budget, when they differ (a main and an exploration campaign). */
+  campaignCents?: number[];
   states: string[];
   endsOn: string | null;
   auto: boolean;
@@ -166,8 +168,8 @@ export function batchSetupMessage(input: {
       header(`:rocket: ${lead}`),
       section(
         [
-          `*${n} campaign${n === 1 ? "" : "s"}:* ${esc(input.campaigns.join(", "))}`,
-          `*Budget:* ${usd(input.perCampaignCents)}/day${n === 1 ? "" : " each"}${input.days ? ` for ${input.days} days` : ""}${input.endsOn ? ` (ends ${input.endsOn})` : ""}`,
+          `*${n} campaign${n === 1 ? "" : "s"}:* ${esc(input.campaigns.map((c, i) => (input.campaignCents && n > 1 ? `${c} (${usd(input.campaignCents[i])}/day)` : c)).join(", "))}`,
+          `*Budget:* ${input.campaignCents && n > 1 ? `${usd(input.campaignCents.reduce((a, b) => a + b, 0))}/day in total` : `${usd(input.perCampaignCents)}/day${n === 1 ? "" : " each"}`}${input.days ? ` for ${input.days} days` : ""}${input.endsOn ? ` (ends ${input.endsOn})` : ""}`,
           `*Who sees it:* adults in ${esc(input.states.join(", "))}`,
         ].join("\n"),
       ),

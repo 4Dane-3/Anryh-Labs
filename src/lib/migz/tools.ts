@@ -21,6 +21,9 @@ import {
   checkCopy,
   checkGeneration,
   checkLaunchTarget,
+  checkPromoteAd,
+  promotionTarget,
+  variantTarget,
   checkPauseAd,
   MAX_COPY_VARIANTS,
   checkPlacements,
@@ -209,7 +212,7 @@ export const MIGZ_TOOLS: Anthropic.Beta.BetaTool[] = [
   }),
   tool(
     "write_copy_variants",
-    `Test new primary text and headline on an existing creative: creates up to ${MAX_COPY_VARIANTS} new ads in the same ad set reusing the source ad's video or image. Use when people watch but don't click.`,
+    `Test new primary text and headline on an existing creative: creates up to ${MAX_COPY_VARIANTS} new ads reusing the source ad's video or image, in the same ad set (or in the exploration ad set when the source runs in the main one). Use when people watch but don't click.`,
     {
       source_ad_id: { type: "string" },
       variants: {
@@ -228,6 +231,9 @@ export const MIGZ_TOOLS: Anthropic.Beta.BetaTool[] = [
     },
     false,
   ),
+  tool("promote_ad", "Move a proven ad from the exploration campaign into the main campaign: it's copied into the main ad set (same creative and copy) and paused in exploration, freeing room for the next test. Needs 1,000+ impressions in exploration, under 5 live ads in the main ad set (pause its weakest first), and the main ad set left alone for 3 days. Each promotion restarts the main ad set's learning, so promote only clear winners, together in one review.", {
+    ad_id: { type: "string", description: "The exploration ad to promote." },
+  }),
   tool("hold", "Record a deliberate decision not to change something, e.g. while ad sets are learning or results are steady. Use once per review at most.", {
     kind: { type: "string", enum: ["budget", "creative", "audience", "other"] },
   }),
@@ -244,6 +250,7 @@ export type ActionPayload =
   | { tool: "generate_carousel"; brief: CarouselBrief; launch_adset_id: string; parent_creative_id: null }
   | { tool: "launch_creative"; creative_id: string; adset_id: string; primary_text: string; headline: string }
   | { tool: "write_copy_variants"; source_ad_id: string; adset_id: string; variants: { primary_text: string; headline: string }[] }
+  | { tool: "promote_ad"; ad_id: string; adset_id: string }
   | { tool: "hold" };
 
 export type EvalContext = GuardContext & {
@@ -271,6 +278,7 @@ const KIND: Record<ActionPayload["tool"], string> = {
   generate_carousel: "creative",
   launch_creative: "creative",
   write_copy_variants: "creative",
+  promote_ad: "creative",
   hold: "other",
 };
 
@@ -445,9 +453,10 @@ export function evaluate(name: string, raw: unknown, ctx: EvalContext): Evaluate
         hook_shot: str(input.hook_shot, 500),
         primary_text: str(input.primary_text, 500),
       };
-      const err = validateBrief(brief) ?? checkLaunchTarget(ctx, source.meta_adset_id);
+      const target = variantTarget(ctx, source.meta_adset_id);
+      const err = validateBrief(brief) ?? checkLaunchTarget(ctx, target);
       if (err) return fail(err);
-      return done({ tool: "new_hook_variant", brief, launch_adset_id: source.meta_adset_id, parent_creative_id: source.creative_id });
+      return done({ tool: "new_hook_variant", brief, launch_adset_id: target, parent_creative_id: source.creative_id });
     }
     case "launch_creative": {
       const creativeId = str(input.creative_id, 40);
@@ -461,14 +470,20 @@ export function evaluate(name: string, raw: unknown, ctx: EvalContext): Evaluate
     }
     case "write_copy_variants": {
       const sourceId = str(input.source_ad_id, 40);
-      const adsetId = ctx.reusableAds?.get(sourceId);
-      if (!adsetId) return fail("That ad's creative can't be reused (no uploaded Meta media); pick a live ad Migz launched.");
+      const sourceAdset = ctx.reusableAds?.get(sourceId);
+      if (!sourceAdset) return fail("That ad's creative can't be reused (no uploaded Meta media); pick a live ad Migz launched.");
+      const adsetId = variantTarget(ctx, sourceAdset);
       const variants = (Array.isArray(input.variants) ? input.variants : [])
         .map((v: { primary_text?: unknown; headline?: unknown }) => ({ primary_text: str(v?.primary_text, 500), headline: str(v?.headline, 60) }))
         .filter((v) => v.primary_text && v.headline);
       if (variants.length < 1 || variants.length > MAX_COPY_VARIANTS) return fail(`Give 1 to ${MAX_COPY_VARIANTS} variants, each with primary text and a headline.`);
       const err = checkLaunchTarget(ctx, adsetId) ?? checkCopy(...variants.flatMap((v) => [v.primary_text, v.headline]));
       return err ? fail(err) : done({ tool: "write_copy_variants", source_ad_id: sourceId, adset_id: adsetId, variants });
+    }
+    case "promote_ad": {
+      const adId = str(input.ad_id, 40);
+      const err = checkPromoteAd(ctx, adId);
+      return err ? fail(err) : done({ tool: "promote_ad", ad_id: adId, adset_id: promotionTarget(ctx)! });
     }
     case "hold": {
       const kind = ["budget", "creative", "audience", "other"].includes(String(input.kind)) ? String(input.kind) : "other";
@@ -501,6 +516,8 @@ export function recheck(payload: ActionPayload, ctx: EvalContext): string | null
         : "That creative is no longer waiting to launch.";
     case "write_copy_variants":
       return ctx.reusableAds?.has(payload.source_ad_id) ? checkLaunchTarget(ctx, payload.adset_id) : "That ad can no longer be reused.";
+    case "promote_ad":
+      return checkPromoteAd(ctx, payload.ad_id) ?? (promotionTarget(ctx) === payload.adset_id ? null : "The main ad set changed since this was proposed.");
     case "hold":
       return null;
   }

@@ -15,7 +15,7 @@ import { traitSwipe } from "@/lib/migz/team/scout";
 import { cleanFocus, type TopicKey } from "@/lib/migz/topics";
 import { PAGE_FONT_KEYS } from "@/lib/booking/page-font-keys";
 import { endDate, MAX_DEPOSIT_CENTS, MIN_DEPOSIT_CENTS } from "@/lib/campaign";
-import { batchOptions, bestTopic, findOption, MIN_BATCH_CENTS, outcomeEstimate, type BatchOption, type BatchOptionKey } from "@/lib/batch";
+import { batchOptions, bestTopic, exploreAdvice, findOption, MIN_BATCH_CENTS, outcomeEstimate, type BatchOption, type BatchOptionKey } from "@/lib/batch";
 import { closeEndedBatch, ensureBatchSetAside, getActiveBatch, getBatchHistory, getOpenBatch, recommendWithMigz } from "@/lib/dashboard/batches";
 import { getBalanceCents } from "@/lib/dashboard/queries";
 import { checkoutReturnBase, createDepositCheckout } from "@/lib/stripe";
@@ -601,6 +601,8 @@ export type BatchPlanResult =
       options: BatchOption[];
       recommended: { key: BatchOptionKey; reason: string; by: "migz" | "rules" };
       estimate: ReturnType<typeof outcomeEstimate>;
+      /** How much more would make room for an exploration campaign (null once the budget covers it). */
+      advice: ReturnType<typeof exploreAdvice>;
       balanceCents: number;
     }
   | { ok: false; error: string };
@@ -619,7 +621,7 @@ export async function planBatch(budgetCents: number, topics?: string[]): Promise
     recommendWithMigz(agent, { budgetCents, focus, options, history }),
     getBalanceCents(agent.id),
   ]);
-  return { ok: true, options, recommended, estimate: outcomeEstimate(budgetCents, history), balanceCents };
+  return { ok: true, options, recommended, estimate: outcomeEstimate(budgetCents, history), advice: exploreAdvice(budgetCents), balanceCents };
 }
 
 type BatchChoice = { budgetCents: number; option: string; recommended?: string | null; reason?: string | null; autoRun?: boolean };
@@ -641,7 +643,7 @@ async function resolveChoice(agent: Agent, input: BatchChoice, focus: TopicKey[]
     campaigns: chosen.campaigns.map((t) => t ?? ""),
     days: chosen.days,
     daily_cents: chosen.dailyCents,
-    recommended_option: ["focused", "balanced", "spread"].includes(input.recommended ?? "") ? input.recommended : null,
+    recommended_option: ["focused", "balanced", "explore", "spread"].includes(input.recommended ?? "") ? input.recommended : null,
     reason: clean(input.reason, 400) || null,
   };
 }

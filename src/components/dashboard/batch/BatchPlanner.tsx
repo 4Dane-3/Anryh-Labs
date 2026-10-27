@@ -58,18 +58,24 @@ export function BatchPlanner({
   const overBalance = needsBalance && budgetCents > balanceCents;
   const stale = plan !== null && budgetCents !== plannedFor;
 
-  const ask = () =>
+  const ask = (cents = budgetCents) =>
     startPlanning(async () => {
       setError(null);
-      const res = await planBatch(budgetCents, topics);
+      const res = await planBatch(cents, topics);
       if (!res.ok) {
         setPlan(null);
         return setError(res.error);
       }
       setPlan(res);
-      setPlannedFor(budgetCents);
+      setPlannedFor(cents);
       setPicked(res.recommended.key);
     });
+
+  // Migz's advice: the batch that makes room for an exploration campaign, planned in one click
+  const planWith = (cents: number) => {
+    setAmount(String(cents / 100));
+    ask(cents);
+  };
 
   const confirm = () =>
     startConfirming(async () => {
@@ -110,7 +116,7 @@ export function BatchPlanner({
               onChange={(e) => setAmount(e.target.value)}
             />
           </div>
-          <Button onClick={ask} disabled={planning || !budgetCents || tooSmall}>
+          <Button onClick={() => ask()} disabled={planning || !budgetCents || tooSmall}>
             {planning ? <Loader2 className="animate-spin" /> : <Sparkles />}
             {plan && !stale ? "Ask Migz again" : "See Migz's plan"}
           </Button>
@@ -145,6 +151,21 @@ export function BatchPlanner({
             </p>
           </div>
 
+          {plan.advice && (
+            <div className="flex flex-col gap-3 rounded-lg border border-line px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-[13px] font-semibold text-fg">Make room to explore</p>
+                <p className="mt-1 text-[13px] text-fg-muted">{plan.advice.message}</p>
+                {needsBalance && plan.advice.totalCents > balanceCents && (
+                  <p className="mt-1 text-[12px] text-fg-faint">That needs {whole(depositFor(plan.advice.totalCents - balanceCents))} more in funds (with the 20% fee).</p>
+                )}
+              </div>
+              <Button onClick={() => planWith(plan.advice!.totalCents)} disabled={planning} className="shrink-0">
+                Plan with {whole(plan.advice.totalCents)}
+              </Button>
+            </div>
+          )}
+
           <div role="radiogroup" aria-label="How to spend this batch" className="grid gap-2 sm:grid-cols-3">
             {plan.options.map((o) => (
               <button
@@ -163,7 +184,10 @@ export function BatchPlanner({
                   {o.key === plan.recommended.key && <span className="rounded-full bg-brand/15 px-2 py-0.5 text-[11px] font-medium text-brand">Recommended</span>}
                 </span>
                 <span className="mt-1 font-mono text-[12px] text-fg-muted">
-                  {o.campaigns.length === 1 ? `1 campaign · ${whole(o.perCampaignCents)}/day` : `${o.campaigns.length} campaigns · ${whole(o.perCampaignCents)}/day each`} · {o.days} days
+                  {o.exploreCents
+                    ? `${whole(o.perCampaignCents)}/day main + ${whole(o.exploreCents)}/day exploring`
+                    : o.campaigns.length === 1 ? `1 campaign · ${whole(o.perCampaignCents)}/day` : `${o.campaigns.length} campaigns · ${whole(o.perCampaignCents)}/day each`}{" "}
+                  · {o.days} days
                 </span>
                 <span className="mt-2 text-[12px] leading-snug text-fg-muted">{o.blurb}</span>
               </button>
@@ -173,10 +197,10 @@ export function BatchPlanner({
           {chosen && (
             <ol className="space-y-1 text-[13px] text-fg-muted">
               <li>
-                <span className="mr-2 font-mono text-[11px] text-brand">1</span>Days 1–{REVISE_AFTER_DAYS}: Migz builds ads for {chosen.campaigns.length === 1 ? "the campaign" : "every campaign"} and collects results. No changes while the data comes in.
+                <span className="mr-2 font-mono text-[11px] text-brand">1</span>Days 1–{REVISE_AFTER_DAYS}: Migz builds ads for {chosen.exploreCents ? "both campaigns" : chosen.campaigns.length === 1 ? "the campaign" : "every campaign"} and collects results. No changes while the data comes in.
               </li>
               <li>
-                <span className="mr-2 font-mono text-[11px] text-brand">2</span>After {REVISE_AFTER_DAYS} days: it revises what&apos;s underperforming (hooks, copy{chosen.campaigns.length > 1 ? ", budget between campaigns" : ""}).
+                <span className="mr-2 font-mono text-[11px] text-brand">2</span>After {REVISE_AFTER_DAYS} days: it revises what&apos;s underperforming (hooks, copy{chosen.exploreCents ? ", and moves the winners from exploration into the main campaign" : chosen.campaigns.length > 1 ? ", budget between campaigns" : ""}).
               </li>
               <li>
                 <span className="mr-2 font-mono text-[11px] text-brand">3</span>Through day {chosen.days}: it checks whether those changes actually brought more booked calls, and keeps what works.
