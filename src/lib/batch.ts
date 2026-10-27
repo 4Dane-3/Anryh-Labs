@@ -1,6 +1,7 @@
 import { depositFor, MIN_AD_BALANCE_CENTS, TEST_DAYS } from "@/lib/campaign";
 import { DateTime } from "luxon";
 import { TOPICS, type TopicKey } from "@/lib/migz/topics";
+import type { BookingFunnel, FunnelVerdict } from "@/lib/migz/funnel";
 
 // Campaign batches: the agent says how much to put in, Migz lays out ways to spend it. Pure helpers
 // (client-safe) so the dialog, the setup page, the start action and the tests all agree.
@@ -49,6 +50,8 @@ export type BatchHistory = {
   bookedCalls: number;
   batches: number; // batches that have ended
   byTopic: Partial<Record<TopicKey, { spentCents: number; bookedCalls: number }>>;
+  /** Where the ads' visitors stopped on the booking page lately, and why (null when it couldn't be read). */
+  page?: { funnel: BookingFunnel; verdict: FunnelVerdict } | null;
 };
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));

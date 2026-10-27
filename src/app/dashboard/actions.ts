@@ -603,6 +603,8 @@ export type BatchPlanResult =
       estimate: ReturnType<typeof outcomeEstimate>;
       /** How much more would make room for an exploration campaign (null once the budget covers it). */
       advice: ReturnType<typeof exploreAdvice>;
+      /** Why the ads haven't booked, from where their visitors stop on the booking page (null when nothing stands out). */
+      diagnosis: { fix: "ads" | "page" | "both"; text: string } | null;
       balanceCents: number;
     }
   | { ok: false; error: string };
@@ -621,7 +623,10 @@ export async function planBatch(budgetCents: number, topics?: string[]): Promise
     recommendWithMigz(agent, { budgetCents, focus, options, history }),
     getBalanceCents(agent.id),
   ]);
-  return { ok: true, options, recommended, estimate: outcomeEstimate(budgetCents, history), advice: exploreAdvice(budgetCents), balanceCents };
+  // Only once the ads have run: a first batch has no visits to diagnose
+  const verdict = history.spentCents > 0 ? history.page?.verdict : null;
+  const diagnosis = verdict && verdict.fix !== "none" ? { fix: verdict.fix, text: verdict.text } : null;
+  return { ok: true, options, recommended, estimate: outcomeEstimate(budgetCents, history), advice: exploreAdvice(budgetCents), diagnosis, balanceCents };
 }
 
 type BatchChoice = { budgetCents: number; option: string; recommended?: string | null; reason?: string | null; autoRun?: boolean };

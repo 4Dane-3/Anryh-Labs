@@ -33,7 +33,10 @@ Diagnose before you act (compare each ad to its own ad set's average, never to o
 - Low hook rate (3-second views / impressions) -> the first 3 seconds aren't stopping the scroll: test a new hook on the same body.
 - Good hook rate but low hold rate (ThruPlays / 3-second views) or a steep drop in the retention curve -> the body loses people: change the body, keep the hook.
 - Good hold but low link click-through -> the offer, call to action or copy isn't landing: test copy with write_copy_variants on the same creative.
-- Good click-through but few page visits turning into bookings (visit_to_booking) -> a landing page or audience mismatch, not a creative problem: flag it, don't churn creative.
+- Good click-through but few page visits turning into bookings (visit_to_booking) -> read booking_page_last_14_days, which follows the people who tapped an ad through the booking page:
+  - fix_is_in "page" (they see the times but don't pick one, stop at the form, hit errors, or never reach the page): the ads are doing their job. Don't churn creative, pause ads or cut spend for not booking; keep the ads steady and say in your summary exactly where people stop and what to change on the page.
+  - fix_is_in "both" (most leave before seeing the times): make the ads' offer match the top of the page (a free call with the agent) before making more creative.
+  - fix_is_in "ads" (too few visits to judge the page): work on getting more of the right people to tap.
 - High frequency, or click-through / hook rate decaying versus the 14-day window -> fatigue: refresh before results fall further.
 - Placement results show where an ad set's money goes; narrow placements only when one placement clearly underperforms on enough spend.
 - results_by_platform_last_14_days (per ad set) and platform_split_last_14_days compare Facebook and Instagram, including booked calls (each booking records where the ad was shown). Judge platforms on cost per booked call, not clicks.

@@ -6,6 +6,8 @@ import { isTopic, TOPICS, type TopicKey } from "@/lib/migz/topics";
 import { recommendOption, type BatchHistory, type BatchOption, type BatchOptionKey } from "@/lib/batch";
 import { callModel, defaultCreateMessage, jsonOf, monthlyBudget, planTier, type CreateMessage } from "@/lib/migz/router";
 import { notifyBatchEnded } from "@/lib/migz/notify";
+import { adFunnel, funnelVerdict } from "@/lib/migz/funnel";
+import type { EventRow } from "@/lib/admin/page-analytics";
 
 export type Batch = {
   id: string;
@@ -94,13 +96,40 @@ async function results(agent: Agent, from?: string | null, to?: string | null) {
   return { spentCents, bookedCalls, byTopic };
 }
 
+const PAGE_DAYS = 30;
+
+/**
+ * The booking page over the last 30 days (from results_from when that's later, since earlier clicks
+ * aren't comparable): where the ads' visitors stopped and what that says about the fix.
+ */
+async function pageHistory(agent: Agent): Promise<BatchHistory["page"]> {
+  const today = DateTime.now().setZone(agent.timezone).startOf("day");
+  let from = today.minus({ days: PAGE_DAYS - 1 }).toISODate()!;
+  if (agent.results_from && agent.results_from > from) from = agent.results_from;
+  const [events, clicks] = await Promise.all([
+    supabaseAdmin
+      .from("page_events")
+      .select("session_id, name, meta, created_at")
+      .eq("agent_id", agent.id)
+      .gte("created_at", DateTime.fromISO(from, { zone: agent.timezone }).toUTC().toISO()!)
+      .order("created_at")
+      .limit(20000),
+    supabaseAdmin.from("ad_insights_daily").select("link_clicks").eq("agent_id", agent.id).gte("date", from),
+  ]);
+  if (events.error) return null;
+  const funnel = adFunnel((events.data ?? []) as EventRow[], PAGE_DAYS, agent.timezone);
+  const linkClicks = clicks.error ? null : (clicks.data ?? []).reduce((n, r) => n + (r.link_clicks ?? 0), 0);
+  return { funnel, verdict: funnelVerdict(funnel, linkClicks) };
+}
+
 /** Everything this agent's ads have done so far. Never another agent's data. */
 export async function getBatchHistory(agent: Agent): Promise<BatchHistory> {
-  const [r, { count }] = await Promise.all([
+  const [r, { count }, page] = await Promise.all([
     results(agent),
     supabaseAdmin.from("campaign_batches").select("id", { count: "exact", head: true }).eq("agent_id", agent.id).eq("status", "ended"),
+    pageHistory(agent),
   ]);
-  return { ...r, batches: count ?? 0 };
+  return { ...r, batches: count ?? 0, page };
 }
 
 /** How a batch is going: spend and booked calls since it started, and days left. */
@@ -214,7 +243,7 @@ const PLAN_SCHEMA = {
   additionalProperties: false,
 };
 
-const PLAN_SYSTEM = `You are Migz AI, the media buyer running Meta ads for an independent life insurance agent. The agent is putting a new batch of money into their ads and you're choosing how to spend it, from the options given. The goal is the most booked calls for the money. Focused and balanced are one campaign with one ad set, so all the money and data stay in one place; explore (offered only when the budget covers $20/day for each) adds an exploration campaign where new creative is tested before the winners move into the main campaign. Guidance: when explore is offered it's usually best, because testing new ads in the main ad set restarts its learning every time; otherwise, with little or no booking data, ads on all the agent's topics side by side (balanced) find the best topic fastest, since Meta backs whichever ads book; once one topic clearly books cheaper, focusing on it usually brings the most calls. Use only the agent's own numbers you're given; never invent results. Write the reason for the agent: plain words, no jargon, no promises.`;
+const PLAN_SYSTEM = `You are Migz AI, the media buyer running Meta ads for an independent life insurance agent. The agent is putting a new batch of money into their ads and you're choosing how to spend it, from the options given. The goal is the most booked calls for the money. Focused and balanced are one campaign with one ad set, so all the money and data stay in one place; explore (offered only when the budget covers $20/day for each) adds an exploration campaign where new creative is tested before the winners move into the main campaign. Guidance: when explore is offered it's usually best, because testing new ads in the main ad set restarts its learning every time; otherwise, with little or no booking data, ads on all the agent's topics side by side (balanced) find the best topic fastest, since Meta backs whichever ads book; once one topic clearly books cheaper, focusing on it usually brings the most calls. booking_page shows where the people who tapped the ads stopped on the agent's booking page. When the ads haven't booked calls, use it to explain why in the reason: if fix_is_in is "page", say plainly that the ads are bringing people and what on the page stops them, since more ad money alone won't fix it; the option you pick still follows the guidance above. Use only the agent's own numbers you're given; never invent results. Write the reason for the agent: plain words, no jargon, no promises.`;
 
 /**
  * Migz's pick among the options, with its reason. Sonnet decides from the agent's own history and
@@ -244,6 +273,18 @@ export async function recommendWithMigz(
           Object.entries(input.history.byTopic).map(([t, v]) => [TOPICS[t as TopicKey].label, { spent: `$${(v!.spentCents / 100).toFixed(2)}`, booked_calls: v!.bookedCalls }]),
         ),
       },
+      booking_page: input.history.page
+        ? {
+            visits_from_ads: input.history.page.funnel.visits,
+            saw_the_times: input.history.page.funnel.sawTimes,
+            picked_a_time: input.history.page.funnel.pickedTime,
+            started_details: input.history.page.funnel.startedForm,
+            booked: input.history.page.funnel.booked,
+            tapped_call: input.history.page.funnel.tappedCall,
+            verdict: input.history.page.verdict.text,
+            fix_is_in: input.history.page.verdict.fix,
+          }
+        : "unknown",
       what_this_account_learned: (learnings ?? []).map((l) => `${l.insight} (${l.confidence})`),
       rule_based_pick: fallback,
     };
