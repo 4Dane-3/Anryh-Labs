@@ -843,9 +843,12 @@ const { DateTime: LuxonDT } = await import("luxon");
 assert.equal(NIGHTLY_HOUR, 21);
 const utcNight = LuxonDT.fromISO("2026-10-25T02:30:00Z"); // 9:30pm in Chicago, 7:30pm in LA, 3:30am in London
 const hourIn = (zone: string) => utcNight.setZone(zone).hour;
-assert.deepEqual(["America/Chicago", "America/Los_Angeles", "Europe/London"].map((z) => nightlyDue(hourIn(z), false)), [true, false, false], "each timezone gets it at its own 9pm");
-assert.equal(nightlyDue(21, true), false, "once per local day");
-assert.equal(nightlyDue(20, false), false);
+assert.deepEqual(["America/Chicago", "America/Los_Angeles", "Europe/London"].map((z) => nightlyDue(hourIn(z), null, "2026-10-24")), [true, false, false], "each timezone gets it at its own 9pm");
+assert.equal(nightlyDue(21, "2026-10-24", "2026-10-24"), false, "never twice in a day");
+assert.equal(nightlyDue(21, "2026-10-23", "2026-10-24"), false, "not the evening after the last one");
+assert.equal(nightlyDue(21, "2026-10-22", "2026-10-24"), true, "every other evening");
+assert.equal(nightlyDue(21, "2026-10-18", "2026-10-24"), true, "and straight away after a gap");
+assert.equal(nightlyDue(20, "2026-10-20", "2026-10-24"), false, "only from 9pm");
 assert.equal(phaseOf("2026-10-29", "2026-10-24"), "collecting");
 assert.equal(phaseOf("2026-10-29", "2026-10-29"), "revising");
 assert.equal(phaseOf(null, "2026-10-24"), "none");
@@ -900,22 +903,26 @@ const msg = nsb.nightlySummaryMessage(baseNight);
 const mj = JSON.stringify(msg.blocks);
 assert.match(msg.text, /Tonight's summary · Sat, Oct 24: Day 2/);
 assert.ok(msg.blocks.length <= 50, "Slack allows 50 blocks");
-assert.match(mj, /Spent \*\$30\.47\* \(161% of \$18\.92\/day\)/); assert.match(mj, /day 2 of 14/);
-assert.match(mj, /won't change anything until Oct 29/); assert.match(mj, /Video hooks beat images.*testing, night 2/);
+assert.match(mj, /Spent \*\$30\.47\* today \(161% of \$18\.92\/day\)/); assert.match(mj, /day 2 of 14/);
+assert.match(mj, /won't change anything until Oct 29/); assert.match(mj, /Video hooks beat images.*testing, summary 2/);
 assert.ok(!mj.includes("<b>") && mj.includes("&lt;b&gt;"), "model text is escaped");
 assert.match(mj, /Your booking page/); assert.match(mj, /:warning: Add a photo/); assert.match(mj, /:bulb: Add 2/);
 assert.match(mj, /Edit my page/);
 const revising = JSON.stringify(nsb.nightlySummaryMessage({ ...baseNight, phase: "revising", changes: ["Paced your batch to stay within $280.00"] }).blocks);
-assert.match(revising, /What Migz changed today/); assert.match(revising, /Paced your batch/);
+assert.match(revising, /What Migz changed today/);
+const twoDay = nsb.nightlySummaryMessage({ ...baseNight, phase: "revising", numbers: { ...baseNight.numbers, days: 2 } });
+const tj = JSON.stringify(twoDay.blocks);
+assert.match(twoDay.text, /Your 2-day summary · Sat, Oct 24/);
+assert.match(tj, /Spent \*\$30\.47\* in the last 2 days \(81% of \$18\.92\/day for 2 days\)/); assert.match(tj, /booked from ads in the last 2 days/); assert.match(tj, /What Migz changed in the last 2 days/); assert.match(revising, /Paced your batch/);
 assert.match(JSON.stringify(nsb.nightlySummaryMessage({ ...baseNight, phase: "revising", changes: [] }).blocks), /Nothing: the numbers said to leave it alone/);
-assert.match(JSON.stringify(nsb.nightlySummaryMessage({ ...baseNight, findings: [] }).blocks), /Nothing to change tonight/);
-assert.match(JSON.stringify(nsb.nightlySummaryMessage({ ...baseNight, narrative: { ...baseNight.narrative, fallback: true } }).blocks), /notes aren't in tonight's summary/);
+assert.match(JSON.stringify(nsb.nightlySummaryMessage({ ...baseNight, findings: [] }).blocks), /Nothing to change: your page is in good shape/);
+assert.match(JSON.stringify(nsb.nightlySummaryMessage({ ...baseNight, narrative: { ...baseNight.narrative, fallback: true } }).blocks), /notes aren't in this summary/);
 const huge = nsb.nightlySummaryMessage({ ...baseNight, thoughts: Array.from({ length: 6 }, (_, k) => ({ ...baseNight.thoughts[0], id: `t${k}`, text: "x".repeat(900), note: "y".repeat(900) })) });
 assert.ok(JSON.parse(JSON.stringify(huge.blocks)).every((b: { text?: { text: string } }) => !b.text || b.text.text.length <= 3000), "no block passes Slack's 3,000-character limit");
 const { planTier: nightPlan } = await import("@/lib/migz/router");
 assert.deepEqual(nightPlan("nightly", { limitUsd: 30, spentUsd: 5, ratio: 0.2 }), { tier: "sonnet", degraded: false });
 assert.deepEqual(nightPlan("nightly", { limitUsd: 30, spentUsd: 31, ratio: 1.03 }), { tier: "haiku", degraded: true }, "over the AI budget, tonight's summary still goes out on a cheaper model");
-ok("nightly summary: due at each timezone's own 9pm, first-week phase, thoughts carry (ids, nights, drop and done reported once, max six), page advice with real numbers, Slack message within limits and escaped");
+ok("summary: every other evening at each timezone's own 9pm, covering both days; first-week phase, thoughts carry (ids, nights, drop and done reported once, max six), page advice with real numbers, Slack message within limits and escaped");
 
 // Admin health: what raises an alert (and how loud)
 const { findIssues } = await import("@/lib/admin/issues");
@@ -1029,5 +1036,26 @@ assert.match(checkRestructure(rctx([rset("a"), rset("b")], null)) ?? "", /isn't 
 const rs = evalTool("restructure", { title: "Fold into one ad set", reason: "3 ad sets can't each learn on $18/day" }, { ...rctx([rset("a"), rset("b")], 9), scriptedAds: new Map(), libraryCreativeIds: new Set<string>() });
 assert.ok(rs.ok && rs.payload.tool === "restructure" && rs.kind === "budget");
 ok("strategist: budget math (consolidate a split budget, own cost per call after 3 bookings), scale advice, restructure guardrail");
+
+// The ad finder: overnight passes, every topic and platform, only ads with evidence they're winning
+const finder = await import("@/lib/migz/team/finder");
+assert.equal(finder.FINDER_DAILY_USD, 5);
+assert.equal(finder.finderWindow(new Date("2026-10-27T07:30:00Z")), true, "2:30am Central: searching");
+assert.equal(finder.finderWindow(new Date("2026-10-27T11:30:00Z")), false, "6:30am Central: done for the night");
+assert.equal(finder.finderWindow(new Date("2026-10-27T05:30:00Z")), false, "12:30am Central: not yet");
+const night = new Date("2026-10-27T07:00:00Z");
+const pairs = new Set(Array.from({ length: 32 }, (_, k) => { const q = finder.finderQuery(k, night); return `${q.topic}|${q.platform}`; }));
+assert.equal(pairs.size, 32, "32 passes cover every topic on every platform");
+assert.notDeepEqual(finder.finderQuery(0, night), finder.finderQuery(0, new Date("2026-10-28T07:00:00Z")), "each night starts somewhere new");
+const findTraits = { angle: "a", hook_type: "story", opening_image: "i", emotional_tone: "warm", setting: "home", text_legibility: "clear", claims: [], compliance_risk: "low", format: "reel", offer: "free call" };
+const finds = finder.parseFinds(`notes <finds>{"finds":[
+  {"source_url":"https://example.com/a","platform":"TikTok","advertiser":"X","description":"A daughter finds a note","win_evidence":"Ran 74 days","win_score":3,"traits":${JSON.stringify(findTraits)}},
+  {"source_url":"https://example.com/b","platform":"Meta","advertiser":"Y","description":"Stock family","win_evidence":"shown as an example","win_score":1,"traits":${JSON.stringify(findTraits)}},
+  {"source_url":"not a url","platform":"Meta","advertiser":"Z","description":"d","win_evidence":"30 days","win_score":2,"traits":${JSON.stringify(findTraits)}}
+]}</finds>`);
+assert.deepEqual(finds.map((f) => f.source_url), ["https://example.com/a"], "no evidence or no real link: not filed");
+assert.deepEqual(finder.parseFinds("no tags here"), []);
+assert.deepEqual(finder.parseFinds("<finds>{bad json</finds>"), []);
+ok("ad finder: overnight window, every topic and platform, only ads with evidence they're winning, $5/day");
 
 console.log(`\nALL ${n} UNIT GROUPS PASSED`);

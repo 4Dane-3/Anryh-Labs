@@ -10,7 +10,7 @@ import { buildSnapshot } from "@/lib/migz/snapshot";
 import { syncAgent } from "@/lib/migz/sync";
 import { getLiveStats } from "@/lib/migz/live";
 import { callModel, defaultCreateMessage, jsonOf, monthlyBudget, planTier, type CreateMessage } from "@/lib/migz/router";
-import { carryOver, mergeThoughts, nightlyDue, phaseOf, type ModelThought, type Narrative, type NightlyNumbers, type Phase, type Thought } from "@/lib/migz/nightly-core";
+import { carryOver, mergeThoughts, nightlyDue, phaseOf, SUMMARY_EVERY_DAYS, type ModelThought, type Narrative, type NightlyNumbers, type Phase, type Thought } from "@/lib/migz/nightly-core";
 import { pageFindings, pageWeekLine, type PageFacts, type PageFinding } from "@/lib/migz/page-findings";
 import { notifyNightly } from "@/lib/migz/notify";
 import { alertAdmin } from "@/lib/migz/slack";
@@ -35,8 +35,8 @@ const SCHEMA = {
   type: "object",
   properties: {
     headline: { type: "string", description: "One plain sentence for the top of the message, at most 80 characters" },
-    happened: { type: "array", items: { type: "string" }, description: "2 to 4 short bullets on what happened today" },
-    budget_read: { type: "string", description: "One or two sentences on today's spend against the daily budget" },
+    happened: { type: "array", items: { type: "string" }, description: "2 to 4 short bullets on what happened in the last two days" },
+    budget_read: { type: "string", description: "One or two sentences on the two days' spend against the daily budget" },
     thoughts: {
       type: "array",
       items: {
@@ -46,7 +46,7 @@ const SCHEMA = {
           text: { type: "string", description: "The thought, at most 30 words" },
           kind: { type: "string", enum: ["test", "change", "watch"] },
           status: { type: "string", enum: ["considering", "testing", "ready", "done", "dropped"] },
-          note: { type: "string", description: "What tonight's numbers say about it, at most 30 words" },
+          note: { type: "string", description: "What the new numbers say about it, at most 30 words" },
         },
         required: ["id", "text", "kind", "status", "note"],
         additionalProperties: false,
@@ -59,20 +59,20 @@ const SCHEMA = {
   additionalProperties: false,
 };
 
-const SYSTEM = `You are Migz AI, the media buyer that runs Meta (Facebook and Instagram) ads for an independent US life insurance agent. The agent is not a marketer: use plain words, no jargon, no hype, no emoji. It is 9pm where they are. You write tonight's summary of their day and keep your running notebook of thoughts.
+const SYSTEM = `You are Migz AI, the media buyer that runs Meta (Facebook and Instagram) ads for an independent US life insurance agent. The agent is not a marketer: use plain words, no jargon, no hype, no emoji. It is 9pm where they are. Every other evening you write a summary of the last two days and keep your running notebook of thoughts.
 
 Rules:
 - Use only the numbers and facts you are given. Small numbers are small: say it's too early to tell instead of guessing. Never invent results, quotes or sources.
 - Every ad idea must follow Meta's financial-ad rules: no guarantees, no implied approval, no prices or returns, and never call out age, health or other personal attributes.
-- "happened": 2 to 4 short bullets about today: where the money went, which ads got attention, anything notable, booked calls.
-- "budget_read": compare today's spend with the daily budget. If today ran over it, say Meta's ad sets can spend up to about 75% over a daily budget on a strong day and balance it out over the week, so the batch total is what to watch.
-- "thoughts" is your notebook. You are given your thoughts from earlier nights (previous_thoughts). For each one, either return it with the same id and an updated status and note (test it against tonight's numbers: do they support it, weaken it, or say nothing yet?) or leave it out to let it go. Use an empty id for a new thought. Keep at most 6 active thoughts (considering, testing, ready). A thought is something you would change (change), try (test) or keep an eye on (watch).
-  Statuses: considering = a new idea; testing = you're collecting evidence for it; ready = the data backs it and you will act as soon as you're allowed; done = you did it (only for things listed in changes_today); dropped = the data contradicted it.
+- "happened": 2 to 4 short bullets about the last two days: where the money went, which ads got attention, anything notable, booked calls.
+- "budget_read": compare the two days' spend with the daily budget for those days. If a day ran over it, say Meta's ad sets can spend up to about 75% over a daily budget on a strong day and balance it out over the week, so the batch total is what to watch.
+- "thoughts" is your notebook. You are given your thoughts from earlier nights (previous_thoughts). For each one, either return it with the same id and an updated status and note (test it against the new numbers: do they support it, weaken it, or say nothing yet?) or leave it out to let it go. Use an empty id for a new thought. Keep at most 6 active thoughts (considering, testing, ready). A thought is something you would change (change), try (test) or keep an eye on (watch).
+  Statuses: considering = a new idea; testing = you're collecting evidence for it; ready = the data backs it and you will act as soon as you're allowed; done = you did it (only for things listed in changes_since_last_summary); dropped = the data contradicted it.
 - "next": 1 to 3 concrete things you will do or test next.
 - "page_note": only if page_findings or the booking page numbers say something worth a sentence; otherwise an empty string. The findings themselves are listed for the agent separately, don't repeat them.
 
-Phase "collecting": the first week of a batch is for gathering results. You cannot change budgets, pause ads or change placements until the date in collecting_until, so you have changed nothing. Never claim you changed anything and never use "done". Your job tonight is to think: build on your earlier thoughts, test them against the new day, and say what you will do on that date.
-Phase "revising": you may now act. List nothing in "happened" about changes you didn't make; changes_today is the list of what you did, so mention the important ones in plain words. Thoughts move toward "done" (you did it) or "dropped" (the data said no). Say what you are testing next.`;
+Phase "collecting": the first week of a batch is for gathering results. You cannot change budgets, pause ads or change placements until the date in collecting_until, so you have changed nothing. Never claim you changed anything and never use "done". Your job tonight is to think: build on your earlier thoughts, test them against the new days, and say what you will do on that date.
+Phase "revising": you may now act. List nothing in "happened" about changes you didn't make; changes_since_last_summary is the list of what you did, so mention the important ones in plain words. Thoughts move toward "done" (you did it) or "dropped" (the data said no). Say what you are testing next.`;
 
 const money = (c: number) => `$${(c / 100).toFixed(c % 100 ? 2 : 0)}`;
 
@@ -180,27 +180,43 @@ export async function writeNightly(
   const snapshot = await buildSnapshot(agent);
   if (!snapshot.hasCampaign) return { status: "skipped", reason: "no campaign yet" };
 
-  const [live, batch, changes, experiments, pageFacts, yesterday] = await Promise.all([
-    getLiveStats(agent, { fresh: true, date: localDate }),
+  // The summary covers the days since the last one: today and the day(s) before it
+  const days = SUMMARY_EVERY_DAYS;
+  const periodStart = dayStart.minus({ days: days - 1 });
+  const dates = Array.from({ length: days }, (_, i) => periodStart.plus({ days: i }).toISODate()!);
+  const [stats, batch, changes, experiments, pageFacts] = await Promise.all([
+    Promise.all(dates.map((date) => getLiveStats(agent, { fresh: date === localDate, date }))),
     getActiveBatch(agent.id),
-    supabaseAdmin.from("ad_actions").select("title, detail, tool").eq("agent_id", agent.id).eq("status", "applied").gte("created_at", dayStart.toUTC().toISO()!).order("created_at").limit(12),
+    supabaseAdmin.from("ad_actions").select("title, detail, tool").eq("agent_id", agent.id).eq("status", "applied").gte("created_at", periodStart.toUTC().toISO()!).order("created_at").limit(12),
     supabaseAdmin.from("experiments").select("hypothesis, lever, status, verdict").eq("agent_id", agent.id).in("status", ["running", "planned"]).limit(5),
     gatherPageFacts(agent),
-    supabaseAdmin.from("ad_metrics_daily").select("spend_cents").eq("agent_id", agent.id).eq("date", dayStart.minus({ days: 1 }).toISODate()!).maybeSingle(),
   ]);
+  const live = stats[stats.length - 1];
   const progress = batch?.starts_on ? await getBatchProgress(agent, batch) : null;
-  const t = live.today;
+  const sum = (pick: (t: (typeof live)["today"]) => number) => stats.reduce((n, x) => n + pick(x.today), 0);
+  const impressions = sum((t) => t.impressions);
+  const linkClicks = sum((t) => t.linkClicks);
   const numbers: NightlyNumbers = {
-    spendCents: t.spendCents,
-    budgetCents: t.budgetCents,
-    yesterdaySpendCents: yesterday.data?.spend_cents ?? null,
-    impressions: t.impressions,
-    reach: t.reach,
-    linkClicks: t.linkClicks,
-    ctr: t.ctr,
-    bookedCalls: t.bookedCalls,
+    spendCents: sum((t) => t.spendCents),
+    budgetCents: live.today.budgetCents,
+    yesterdaySpendCents: prior[0]?.numbers.spendCents ?? null,
+    impressions,
+    reach: Math.max(...stats.map((x) => x.today.reach)), // people can be reached on both days, so the larger day, not the sum
+    linkClicks,
+    ctr: impressions ? linkClicks / impressions : null,
+    bookedCalls: sum((t) => t.bookedCalls),
+    days,
     batch: batch && progress ? { spentCents: live.batch?.spentCents ?? progress.spentCents, budgetCents: batch.budget_cents, day: Math.min(progress.day, batch.days), days: batch.days } : null,
   };
+  // Spend by ad across the days
+  const byAd = new Map<string, { name: string; spendCents: number; impressions: number; linkClicks: number }>();
+  for (const a of stats.flatMap((x) => x.ads)) {
+    const cur = byAd.get(a.adId) ?? { name: a.name, spendCents: 0, impressions: 0, linkClicks: 0 };
+    cur.spendCents += a.spendCents;
+    cur.impressions += a.impressions;
+    cur.linkClicks += a.linkClicks;
+    byAd.set(a.adId, cur);
+  }
 
   const phase = phaseOf(snapshot.revisionsFrom, localDate);
   const revisionsFrom = snapshot.revisionsFrom;
@@ -210,7 +226,7 @@ export async function writeNightly(
   // Migz's own words, from the model; if it can't run tonight the numbers and page notes still go out
   const budget = await monthlyBudget(agent.id, agent.migz_model_budget_cents ?? 3000, agent.timezone);
   const plan = planTier("nightly", budget);
-  let narrative: Narrative = { headline: "Tonight's numbers", happened: [], budget_read: "", next: [], page_note: "", fallback: true };
+  let narrative: Narrative = { headline: "The last two days' numbers", happened: [], budget_read: "", next: [], page_note: "", fallback: true };
   let thoughts: Thought[] = carried.map((x) => ({ ...x, nights: x.nights + 1 }));
   let costUsd = 0;
   if (plan) {
@@ -241,27 +257,28 @@ export async function writeNightly(
                       results_start_over: `Results count from ${agent.results_from}. Before it the ads also ran on the Audience Network (mostly accidental clicks in other apps), so earlier click rates and "winners" aren't reliable. Drop or rewrite any thought that rests on them, and say plainly that the week of collecting restarted on ${agent.results_from}.`,
                     }
                   : {}),
-                today: {
+                last_two_days: {
+                  dates,
                   spend: money(numbers.spendCents),
                   daily_budget: money(numbers.budgetCents),
-                  spend_vs_budget: numbers.budgetCents ? `${Math.round((numbers.spendCents / numbers.budgetCents) * 100)}%` : "n/a",
-                  yesterday_spend: numbers.yesterdaySpendCents === null ? "n/a" : money(numbers.yesterdaySpendCents),
+                  spend_vs_budget: numbers.budgetCents ? `${Math.round((numbers.spendCents / (numbers.budgetCents * days)) * 100)}% of ${money(numbers.budgetCents * days)} (the daily budget for ${days} days)` : "n/a",
+                  spend_in_the_last_summary: numbers.yesterdaySpendCents === null ? "n/a" : money(numbers.yesterdaySpendCents),
                   impressions: numbers.impressions,
                   link_clicks: numbers.linkClicks,
                   link_click_rate: numbers.ctr === null ? "n/a" : `${(numbers.ctr * 100).toFixed(2)}%`,
                   booked_calls_from_ads: numbers.bookedCalls,
-                  spend_by_ad_today: live.ads.map((a) => ({ ad: a.name, spend: money(a.spendCents), impressions: a.impressions, link_clicks: a.linkClicks })),
+                  spend_by_ad: [...byAd.values()].map((a) => ({ ad: a.name, spend: money(a.spendCents), impressions: a.impressions, link_clicks: a.linkClicks })),
                 },
                 batch: numbers.batch && { day: numbers.batch.day, of_days: numbers.batch.days, spent: money(numbers.batch.spentCents), budget: money(numbers.batch.budgetCents) },
                 campaigns: snapshot.forModel.campaigns,
                 creative_mix: snapshot.forModel.creative_mix,
                 account_last_14_days: snapshot.forModel.account_last_14_days,
                 platform_split_last_14_days: snapshot.forModel.platform_split_last_14_days,
-                changes_today: changeList,
+                changes_since_last_summary: changeList,
                 running_experiments: experiments.data ?? [],
                 market_research_ideas: snapshot.forModel.market_research_ideas,
                 previous_thoughts: carried.map((x) => ({ id: x.id, text: x.text, kind: x.kind, status: x.status, nights: x.nights, since: x.since, last_note: x.note })),
-                recent_nights: prior.map((r) => ({ date: r.local_date, spend: money(r.numbers.spendCents ?? 0), impressions: r.numbers.impressions, link_clicks: r.numbers.linkClicks, booked_calls: r.numbers.bookedCalls, headline: r.narrative?.headline })),
+                recent_summaries: prior.map((r) => ({ date: r.local_date, spend: money(r.numbers.spendCents ?? 0), impressions: r.numbers.impressions, link_clicks: r.numbers.linkClicks, booked_calls: r.numbers.bookedCalls, headline: r.narrative?.headline })),
                 page_findings: findings.map((f) => f.text),
                 page_last_7_days: pageWeekLine(pageFacts),
                 sync_note: syncNote || undefined,
@@ -345,16 +362,18 @@ export async function nightlyShift(deadlineMs: number) {
   for (const agent of (agents ?? []) as Agent[]) {
     if (Date.now() > deadlineMs) break;
     const local = DateTime.now().setZone(agent.timezone);
-    const { count, error } = await supabaseAdmin
+    const { data: last, error } = await supabaseAdmin
       .from("nightly_summaries")
-      .select("id", { count: "exact", head: true })
+      .select("local_date")
       .eq("agent_id", agent.id)
-      .eq("local_date", local.toISODate()!);
+      .order("local_date", { ascending: false })
+      .limit(1)
+      .maybeSingle();
     if (error) {
       results[agent.slug] = "migration not run";
       continue;
     }
-    if (!nightlyDue(local.hour, (count ?? 0) > 0)) {
+    if (!nightlyDue(local.hour, last?.local_date ?? null, local.toISODate()!)) {
       results[agent.slug] = "not due";
       continue;
     }
