@@ -248,41 +248,43 @@ const STATUS_LABEL: Record<Thought["status"], string> = { considering: "consider
 
 export function nightlySummaryMessage(c: NightlyContent & { dashboardUrl: string }): SlackMessage {
   const n = c.numbers;
-  const pctOf = (a: number, b: number) => (b ? ` (${Math.round((a / b) * 100)}% of ${usd(b)}/day)` : "");
+  const days = n.days ?? 1;
+  const span = days === 1 ? "today" : `in the last ${days} days`;
+  const pctOf = (a: number, b: number) => (b ? ` (${Math.round((a / (b * days)) * 100)}% of ${usd(b)}/day${days === 1 ? "" : ` for ${days} days`})` : "");
   const lines = [
-    `Spent *${usd(n.spendCents)}*${pctOf(n.spendCents, n.budgetCents)}`,
+    `Spent *${usd(n.spendCents)}* ${span}${pctOf(n.spendCents, n.budgetCents)}`,
     `*${n.impressions.toLocaleString("en-US")}* people saw your ads, *${n.linkClicks}* tapped through${n.ctr !== null ? ` (${(n.ctr * 100).toFixed(1)}%)` : ""}`,
-    `*${n.bookedCalls}* call${n.bookedCalls === 1 ? "" : "s"} booked from ads today`,
+    `*${n.bookedCalls}* call${n.bookedCalls === 1 ? "" : "s"} booked from ads ${span}`,
   ];
   if (n.batch) lines.push(`Your batch: *${usd(n.batch.spentCents)}* of ${usd(n.batch.budgetCents)} spent · day ${n.batch.day} of ${n.batch.days}`);
   const nar = c.narrative;
-  const title = `Tonight's summary · ${c.dateLabel}`;
+  const title = `${days === 1 ? "Tonight's summary" : `Your ${days}-day summary`} · ${c.dateLabel}`;
 
   const blocks: unknown[] = [header(`:crescent_moon: ${title}`), section(`*${esc(cut(nar.headline, 120))}*`), section(lines.join("\n"))];
   if (nar.budget_read) blocks.push(context(esc(cut(nar.budget_read, 400))));
-  if (nar.happened.length) blocks.push(divider, section(`*What happened today*\n${bullets(nar.happened)}`));
+  if (nar.happened.length) blocks.push(divider, section(`*What happened ${span}*\n${bullets(nar.happened)}`));
 
   if (c.phase === "collecting")
     blocks.push(
       divider,
       section(
         `*Migz is still collecting results*${c.changesFrom ? `, so it won't change anything until ${esc(c.changesFrom)}` : ""}. Here's what it's thinking and testing meanwhile:${
-          c.thoughts.length ? `\n${c.thoughts.map((t) => `• ${esc(cut(t.text, 200))} _(${STATUS_LABEL[t.status]}${t.nights > 1 ? `, night ${t.nights}` : ""})_${t.note ? `\n   ${esc(cut(t.note, 220))}` : ""}`).join("\n")}` : "\nNothing yet: it needs a bit more data."
+          c.thoughts.length ? `\n${c.thoughts.map((t) => `• ${esc(cut(t.text, 200))} _(${STATUS_LABEL[t.status]}${t.nights > 1 ? `, summary ${t.nights}` : ""})_${t.note ? `\n   ${esc(cut(t.note, 220))}` : ""}`).join("\n")}` : "\nNothing yet: it needs a bit more data."
         }`,
       ),
     );
   else if (c.phase === "revising") {
-    blocks.push(divider, section(`*What Migz changed today*\n${c.changes.length ? bullets(c.changes) : "Nothing: the numbers said to leave it alone."}`));
+    blocks.push(divider, section(`*What Migz changed ${span}*\n${c.changes.length ? bullets(c.changes) : "Nothing: the numbers said to leave it alone."}`));
     if (c.thoughts.length)
       blocks.push(section(`*What Migz is thinking and testing*\n${c.thoughts.map((t) => `• ${esc(cut(t.text, 200))} _(${STATUS_LABEL[t.status]})_${t.note ? `\n   ${esc(cut(t.note, 220))}` : ""}`).join("\n")}`));
   }
   if (nar.next.length) blocks.push(section(`*Next*\n${bullets(nar.next)}`));
-  if (nar.fallback) blocks.push(context("_Migz's notes aren't in tonight's summary (they couldn't be written this time). The numbers above are today's._"));
+  if (nar.fallback) blocks.push(context("_Migz's notes aren't in this summary (they couldn't be written this time). The numbers above are still current._"));
 
   blocks.push(divider);
   const pageLines = c.findings.map((f) => `${f.level === "fix" ? ":warning:" : ":bulb:"} ${esc(cut(f.text, 300))}`);
   blocks.push(
-    section(`*Your booking page*${nar.page_note ? `\n${esc(cut(nar.page_note, 300))}` : ""}\n${pageLines.length ? pageLines.join("\n") : ":white_check_mark: Nothing to change tonight: your page is in good shape."}`),
+    section(`*Your booking page*${nar.page_note ? `\n${esc(cut(nar.page_note, 300))}` : ""}\n${pageLines.length ? pageLines.join("\n") : ":white_check_mark: Nothing to change: your page is in good shape."}`),
   );
   if (c.pageWeekLine) blocks.push(context(esc(c.pageWeekLine)));
   blocks.push(actions(button("Open the Migz brain", `${c.dashboardUrl}/dashboard/brain`), button("Edit my page", `${c.dashboardUrl}/dashboard/landing`)));

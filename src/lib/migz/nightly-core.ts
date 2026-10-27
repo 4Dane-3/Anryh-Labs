@@ -2,6 +2,7 @@
 // which phase the campaign is in, and how Migz's running thoughts carry from one night to the next.
 
 export const NIGHTLY_HOUR = 21; // 9pm in the agent's own timezone
+export const SUMMARY_EVERY_DAYS = 2; // each summary covers the days since the last one
 export const MAX_ACTIVE_THOUGHTS = 6;
 const MAX_FINISHED_THOUGHTS = 3;
 
@@ -24,9 +25,14 @@ export type ModelThought = { id: string; text: string; kind: ThoughtKind; status
 const ACTIVE: ThoughtStatus[] = ["considering", "testing", "ready"];
 export const isActive = (t: Pick<Thought, "status">) => ACTIVE.includes(t.status);
 
-/** True once the agent's local clock reaches 9pm and tonight's summary hasn't been written yet. */
-export function nightlyDue(localHour: number, alreadyWritten: boolean) {
-  return localHour >= NIGHTLY_HOUR && !alreadyWritten;
+/**
+ * True once the agent's local clock reaches 9pm and the last summary is SUMMARY_EVERY_DAYS or more days
+ * old (or there's none yet): a summary every other evening, so it informs without crowding their Slack.
+ */
+export function nightlyDue(localHour: number, lastDate: string | null, today: string) {
+  if (localHour < NIGHTLY_HOUR) return false;
+  if (!lastDate) return true;
+  return Math.round((Date.parse(today) - Date.parse(lastDate)) / 86_400_000) >= SUMMARY_EVERY_DAYS;
 }
 
 /**
@@ -95,8 +101,9 @@ export type Narrative = {
 
 export type NightlyNumbers = {
   spendCents: number;
-  budgetCents: number; // today's live daily budgets added up
-  yesterdaySpendCents: number | null;
+  budgetCents: number; // the live daily budgets added up, for each day the summary covers
+  yesterdaySpendCents: number | null; // the summary before this one's spend (a day's, before summaries went every other day)
+  days?: number; // days the summary covers (1 for summaries written before they went every other day)
   impressions: number;
   reach: number;
   linkClicks: number;
