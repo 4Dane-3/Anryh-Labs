@@ -8,6 +8,7 @@ import { newBookingMessage } from "@/lib/booking/format";
 import { sendSlackMessage } from "@/lib/slack";
 import { sendConversionEvents } from "@/lib/meta/capi";
 import { partnerPageUrl } from "@/lib/booking/sites";
+import { sendBookingConfirmation } from "@/lib/booking/email";
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
@@ -61,7 +62,7 @@ export async function POST(req: Request) {
       consent_text: CONSENT_TEXT,
       attribution: input.attribution,
     })
-    .select("id, token")
+    .select("id, token, starts_at, ends_at")
     .single();
 
   if (error || !booking) {
@@ -103,6 +104,21 @@ export async function POST(req: Request) {
       }
     });
   }
+
+  // The prospect's confirmation, with the agent's photo and the call attached (no-op until Resend is set up)
+  after(async () => {
+    try {
+      await sendBookingConfirmation({
+        agent,
+        booking,
+        prospect: { name: input.name, email: input.email, phone: input.phone },
+        timezone: body?.timezone,
+        pageUrl: body?.page_url,
+      });
+    } catch (e) {
+      console.error("confirmation email failed", e);
+    }
+  });
 
   // Tell Meta a call was booked: Schedule counts it on its own, Lead feeds ad sets optimizing for LEAD (no-op until configured)
   const origin = new URL(req.url).origin;

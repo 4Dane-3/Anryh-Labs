@@ -193,6 +193,7 @@ export function BookingWidget({
         body: JSON.stringify({
           slug,
           startsAt: picked,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, // the confirmation email shows their time
           ...form,
           // Only answers to questions that are showing, given the other answers
           answers: Object.fromEntries(

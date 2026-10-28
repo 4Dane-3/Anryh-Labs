@@ -24,6 +24,13 @@ const AGENT_PAGES: Record<string, string> = {
 /** The agent's booking page on a partner site, or null when it's their page here. */
 export const partnerPage = (slug: string): string | null => AGENT_PAGES[slug] ?? null;
 
+// Their photo on that site, for when their profile here has none (the confirmation email shows it)
+const AGENT_PHOTOS: Record<string, string> = {
+  "miguel-cruz": "https://foreignfinancial.org/team/miguel-cruz.jpg",
+};
+
+export const partnerPhoto = (slug: string): string | null => AGENT_PHOTOS[slug] ?? null;
+
 /**
  * Where the agent's ads send people: their partner-site page, else their page on this app. A partner page
  * opens at its booking card (#book), so the calendar is the first thing a visitor sees instead of the intro

@@ -13,40 +13,7 @@ export const LOOKBACK_DAYS = 14;
  */
 export async function syncAgent(agent: Agent) {
   const account = agent.meta_ad_account_id!;
-  const today = DateTime.now().setZone(agent.timezone).startOf("day");
-  const since = today.minus({ days: LOOKBACK_DAYS - 1 }).toISODate()!;
-  const until = today.toISODate()!;
-
-  // 1. Per-ad daily insights
-  const rows = await getAdInsights(account, since, until);
-  if (rows.length) {
-    const { error } = await supabaseAdmin.from("ad_insights_daily").upsert(
-      rows.map((r) => ({
-        agent_id: agent.id,
-        meta_ad_id: r.ad_id,
-        date: r.date_start,
-        spend_cents: Math.round(Number(r.spend ?? 0) * 100),
-        impressions: Number(r.impressions ?? 0),
-        clicks: Number(r.clicks ?? 0),
-        meta_conversions: scheduleConversions(r),
-        reach: Number(r.reach ?? 0),
-        frequency: Number(r.frequency ?? 0),
-        link_clicks: Number(r.inline_link_clicks ?? 0),
-        video_plays: actionValue(r.video_play_actions),
-        video_3s_views: actionValue(r.actions, "video_view"),
-        thruplays: actionValue(r.video_thruplay_watched_actions),
-        video_p25: actionValue(r.video_p25_watched_actions),
-        video_p50: actionValue(r.video_p50_watched_actions),
-        video_p75: actionValue(r.video_p75_watched_actions),
-        video_p100: actionValue(r.video_p100_watched_actions),
-        // Meta reports average watch time in seconds
-        avg_watch_ms: Math.round(actionValue(r.video_avg_time_watched_actions) * 1000),
-        landing_page_views: actionValue(r.actions, "landing_page_view"),
-      })),
-      { onConflict: "meta_ad_id,date" },
-    );
-    if (error) throw new Error(`Couldn't save insights: ${error.message}`);
-  }
+  const { since, until } = await syncSpend(agent);
 
   // 1b. The same, split by placement, so placement decisions aren't blind
   const placements = await getPlacementInsights(account, since, until);
@@ -120,7 +87,49 @@ export async function syncAgent(agent: Agent) {
   // mark them so they stop counting as live (scorecards, live-ad counts, the review)
   await markGoneAds(agent, account, new Set(ads.map((a) => a.id)));
 
+}
+
+/**
+ * 1. Per-ad daily insights (spend, clicks, video) for the last 14 days, and the dashboard's daily totals.
+ * Read-only in Meta and cheap, so the hourly cron runs it between reviews to keep spend current.
+ */
+export async function syncSpend(agent: Agent) {
+  const account = agent.meta_ad_account_id!;
+  const today = DateTime.now().setZone(agent.timezone).startOf("day");
+  const since = today.minus({ days: LOOKBACK_DAYS - 1 }).toISODate()!;
+  const until = today.toISODate()!;
+  const rows = await getAdInsights(account, since, until);
+  if (rows.length) {
+    const { error } = await supabaseAdmin.from("ad_insights_daily").upsert(
+      rows.map((r) => ({
+        agent_id: agent.id,
+        meta_ad_id: r.ad_id,
+        date: r.date_start,
+        spend_cents: Math.round(Number(r.spend ?? 0) * 100),
+        impressions: Number(r.impressions ?? 0),
+        clicks: Number(r.clicks ?? 0),
+        meta_conversions: scheduleConversions(r),
+        reach: Number(r.reach ?? 0),
+        frequency: Number(r.frequency ?? 0),
+        link_clicks: Number(r.inline_link_clicks ?? 0),
+        video_plays: actionValue(r.video_play_actions),
+        video_3s_views: actionValue(r.actions, "video_view"),
+        thruplays: actionValue(r.video_thruplay_watched_actions),
+        video_p25: actionValue(r.video_p25_watched_actions),
+        video_p50: actionValue(r.video_p50_watched_actions),
+        video_p75: actionValue(r.video_p75_watched_actions),
+        video_p100: actionValue(r.video_p100_watched_actions),
+        // Meta reports average watch time in seconds
+        avg_watch_ms: Math.round(actionValue(r.video_avg_time_watched_actions) * 1000),
+        landing_page_views: actionValue(r.actions, "landing_page_view"),
+      })),
+      { onConflict: "meta_ad_id,date" },
+    );
+    if (error) throw new Error(`Couldn't save insights: ${error.message}`);
+  }
+
   await rollUp(agent, since, until);
+  return { since, until };
 }
 
 /** Looks up our ads Meta's ad listing didn't return and records whether each was archived or deleted. */
