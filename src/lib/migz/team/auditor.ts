@@ -1,6 +1,7 @@
 import "server-only";
 import { DateTime } from "luxon";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { landingUrl } from "@/lib/booking/sites";
 import type { Agent } from "@/lib/booking/data";
 import type { Snapshot } from "@/lib/migz/snapshot";
 import { begin } from "@/lib/migz/events";
@@ -29,7 +30,7 @@ export const AUDIT_CHECKS = [
 const appUrl = () => (process.env.APP_URL || "http://localhost:3000").replace(/\/$/, "");
 
 async function checkLandingPage(agent: Agent): Promise<RawFinding | null> {
-  const url = `${appUrl()}/${agent.slug}`;
+  const url = landingUrl(agent.slug, appUrl());
   const started = Date.now();
   try {
     const res = await fetch(url, { method: "GET", redirect: "follow", signal: AbortSignal.timeout(8000) });

@@ -14,3 +14,17 @@ export function partnerPageUrl(raw: unknown) {
     return null;
   }
 }
+
+// Agents whose booking page lives on their agency's own site: their ads link there, Migz checks that page,
+// and their page here forwards to it (keeping the ad tags), so every ad visit lands on one page.
+const AGENT_PAGES: Record<string, string> = {
+  "miguel-cruz": "https://foreignfinancial.org/miguel-cruz",
+};
+
+/** The agent's booking page on a partner site, or null when it's their page here. */
+export const partnerPage = (slug: string): string | null => AGENT_PAGES[slug] ?? null;
+
+/** Where the agent's ads send people: their partner-site page, else their page on this app. */
+export function landingUrl(slug: string, appUrl = process.env.APP_URL || "http://localhost:3000") {
+  return partnerPage(slug) ?? `${appUrl.replace(/\/$/, "")}/${slug}`;
+}
