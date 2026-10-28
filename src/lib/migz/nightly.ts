@@ -1,4 +1,5 @@
 import "server-only";
+import { fetchPageEvents } from "@/lib/dashboard/page-events";
 import { DateTime } from "luxon";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { landingUrl } from "@/lib/booking/sites";
@@ -104,7 +105,7 @@ export async function gatherPageFacts(agent: Agent): Promise<PageFacts> {
     supabaseAdmin.from("availability_rules").select("weekday, end_time").eq("agent_id", agent.id),
     getSlotBoard(agent),
     supabaseAdmin.from("testimonials").select("id", { count: "exact", head: true }).eq("agent_id", agent.id).eq("published", true),
-    supabaseAdmin.from("page_events").select("session_id, name, meta, created_at").eq("agent_id", agent.id).gte("created_at", weekAgo).order("created_at").limit(20000),
+    fetchPageEvents(agent.id, weekAgo),
   ]);
   const horizon = Date.now() + 7 * 86_400_000;
   const hours = rules.data ?? [];

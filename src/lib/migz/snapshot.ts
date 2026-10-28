@@ -13,6 +13,7 @@ import { getActiveBatch } from "@/lib/dashboard/batches";
 import { latestIdeas } from "@/lib/migz/research";
 import { notebookForReview } from "@/lib/migz/notebook";
 import { adFunnel, funnelVerdict } from "@/lib/migz/funnel";
+import { fetchPageEvents } from "@/lib/dashboard/page-events";
 import { adsForBudget } from "@/lib/migz/playbook";
 import type { QuoteMode } from "@/lib/booking/constants";
 import type { EventRow } from "@/lib/admin/page-analytics";
@@ -71,13 +72,7 @@ export async function buildSnapshot(agent: Agent) {
       .gte("created_at", DateTime.fromISO(since14, { zone: agent.timezone }).toUTC().toISO()!),
     getActiveBatch(agent.id),
     // Each step of the booking page, to tell an ads problem from a page problem
-    supabaseAdmin
-      .from("page_events")
-      .select("session_id, name, meta, created_at")
-      .eq("agent_id", agent.id)
-      .gte("created_at", DateTime.fromISO(since14, { zone: agent.timezone }).toUTC().toISO()!)
-      .order("created_at")
-      .limit(20000),
+    fetchPageEvents(agent.id, DateTime.fromISO(since14, { zone: agent.timezone }).toUTC().toISO()!),
   ]);
 
   // Booked calls per ad come from our bookings: Meta fills utm_content with the ad id
@@ -303,7 +298,7 @@ export async function buildSnapshot(agent: Agent) {
   const bookingPage = pageEvents.error
     ? "unknown (couldn't read the page's visits)"
     : {
-        note: "The people who tapped an ad, step by step on the booking page. verdict says where they stop; fix_is_in says whether the ads or the page needs the work.",
+        note: "The people who tapped an ad, step by step on the booking page. verdict says where they stop; fix_is_in says whether the ads or the page needs the work. picked_a_time is NOT a booking (they still had to fill in their details and confirm); only booked is.",
         visits_from_ads: funnel.visits,
         saw_the_times: funnel.sawTimes,
         picked_a_time: funnel.pickedTime,

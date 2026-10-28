@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { DateTime } from "luxon";
 import { ArrowUpRight } from "lucide-react";
 import type { PageAnalytics } from "@/lib/admin/page-analytics";
+import type { BatchChoice } from "@/lib/dashboard/page-analytics";
 import { EmptyState, Panel, PanelHeader } from "@/components/dashboard/ui";
 import { cn } from "@/lib/utils";
 
@@ -94,8 +95,8 @@ export function PageAnalyticsPanel({
   mine?: { pageUrl: string };
 }) {
   const [agentId, setAgentId] = useState(agents.find((a) => a.slug === "miguel-cruz")?.id ?? agents[0]?.id ?? "");
-  const [days, setDays] = useState<7 | 30>(7);
-  const [data, setData] = useState<(PageAnalytics & { ready: true }) | { ready: false } | null>(null);
+  const [batchId, setBatchId] = useState<string | null>(null); // null: the running batch
+  const [data, setData] = useState<(PageAnalytics & { ready: true; batches: BatchChoice[]; period: { batchId: string | null; label: string } }) | { ready: false } | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -104,7 +105,8 @@ export function PageAnalyticsPanel({
     const load = async () => {
       setLoading(true);
       try {
-        const url = mine ? `/api/dashboard/page-analytics?days=${days}` : `/api/admin/page-analytics?agent=${agentId}&days=${days}`;
+        const batch = batchId ? `batch=${batchId}` : "";
+        const url = mine ? `/api/dashboard/page-analytics?${batch}` : `/api/admin/page-analytics?agent=${agentId}&${batch}`;
         const res = await fetch(url, { cache: "no-store" });
         if (res.ok && live) setData(await res.json());
       } finally {
@@ -117,7 +119,7 @@ export function PageAnalyticsPanel({
       live = false;
       clearInterval(id);
     };
-  }, [agentId, days, mine]);
+  }, [agentId, batchId, mine]);
 
   const agent = agents.find((a) => a.id === agentId);
   const a = data && data.ready ? data : null;
@@ -128,8 +130,8 @@ export function PageAnalyticsPanel({
         title="Page analytics"
         description={
           mine
-            ? "What visitors do on your booking page: where they drop off, how far they scroll, how long they stay. Migz reads the same numbers in every review. No personal data."
-            : "What visitors do on each agent's booking page: where they drop off, how far they scroll, how long they stay. No personal data."
+            ? "What visitors did on your booking page during a campaign batch: where they drop off, how far they scroll, how long they stay. Migz reads the same page in every review. No personal data."
+            : "What visitors did on an agent's booking page during a campaign batch: where they drop off, how far they scroll, how long they stay. No personal data."
         }
         action={
           <div className="flex flex-wrap items-center gap-2">
@@ -137,7 +139,10 @@ export function PageAnalyticsPanel({
             <select
               aria-label="Agent"
               value={agentId}
-              onChange={(e) => setAgentId(e.target.value)}
+              onChange={(e) => {
+                setAgentId(e.target.value);
+                setBatchId(null); // each agent opens on their running batch
+              }}
               className="rounded-md border border-line bg-ink-high px-2 py-1 text-[12px] text-fg"
             >
               {agents.map((x) => (
@@ -145,13 +150,18 @@ export function PageAnalyticsPanel({
               ))}
             </select>
             )}
-            <div className="flex rounded-lg border border-line p-0.5 text-[12px]">
-              {([7, 30] as const).map((d) => (
-                <button key={d} onClick={() => setDays(d)} className={cn("rounded-md px-2.5 py-1", days === d ? "bg-white/[0.08] text-fg" : "text-fg-muted hover:text-fg")}>
-                  {d} days
-                </button>
-              ))}
-            </div>
+            {a && a.batches.length > 0 && (
+              <select
+                aria-label="Campaign batch"
+                value={a.period.batchId ?? ""}
+                onChange={(e) => setBatchId(e.target.value || null)}
+                className="rounded-md border border-line bg-ink-high px-2 py-1 text-[12px] text-fg"
+              >
+                {a.batches.map((b) => (
+                  <option key={b.id} value={b.id}>{b.label}</option>
+                ))}
+              </select>
+            )}
             {(mine || agent) && (
               <a href={mine ? mine.pageUrl : `/${agent!.slug}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[12px] text-fg-muted hover:text-fg">
                 Open page <ArrowUpRight className="size-3.5" />
@@ -171,11 +181,11 @@ export function PageAnalyticsPanel({
       ) : !a ? (
         <div className="h-48 animate-pulse" />
       ) : !a.sessions ? (
-        <EmptyState title="No visits in this period">Visits show here as people open {mine ? "your" : `${agent?.name ?? "this agent"}'s`} booking page (preview views from the dashboard don&apos;t count).</EmptyState>
+        <EmptyState title="No visits in this batch yet">Visits show here as people open {mine ? "your" : `${agent?.name ?? "this agent"}'s`} booking page (preview views from the dashboard don&apos;t count).</EmptyState>
       ) : (
         <div className={cn("space-y-6 p-5", loading && "opacity-80")}>
           <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 lg:grid-cols-8">
-            <Tile label="Visits" value={a.sessions} sub={`last ${a.days} days`} />
+            <Tile label="Visits" value={a.sessions} sub={a.period.batchId ? "this batch" : `last ${a.days} days`} />
             <Tile label="Booked" value={a.booked} sub={`${pct(a.conversion, 1)} of visits`} />
             <Tile label="Saw the times" value={pct(a.funnel[1].pct)} sub="booking card came into view" />
             <Tile label="Time on page" value={a.medianSeconds === null ? "–" : `${a.medianSeconds}s`} sub="median" />
