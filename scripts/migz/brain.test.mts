@@ -1162,4 +1162,13 @@ assert.match(batchRenewedMessage({ budgetCents: 70_000, days: 7, dailyCents: 10_
 assert.match(JSON.stringify(batchRenewBlockedMessage({ reason: "short", stopped: true, dashboardUrl: "https://x.test" }).blocks), /Keep going stopped/);
 ok("one-week sprint and Keep going: sprint from $350, $700 = $100/day for 7 days read for 3, never recommended, renewal gate (funds, paused, dead ads, 3-day window), Slack notices");
 
+// Agents whose page lives on their agency's site: ads link there; partner page URLs are trusted only on those sites
+const sites = await import("@/lib/booking/sites");
+assert.equal(sites.landingUrl("miguel-cruz", "https://anryhlabs.com"), "https://foreignfinancial.org/miguel-cruz");
+assert.equal(sites.landingUrl("someone-else", "https://anryhlabs.com/"), "https://anryhlabs.com/someone-else");
+assert.equal(sites.partnerPageUrl("https://foreignfinancial.org/miguel-cruz?utm_source=meta"), "https://foreignfinancial.org/miguel-cruz");
+assert.equal(sites.partnerPageUrl("https://evil.example/miguel-cruz"), null);
+assert.equal(sites.partnerPageUrl("http://foreignfinancial.org/miguel-cruz"), null, "https only");
+ok("partner sites: ads link to the agency page, and only partner pages are reported to Meta");
+
 console.log(`\nALL ${n} UNIT GROUPS PASSED`);

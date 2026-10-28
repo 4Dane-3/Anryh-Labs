@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { BadgeCheck, CalendarCheck, Clock, MessageCircle, SearchCheck, ShieldCheck } from "lucide-react";
 import { ratingText, Stars } from "@/components/ui/stars";
 import { supabaseAdmin } from "@/lib/supabase-admin";
@@ -12,12 +12,13 @@ import { AboutAgent, CallNow, StickyBookBar } from "@/components/booking/PageBit
 import { callButtonShows, displayPhone } from "@/lib/booking/call";
 import { DEFAULT_TITLE } from "@/lib/campaign";
 import { pageFont } from "@/lib/booking/page-fonts";
+import { partnerPage } from "@/lib/booking/sites";
 
 export const dynamic = "force-dynamic";
 
 type Props = {
   params: Promise<{ slug: string }>;
-  searchParams?: Promise<{ preview?: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
@@ -60,6 +61,14 @@ export default async function AgentPage({ params, searchParams }: Props) {
   if (!agent) notFound();
   // Embedded in the agent's dashboard: show the real page, but booking is switched off
   const preview = query?.preview === "1";
+  // Agents whose page lives on their agency's site: send visitors (and older ads' links) there, with
+  // the ad tags, so every visit is counted on that one page
+  const partner = partnerPage(slug);
+  if (partner && !preview) {
+    const tags = new URLSearchParams();
+    for (const [k, v] of Object.entries(query ?? {})) for (const one of [v].flat()) if (one !== undefined) tags.append(k, one);
+    redirect(tags.size ? `${partner}?${tags}` : partner);
+  }
 
   const [{ data: testimonials }, questions, { data: hours }] = await Promise.all([
     supabaseAdmin

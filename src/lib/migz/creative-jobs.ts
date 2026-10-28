@@ -1,6 +1,7 @@
 import "server-only";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { landingUrl } from "@/lib/booking/sites";
 import type { Agent } from "@/lib/booking/data";
 import { getRequestStatus, submitImage, submitVideo } from "@/lib/higgsfield";
 import { createAd, createAdCreative, uploadImage, uploadVideo, videoState } from "@/lib/meta/ads";
@@ -257,7 +258,7 @@ async function createLiveAd(job: Job, agent: Agent, media: Parameters<typeof cre
     name,
     pageId: agent.meta_page_id!,
     instagramId: agent.meta_instagram_id,
-    link: `${appUrl()}/${agent.slug}`,
+    link: landingUrl(agent.slug, appUrl()),
     primaryText: job.brief.primary_text,
     headline: job.brief.headline,
     media,

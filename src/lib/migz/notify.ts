@@ -1,5 +1,6 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { landingUrl } from "@/lib/booking/sites";
 import type { Agent } from "@/lib/booking/data";
 import { sendSlackMessage } from "@/lib/slack";
 import { isCarouselBrief, isImageBrief, type AnyBrief } from "@/lib/migz/brief";
@@ -62,7 +63,7 @@ async function previewFor(agent: Recipient, brief: AnyBrief, creativeIds: string
     primaryText: brief.primary_text,
     headline: brief.headline,
     images,
-    bookingUrl: `${appUrl()}/${agent.slug}`,
+    bookingUrl: landingUrl(agent.slug, appUrl()),
     format: isCarouselBrief(brief) ? "carousel" : isImageBrief(brief) ? "image" : "video",
   };
 }
@@ -183,7 +184,7 @@ export async function notifyAdReviews(deadlineMs: number) {
         primaryText: a.primary_text ?? "",
         headline: a.headline ?? "Your ad",
         images: picture ? [{ url: picture, alt: a.headline ?? "Ad" }] : [],
-        bookingUrl: `${appUrl()}/${agent.slug}`,
+        bookingUrl: landingUrl(agent.slug, appUrl()),
         format: creative?.kind === "video" ? "video" : "image",
       };
       if (APPROVED.has(review.effective_status)) approved.push({ ad, campaign });
