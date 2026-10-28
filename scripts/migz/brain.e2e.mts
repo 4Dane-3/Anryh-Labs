@@ -358,7 +358,7 @@ try {
   assert.match(String(videoSubmit.body.prompt), /^A \d+-second vertical short film about Mortgage protection/);
   assert.match(String(videoSubmit.body.prompt), /The same people appear throughout: a dad in his late 30s/);
   assert.match(String(videoSubmit.body.prompt), /no one looks into the camera/);
-  assert.equal(videoSubmit.body.resolution, "1080p");
+  assert.equal(videoSubmit.body.resolution, "720p");
   assert.doesNotMatch(String(videoSubmit.body.prompt), /narrator/i, "the narrator is mixed in afterwards, so the video model isn't asked to voice it");
   // The narrator: ElevenLabs spoke the brief's voiceover and it was mixed over the stored video
   assert.equal(elevenlabs.length, 1, "one voiceover spoken");

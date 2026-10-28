@@ -1178,11 +1178,16 @@ delete process.env.HF_VIDEO_MODEL;
 assert.equal(videoModel(), "seedance", "Seedance unless HF_VIDEO_MODEL says kling");
 const sd = videoRequest(vbrief);
 assert.equal(sd.path, "/bytedance/seedance-2.5/text-to-video");
-assert.deepEqual([sd.body.duration, sd.body.resolution, sd.body.aspect_ratio, sd.body.output_format, sd.body.generate_audio], [15, "1080p", "9:16", "mp4", true], "a 15s 1080p 9:16 reel");
+assert.deepEqual([sd.body.duration, sd.body.resolution, sd.body.aspect_ratio, sd.body.output_format, sd.body.generate_audio], [15, "720p", "9:16", "mp4", true], "a 15s 720p 9:16 reel by default");
 assert.match(String(sd.body.prompt), /Shot 1 \(0–3s\).*\nShot 2 \(3–9s\).*\nShot 3 \(9–15s\)/, "one prompt that times its shots");
 assert.doesNotMatch(String(sd.body.prompt), /narrator|Plan ahead so they never/, "the narrator is mixed in afterwards, so the model isn't asked to voice it");
 assert.equal("multi_prompt" in sd.body, false);
-assert.equal(videoCostUsd(vbrief), 2.16, "15 seconds at $0.144 a second");
+assert.equal(videoCostUsd(vbrief), 6.45, "15 seconds of 720p at the measured $0.43 a second");
+process.env.HF_VIDEO_RESOLUTION = "1080p";
+assert.equal(videoRequest(vbrief).body.resolution, "1080p"); assert.equal(videoCostUsd(vbrief), 13.2, "1080p is about twice that");
+process.env.HF_VIDEO_RESOLUTION = "480p";
+assert.equal(videoCostUsd(vbrief), null, "no rate known for a resolution we haven't measured");
+delete process.env.HF_VIDEO_RESOLUTION;
 process.env.HF_VIDEO_MODEL = "kling";
 const kl = videoRequest(vbrief);
 assert.match(kl.path, /kling/); assert.equal((kl.body.multi_prompt as unknown[]).length, 3); assert.equal(videoCostUsd(vbrief), null);
@@ -1209,6 +1214,6 @@ ffRun(ffBin, ["-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=36
 const shortIn = readF(`${ecDir}/short.mp4`);
 assert.equal((await addEndCard(shortIn, readF(`${ecDir}/l.png`)))?.length, shortIn.length, "a video too short to zoom out of is left as it is");
 rmSync(ecDir, { recursive: true, force: true });
-ok("Seedance 2.5 video request (15s 1080p 9:16, timed shots, no narration, $0.144/s) with Kling as a setting; logo end card (last 3s, blur and pull-back, logo fades in, real render)");
+ok("Seedance 2.5 video request (15s 720p 9:16 by default, 1080p a setting, timed shots, no narration, measured cost) with Kling as a setting; logo end card (last 3s, blur and pull-back, logo fades in, real render)");
 
 console.log(`\nALL ${n} UNIT GROUPS PASSED`);

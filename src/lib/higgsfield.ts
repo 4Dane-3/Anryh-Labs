@@ -11,8 +11,15 @@ const BASE = "https://api.higgsfield.ai";
 //    setting, not a deploy.
 const SEEDANCE_PATH = () => process.env.HF_SEEDANCE_PATH || "/bytedance/seedance-2.5/text-to-video";
 const KLING_PATH = () => process.env.HF_TEXT_TO_VIDEO_PATH || "/kling-video/v3.0/std/text-to-video";
-/** What Seedance 2.5 1080p bills per second of video (Higgsfield's listed rate); HF_SEEDANCE_USD_PER_SECOND overrides. */
-export const SEEDANCE_USD_PER_SECOND = 0.144;
+/**
+ * What Seedance 2.5 bills per second of video, by resolution, in dollars. 720p is measured: a 15s video
+ * (plus a 4s 480p test) took $6.59 off the API account on Oct 28, so about $0.43 a second. 1080p is a
+ * third-party listing, not measured (a 15s 1080p video failed on an $8.26 balance, which fits it).
+ * HF_SEEDANCE_USD_PER_SECOND overrides the rate for whichever resolution is used.
+ */
+export const SEEDANCE_USD_PER_SECOND: Record<string, number> = { "720p": 0.43, "1080p": 0.88 };
+/** The default is 720p: it's about half the price of 1080p, and HF_VIDEO_RESOLUTION=1080p switches it. */
+export const DEFAULT_VIDEO_RESOLUTION = "720p";
 // Models by job (override any path with an env var, no code change):
 //  - Every still image (4:5 feeds, 9:16 Stories/Reels, 1:1 carousel cards) carries on-image text, so all
 //    go to a model that renders text: HF_FEED_IMAGE_PATH. Ideogram 4.0 until a Nano Banana endpoint is
@@ -94,7 +101,7 @@ export function videoRequest(brief: CreativeBrief): { path: string; body: Record
     body: {
       prompt: videoPrompt({ ...brief, voiceover: undefined }).slice(0, 2500),
       duration: Math.min(30, Math.max(4, Math.round(briefDuration(brief)))),
-      resolution: process.env.HF_VIDEO_RESOLUTION || "1080p",
+      resolution: process.env.HF_VIDEO_RESOLUTION || DEFAULT_VIDEO_RESOLUTION,
       aspect_ratio: "9:16",
       output_format: "mp4",
       generate_audio: true, // the scene's own sound; the narrator and music are laid over it
@@ -105,8 +112,9 @@ export function videoRequest(brief: CreativeBrief): { path: string; body: Record
 /** What a video should cost to generate, in dollars (null for a model whose rate isn't known here). */
 export function videoCostUsd(brief: CreativeBrief) {
   if (videoModel() !== "seedance") return null;
-  const rate = Number(process.env.HF_SEEDANCE_USD_PER_SECOND) || SEEDANCE_USD_PER_SECOND;
-  return Math.round((videoRequest(brief).body.duration as number) * rate * 100) / 100;
+  const body = videoRequest(brief).body;
+  const rate = Number(process.env.HF_SEEDANCE_USD_PER_SECOND) || SEEDANCE_USD_PER_SECOND[String(body.resolution)];
+  return rate ? Math.round((body.duration as number) * rate * 100) / 100 : null;
 }
 
 /** Submits a 9:16 video for a brief, on the model chosen by HF_VIDEO_MODEL. */
