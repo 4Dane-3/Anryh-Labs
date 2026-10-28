@@ -65,24 +65,3 @@ export async function writeFeed(notes: string, ctx: Ctx) {
   });
   return textOf(res.message) || notes;
 }
-
-const SLACK_SYSTEM = `You write the weekly Slack report an independent life insurance agent gets about their Meta ads, run by Migz AI. Use Slack mrkdwn: a one-line headline, then short sections "What happened", "What Migz changed", "What's next". Keep every number from the notes, explain jargon in plain words, and keep it under 180 words. No emoji.`;
-
-export async function writeWeeklySlack(notes: string, ctx: Ctx) {
-  const plan = planTier("feed", ctx.budget);
-  if (!plan) return notes;
-  const res = await callModel({
-    task: "feed",
-    tier: plan.tier,
-    agentId: ctx.agentId,
-    runId: ctx.runId,
-    createMessage: ctx.createMessage,
-    params: {
-      max_tokens: 900,
-      output_config: { effort: "low" },
-      system: [{ type: "text", text: SLACK_SYSTEM, cache_control: { type: "ephemeral" } }],
-      messages: [{ role: "user", content: notes.slice(0, 8000) }],
-    },
-  });
-  return textOf(res.message) || notes;
-}

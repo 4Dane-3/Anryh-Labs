@@ -6,7 +6,6 @@ import { begin } from "@/lib/migz/events";
 import { callModel, defaultCreateMessage, jsonOf, monthlyBudget, planTier, textOf, type CreateMessage } from "@/lib/migz/router";
 import { cleanFocus, TOPICS, type TopicKey } from "@/lib/migz/topics";
 import { RESEARCH_KIND } from "@/lib/migz/brain-types";
-import { notifyResearch } from "@/lib/migz/notify";
 
 // The research shift: around the clock, Migz's Haiku crew studies what wins this agent's kind of client
 // and works out the next creative to make. Each 10-minute tick moves one cycle forward one step, so the
@@ -16,12 +15,11 @@ import { notifyResearch } from "@/lib/migz/notify";
 //                    over what's already been gathered)
 //   history          checks that against what this account has actually learned and what its ads did
 //   clerk            drafts the next creative idea and checks it against Meta's financial-ad rules
-//   memory           files it; reviews read the latest ideas when they make new creatives, and the good
-//                    ones go to the agent in Slack
+//   memory           files it; a batch's setup review reads the latest ideas when it makes new creatives
+//                    (ideas stay in the dashboard; they aren't sent to Slack)
 // Cost-capped per agent per day, and it stops near the month's AI budget (like the weekly scout).
 
 export const RESEARCH_DAILY_USD = Number(process.env.MIGZ_RESEARCH_DAILY_USD || 0.4);
-export const SLACK_IDEAS_PER_DAY = 4;
 const RESEARCH_TASKS = ["scout", "librarian", "copy_check"];
 
 export const ANGLES = [
@@ -237,17 +235,8 @@ async function save(agent: Agent, note: Note) {
   const done = await begin({ agentId: agent.id, runId: null, step: "remembering", tier: "code", summary: "Filing the idea for the next review", evidence: ev() });
   await update(note.id, { stage: "done" });
   const clean = /^ok\b/i.test(note.compliance ?? "");
-  let sent = false;
-  if (note.idea && clean && note.fit !== "weak") {
-    const since = DateTime.now().setZone(agent.timezone).startOf("day").toUTC().toISO()!;
-    const { count } = await supabaseAdmin.from("research_notes").select("id", { count: "exact", head: true }).eq("agent_id", agent.id).not("slack_sent_at", "is", null).gte("slack_sent_at", since);
-    if ((count ?? 0) < SLACK_IDEAS_PER_DAY) {
-      sent = await notifyResearch(agent, { topic: label(note.topic), angle: note.angle, finding: note.finding ?? "", history: note.history, idea: note.idea, sources: note.sources });
-      if (sent) await update(note.id, { slack_sent_at: new Date().toISOString() });
-    }
-  }
   await done({
-    summary: `Saved to memory: "${note.idea?.hook_line ?? note.angle}"${!clean ? " (held back: breaks an ad rule)" : note.fit === "weak" ? " (weak fit, kept for reference)" : sent ? " · sent to you in Slack" : ""}`.slice(0, 380),
+    summary: `Saved to memory: "${note.idea?.hook_line ?? note.angle}"${!clean ? " (held back: breaks an ad rule)" : note.fit === "weak" ? " (weak fit, kept for reference)" : ""}`.slice(0, 380),
     evidence: ev(),
   });
   return "saved";
@@ -280,9 +269,15 @@ export async function researchShift(deadlineMs: number) {
   return results;
 }
 
+const IDEA_MAX_DAYS = 30;
+
 /** The latest finished ideas, for the review (as inspiration when it makes new creatives). */
 export async function latestIdeas(agentId: string, limit = 5) {
   const { data, error } = await supabaseAdmin.from("research_notes").select("topic, angle, finding, history, fit, idea, created_at").eq("agent_id", agentId).eq("stage", "done").neq("fit", "weak").order("id", { ascending: false }).limit(limit);
   if (error) return [];
-  return (data ?? []).filter((n) => n.idea).map((n) => ({ topic: n.topic, angle: n.angle, finding: n.finding, fit: n.fit, idea: n.idea, found: n.created_at }));
+  const daysOld = (iso: string) => Math.max(0, Math.floor((Date.now() - Date.parse(iso)) / 86_400_000));
+  // Market ideas go stale: past IDEA_MAX_DAYS they're left out
+  return (data ?? [])
+    .filter((n) => n.idea && daysOld(n.created_at) <= IDEA_MAX_DAYS)
+    .map((n) => ({ topic: n.topic, angle: n.angle, finding: n.finding, fit: n.fit, idea: n.idea, found: n.created_at.slice(0, 10), days_old: daysOld(n.created_at) }));
 }

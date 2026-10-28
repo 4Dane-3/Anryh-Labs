@@ -6,7 +6,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import { isAnryhAdmin, requireAgent } from "@/lib/auth";
 import { usPhone } from "@/lib/booking/call";
 import { integrations, migzReadyFor } from "@/lib/integrations";
-import { batchPacing, buildEvalContext, retargetNow, runMigz } from "@/lib/migz/agent";
+import { batchPacing, buildEvalContext, pauseAdSetsNow, retargetNow, runMigz } from "@/lib/migz/agent";
 import { applyPayload } from "@/lib/migz/executor";
 import { buildSnapshot } from "@/lib/migz/snapshot";
 import { syncAgent } from "@/lib/migz/sync";
@@ -132,6 +132,21 @@ export async function setAdsPaused(paused: boolean): Promise<Result> {
     .update({ ads_paused: paused })
     .eq("id", agent.id);
   if (error) return fail("Couldn't update your ads.");
+  // Pausing stops delivery in Meta now, not at the next review (hours later, and never with Migz off).
+  // Turning ads back on is left to the next review, which checks the balance and batch dates first.
+  if (paused && migzReadyFor(agent)) {
+    try {
+      await pauseAdSetsNow(agent, {
+        summary: "Pausing your ad sets",
+        title: "Paused your ads",
+        detail: "You turned ads off. They'll stay paused until you turn them back on.",
+      });
+    } catch (e) {
+      console.error("pausing in Meta failed", e);
+      revalidatePath("/dashboard", "layout");
+      return fail("Ads are marked paused, but Meta didn't confirm it. Pause them in Ads Manager to be sure, then try again.");
+    }
+  }
   revalidatePath("/dashboard", "layout");
   return { ok: true };
 }
@@ -466,15 +481,32 @@ export async function decideMigzAction(actionId: string, decision: "approve" | "
   }
   if (!migzReadyFor(agent)) return fail("Migz isn't connected to your ad account yet.");
 
+  // Claim it before the slow re-check, so a double click or a second tab can't apply it twice.
+  // Before the run-safety migration allows "applying", the claim errors and approval works unclaimed as before.
+  const { data: claimed, error: claimError } = await supabaseAdmin
+    .from("ad_actions")
+    .update({ status: "applying" })
+    .eq("id", actionId)
+    .eq("status", "proposed")
+    .select("id");
+  if (!claimError && !claimed?.length) return fail("That suggestion was already handled.");
+
   // Re-check against the latest numbers: things may have changed since Migz suggested this
-  await syncAgent(agent);
-  const snapshot = await buildSnapshot(agent);
-  const ctx = await buildEvalContext(agent, snapshot);
-  // Same paced cap as the review: approving a budget change can't take the batch over budget either
-  const pacing = await batchPacing(agent, await getActiveBatch(agent.id));
-  if (pacing) ctx.dailyCapCents = Math.min(ctx.dailyCapCents, pacing.dailyCapCents);
   const payload = action.payload as ActionPayload;
-  const blocked = recheck(payload, ctx);
+  let blocked: string | null;
+  try {
+    await syncAgent(agent);
+    const snapshot = await buildSnapshot(agent);
+    const ctx = await buildEvalContext(agent, snapshot);
+    // Same paced cap as the review: approving a budget change can't take the batch over budget either
+    const pacing = await batchPacing(agent, await getActiveBatch(agent.id));
+    if (pacing) ctx.dailyCapCents = Math.min(ctx.dailyCapCents, pacing.dailyCapCents);
+    blocked = recheck(payload, ctx);
+  } catch {
+    // Couldn't check it right now: hand it back so it can be approved again
+    await supabaseAdmin.from("ad_actions").update({ status: "proposed" }).eq("id", actionId).eq("status", "applying");
+    return fail("Couldn't check the latest numbers with Meta. Try again in a minute.");
+  }
   if (blocked) {
     await supabaseAdmin
       .from("ad_actions")
@@ -484,7 +516,10 @@ export async function decideMigzAction(actionId: string, decision: "approve" | "
     return fail(`This can't go ahead anymore: ${blocked}`);
   }
 
-  const applied = await applyPayload(agent, payload, actionId, { title: action.title ?? undefined });
+  const applied = await applyPayload(agent, payload, actionId, { title: action.title ?? undefined }).catch((e) => ({
+    ok: false as const,
+    error: e instanceof Error ? e.message : "Something went wrong.",
+  }));
   await supabaseAdmin
     .from("ad_actions")
     .update(
@@ -665,7 +700,7 @@ export async function startBatch(input: BatchChoice): Promise<Result> {
   const agent = await requireAgent();
   if (!agent.onboarding_completed_at) return fail("Finish setting up first: Start here walks you through it.");
   if (!migzReadyFor(agent)) return fail("Your ad account isn't linked yet. Anryh Labs links it for you.");
-  await closeEndedBatch(agent);
+  await closeEndedBatch(agent).catch((e) => console.error("closing the ended batch failed", e));
   const open = await getOpenBatch(agent.id);
   if (open?.status === "active") return fail(`Your current batch runs until ${open.ends_on}. You can start the next one when it ends.`);
   const focus = cleanFocus(agent.ad_focus);

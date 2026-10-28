@@ -324,14 +324,9 @@ try {
   const { data: memoLearnings } = await db.from("learnings").select("source").eq("agent_id", AGENT_ID).eq("source", "memo");
   assert.equal(memoLearnings!.length, 1);
   const toAgent = slack.filter((m) => m.channel === "U_TEST");
-  assert.equal(toAgent.length, 3, JSON.stringify(slack.map((m) => [m.channel, m.text.slice(0, 40)])));
-  assert.ok(toAgent.some((m) => /Migz set up your campaign/.test(m.text) && /FL, GA, TX/.test(JSON.stringify(m.blocks))), "campaign set up, with the states it targets");
-  assert.ok(toAgent.some((m) => /Your week/.test(m.text)), "weekly report");
-  const summaryMsg = toAgent.find((m) => /waiting for your OK/.test(m.text))!;
-  assert.match(summaryMsg.text, /Launched a mortgage-protection video/, "review summary lists the proposals");
-  assert.match(JSON.stringify(summaryMsg.blocks), /dashboard\/brain#approvals/, "with a button to approve them in the Brain");
+  assert.equal(toAgent.length, 0, `agents only hear from Migz in the summary every few days: ${JSON.stringify(toAgent.map((m) => m.text.slice(0, 40)))}`);
   assert.equal(slack.filter((m) => m.channel === "U_ADMIN").length, 0, "no staff alert on a healthy run");
-  ok("2 proposals; scout filed 1 shared swipe example (when due); memo saved a learning; Slack: campaign set up, weekly report, and a review summary with the 2 proposals and an approve button");
+  ok("2 proposals; scout filed 1 shared swipe example (when due); memo saved a learning; no Slack to the agent (setup, weekly memo and review summaries stay in the dashboard)");
 
   // ===== 2–3 =====
   step("2. Approve, generate and launch");
@@ -485,21 +480,19 @@ try {
       const snap = snapshotOf(p);
       assert.equal(snap.ad_focus[0].topic, "income_protection");
       assert.equal(snap.ad_focus[0].live_ads_on_this_topic, 0);
+      assert.match(String(p.messages[0].content), /regular review: no new creatives/);
+      assert.ok(!p.tools!.find((t) => t.name === "generate_image"), "generation tools aren't offered outside batch setup");
       return { content: [toolUse("generate_image", story([])), toolUse("generate_image", story(["What if the paycheck stopped?"]))] };
     }
     const r = lastToolResults(p);
     assert.ok(r[0].is_error && /Every image carries its message/.test(r[0].content), r[0].content);
-    assert.match(r[1].content, /^Done/, r[1].content);
-    return { content: [text("Started a Stories image for the new focus.")] };
+    assert.ok(r[1].is_error && /only made when a batch is set up/.test(r[1].content), r[1].content);
+    return { content: [text("Income protection has no live ads yet; noted for the next batch.")] };
   };
   res = await run("schedule");
   assert.equal(res.status, "succeeded", JSON.stringify(res));
-  const newSubmits = hf.submitted.slice(submittedBefore);
-  assert.equal(newSubmits.length, 1);
-  assert.equal(newSubmits[0].path, "/ideogram/v4.0");
-  assert.equal(newSubmits[0].body.aspect_ratio, "9:16");
-  assert.match(String(newSubmits[0].body.prompt), /"What if the paycheck stopped\?"/);
-  ok("focus change triggered a review; the lead saw the new focus; a 9:16 image went to the text model with its line on it, and an image with no words was refused");
+  assert.equal(hf.submitted.slice(submittedBefore).length, 0, "nothing sent to Higgsfield");
+  ok("focus change triggered a review; the lead saw the new focus; no creative was generated outside batch setup");
 
   // ===== 6 =====
   step("6. Experiment reaches its sample → verdict and learning");
@@ -640,6 +633,10 @@ try {
   await db.from("ad_sets").update({ status: "PAUSED" }).eq("agent_id", AGENT_ID);
   await db.from("ad_campaigns").update({ status: "PAUSED" }).eq("agent_id", AGENT_ID);
   await db.from("agents").update({ migz_mode: "auto", migz_last_run_at: null }).eq("id", AGENT_ID);
+  // With no live ads Migz may build creative (outside batch setup that's the only time it does)
+  const liveBefore8d = [...meta.ads].filter(([, st]) => st === "ACTIVE").map(([adId]) => adId);
+  for (const adId of liveBefore8d) meta.ads.set(adId, "PAUSED");
+  await db.from("ads").update({ status: "PAUSED" }).in("meta_ad_id", liveBefore8d);
   const heldImage = { concept: "Final expense", topic: "final_expense", scene: "A grandmother and granddaughter at a kitchen table, afternoon light", style: "warm golden hour", overlay_lines: ["Plan ahead for them."], button_text: "Book a free call", aspect_ratio: "4:5", primary_text: "A small plan now spares your family a big bill later. A free call walks you through it.", headline: "Plan ahead", launch_adset_id: "adset_1", title: "Built a final-expense image", reason: "No final-expense ad yet." };
   operatorCalls = 0;
   operatorScript = (p, call) => {
@@ -667,6 +664,8 @@ try {
   assert.equal(meta.ads.get(builtIds[0]), "ACTIVE", "the held ad switched on with the campaign");
   const { data: liveRow } = await db.from("ads").select("status, held_by_test_mode").eq("meta_ad_id", builtIds[0]).single();
   assert.deepEqual([liveRow!.status, liveRow!.held_by_test_mode], ["ACTIVE", false]);
+  for (const adId of liveBefore8d) meta.ads.set(adId, "ACTIVE");
+  await db.from("ads").update({ status: "ACTIVE" }).in("meta_ad_id", liveBefore8d);
   ok("test mode: the ad was built in Meta paused (previewable, can't deliver); leaving test mode switched it on");
 
   // ===== 8e =====
@@ -757,9 +756,7 @@ try {
   assert.equal(mpSetRow!.daily_budget_cents, 2000, "the batch's one campaign gets its whole $20/day");
   const { data: batchLog } = await db.from("ad_actions").select("title").eq("agent_id", AGENT_ID).eq("tool", "system_setup").order("created_at", { ascending: false }).limit(1).single();
   assert.equal(batchLog!.title, "Set up your $280 batch");
-  const setupSlack = slack.filter((m) => m.channel === "U_TEST" && /campaign batch is set up/.test(m.text)).at(-1)!;
-  assert.match(setupSlack.text, /Your \$280 campaign batch is set up: Mortgage protection/);
-  assert.match(JSON.stringify(setupSlack.blocks), /Migz is running it automatically/, "auto mode says so");
+  assert.ok(!slack.some((m) => m.channel === "U_TEST" && /campaign batch is set up/.test(m.text)), "batch setup isn't sent to Slack");
   // Higgsfield is working on both cards: the Brain shows it with an open step, outside any review
   // (other jobs may still be generating too; this checks the carousel's own step)
   const { data: openHf } = await db.from("migz_events").select("summary").eq("agent_id", AGENT_ID).eq("tier", "higgsfield").is("finished_at", null).like("summary", "Making a carousel%");
@@ -768,13 +765,7 @@ try {
   await advanceOpenJobs(Date.now() + 60_000);
   const carouselAds = [...meta.ads.keys()].filter((id) => !adsBeforeBatch.has(id));
   assert.equal(carouselAds.length, 1, "one carousel ad built");
-  // The agent gets a preview of the live ad in Slack: both cards, the copy and a Book now button
-  const liveSlack = slack.filter((m) => m.channel === "U_TEST" && /Your new ad is with Meta for review/.test(m.text)).at(-1)!;
-  assert.ok(liveSlack, "ad sent-to-Meta message sent");
-  const liveBlocks = liveSlack.blocks as { type: string; image_url?: string }[];
-  assert.equal(liveBlocks.filter((b) => b.type === "image").length, 2, "both carousel cards in the preview");
-  assert.ok(liveBlocks.filter((b) => b.type === "image").every((b) => /^https:\/\/.+\/storage\/v1\/object\/sign\//.test(b.image_url!)), "cards are signed links Slack can load");
-  assert.match(JSON.stringify(liveBlocks), /Book now/); assert.match(JSON.stringify(liveBlocks), /Who keeps paying the mortgage/);
+  assert.ok(!slack.some((m) => m.channel === "U_TEST" && /Your new ad is with Meta for review/.test(m.text)), "a new live ad isn't sent to Slack");
   const lastCreative = meta.calls.filter((c) => c.method === "POST" && c.path.endsWith("/adcreatives")).at(-1)!;
   const spec = JSON.parse(String(lastCreative.body.object_story_spec)) as { link_data: { child_attachments: { name: string; image_hash: string }[] } };
   assert.deepEqual(spec.link_data.child_attachments.map((c) => c.name), ["Your first home", "Protect it"]);
@@ -900,13 +891,8 @@ try {
   ok("ad links carry the placement; 8 Instagram vs 1 Facebook booking at $12.50 vs $100 each; Migz and the guardrail both see Instagram as the cheaper platform");
 
   // ===== 9 =====
-  step("9. Slack: morning digest section, and failure alerts to staff (once per distinct error)");
-  const { migzDigestSection } = await import("@/lib/migz/slack");
+  step("9. Slack: failure alerts to staff (once per distinct error)");
   agent = await getAgent();
-  const section = await migzDigestSection(agent as never, DateTime.now().setZone("America/Chicago").plus({ days: 1 }));
-  assert.match(section, /Your ads yesterday/); assert.match(section, /What Migz did/); assert.match(section, /Paused the image ad/);
-  assert.match(section, /spent/);
-  ok("digest section: yesterday's spend and results, what Migz did (including the pause), nothing invented");
 
   slack.length = 0;
   await db.from("agents").update({ migz_last_run_at: null }).eq("id", AGENT_ID);

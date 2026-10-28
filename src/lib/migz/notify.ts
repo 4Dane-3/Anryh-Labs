@@ -3,28 +3,22 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import { landingUrl } from "@/lib/booking/sites";
 import type { Agent } from "@/lib/booking/data";
 import { sendSlackMessage } from "@/lib/slack";
-import { isCarouselBrief, isImageBrief, type AnyBrief } from "@/lib/migz/brief";
 import { graphAll } from "@/lib/meta/graph";
 import {
-  adLiveMessage,
   adsReviewedMessage,
   nightlySummaryMessage,
   type NightlyContent,
-  researchIdeaMessage,
   batchEndedMessage,
   batchRenewBlockedMessage,
   batchRenewedMessage,
-  batchSetupMessage,
-  creativeReadyMessage,
-  reviewSummaryMessage,
   type AdPreview,
   type SlackMessage,
 } from "@/lib/migz/slack-blocks";
 
-// Slack updates to the agent as Migz works: campaigns set up, ads sent to Meta and then approved (with a
-// preview of the ad), new
-// creatives, what each review did and what's waiting for approval, and a batch's results. Best effort:
-// a Slack problem never breaks the work it's reporting on.
+// Slack to the agent is kept quiet: the summary every SUMMARY_EVERY_DAYS days (notifyNightly) carries what
+// Migz did; beyond it only what needs the agent or moves their money (an ad Meta rejected, a batch ending
+// or renewing). Ads going live, approvals, new creatives and each review show in the dashboard instead.
+// Best effort: a Slack problem never breaks the work it's reporting on.
 
 const IMAGE_LINK_DAYS = 30; // Slack fetches the picture when it renders the message; the link must outlive that
 
@@ -46,65 +40,6 @@ async function send(agent: Pick<Agent, "slack_user_id">, msg: SlackMessage | nul
 async function signedImage(storagePath: string) {
   const { data } = await supabaseAdmin.storage.from("creatives").createSignedUrl(storagePath, IMAGE_LINK_DAYS * 86_400);
   return data?.signedUrl ?? null;
-}
-
-/** What the ad looks like: its copy and picture(s) (stored images, or the video's thumbnail from Meta). */
-async function previewFor(agent: Recipient, brief: AnyBrief, creativeIds: string[], videoThumbnail?: string | null): Promise<AdPreview> {
-  const { data: rows } = await supabaseAdmin.from("creatives").select("id, storage_path, kind").in("id", creativeIds);
-  const ordered = creativeIds.map((id) => rows?.find((r) => r.id === id)).filter((r): r is NonNullable<typeof r> => !!r);
-  const images: AdPreview["images"] = [];
-  if (videoThumbnail) images.push({ url: videoThumbnail, alt: brief.concept });
-  else for (const r of ordered) if (r.kind === "image") {
-    const url = await signedImage(r.storage_path);
-    if (url) images.push({ url, alt: brief.concept });
-  }
-  return {
-    pageName: agent.full_name,
-    primaryText: brief.primary_text,
-    headline: brief.headline,
-    images,
-    bookingUrl: landingUrl(agent.slug, appUrl()),
-    format: isCarouselBrief(brief) ? "carousel" : isImageBrief(brief) ? "image" : "video",
-  };
-}
-
-export async function notifyAdLive(
-  agent: Recipient & Pick<Agent, "licensed_states">,
-  input: { brief: AnyBrief; creativeIds: string[]; metaAdsetId: string; held: boolean; videoThumbnail?: string | null },
-) {
-  const { data: set } = await supabaseAdmin.from("ad_sets").select("ad_campaigns(name, topic)").eq("meta_adset_id", input.metaAdsetId).maybeSingle();
-  const campaign = (set?.ad_campaigns as { name?: string } | null)?.name?.replace(/^Migz · /, "").replace(/ · [A-Z ]+$/, "") ?? "your";
-  const ad = await previewFor(agent, input.brief, input.creativeIds, input.videoThumbnail);
-  return send(agent, adLiveMessage({ ad, campaign, states: agent.licensed_states, held: input.held, dashboardUrl: appUrl() }));
-}
-
-export async function notifyCreativeReady(agent: Recipient, input: { brief: AnyBrief; creativeIds: string[] }) {
-  const ad = await previewFor(agent, input.brief, input.creativeIds);
-  return send(agent, creativeReadyMessage({ ad, dashboardUrl: appUrl() }));
-}
-
-export async function notifyBatchSetup(
-  agent: Recipient & Pick<Agent, "licensed_states" | "migz_mode">,
-  input: { budgetCents: number | null; days: number | null; campaigns: string[]; perCampaignCents: number; campaignCents?: number[]; endsOn: string | null },
-) {
-  return send(agent, batchSetupMessage({ ...input, states: agent.licensed_states, auto: agent.migz_mode === "auto", dashboardUrl: appUrl() }));
-}
-
-/** After a review: what it changed and what's waiting for approval (nothing is sent for a review that did nothing). */
-export async function notifyReviewSummary(agent: Recipient, runId: string, summary: string) {
-  const { data } = await supabaseAdmin.from("ad_actions").select("title, detail, status, tool").eq("agent_id", agent.id).eq("run_id", runId).order("created_at");
-  const rows = data ?? [];
-  // The system's own bookkeeping (setup, pacing, test-mode switches) gets its own messages or isn't news
-  const mine = rows.filter((r) => !String(r.tool ?? "").startsWith("system_"));
-  return send(
-    agent,
-    reviewSummaryMessage({
-      summary,
-      applied: mine.filter((r) => r.status === "applied").map((r) => r.title),
-      proposed: mine.filter((r) => r.status === "proposed").map((r) => ({ title: r.title, detail: r.detail })),
-      dashboardUrl: appUrl(),
-    }),
-  );
 }
 
 export async function notifyBatchRenewed(agent: Recipient, input: { budgetCents: number; days: number; dailyCents: number; balanceCents: number }) {
@@ -133,8 +68,8 @@ type MetaAdReview = {
 };
 
 /**
- * Every 10 minutes (creatives cron): tells each agent once, in one message, which of their new ads Meta
- * finished reviewing. Before the review_notified_at migration runs, this does nothing.
+ * Every 10 minutes (creatives cron): records which of each agent's new ads Meta finished reviewing, and
+ * tells the agent once, in one message, about any it rejected. Before the review_notified_at migration runs, this does nothing.
  */
 export async function notifyAdReviews(deadlineMs: number) {
   const since = new Date(Date.now() - REVIEW_WINDOW_DAYS * 86_400_000).toISOString();
@@ -168,12 +103,13 @@ export async function notifyAdReviews(deadlineMs: number) {
       continue;
     }
 
-    const approved: Parameters<typeof adsReviewedMessage>[0]["approved"] = [];
     const rejected: Parameters<typeof adsReviewedMessage>[0]["rejected"] = [];
     const done: string[] = [];
     for (const a of ads) {
       const review = reviews[a.meta_ad_id];
       if (!review || (!APPROVED.has(review.effective_status) && !REJECTED.has(review.effective_status))) continue;
+      done.push(a.id);
+      if (APPROVED.has(review.effective_status)) continue;
       const creative = a.creatives as { kind?: string; storage_path?: string } | null;
       // Our stored picture for image ads (Meta's thumbnail is small); Meta's frame for videos
       const stored = creative?.kind === "image" && creative.storage_path ? await signedImage(creative.storage_path) : null;
@@ -187,25 +123,19 @@ export async function notifyAdReviews(deadlineMs: number) {
         bookingUrl: landingUrl(agent.slug, appUrl()),
         format: creative?.kind === "video" ? "video" : "image",
       };
-      if (APPROVED.has(review.effective_status)) approved.push({ ad, campaign });
-      else rejected.push({ ad, campaign, reason: Object.values(review.ad_review_feedback?.global ?? {})[0] ?? null });
-      done.push(a.id);
+      rejected.push({ ad, campaign, reason: Object.values(review.ad_review_feedback?.global ?? {})[0] ?? null });
     }
     if (!done.length) continue;
     // Marked even when the agent has no Slack, so connecting Slack later doesn't replay old reviews
     await supabaseAdmin.from("ads").update({ review_notified_at: new Date().toISOString() }).in("id", done);
-    const sent = await send(agent, adsReviewedMessage({ approved, rejected, states: agent.licensed_states, dashboardUrl: appUrl() }));
-    results[agent.slug] = `${approved.length} approved, ${rejected.length} not approved${sent ? "" : " (not sent: no Slack)"}`;
+    // Approvals aren't news (the summary covers what's live); only a rejection needs the agent
+    const sent = rejected.length ? await send(agent, adsReviewedMessage({ approved: [], rejected, states: agent.licensed_states, dashboardUrl: appUrl() })) : false;
+    results[agent.slug] = `${done.length - rejected.length} approved, ${rejected.length} not approved${rejected.length && !sent ? " (not sent: no Slack)" : ""}`;
   }
   return results;
 }
 
-/** The research shift drafted an idea worth sharing (the caller caps how many go out a day). */
-export async function notifyResearch(agent: Pick<Agent, "slack_user_id">, input: Omit<Parameters<typeof researchIdeaMessage>[0], "dashboardUrl">) {
-  return send(agent, researchIdeaMessage({ ...input, dashboardUrl: appUrl() }));
-}
-
-/** The 9pm summary of the agent's day (sent by the nightly shift). */
+/** The 9pm summary of the last few days (sent by the nightly shift every SUMMARY_EVERY_DAYS days). */
 export async function notifyNightly(agent: Pick<Agent, "slack_user_id">, content: NightlyContent) {
   return send(agent, nightlySummaryMessage({ ...content, dashboardUrl: appUrl() }));
 }

@@ -11,7 +11,6 @@ import { alertAdmin, alertCreativeFailed } from "@/lib/migz/slack";
 import { recordEventAlert } from "@/lib/admin/alerts";
 import { briefLabel, cardBrief, isCarouselBrief, isImageBrief, isVideoBrief, type AnyBrief, type CreativeBrief } from "@/lib/migz/brief";
 import { closeEvent, openEvent } from "@/lib/migz/events";
-import { notifyAdLive, notifyCreativeReady } from "@/lib/migz/notify";
 import { narrateVideo } from "@/lib/migz/narration";
 import { addLogoToImage, addLogoToVideo, DEFAULT_LOGO_CORNER, isLogoCorner, type LogoCorner } from "@/lib/migz/endcard";
 
@@ -34,6 +33,8 @@ type Job = {
   creative_id: string | null;
   launch_adset_id: string | null;
   attempts: number;
+  meta_creative_id?: string | null; // saved as soon as Meta makes them, so a retried launch never makes a second ad
+  meta_ad_id?: string | null;
   event_id?: number | null; // the Brain step open while this job works (Higgsfield, then Meta)
   parts?: CardPart[] | null; // carousels: one generation per card
 };
@@ -270,46 +271,44 @@ async function loadAgent(agentId: string): Promise<Agent> {
   return data as Agent;
 }
 
-/** A creative made for the library (not launched): the agent hears about it with a preview. */
-async function tellCreativeReady(job: Job) {
-  try {
-    const agent = await loadAgent(job.agent_id);
-    const creativeIds = isCarouselBrief(job.brief)
-      ? (job.parts ?? []).map((p) => p.creative_id).filter((id): id is string => !!id)
-      : job.creative_id ? [job.creative_id] : [];
-    await notifyCreativeReady(agent, { brief: job.brief, creativeIds });
-  } catch (e) {
-    console.error("creative ready update failed", e);
-  }
-}
-
 async function createLiveAd(job: Job, agent: Agent, media: Parameters<typeof createAdCreative>[1]["media"]) {
   const account = agent.meta_ad_account_id!;
   const name = `Migz · ${briefLabel(job.brief)}`.slice(0, 100);
   const held = isTestMode(); // test mode: build the ad paused so it can be previewed but never deliver
-  const metaCreativeId = await createAdCreative(account, {
-    name,
-    pageId: agent.meta_page_id!,
-    instagramId: agent.meta_instagram_id,
-    link: landingUrl(agent.slug, appUrl()),
-    primaryText: job.brief.primary_text,
-    headline: job.brief.headline,
-    media,
-  });
-  const metaAdId = await createAd(account, {
-    name,
-    adsetId: job.launch_adset_id!,
-    creativeId: metaCreativeId,
-    status: held ? "PAUSED" : "ACTIVE",
-  });
+  // Each Meta object is recorded on the job the moment it exists: a run cut off after this point resumes
+  // from it instead of making a second live ad
+  let metaCreativeId = job.meta_creative_id ?? null;
+  if (!metaCreativeId) {
+    metaCreativeId = await createAdCreative(account, {
+      name,
+      pageId: agent.meta_page_id!,
+      instagramId: agent.meta_instagram_id,
+      link: landingUrl(agent.slug, appUrl()),
+      primaryText: job.brief.primary_text,
+      headline: job.brief.headline,
+      media,
+    });
+    await update(job.id, { meta_creative_id: metaCreativeId });
+  }
+  let metaAdId = job.meta_ad_id ?? null;
+  if (!metaAdId) {
+    metaAdId = await createAd(account, {
+      name,
+      adsetId: job.launch_adset_id!,
+      creativeId: metaCreativeId,
+      status: held ? "PAUSED" : "ACTIVE",
+    });
+    await update(job.id, { meta_ad_id: metaAdId });
+  }
 
   const { data: adset } = await supabaseAdmin
     .from("ad_sets")
     .select("id")
     .eq("meta_adset_id", job.launch_adset_id!)
     .single();
-  if (adset) {
-    await supabaseAdmin.from("ads").insert({
+  const { data: tracked } = await supabaseAdmin.from("ads").select("id").eq("meta_ad_id", metaAdId).maybeSingle();
+  if (adset && !tracked) {
+    const { error } = await supabaseAdmin.from("ads").insert({
       agent_id: agent.id,
       adset_id: adset.id,
       creative_id: job.creative_id,
@@ -321,44 +320,40 @@ async function createLiveAd(job: Job, agent: Agent, media: Parameters<typeof cre
       primary_text: job.brief.primary_text,
       headline: job.brief.headline,
     });
+    // The ad exists in Meta either way; an untracked live ad would spend without Migz seeing it, so staff are told
+    if (error)
+      await alertAdmin(`*Untracked live ad* for \`${agent.slug}\`: Meta ad \`${metaAdId}\` was created but couldn't be recorded.\n>${error.message.slice(0, 300)}`).catch(() => {});
   }
   await supabaseAdmin.from("creatives").update({ status: "live" }).eq("id", job.creative_id!);
   await update(job.id, { stage: "launched" });
-
-  // Tell the agent, with a preview of the ad as it shows in the feed
-  const creativeIds = isCarouselBrief(job.brief)
-    ? (job.parts ?? []).map((p) => p.creative_id).filter((id): id is string => !!id)
-    : [job.creative_id!];
-  await notifyAdLive(agent, {
-    brief: job.brief,
-    creativeIds,
-    metaAdsetId: job.launch_adset_id!,
-    held,
-    videoThumbnail: media.kind === "video" ? media.thumbnailUrl : null,
-  }).catch((e) => console.error("ad live update failed", e));
 }
 
-const CLAIM_SECONDS = 120; // longer than any single step; a crashed run's claim expires after this
+// Longer than any route that advances jobs may run (maxDuration 300s), so a live run's claim never expires
+// under it; a crashed run's claim expires after this
+const CLAIM_SECONDS = 330;
 
 /**
  * Takes the job for this run. Only one caller wins at a time (the webhook, the cron and the approval
- * flow can all reach the same job), so a job is never advanced twice at once. Returns false when
- * someone else is on it. Before the claim migration has run, jobs are advanced unlocked as before.
+ * flow can all reach the same job), so a job is never advanced twice at once. Returns the claim (to
+ * release it with), or null when someone else is on it. Before the claim migration has run, jobs are
+ * advanced unlocked as before.
  */
 async function claim(jobId: string) {
   const stale = new Date(Date.now() - CLAIM_SECONDS * 1000).toISOString();
+  const token = new Date().toISOString();
   const { data, error } = await supabaseAdmin
     .from("creative_jobs")
-    .update({ claimed_at: new Date().toISOString() })
+    .update({ claimed_at: token })
     .eq("id", jobId)
     .or(`claimed_at.is.null,claimed_at.lt.${stale}`)
     .select("id");
-  if (error) return true;
-  return (data ?? []).length === 1;
+  if (error) return token;
+  return (data ?? []).length === 1 ? token : null;
 }
 
-async function release(jobId: string) {
-  await supabaseAdmin.from("creative_jobs").update({ claimed_at: null }).eq("id", jobId);
+/** Lets go of the job only if this run still holds it (a run that outlived its claim must not free someone else's). */
+async function release(jobId: string, token: string) {
+  await supabaseAdmin.from("creative_jobs").update({ claimed_at: null }).eq("id", jobId).eq("claimed_at", token);
 }
 
 /**
@@ -366,13 +361,14 @@ async function release(jobId: string) {
  * at once: whoever claims the job advances it, the others see "busy" and leave it for the next tick.
  */
 export async function advanceJob(job: Job) {
-  if (!(await claim(job.id))) return "busy";
+  const token = await claim(job.id);
+  if (!token) return "busy";
   try {
     // The caller's copy may be stale (another run could have moved it on just before we claimed it)
     const { data: fresh } = await supabaseAdmin.from("creative_jobs").select("*").eq("id", job.id).maybeSingle();
     return await advance((fresh as Job | null) ?? job);
   } finally {
-    await release(job.id);
+    await release(job.id, token);
   }
 }
 
@@ -402,7 +398,6 @@ async function advance(job: Job) {
       job = { ...job, stage: "stored", creative_id: parts[0].creative_id, parts };
       await update(job.id, { stage: "stored", creative_id: parts[0].creative_id, attempts: 0 });
       await closeJobEvent(job, `Made a carousel: ${briefLabel(job.brief)}`.slice(0, 200));
-      if (!job.launch_adset_id) await tellCreativeReady(job);
     }
 
     if (job.stage === "generating") {
@@ -425,7 +420,6 @@ async function advance(job: Job) {
       job = { ...job, stage: "stored", creative_id: creativeId };
       await update(job.id, { stage: "stored", creative_id: creativeId, attempts: 0 });
       await closeJobEvent(job, `Made a ${kindOf(job.brief)}: ${briefLabel(job.brief)}`.slice(0, 200));
-      if (!job.launch_adset_id) await tellCreativeReady(job);
     }
 
     if (job.stage === "stored") {

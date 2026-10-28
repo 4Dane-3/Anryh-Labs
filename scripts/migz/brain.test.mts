@@ -188,6 +188,7 @@ assert.equal(checkGeneration(gc({ videosThisRun: 1, generationsThisRun: 2 }), "i
 assert.match(checkGeneration(gc({ videosThisRun: 1, generationsThisRun: 3 }), "image")!, /3 creatives/);
 assert.match(checkGeneration(gc({ generationsThisRun: 1, maxGenerations: 1 }), "image")!, /credits are being checked/);
 assert.equal(checkGeneration(gc({ generationsThisRun: 0, maxGenerations: 1 }), "image"), null);
+assert.match(checkGeneration(gc({ generationsThisRun: 0, maxGenerations: 0 }), "image")!, /only made when a batch is set up/, "no new creatives outside batch setup");
 ok("creative caps: 3 per review, 1 video, images fill the rest; 1 while credits are being re-checked");
 
 // topics
@@ -857,7 +858,8 @@ const hourIn = (zone: string) => utcNight.setZone(zone).hour;
 assert.deepEqual(["America/Chicago", "America/Los_Angeles", "Europe/London"].map((z) => nightlyDue(hourIn(z), null, "2026-10-24")), [true, false, false], "each timezone gets it at its own 9pm");
 assert.equal(nightlyDue(21, "2026-10-24", "2026-10-24"), false, "never twice in a day");
 assert.equal(nightlyDue(21, "2026-10-23", "2026-10-24"), false, "not the evening after the last one");
-assert.equal(nightlyDue(21, "2026-10-22", "2026-10-24"), true, "every other evening");
+assert.equal(nightlyDue(21, "2026-10-22", "2026-10-24"), false, "not two evenings after");
+assert.equal(nightlyDue(21, "2026-10-21", "2026-10-24"), true, "every third evening");
 assert.equal(nightlyDue(21, "2026-10-18", "2026-10-24"), true, "and straight away after a gap");
 assert.equal(nightlyDue(20, "2026-10-20", "2026-10-24"), false, "only from 9pm");
 assert.equal(phaseOf("2026-10-29", "2026-10-24"), "collecting");

@@ -36,8 +36,8 @@ const SCHEMA = {
   type: "object",
   properties: {
     headline: { type: "string", description: "One plain sentence for the top of the message, at most 80 characters" },
-    happened: { type: "array", items: { type: "string" }, description: "2 to 4 short bullets on what happened in the last two days" },
-    budget_read: { type: "string", description: "One or two sentences on the two days' spend against the daily budget" },
+    happened: { type: "array", items: { type: "string" }, description: "2 to 4 short bullets on what happened in the last three days" },
+    budget_read: { type: "string", description: "One or two sentences on the three days' spend against the daily budget" },
     thoughts: {
       type: "array",
       items: {
@@ -60,13 +60,13 @@ const SCHEMA = {
   additionalProperties: false,
 };
 
-const SYSTEM = `You are Migz AI, the media buyer that runs Meta (Facebook and Instagram) ads for an independent US life insurance agent. The agent is not a marketer: use plain words, no jargon, no hype, no emoji. It is 9pm where they are. Every other evening you write a summary of the last two days and keep your running notebook of thoughts.
+const SYSTEM = `You are Migz AI, the media buyer that runs Meta (Facebook and Instagram) ads for an independent US life insurance agent. The agent is not a marketer: use plain words, no jargon, no hype, no emoji. It is 9pm where they are. Every third evening you write a summary of the last three days (the agent's only regular update from you in Slack, so mention the changes that matter and what you learned) and keep your running notebook of thoughts.
 
 Rules:
 - Use only the numbers and facts you are given. Small numbers are small: say it's too early to tell instead of guessing. Never invent results, quotes or sources.
 - Every ad idea must follow Meta's financial-ad rules: no guarantees, no implied approval, no prices or returns, and never call out age, health or other personal attributes.
-- "happened": 2 to 4 short bullets about the last two days: where the money went, which ads got attention, anything notable, booked calls.
-- "budget_read": compare the two days' spend with the daily budget for those days. If a day ran over it, say Meta's ad sets can spend up to about 75% over a daily budget on a strong day and balance it out over the week, so the batch total is what to watch.
+- "happened": 2 to 4 short bullets about the last three days: where the money went, which ads got attention, anything notable, booked calls.
+- "budget_read": compare the three days' spend with the daily budget for those days. If a day ran over it, say Meta's ad sets can spend up to about 75% over a daily budget on a strong day and balance it out over the week, so the batch total is what to watch.
 - "thoughts" is your notebook. You are given your thoughts from earlier nights (previous_thoughts). For each one, either return it with the same id and an updated status and note (test it against the new numbers: do they support it, weaken it, or say nothing yet?) or leave it out to let it go. Use an empty id for a new thought. Keep at most 6 active thoughts (considering, testing, ready). A thought is something you would change (change), try (test) or keep an eye on (watch).
   Statuses: considering = a new idea; testing = you're collecting evidence for it; ready = the data backs it and you will act as soon as you're allowed; done = you did it (only for things listed in changes_since_last_summary); dropped = the data contradicted it.
 - "next": 1 to 3 concrete things you will do or test next.
@@ -228,7 +228,7 @@ export async function writeNightly(
   // Migz's own words, from the model; if it can't run tonight the numbers and page notes still go out
   const budget = await monthlyBudget(agent.id, agent.migz_model_budget_cents ?? 3000, agent.timezone);
   const plan = planTier("nightly", budget);
-  let narrative: Narrative = { headline: "The last two days' numbers", happened: [], budget_read: "", next: [], page_note: "", fallback: true };
+  let narrative: Narrative = { headline: "The last three days' numbers", happened: [], budget_read: "", next: [], page_note: "", fallback: true };
   let thoughts: Thought[] = carried.map((x) => ({ ...x, nights: x.nights + 1 }));
   let costUsd = 0;
   if (plan) {
@@ -259,7 +259,7 @@ export async function writeNightly(
                       results_start_over: `Results count from ${agent.results_from}. Before it the ads also ran on the Audience Network (mostly accidental clicks in other apps), so earlier click rates and "winners" aren't reliable. Drop or rewrite any thought that rests on them, and say plainly that the week of collecting restarted on ${agent.results_from}.`,
                     }
                   : {}),
-                last_two_days: {
+                last_three_days: {
                   dates,
                   spend: money(numbers.spendCents),
                   daily_budget: money(numbers.budgetCents),

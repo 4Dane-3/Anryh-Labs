@@ -97,13 +97,19 @@ export function advisedToolUses(content: BetaContentBlock[], alreadyAdvised: boo
   return { advised, advisedIds, consultations };
 }
 
-export async function runOperator(env: OperatorEnv, extras: ExtraTool[], opts: { teamContext: Record<string, unknown>; reasons: string[] }) {
+export async function runOperator(
+  env: OperatorEnv,
+  extras: ExtraTool[],
+  opts: { teamContext: Record<string, unknown>; reasons: string[]; producing?: boolean },
+) {
   const { agent, snapshot, runId } = env;
   const mode = agent.migz_mode === "auto" ? "auto" : "approve";
   const plan = planTier("operator", env.budget)!;
   const extraByName = new Map(extras.map((t) => [t.def.name, t]));
+  // Outside batch setup the generators aren't offered at all (checkGeneration also refuses them)
+  const producing = opts.producing ?? true;
   const tools: Anthropic.Beta.BetaToolUnion[] = [
-    ...MIGZ_TOOLS,
+    ...(producing ? MIGZ_TOOLS : MIGZ_TOOLS.filter((t) => !GENERATION_TOOLS.includes(t.name))),
     ...extras.map((t) => t.def),
     {
       type: "advisor_20260301",
@@ -119,6 +125,8 @@ export async function runOperator(env: OperatorEnv, extras: ExtraTool[], opts: {
       role: "user",
       content: reviewMessage({
         mode,
+        producing,
+        today: new Date().toLocaleDateString("en-US", { timeZone: agent.timezone, weekday: "short", month: "short", day: "numeric", year: "numeric" }),
         snapshotJson: JSON.stringify(snapshot.forModel, null, 1),
         contextJson: JSON.stringify(opts.teamContext, null, 1),
         reasons: opts.reasons,
@@ -266,6 +274,16 @@ export async function runOperator(env: OperatorEnv, extras: ExtraTool[], opts: {
       if (applied.ok && evaluated.payload.tool === "set_optimization_event") {
         const { adset_id, event } = evaluated.payload;
         env.ctx.adsets = env.ctx.adsets.map((s) => (s.meta_adset_id === adset_id ? { ...s, optimization_event: event, last_edited_at: new Date().toISOString() } : s));
+      }
+      // Budget and pause checks later in this review (the daily cap, "keep one live ad") must see these too
+      if (applied.ok && evaluated.payload.tool === "adjust_daily_budget") {
+        const { adset_id, cents } = evaluated.payload;
+        env.ctx.adsets = env.ctx.adsets.map((s) => (s.meta_adset_id === adset_id ? { ...s, daily_budget_cents: cents, last_edited_at: new Date().toISOString() } : s));
+      }
+      if (applied.ok && (evaluated.payload.tool === "pause_ad" || evaluated.payload.tool === "resume_ad")) {
+        const { ad_id } = evaluated.payload;
+        const status = evaluated.payload.tool === "pause_ad" ? "PAUSED" : "ACTIVE";
+        env.ctx.adsets = env.ctx.adsets.map((s) => ({ ...s, ads: s.ads.map((a) => (a.meta_ad_id === ad_id ? { ...a, status } : a)) }));
       }
       await supabaseAdmin
         .from("ad_actions")

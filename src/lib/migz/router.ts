@@ -84,7 +84,9 @@ let client: Anthropic | null = null;
 export const defaultCreateMessage: CreateMessage = (params) => {
   // Keys that aren't scoped to a workspace must name one on every request
   const workspace = process.env.ANTHROPIC_WORKSPACE_ID;
-  client ??= new Anthropic(workspace ? { defaultHeaders: { "anthropic-workspace-id": workspace } } : {});
+  // Under the routes' 300s limit, so a slow call fails inside the review (recorded, backed off) instead of
+  // the platform killing the function before the error handler runs
+  client ??= new Anthropic({ timeout: 150_000, maxRetries: 1, ...(workspace ? { defaultHeaders: { "anthropic-workspace-id": workspace } } : {}) });
   return client.beta.messages.create(params);
 };
 

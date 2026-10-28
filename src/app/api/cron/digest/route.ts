@@ -3,7 +3,6 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import { getIntakeQuestions, type Agent } from "@/lib/booking/data";
 import { digestMessage, type DigestBooking } from "@/lib/booking/format";
 import { sendSlackMessage } from "@/lib/slack";
-import { migzDigestSection } from "@/lib/migz/slack";
 
 // Called every hour by Supabase pg_cron (supabase/migrations/20261022000000_digest_cron.sql), which sends
 // `Authorization: Bearer <cron_secret from Vault>`. Each agent gets one DM per local day, at or after their digest hour.
@@ -66,10 +65,8 @@ export async function GET(req: Request) {
       });
 
       const order = (await getIntakeQuestions(agent.id)).map((q) => q.key);
-      // Migz's section is extra: if it can't be built, the calls digest still goes out
-      const migz = await migzDigestSection(agent, now).catch(() => "");
-      const calls = digestMessage(agent, bookings, now, order);
-      await sendSlackMessage(agent.slack_user_id!, migz ? `${calls}\n\n${migz}` : calls);
+      // Only the day's calls: what Migz did goes in its summary every few days, not here
+      await sendSlackMessage(agent.slack_user_id!, digestMessage(agent, bookings, now, order));
       results[agent.slug] = `sent (${bookings.length})`;
     } catch (e) {
       // Release the claim so the next hourly run retries

@@ -8,6 +8,10 @@ const BASE = `https://graph.facebook.com/${VERSION}`;
 
 // Throttling / transient codes worth retrying (https://developers.facebook.com/docs/graph-api/overview/rate-limiting)
 const RETRYABLE_CODES = new Set([1, 2, 4, 17, 32, 341, 613, 80000, 80003, 80004, 80014]);
+// Rate limits: Meta refused the call without doing it, so even a create is safe to repeat
+const THROTTLE_CODES = new Set([4, 17, 32, 341, 613, 80000, 80003, 80004, 80014]);
+// POSTs that make a new object: after a 5xx or "unknown error" it may exist already, so a retry could duplicate it
+const CREATES = /\/(campaigns|adsets|ads|adcreatives|advideos|adimages)$/;
 
 export class MetaApiError extends Error {
   constructor(
@@ -79,7 +83,10 @@ export async function graph<T = Record<string, unknown>>(
     if (res.ok && !json.error) return json as T;
 
     const err = json.error;
-    const retryable = res.status >= 500 || err?.is_transient || (err?.code && RETRYABLE_CODES.has(err.code));
+    const creates = method === "POST" && CREATES.test(path);
+    const retryable = creates
+      ? !!(err?.code && THROTTLE_CODES.has(err.code))
+      : res.status >= 500 || err?.is_transient || (err?.code && RETRYABLE_CODES.has(err.code));
     if (retryable && attempt < delays.length) {
       await sleep(delays[attempt]);
       continue;

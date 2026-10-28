@@ -1,6 +1,6 @@
 import { advanceJobById, validWebhookToken } from "@/lib/migz/creative-jobs";
 
-export const maxDuration = 120;
+export const maxDuration = 300; // storing a video (narration, logo, end card) can take minutes
 
 // Higgsfield calls this when a generation finishes. Its webhooks aren't signed, so the URL carries a
 // per-job HMAC token, and we treat the call only as a nudge: the job re-reads the authoritative

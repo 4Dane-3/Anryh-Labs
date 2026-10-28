@@ -42,6 +42,9 @@ export type Agent = {
   migz_last_fatigue_at: string | null;
   migz_last_weekly_at: string | null;
   migz_gate_state: unknown;
+  migz_run_claimed_at?: string | null; // a review is running (missing before the run-safety migration)
+  migz_failed_at?: string | null; // last failed review; scheduled reviews back off
+  migz_fail_count?: number;
   ad_focus?: string[]; // topic keys, most important first (missing before the ad_focus migration)
   title?: string | null; // job title on the booking page (null = default)
   campaign_days?: number | null;
