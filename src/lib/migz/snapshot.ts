@@ -328,6 +328,7 @@ export async function buildSnapshot(agent: Agent) {
     agent: {
       name: agent.full_name,
       licensed_states: agent.licensed_states,
+      free_call_minutes: agent.slot_minutes, // the free consultation every ad offers ("free 15-minute call")
       daily_budget_cap: `$${(agent.daily_budget_cents / 100).toFixed(2)}`,
       // A running batch's budget is set aside from the balance, so it's funded through the batch's last day
       balance: batch

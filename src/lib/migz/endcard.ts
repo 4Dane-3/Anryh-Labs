@@ -55,13 +55,15 @@ export function cornerPosition(corner: LogoCorner, width: number, height: number
  * (a looped PNG, always), input 2 the end card's logo (only with `endCard`). Pure, so the timings are
  * testable. Output pad: [v].
  */
-export function overlayFilter(seconds: number, width: number, height: number, opts: { corner: LogoCorner; endCard: boolean }) {
+export function overlayFilter(seconds: number, width: number, height: number, opts: { corner: LogoCorner; endCard: boolean; mark?: boolean }) {
   const t0 = seconds - END_CARD_SECONDS;
   const pos = cornerPosition(opts.corner, width, height);
   // The mark fades out as the end card begins (or stays, when the video's too short for one)
-  const mark = opts.endCard
-    ? `[1:v]format=rgba,fade=t=out:st=${num(t0 - MARK_FADE_SECONDS)}:d=${MARK_FADE_SECONDS}:alpha=1[mark]`
-    : "[1:v]format=rgba[mark]";
+  const mark = opts.mark === false
+    ? "[1:v]format=rgba,colorchannelmixer=aa=0[mark]" // left off: the end card still shows the logo
+    : opts.endCard
+      ? `[1:v]format=rgba,fade=t=out:st=${num(t0 - MARK_FADE_SECONDS)}:d=${MARK_FADE_SECONDS}:alpha=1[mark]`
+      : "[1:v]format=rgba[mark]";
   const marked = `[0:v][mark]overlay=x='${pos.x}':y='${pos.y}'[scene]`;
   if (!opts.endCard) return [mark, marked.replace("[scene]", "[v]")].join(";");
 
@@ -151,7 +153,12 @@ async function prepare(bin: string, dir: string, logo: Buffer, width: number): P
  * The video with the agent's logo on it: a small corner mark throughout and, when the video is long enough,
  * the end card over its last seconds. The sound is copied untouched. Null when ffmpeg isn't available here.
  */
-export async function addLogoToVideo(video: Buffer, logo: Buffer, corner: LogoCorner = DEFAULT_LOGO_CORNER): Promise<Buffer | null> {
+export async function addLogoToVideo(
+  video: Buffer,
+  logo: Buffer,
+  corner: LogoCorner = DEFAULT_LOGO_CORNER,
+  opts: { endCard?: boolean; mark?: boolean } = {},
+): Promise<Buffer | null> {
   const bin = await ffmpegPath();
   if (!bin) return null;
   const dir = await mkdtemp(join(tmpdir(), "logo-"));
@@ -163,7 +170,9 @@ export async function addLogoToVideo(video: Buffer, logo: Buffer, corner: LogoCo
     if (!v.seconds || !v.width || !v.height) throw new Error("Couldn't read the video's length and size");
     const width = even(v.width);
     const height = even(v.height);
-    const endCard = v.seconds >= MIN_VIDEO_SECONDS;
+    const endCard = (opts.endCard ?? true) && v.seconds >= MIN_VIDEO_SECONDS; // a clip cut into a longer ad skips it
+    const mark = opts.mark ?? true; // the corner mark can be left off (the end card still shows the logo)
+    if (!mark && !endCard) return video;
     const p = await prepare(bin, dir, logo, width);
     const loop = ["-loop", "1", "-framerate", "30", "-t", num(v.seconds)];
     await run(
@@ -173,7 +182,7 @@ export async function addLogoToVideo(video: Buffer, logo: Buffer, corner: LogoCo
         "-i", vIn,
         ...loop, "-i", p.mark,
         ...(endCard ? [...loop, "-i", p.endLogo] : []),
-        "-filter_complex", overlayFilter(v.seconds, width, height, { corner, endCard }),
+        "-filter_complex", overlayFilter(v.seconds, width, height, { corner, endCard, mark }),
         "-map", "[v]", ...(v.hasAudio ? ["-map", "0:a"] : []),
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p",
         ...(v.hasAudio ? ["-c:a", "copy"] : []),
