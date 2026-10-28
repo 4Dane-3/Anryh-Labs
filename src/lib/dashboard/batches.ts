@@ -9,6 +9,7 @@ import { notifyBatchEnded } from "@/lib/migz/notify";
 import { adFunnel, funnelVerdict } from "@/lib/migz/funnel";
 import { budgetMath, ownCostPerCall, PLAYBOOK } from "@/lib/migz/playbook";
 import type { EventRow } from "@/lib/admin/page-analytics";
+import { fetchPageEvents } from "@/lib/dashboard/page-events";
 
 export type Batch = {
   id: string;
@@ -115,13 +116,7 @@ async function pageHistory(agent: Agent): Promise<BatchHistory["page"]> {
   let from = today.minus({ days: PAGE_DAYS - 1 }).toISODate()!;
   if (agent.results_from && agent.results_from > from) from = agent.results_from;
   const [events, clicks] = await Promise.all([
-    supabaseAdmin
-      .from("page_events")
-      .select("session_id, name, meta, created_at")
-      .eq("agent_id", agent.id)
-      .gte("created_at", DateTime.fromISO(from, { zone: agent.timezone }).toUTC().toISO()!)
-      .order("created_at")
-      .limit(20000),
+    fetchPageEvents(agent.id, DateTime.fromISO(from, { zone: agent.timezone }).toUTC().toISO()!),
     supabaseAdmin.from("ad_insights_daily").select("link_clicks").eq("agent_id", agent.id).gte("date", from),
   ]);
   if (events.error) return null;
