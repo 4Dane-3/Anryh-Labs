@@ -14,7 +14,7 @@ import { defaultCreateMessage, monthlyBudget } from "@/lib/migz/router";
 import { traitSwipe } from "@/lib/migz/team/scout";
 import { cleanFocus, type TopicKey } from "@/lib/migz/topics";
 import { PAGE_FONT_KEYS } from "@/lib/booking/page-font-keys";
-import { MAX_DEPOSIT_CENTS, MIN_DEPOSIT_CENTS } from "@/lib/campaign";
+import { MAX_DEPOSIT_CENTS, MIN_DEPOSIT_CENTS, MIN_TOP_UP_CENTS } from "@/lib/campaign";
 import { batchOptions, bestTopic, exploreAdvice, findOption, MIN_BATCH_CENTS, outcomeEstimate, type BatchOption, type BatchOptionKey } from "@/lib/batch";
 import { budgetMath, ownCostPerCall } from "@/lib/migz/playbook";
 import { closeEndedBatch, getActiveBatch, getBatchHistory, getOpenBatch, recommendWithMigz } from "@/lib/dashboard/batches";
@@ -139,8 +139,8 @@ export async function setAdsPaused(paused: boolean): Promise<Result> {
 /** Starts a Stripe Checkout session for an ad-funds deposit. Needs Stripe keys. */
 export async function startDeposit(cents: number): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
   const agent = await requireAgent();
-  if (!Number.isInteger(cents) || cents < MIN_DEPOSIT_CENTS || cents > MAX_DEPOSIT_CENTS)
-    return { ok: false, error: `Deposits must be between $${MIN_DEPOSIT_CENTS / 100} and $${(MAX_DEPOSIT_CENTS / 100).toLocaleString("en-US")}.` };
+  if (!Number.isInteger(cents) || cents < MIN_TOP_UP_CENTS || cents > MAX_DEPOSIT_CENTS)
+    return { ok: false, error: `Deposits must be between $${MIN_TOP_UP_CENTS / 100} and $${(MAX_DEPOSIT_CENTS / 100).toLocaleString("en-US")}.` };
   if (!integrations.stripe)
     return { ok: false, error: "Payments aren't connected yet, so funds can't be added. This will work once Stripe is set up." };
   try {

@@ -31,8 +31,10 @@ export const MAX_DAILY_CENTS = 100_000;
 // Anryh Labs keeps 20% of each deposit; the rest is ad spend. The minimum deposit funds the minimum plan:
 // $350 -> $280 of ads = $20/day x 14 days.
 export const FEE_RATE = 0.2;
-export const MIN_DEPOSIT_CENTS = 35_000;
+export const MIN_DEPOSIT_CENTS = 35_000; // what a first batch needs in total: the smallest plan after the fee
 export const MAX_DEPOSIT_CENTS = 1_000_000;
+/** The least one top-up can be: funds add up, so a deposit needn't cover a whole batch on its own. */
+export const MIN_TOP_UP_CENTS = 10_000;
 
 /** What a deposit adds to the ad balance after the fee. */
 export function adSpendCents(depositCents: number) {
