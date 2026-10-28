@@ -243,7 +243,7 @@ assert.deepEqual(campaignLabels(["final_expense", "mortgage_protection", "final_
 assert.equal(perCampaignCents(2500, 2), 1250);
 assert.equal(adSpendCents(MIN_DEPOSIT_CENTS), 28_000); assert.equal(MIN_AD_BALANCE_CENTS, 28_000);
 const { MIN_TOP_UP_CENTS } = await import("@/lib/campaign");
-assert.equal(MIN_TOP_UP_CENTS, 10_000, "a top-up can be $100 or more");
+assert.equal(MIN_TOP_UP_CENTS, 100, "a top-up can be $1 or more");
 assert.ok(MIN_TOP_UP_CENTS < MIN_DEPOSIT_CENTS, "funds add up, so a top-up needn't cover a whole batch");
 assert.equal(MIN_AD_BALANCE_CENTS, 28_000, "a batch still needs $280 of ads, however it was topped up");
 assert.equal(MIN_DAILY_CENTS * TEST_DAYS, MIN_AD_BALANCE_CENTS, "the minimum deposit funds $20/day for two weeks");
