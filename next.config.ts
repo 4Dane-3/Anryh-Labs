@@ -25,7 +25,17 @@ const nextConfig: NextConfig = {
   },
   // Required headers for FFmpeg WASM (SharedArrayBuffer support)
   async headers() {
+    // Agents' own sites (lib/booking/sites.ts) run their booking page on these public APIs from the browser
+    const cors = [
+      { key: "Access-Control-Allow-Origin", value: "*" },
+      { key: "Access-Control-Allow-Methods", value: "GET, POST, OPTIONS" },
+      { key: "Access-Control-Allow-Headers", value: "Content-Type" },
+      { key: "Access-Control-Max-Age", value: "86400" },
+    ];
     return [
+      { source: "/api/agents/:slug/:part(slots|events|visit|profile)", headers: cors },
+      { source: "/api/bookings", headers: cors },
+      { source: "/api/quotes", headers: cors },
       {
         source: "/(.*)",
         headers: [

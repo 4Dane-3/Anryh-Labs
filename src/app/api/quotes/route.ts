@@ -6,6 +6,7 @@ import { QUOTE_CONSENT_TEXT } from "@/lib/booking/constants";
 import { newQuoteMessage } from "@/lib/booking/format";
 import { sendSlackMessage } from "@/lib/slack";
 import { sendConversionEvents } from "@/lib/meta/capi";
+import { partnerPageUrl } from "@/lib/booking/sites";
 
 // "Get a free quote" on the booking page: saves the request, pings the agent to call back, and tells Meta
 // it was a Lead (the event ad sets optimize for).
@@ -59,7 +60,8 @@ export async function POST(req: Request) {
         events: ["Lead"],
         eventId: quote.id,
         phone: input.phone,
-        pageUrl: `${origin}/${agent.slug}`,
+        // A partner site's own page when the booking came from there
+        pageUrl: partnerPageUrl(body?.page_url) ?? `${origin}/${agent.slug}`,
         attribution: input.attribution,
         ip: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
         userAgent: req.headers.get("user-agent"),
