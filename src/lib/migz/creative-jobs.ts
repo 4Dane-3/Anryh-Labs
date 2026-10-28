@@ -13,6 +13,7 @@ import { briefLabel, cardBrief, isCarouselBrief, isImageBrief, isVideoBrief, typ
 import { closeEvent, openEvent } from "@/lib/migz/events";
 import { notifyAdLive, notifyCreativeReady } from "@/lib/migz/notify";
 import { narrateVideo } from "@/lib/migz/narration";
+import { addEndCard } from "@/lib/migz/endcard";
 
 // Creative jobs move through stages, advanced by the creatives cron (every 10 min) and the
 // Higgsfield webhook:  generating -> stored -> meta_processing -> launched   (or failed)
@@ -177,6 +178,16 @@ export async function enqueueLaunch(input: {
 
 const IMAGE_TYPES: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" };
 
+/** The agent's end-card logo, or null when they have none (or its migration hasn't run). */
+async function agentLogo(agentId: string): Promise<Buffer | null> {
+  const { data } = await supabaseAdmin.from("agents").select("ad_logo_path").eq("id", agentId).single();
+  const path = (data as { ad_logo_path?: string | null } | null)?.ad_logo_path;
+  if (!path) return null;
+  const { data: file, error } = await supabaseAdmin.storage.from("creatives").download(path);
+  if (error || !file) throw new Error(`Couldn't read the end-card logo: ${error?.message ?? "missing file"}`);
+  return Buffer.from(await file.arrayBuffer());
+}
+
 /** Copies a finished generation into our Storage (Higgsfield only keeps outputs ~7 days). */
 async function storeGenerated(job: Job, mediaUrl: string, card?: { index: number; parentId: string | null }) {
   const image = !isVideoBrief(job.brief);
@@ -194,6 +205,20 @@ async function storeGenerated(job: Job, mediaUrl: string, card?: { index: number
       console.error("narration failed", reason);
       await alertAdmin(`*Narration failed* on creative job \`${job.id.slice(0, 8)}\`; the video was kept without a voiceover.\n>${reason.slice(0, 300)}`).catch(() => {});
       await recordEventAlert({ agentId: job.agent_id, key: `narration_failed:${job.id}`, severity: "warn", title: "Narration failed", detail: `The video was kept without a voiceover: ${reason}` });
+    }
+  }
+
+  // The agent's logo as the last shot: the scene blurs and zooms out while it fades in. Like narration, a
+  // failure keeps the video as it is (never lose a paid generation) and staff are told.
+  if (!image && !card && isVideoBrief(job.brief)) {
+    try {
+      const logo = await agentLogo(job.agent_id);
+      if (logo) bytes = (await addEndCard(bytes, logo)) ?? bytes;
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : String(e);
+      console.error("end card failed", reason);
+      await alertAdmin(`*End card failed* on creative job \`${job.id.slice(0, 8)}\`; the video was kept without it.\n>${reason.slice(0, 300)}`).catch(() => {});
+      await recordEventAlert({ agentId: job.agent_id, key: `end_card_failed:${job.id}`, severity: "warn", title: "End card failed", detail: `The video was kept without its logo: ${reason}` });
     }
   }
 

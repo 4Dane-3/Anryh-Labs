@@ -1,12 +1,18 @@
 import "server-only";
-import { imagePrompt, shotPrompts, videoPrompt, type CreativeBrief, type ImageBrief } from "@/lib/migz/brief";
+import { briefDuration, imagePrompt, shotPrompts, videoPrompt, type CreativeBrief, type ImageBrief } from "@/lib/migz/brief";
 
 // Higgsfield API (https://docs.higgsfield.ai): async generation. Submit -> store request_id and
 // status_url -> poll or receive a webhook -> download the output (URLs are kept ~7 days, so we
 // copy finished videos into our own Storage).
 const BASE = "https://api.higgsfield.ai";
-// Kling 3.0 Standard text-to-video: 9:16 output and multi-shot prompts (hook shot + body shots)
-const TEXT_TO_VIDEO = process.env.HF_TEXT_TO_VIDEO_PATH || "/kling-video/v3.0/std/text-to-video";
+// Reel video, by model (HF_VIDEO_MODEL picks one; Seedance unless it says "kling"):
+//  - Seedance 2.5 text-to-video, 1080p: one prompt that times its shots ("Shot 1 (0-3s): ..."), up to 30s.
+//  - Kling 3.0 Standard: multi-shot prompts (hook shot + body shots). Kept so a bad day on one model is a
+//    setting, not a deploy.
+const SEEDANCE_PATH = () => process.env.HF_SEEDANCE_PATH || "/bytedance/seedance-2.5/text-to-video";
+const KLING_PATH = () => process.env.HF_TEXT_TO_VIDEO_PATH || "/kling-video/v3.0/std/text-to-video";
+/** What Seedance 2.5 1080p bills per second of video (Higgsfield's listed rate); HF_SEEDANCE_USD_PER_SECOND overrides. */
+export const SEEDANCE_USD_PER_SECOND = 0.144;
 // Models by job (override any path with an env var, no code change):
 //  - Every still image (4:5 feeds, 9:16 Stories/Reels, 1:1 carousel cards) carries on-image text, so all
 //    go to a model that renders text: HF_FEED_IMAGE_PATH. Ideogram 4.0 until a Nano Banana endpoint is
@@ -58,20 +64,55 @@ async function submit(path: string, body: Record<string, unknown>, opts: SubmitO
   return { requestId: json.request_id, statusUrl: json.status_url };
 }
 
-/** Submits a 9:16 multi-shot video, written as a short-film brief (see videoPrompt): hook shot first, then the body. */
-export async function submitVideo(brief: CreativeBrief, opts: SubmitOptions) {
-  return submit(
-    TEXT_TO_VIDEO,
-    {
-      // Required even with multi_prompt; describes the whole piece
-      prompt: videoPrompt(brief).slice(0, 2500),
+export type VideoModel = "seedance" | "kling";
+export const videoModel = (): VideoModel => (process.env.HF_VIDEO_MODEL?.toLowerCase() === "kling" ? "kling" : "seedance");
+
+/**
+ * Which model and request body a video uses. Pure, so routing is testable. Both are written as a short-film
+ * brief (see videoPrompt): hook shot first, then the body. Seedance voices nothing itself here: the narrator
+ * is spoken by ElevenLabs and mixed in afterwards, so the prompt leaves the voiceover out (a model told to
+ * "narrate" would speak it too, and the video would say everything twice).
+ */
+export function videoRequest(brief: CreativeBrief): { path: string; body: Record<string, unknown>; model: VideoModel } {
+  if (videoModel() === "kling") {
+    return {
+      path: KLING_PATH(),
+      model: "kling",
+      body: {
+        // Required even with multi_prompt; describes the whole piece
+        prompt: videoPrompt(brief).slice(0, 2500),
+        aspect_ratio: "9:16",
+        sound: "on",
+        multi_shots: true,
+        multi_prompt: shotPrompts(brief),
+      },
+    };
+  }
+  return {
+    path: SEEDANCE_PATH(),
+    model: "seedance",
+    body: {
+      prompt: videoPrompt({ ...brief, voiceover: undefined }).slice(0, 2500),
+      duration: Math.min(30, Math.max(4, Math.round(briefDuration(brief)))),
+      resolution: process.env.HF_VIDEO_RESOLUTION || "1080p",
       aspect_ratio: "9:16",
-      sound: "on",
-      multi_shots: true,
-      multi_prompt: shotPrompts(brief),
+      output_format: "mp4",
+      generate_audio: true, // the scene's own sound; the narrator and music are laid over it
     },
-    opts,
-  );
+  };
+}
+
+/** What a video should cost to generate, in dollars (null for a model whose rate isn't known here). */
+export function videoCostUsd(brief: CreativeBrief) {
+  if (videoModel() !== "seedance") return null;
+  const rate = Number(process.env.HF_SEEDANCE_USD_PER_SECOND) || SEEDANCE_USD_PER_SECOND;
+  return Math.round((videoRequest(brief).body.duration as number) * rate * 100) / 100;
+}
+
+/** Submits a 9:16 video for a brief, on the model chosen by HF_VIDEO_MODEL. */
+export async function submitVideo(brief: CreativeBrief, opts: SubmitOptions) {
+  const req = videoRequest(brief);
+  return submit(req.path, req.body, opts);
 }
 
 /** Which model and request body a still image uses. Pure, so routing is testable. */

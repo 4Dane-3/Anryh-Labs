@@ -57,6 +57,7 @@ export type Agent = {
   call_phone?: string | null; // E.164, the number that button dials
   call_hours_only?: boolean; // show it only during working hours
   results_from?: string | null; // results before this date aren't comparable (placements changed); missing before its migration
+  ad_logo_path?: string | null; // the logo Migz videos end on (creatives bucket); missing before its migration
   quote_mode?: QuoteMode; // "Get a free quote" on the booking page (missing before its migration)
 };
 
