@@ -11,7 +11,7 @@ import { listCampaignTopics, type CampaignSlot } from "@/lib/batch";
 import { AddFunds } from "@/components/dashboard/FundsControls";
 import { ProfileForm, type Profile } from "@/components/dashboard/LandingEditor";
 import { Button, Label, Panel } from "@/components/dashboard/ui";
-import { MIN_DEPOSIT_CENTS } from "@/lib/campaign";
+import { MIN_DEPOSIT_CENTS, MIN_TOP_UP_CENTS } from "@/lib/campaign";
 import { usd } from "@/lib/dashboard/format";
 import { cleanFocus, MAX_FOCUS, TOPIC_KEYS, TOPICS, type TopicKey } from "@/lib/migz/topics";
 import { cn } from "@/lib/utils";
@@ -39,7 +39,7 @@ type Props = {
 const TITLES: Record<string, { title: string; blurb: string }> = {
   profile: { title: "Your profile", blurb: "Your name, photo and a short bio. People see this before they book." },
   page: { title: "Your booking page", blurb: "The hours you take calls, and a look at the page your ads send people to." },
-  funds: { title: "Add funds", blurb: `Money for your Meta ads. The minimum is ${usd(MIN_DEPOSIT_CENTS)}: $20 a day of ads for 2 weeks.` },
+  funds: { title: "Add funds", blurb: `Money for your Meta ads. Add ${usd(MIN_TOP_UP_CENTS)} or more at a time; your first batch needs ${usd(MIN_DEPOSIT_CENTS)} in total ($20 a day of ads for 2 weeks).` },
   plan: { title: "Plan your first batch", blurb: "What to promote and how much to put in. Migz plans the campaigns and how long they run." },
   creatives: { title: "Videos and images", blurb: "Let Migz make your ads' videos and photos, or bring your own." },
 };

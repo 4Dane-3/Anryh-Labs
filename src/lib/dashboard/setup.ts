@@ -3,7 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
 import { cleanFocus } from "@/lib/migz/topics";
 import { getBalanceCents } from "@/lib/dashboard/queries";
-import { MIN_AD_BALANCE_CENTS, MIN_DEPOSIT_CENTS } from "@/lib/campaign";
+import { MIN_AD_BALANCE_CENTS, MIN_DEPOSIT_CENTS, MIN_TOP_UP_CENTS } from "@/lib/campaign";
 import { getOpenBatch, getRecentBatches, type Batch } from "@/lib/dashboard/batches";
 
 // What "Start here" checks. Each step is done or not, with the reason it isn't, so the page and the
@@ -50,7 +50,7 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
   const pageMissing = (hours.count ?? 0) === 0 ? "Set the hours you take calls." : null;
   const fundsMissing =
     balanceCents < MIN_AD_BALANCE_CENTS
-      ? `Add at least $${MIN_DEPOSIT_CENTS / 100}. After the 20% fee that's $${MIN_AD_BALANCE_CENTS / 100} of ads: 2 campaigns at $10/day for 2 weeks.`
+      ? `Add at least $${MIN_DEPOSIT_CENTS / 100} in total (you can add $${MIN_TOP_UP_CENTS / 100} or more at a time). After the 20% fee that's $${MIN_AD_BALANCE_CENTS / 100} of ads: $20/day for 2 weeks.`
       : null;
   const planMissing = !cleanFocus(agent.ad_focus).length
     ? "Choose what you want to promote."

@@ -11,6 +11,7 @@ import {
   depositFor,
   FEE_RATE,
   MIN_DEPOSIT_CENTS,
+  MIN_TOP_UP_CENTS,
   TEST_DAYS,
 } from "@/lib/campaign";
 import { Button, Switch, inputClass } from "@/components/dashboard/ui";
@@ -26,7 +27,7 @@ export function AddFunds() {
   const [pending, startTransition] = useTransition();
 
   const cents = custom ? Math.round(Number(custom.replace(/[^0-9.]/g, "")) * 100) : amount;
-  const tooSmall = cents > 0 && cents < MIN_DEPOSIT_CENTS;
+  const tooSmall = cents > 0 && cents < MIN_TOP_UP_CENTS;
   const forAds = adSpendCents(cents);
   // The daily spend this deposit pays for over two weeks
   const perDay = Math.floor(forAds / TEST_DAYS / 100) * 100;
@@ -69,7 +70,7 @@ export function AddFunds() {
           <input
             inputMode="decimal"
             aria-label="Custom amount"
-            placeholder={`Other amount (min ${usd(MIN_DEPOSIT_CENTS)})`}
+            placeholder={`Other amount (min ${usd(MIN_TOP_UP_CENTS)})`}
             className={`${inputClass} pl-7`}
             value={custom}
             onChange={(e) => setCustom(e.target.value)}
@@ -81,7 +82,7 @@ export function AddFunds() {
       </div>
       <p className={cn("relative mt-3 text-[13px]", tooSmall ? "text-bad" : "text-fg-muted")}>
         {tooSmall ? (
-          `The minimum is ${usd(MIN_DEPOSIT_CENTS)}: enough for $20/day of ads for 2 weeks.`
+          `The minimum is ${usd(MIN_TOP_UP_CENTS)}. Funds add up, so you can top up a little at a time.`
         ) : cents > 0 ? (
           <>
             {`${usd(forAds)} goes to your ads, ${usd(cents - forAds, { cents: (cents - forAds) % 100 !== 0 })} is the Anryh Labs fee (${FEE_RATE * 100}%). That runs your ads at about ${usd(perDay, { cents: false })}/day for 2 weeks. `}
