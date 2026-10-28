@@ -34,7 +34,7 @@ export const FEE_RATE = 0.2;
 export const MIN_DEPOSIT_CENTS = 35_000; // what a first batch needs in total: the smallest plan after the fee
 export const MAX_DEPOSIT_CENTS = 1_000_000;
 /** The least one top-up can be: funds add up, so a deposit needn't cover a whole batch on its own. */
-export const MIN_TOP_UP_CENTS = 10_000;
+export const MIN_TOP_UP_CENTS = 100; // $1 (Stripe's own minimum charge is $0.50)
 
 /** What a deposit adds to the ad balance after the fee. */
 export function adSpendCents(depositCents: number) {
