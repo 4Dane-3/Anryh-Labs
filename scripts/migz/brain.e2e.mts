@@ -354,11 +354,12 @@ try {
   assert.equal(liveAds!.length, 2);
   const videoAd = liveAds!.find((a) => (a.creatives as { kind: string }).kind === "video")!;
   const imageAd = liveAds!.find((a) => (a.creatives as { kind: string }).kind === "image")!;
-  const videoSubmit = hf.submitted.find((x) => x.path.includes("kling"))!;
+  const videoSubmit = hf.submitted.find((x) => x.path.includes("seedance"))!;
   assert.match(String(videoSubmit.body.prompt), /^A \d+-second vertical short film about Mortgage protection/);
   assert.match(String(videoSubmit.body.prompt), /The same people appear throughout: a dad in his late 30s/);
   assert.match(String(videoSubmit.body.prompt), /no one looks into the camera/);
-  assert.ok((videoSubmit.body.multi_prompt as { prompt: string }[]).every((sh) => /nobody looks at the camera/.test(sh.prompt)));
+  assert.equal(videoSubmit.body.resolution, "1080p");
+  assert.doesNotMatch(String(videoSubmit.body.prompt), /narrator/i, "the narrator is mixed in afterwards, so the video model isn't asked to voice it");
   // The narrator: ElevenLabs spoke the brief's voiceover and it was mixed over the stored video
   assert.equal(elevenlabs.length, 1, "one voiceover spoken");
   assert.match(elevenlabs[0].text, /^He thought about who keeps the house/);

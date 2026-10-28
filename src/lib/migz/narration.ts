@@ -97,7 +97,7 @@ export async function composeMusic(mood: string | null | undefined, seconds: num
   return Buffer.from(await res.arrayBuffer());
 }
 
-async function ffmpegPath() {
+export async function ffmpegPath() {
   try {
     const mod = (await import("ffmpeg-static")) as unknown as { default?: string | null } | string;
     return (typeof mod === "string" ? mod : mod.default) ?? null;
@@ -121,8 +121,8 @@ async function loudness(bin: string, file: string, from?: { start: number; secon
   return lufs !== null && lufs > -70 ? lufs : null;
 }
 
-/** Duration in seconds and whether there's an audio track, read from ffmpeg's own report. */
-async function probe(bin: string, file: string) {
+/** Duration in seconds, picture size and whether there's an audio track, read from ffmpeg's own report. */
+export async function probe(bin: string, file: string) {
   let report = "";
   try {
     await run(bin, ["-hide_banner", "-i", file], { timeout: 20_000 });
@@ -131,7 +131,8 @@ async function probe(bin: string, file: string) {
   }
   const m = report.match(/Duration: (\d+):(\d+):([\d.]+)/);
   const seconds = m ? Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) : null;
-  return { seconds, hasAudio: /Stream #\S+.*Audio:/.test(report) };
+  const size = report.match(/Stream #\S+.*Video:.*?[\s,](\d{2,5})x(\d{2,5})[\s,\[]/);
+  return { seconds, hasAudio: /Stream #\S+.*Audio:/.test(report), width: size ? Number(size[1]) : null, height: size ? Number(size[2]) : null };
 }
 
 /**
