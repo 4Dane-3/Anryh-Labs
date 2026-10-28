@@ -392,24 +392,24 @@ ok("Brain: background work (a generation, a Meta upload) lights its node outside
 // batch pacing: Meta's up-to-25% daily overspend can't take a batch over its budget
 const { pacedDailyCents, batchEndTime } = await import("@/lib/batch");
 assert.equal(pacedDailyCents({ budgetCents: 28_000, spentCents: 0, daysLeft: 14, plannedDailyCents: 2000 }), 2000, "on plan: the planned $20/day");
-assert.equal(pacedDailyCents({ budgetCents: 28_000, spentCents: 14_000, daysLeft: 7, plannedDailyCents: 2000 }), 1600, "last week: $140 left over 7 days at 25% hot = $16/day");
+assert.equal(pacedDailyCents({ budgetCents: 28_000, spentCents: 14_000, daysLeft: 7, plannedDailyCents: 2000 }), 1818, "last week: $140 left over 7 days at 10% hot = $18.18/day");
 assert.equal(pacedDailyCents({ budgetCents: 28_000, spentCents: 28_100, daysLeft: 3, plannedDailyCents: 2000 }), 0, "over: stop");
 assert.equal(pacedDailyCents({ budgetCents: 28_000, spentCents: 5000, daysLeft: 7, plannedDailyCents: 2000 }), 2000, "underspent ($50 by day 8): never above the plan");
-for (const [budget, days, planned] of [[28_000, 14, 2000], [56_000, 14, 4000], [70_000, 35, 2000], [42_000, 15, 2800]]) {
-  // Worst case, stricter than Meta's rule: every single day runs 25% over whatever the budget is set to,
+for (const [budget, days, planned] of [[28_000, 14, 2000], [56_000, 14, 4000], [70_000, 35, 2000], [42_000, 15, 2800], [70_000, 7, 10_000]]) {
+  // Every single day runs 10% over whatever the budget is set to (Migz's buffer),
   // and budgets are only ever lowered (as paceBudgets does)
   let spent = 0;
   let setTo = planned;
   for (let day = 0; day < days; day++) {
     setTo = Math.min(setTo, pacedDailyCents({ budgetCents: budget, spentCents: spent, daysLeft: days - day, plannedDailyCents: planned }));
     if (setTo < 500) break; // under one ad set's minimum: paused as "budget used up"
-    spent += Math.floor(setTo * 1.25);
+    spent += Math.floor(setTo * 1.1);
   }
-  assert.ok(spent <= budget, `$${budget / 100} over ${days} days, 25% hot every day: spent $${spent / 100}`);
+  assert.ok(spent <= budget, `$${budget / 100} over ${days} days, 10% hot every day: spent $${spent / 100}`);
   assert.ok(spent >= budget * 0.8, `still spends most of it ($${spent / 100} of $${budget / 100})`);
 }
 assert.equal(batchEndTime("2026-11-03", "America/Chicago"), "2026-11-03T23:59:59.000-06:00".replace(".000", ""));
-ok("pacing: even 25% over every day, a batch never finishes over budget (and still spends most of it); Meta stops at 23:59 on the last day");
+ok("pacing: even 10% over every day, a batch never finishes over budget (and still spends most of it); Meta stops at 23:59 on the last day");
 
 // Slack: rich updates with an ad preview
 const sb = await import("@/lib/migz/slack-blocks");

@@ -240,19 +240,20 @@ export function findOption(budgetCents: number, focus: TopicKey[], key: string, 
 // ---------- Staying inside the batch ----------
 
 /**
- * Meta may spend up to 25% more than an ad set's daily budget on a given day, evening it out over the
- * week. Mid-batch that averages away; in the last week there's no time left to even out, so a batch
- * paced at exactly budget/days could finish over. Migz plans for it (pacedDailyCents) and Meta stops
- * delivery itself at the batch's end time (batchEndTime).
+ * Meta may spend more than an ad set's daily budget on a given day (up to 25% on a rare busy day),
+ * evening it out over the week. Mid-batch that averages away; in the last week there's less time to even
+ * out, so Migz keeps a 10% buffer (pacedDailyCents): enough for Meta's usual day-to-day swing without
+ * holding a one-week $700 batch to $80/day. Pacing re-checks every review, so a hot day lowers the next
+ * days' budget, and Meta stops delivery itself at the batch's end time (batchEndTime).
  */
-export const META_DAILY_FLEX = 0.25;
+export const META_DAILY_FLEX = 0.1;
 export const FINAL_STRETCH_DAYS = 7;
 
 /**
  * The most the batch's campaigns may be set to spend per day right now so the batch can't go over its
- * budget even if Meta runs 25% hot. Never above the plan. 0 means the budget is used up: stop.
+ * budget even if Meta runs 10% hot. Never above the plan. 0 means the budget is used up: stop.
  * - Before the last week: what's left spread evenly (Meta's weekly averaging keeps spend near this).
- * - In the last week: what's left assuming every remaining day runs 25% over.
+ * - In the last week: what's left assuming every remaining day runs 10% over.
  */
 export function pacedDailyCents(input: { budgetCents: number; spentCents: number; daysLeft: number; plannedDailyCents: number }) {
   const remaining = input.budgetCents - input.spentCents;

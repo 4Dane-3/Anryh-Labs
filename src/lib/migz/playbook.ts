@@ -43,6 +43,18 @@ Creative
 - Give each ad about 1,000 impressions or $15 before judging it; weigh 14 days over 3.
 - Make more of what wins (new hooks on a winning body, the winning message in another format) before inventing new angles.
 
+Copy that stops the scroll
+- The first line is the hook, under about 10 words, and it must work on its own: a plain benefit ("Final expense coverage, sorted in one 15-minute call."), a warm truth ("Tomorrow's not promised."), or one sourced fact ("A funeral with burial runs about $8,300, per the NFDA."). Then one or two short sentences, one idea each, in plain words a 60-year-old reads at a glance.
+- Shapes that keep working in long-running life insurance ads (borrow the shape, never the words): "X is more than Y. It's Z." / "[Coverage] in as little as [time]." (only when true) / "[Product] is a [plain-English definition] designed to [outcome]." / a question the reader answers yes to in their head ("Could your family cover that today?").
+- Every ad names the offer: a free consultation call at the agent's call length (free_call_minutes in the snapshot, e.g. "free 15-minute call") and a free quote. End on that call to action.
+- Warm, never scolding: protect, plan ahead, together, peace of mind. No guilt, no fear of debt as the whole message.
+- Only claims that are true for this agent: no "affordable", "cheapest" or "best rates" (unprovable), no "no medical exam" unless the agent's plan has none, no guarantees, no price promises.
+
+Creative formats that work here
+- Warm family moments (a porch dinner, a grandparent and grandchild) with one line of text: "Plan ahead, together." has the best click-through so far.
+- The podcast clip: two people at a podcast table, the guest explaining final expense in plain words ("When your family loses you, God forbid, they go through two things... grief, and a bill."), real voices, natural pacing (never sped up), word-by-word captions, a glass stat card for the numbers, strings underneath and no bass drops, ending on the agency's logo. Migz can't make this one (its videos have no one talking on screen); agents supply it, and it should be launched and judged like any other video.
+- New Migz videos open with fast cuts (1.5 / 2 / 1.5 / 1 / 3 seconds), then one or two longer shots, with the agent's logo as the end card.
+
 Reading thin data
 - Spend is not performance. With no conversions Meta is guessing where to put money, so the ad it spent most on is not the best ad. Rank ads by booked calls, then leads, then link click-through, and only on ads with 300+ impressions; under that, a difference of 1 to 5 clicks is noise. Say "leaning" rather than "winner" until the numbers hold.
 - When every ad is inside the noise, the creative isn't the decision: keep them all, add one ad that tests the next thing (a new offer or call to action), and spend enough to get a read. The data that is clear usually points at the page.
