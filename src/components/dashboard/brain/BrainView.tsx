@@ -123,10 +123,10 @@ export function BrainView({
 const THOUGHT_TONE: Record<ThoughtStatus, "bad" | "accent" | "neutral" | "good"> = { considering: "neutral", testing: "accent", ready: "good", done: "good", dropped: "bad" };
 const THOUGHT_LABEL: Record<ThoughtStatus, string> = { considering: "considering", testing: "testing", ready: "ready to act", done: "done", dropped: "dropped" };
 
-/** Migz's running thoughts, updated every other evening at 9pm (the same ones that go to the agent in Slack). */
+/** Migz's running thoughts, updated every third evening at 9pm (the same ones that go to the agent in Slack). */
 function NotebookPanel({ notebook }: { notebook: Board["notebook"] }) {
   const description = !notebook
-    ? "Every other evening at 9pm Migz writes up the last two days and updates the thoughts it's carrying."
+    ? "Every third evening at 9pm Migz writes up the last three days and updates the thoughts it's carrying."
     : notebook.phase === "collecting"
       ? "Migz can't change anything during the first week of a batch, so it collects thoughts and tests them against each new day."
       : "What Migz is considering, testing and ready to act on, carried from night to night.";

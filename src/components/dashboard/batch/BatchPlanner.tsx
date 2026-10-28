@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 export type BatchChoice = { budgetCents: number; option: BatchOptionKey; recommended: BatchOptionKey; reason: string; autoRun: boolean; renew: boolean };
 
 const RUN_MODES = [
-  { auto: true, title: "Let Migz run it", detail: "Migz launches ads and makes changes on its own, within the budget and guardrails. You get a Slack update for everything it does." },
+  { auto: true, title: "Let Migz run it", detail: "Migz launches ads and makes changes on its own, within the budget and guardrails. You get a Slack update every 3 days with what it changed." },
   { auto: false, title: "Ask me first", detail: "Migz proposes each new ad and change. Nothing goes live until you approve it in the Brain or on the Overview." },
 ] as const;
 

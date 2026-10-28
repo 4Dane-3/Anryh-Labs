@@ -143,7 +143,7 @@ export function ApprovalsPanel({ proposals }: { proposals: MigzAction[] }) {
           </AnimatePresence>
         </ul>
       ) : (
-        <EmptyState title="Nothing waiting">When Migz proposes a new ad or a change, it shows up here and in Slack.</EmptyState>
+        <EmptyState title="Nothing waiting">When Migz proposes a new ad or a change, it shows up here.</EmptyState>
       )}
       {errors.length > 0 && (
         <div className="border-t border-line px-5 py-3 text-[12px] text-bad">

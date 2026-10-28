@@ -25,7 +25,6 @@ import { runRoutines } from "@/lib/migz/routines";
 import { audit } from "@/lib/migz/team/auditor";
 import { writeFeed } from "@/lib/migz/team/clerk";
 import { alertCriticalFindings, alertReviewFailed } from "@/lib/migz/slack";
-import { notifyBatchSetup, notifyReviewSummary } from "@/lib/migz/notify";
 import { runScout } from "@/lib/migz/team/scout";
 import { READ_TOOLS } from "@/lib/migz/team/tools";
 import type { EvalContext } from "@/lib/migz/tools";
@@ -140,7 +139,8 @@ async function enforceSpendState(agent: Agent, snapshot: Snapshot, runId: string
     return "paused";
   }
 
-  if (!agent.ads_paused && !lowBalance && !ended) {
+  // Never resume into no states: the ads would reach places the agent can't sell (retargetNow paused them)
+  if (!agent.ads_paused && !lowBalance && !ended && agent.licensed_states.length) {
     const { data: last } = await supabaseAdmin
       .from("ad_actions")
       .select("tool, payload")
@@ -389,14 +389,6 @@ export async function syncCampaignPlan(agent: Agent, runId: string | null, batch
     tool: "system_setup",
     run_id: runId,
   });
-  await notifyBatchSetup(agent, {
-    budgetCents: batch?.budget_cents ?? null,
-    days: batch?.days ?? null,
-    campaigns: labels,
-    perCampaignCents: centsFor(0),
-    campaignCents: slots.map((_, i) => centsFor(i)),
-    endsOn: batch?.ends_on ?? null,
-  });
   return true;
 }
 
@@ -580,6 +572,30 @@ async function syncTargeting(agent: Agent, runId: string | null) {
 }
 
 /**
+ * Pauses every live ad set in Meta right away instead of waiting for the next review. Logged as a
+ * system pause, so the review after the reason is gone (ads back on, states added) turns them back on.
+ */
+export async function pauseAdSetsNow(agent: Agent, why: { title: string; detail: string; summary: string }) {
+  if (!agent.meta_ad_account_id) return 0;
+  const { data: live } = await supabaseAdmin.from("ad_sets").select("id, meta_adset_id").eq("agent_id", agent.id).eq("status", "ACTIVE");
+  if (!live?.length) return 0;
+  await metaStep({ agentId: agent.id, runId: null, summary: why.summary }, async () => {
+    for (const s of live) await setStatus(s.meta_adset_id, "PAUSED");
+  });
+  await supabaseAdmin.from("ad_sets").update({ status: "PAUSED", updated_at: new Date().toISOString() }).in("id", live.map((s) => s.id));
+  await logAction(agent.id, {
+    kind: "pause",
+    title: why.title,
+    detail: why.detail,
+    status: "applied",
+    tool: "system_pause",
+    payload: { adset_ids: live.map((s) => s.meta_adset_id) },
+    run_id: null,
+  });
+  return live.length;
+}
+
+/**
  * Runs right after the agent saves their licensed states, instead of waiting up to 6 hours for the next
  * review: re-targets every ad set to the new states, or pauses all ads if no states are left (ads must
  * never reach people where the agent can't sell).
@@ -587,22 +603,11 @@ async function syncTargeting(agent: Agent, runId: string | null) {
 export async function retargetNow(agent: Agent) {
   if (!agent.meta_ad_account_id) return;
   if (agent.licensed_states.length) return syncTargeting(agent, null);
-  const { data: live } = await supabaseAdmin.from("ad_sets").select("id, meta_adset_id").eq("agent_id", agent.id).eq("status", "ACTIVE");
-  if (!live?.length) return 0;
-  await metaStep({ agentId: agent.id, runId: null, summary: "Pausing your ads: no licensed states" }, async () => {
-    for (const s of live) await setStatus(s.meta_adset_id, "PAUSED");
-  });
-  await supabaseAdmin.from("ad_sets").update({ status: "PAUSED", updated_at: new Date().toISOString() }).in("id", live.map((s) => s.id));
-  await logAction(agent.id, {
-    kind: "pause",
+  return pauseAdSetsNow(agent, {
+    summary: "Pausing your ads: no licensed states",
     title: "Paused your ads: no licensed states",
     detail: "Your profile has no licensed states, so Migz paused your ads. Add the states you're licensed in and they'll target those.",
-    status: "applied",
-    tool: "system_pause",
-    payload: { adset_ids: live.map((s) => s.meta_adset_id) },
-    run_id: null,
   });
-  return live.length;
 }
 
 /**
@@ -618,6 +623,43 @@ export async function runMigz(
   // Migz only manages ads once the agent has finished setup ("Start my campaign" starts their first
   // batch). Before that, adding funds alone must never make Migz build campaigns in their account.
   if (!agent.onboarding_completed_at) return { runId: null, status: "setup_not_finished" as const };
+  // After failed reviews the schedule backs off (1h, 2h, 4h, then every 6h) instead of retrying every
+  // hour and paying for the same failure; a manual review still runs right away
+  if (trigger === "schedule" && agent.migz_failed_at && Date.now() - Date.parse(agent.migz_failed_at) < failBackoffMs(agent.migz_fail_count ?? 1))
+    return { runId: null, status: "backing_off" as const };
+  // One review at a time: a manual review, a batch start and the cron can overlap, and two operators
+  // would each make their own changes (duplicate ads, campaigns, budget edits)
+  const lock = await claimRun(agent.id);
+  if (!lock) return { runId: null, status: "busy" as const };
+  try {
+    return await review(agent, trigger, createMessage);
+  } finally {
+    await supabaseAdmin.from("agents").update({ migz_run_claimed_at: null }).eq("id", agent.id).eq("migz_run_claimed_at", lock);
+  }
+}
+
+// Longer than a review may run (the cron's maxDuration is 300s), so a live review's claim never expires under it
+const RUN_CLAIM_SECONDS = 360;
+
+/** Claims the agent's review slot; returns the claim, or null when a review is already running. */
+async function claimRun(agentId: string) {
+  const token = new Date().toISOString();
+  const stale = new Date(Date.now() - RUN_CLAIM_SECONDS * 1000).toISOString();
+  const { data, error } = await supabaseAdmin
+    .from("agents")
+    .update({ migz_run_claimed_at: token })
+    .eq("id", agentId)
+    .or(`migz_run_claimed_at.is.null,migz_run_claimed_at.lt.${stale}`)
+    .select("id");
+  if (error) return token; // before the run-safety migration: unlocked, as before
+  return data?.length ? token : null;
+}
+
+export function failBackoffMs(failures: number) {
+  return Math.min(6, 2 ** Math.max(0, failures - 1)) * 3_600_000;
+}
+
+async function review(agent: Agent, trigger: "schedule" | "manual", createMessage: CreateMessage) {
   const { data: run } = await supabaseAdmin
     .from("migz_runs")
     .insert({ agent_id: agent.id, trigger, model: MODELS.sonnet })
@@ -630,28 +672,44 @@ export async function runMigz(
   };
 
   try {
-    // A batch whose last day is over is closed with its results; its ads pause below
-    await closeEndedBatch(agent).catch((e) => console.error("closing the batch failed", e));
-    await ensureBatchSetAside(agent).catch((e) => console.error("setting the batch's money aside failed", e));
     let snapshot = await buildSnapshot(agent);
+    // A failed Meta sync must not skip the safety switch below (paused ads, low balance, batch over): it
+    // runs on what we already have, and the review fails after it
+    let syncError: unknown = null;
     if (snapshot.hasCampaign) {
       const done = await begin({ agentId: agent.id, runId, step: "syncing", tier: "code", summary: "Pulling results from Meta" });
-      await syncAgent(agent);
-      snapshot = await buildSnapshot(agent);
-      const t = snapshot.forModel.account_last_14_days;
-      await done({ summary: `Synced 14 days: ${t.spend} spent, ${t.impressions} impressions, ${t.booked_calls} booked calls`, evidence: t });
+      try {
+        await syncAgent(agent);
+        snapshot = await buildSnapshot(agent);
+        const t = snapshot.forModel.account_last_14_days;
+        await done({ summary: `Synced 14 days: ${t.spend} spent, ${t.impressions} impressions, ${t.booked_calls} booked calls`, evidence: t });
+      } catch (e) {
+        syncError = e;
+        await done({ summary: `Couldn't pull results from Meta: ${e instanceof Error ? e.message.slice(0, 160) : "error"}` });
+      }
     }
+    // A batch whose last day is over is closed with its results (after the sync, so its last day counts); its ads pause below
+    const closed = await closeEndedBatch(agent).catch((e) => {
+      console.error("closing the batch failed", e);
+      return null;
+    });
+    await ensureBatchSetAside(agent).catch((e) => console.error("setting the batch's money aside failed", e));
+    if (closed) snapshot = await buildSnapshot(agent); // the unspent money is back in the balance
 
     await syncCampaignSwitch(agent, runId);
     const batch = await getActiveBatch(agent.id);
     const pacing = await batchPacing(agent, batch);
     const spend = await enforceSpendState(agent, snapshot, runId, pacing?.budgetUsed ?? false, !!batch);
+    if (syncError) throw syncError;
     if (spend === "paused") {
       await finish(runId, agent.id, { summary: "Ads are paused, so Migz made no changes." });
       await emit({ agentId: agent.id, runId, step: "finished", tier: "code", summary: "Ads are paused, so Migz made no changes." });
       return { runId, status: "paused" as const };
     }
 
+    // New creatives are made while a batch is being set up (its first review), or when nothing is live
+    // to run. Every other review studies the ads it has and records what they teach.
+    const producing = (!!batch && !batch.applied_at) || !snapshot.guardAdsets.some((s) => s.ads.some((a) => a.status === "ACTIVE"));
     if (await syncCampaignPlan(agent, runId, batch)) snapshot = await buildSnapshot(agent);
     if (await syncTargeting(agent, runId)) snapshot = await buildSnapshot(agent);
     if (pacing && (await paceBudgets(agent, runId, pacing))) snapshot = await buildSnapshot(agent);
@@ -708,6 +766,7 @@ export async function runMigz(
         .update({ status: "skipped", skipped_reason: "quiet", summary: "Nothing material changed, so Migz skipped the review.", finished_at: new Date().toISOString(), cost_usd: await cost() })
         .eq("id", runId);
       await supabaseAdmin.from("agents").update({ migz_last_run_at: new Date().toISOString() }).eq("id", agent.id);
+      await clearFailures(agent.id);
       return { runId, status: "skipped" as const };
     }
     await emit({ agentId: agent.id, runId, step: "triaging", tier: "code", summary: `Full review: ${reasons.join("; ")}`, evidence: { reasons } });
@@ -724,7 +783,8 @@ export async function runMigz(
     const ctx = await buildEvalContext(agent, snapshot);
     // Budget changes can never take the batch's campaigns above the paced cap
     if (pacing) ctx.dailyCapCents = Math.min(ctx.dailyCapCents, pacing.dailyCapCents);
-    const result = await runOperator({ agent, snapshot, runId, budget, createMessage, ctx }, extraTools, { teamContext, reasons });
+    if (!producing) ctx.maxGenerations = 0;
+    const result = await runOperator({ agent, snapshot, runId, budget, createMessage, ctx }, extraTools, { teamContext, reasons, producing });
     const summary = result.summary ? await writeFeed(result.summary, { agentId: agent.id, runId, budget, createMessage }) : "";
 
     const now = new Date().toISOString();
@@ -733,7 +793,6 @@ export async function runMigz(
     const after = await buildSnapshot(agent);
     await supabaseAdmin.from("agents").update({ migz_last_operator_at: now, migz_gate_state: gateState(after) }).eq("id", agent.id);
     await emit({ agentId: agent.id, runId, step: "finished", tier: "code", summary: summary || "Review finished", evidence: { advisor_calls: result.advisorCalls, executor: result.executor, degraded: result.degraded } });
-    await notifyReviewSummary(agent, runId, summary).catch(() => {});
     return { runId, status: "succeeded" as const, summary };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
@@ -744,8 +803,12 @@ export async function runMigz(
     // Alert first (it checks recent events to avoid repeats), then record the failure
     await alertReviewFailed(agent, message, runId).catch(() => {});
     await emit({ agentId: agent.id, runId, step: "finished", tier: "code", summary: `Review failed: ${message.slice(0, 200)}` });
-    // Failed reviews don't count toward the 6-hour schedule or the 1-hour "Review now" cooldown,
-    // so a fixed setup problem (bad key, missing asset) can be retried right away.
+    // Failed reviews don't count toward the 6-hour schedule or the "Review now" cooldown, so a fixed
+    // setup problem (bad key, missing asset) can be retried right away by hand; the schedule backs off
+    await supabaseAdmin
+      .from("agents")
+      .update({ migz_failed_at: new Date().toISOString(), migz_fail_count: (agent.migz_fail_count ?? 0) + 1 })
+      .eq("id", agent.id);
     return { runId, status: "failed" as const, error: message };
   }
 }
@@ -754,4 +817,10 @@ async function finish(runId: string, agentId: string, fields: Record<string, unk
   const now = new Date().toISOString();
   await supabaseAdmin.from("migz_runs").update({ status: "succeeded", finished_at: now, ...fields }).eq("id", runId);
   await supabaseAdmin.from("agents").update({ migz_last_run_at: now }).eq("id", agentId);
+  await clearFailures(agentId);
+}
+
+/** A review got through: the schedule stops backing off. Separate, so it can't block migz_last_run_at before its migration. */
+async function clearFailures(agentId: string) {
+  await supabaseAdmin.from("agents").update({ migz_failed_at: null, migz_fail_count: 0 }).eq("id", agentId).not("migz_failed_at", "is", null);
 }

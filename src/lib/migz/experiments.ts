@@ -11,6 +11,10 @@ import type { Snapshot } from "@/lib/migz/snapshot";
 // agent's rows, and our privacy policy says an agent's Meta data is used only to serve that agent.
 
 export const MAX_CONCURRENT_EXPERIMENTS = 2;
+/** Learnings older than this stop going into reviews: the account (and Meta) has moved on. */
+export const LEARNING_MAX_DAYS = 45;
+
+const daysAgo = (iso: string) => Math.max(0, Math.floor((Date.now() - Date.parse(iso)) / 86_400_000));
 export const MIN_IMPRESSIONS_PER_VARIANT = 1000;
 export const LEVERS = ["hook", "body", "copy", "offer", "format", "placement", "budget"] as const;
 export const METRICS = ["cost_per_booked_call", "hook_rate", "hold_rate", "link_ctr", "visit_to_booking"] as const;
@@ -93,9 +97,21 @@ export async function experimentContext(agent: Agent, snapshot: Snapshot) {
     });
   }
   const rank = { high: 0, medium: 1, low: 2 } as Record<string, number>;
-  const top = (learnings ?? []).sort((a, b) => rank[a.confidence] - rank[b.confidence]).slice(0, 8);
+  // Old learnings fade: past LEARNING_MAX_DAYS they're left out, and ones from before the results reset are flagged
+  const fresh = (learnings ?? []).filter((l) => daysAgo(l.created_at) <= LEARNING_MAX_DAYS);
+  const top = fresh.sort((a, b) => rank[a.confidence] - rank[b.confidence] || b.created_at.localeCompare(a.created_at)).slice(0, 8);
   return {
-    context: { live_experiments: live, top_learnings: top.map((l) => ({ insight: l.insight, confidence: l.confidence, source: l.source })) },
+    context: {
+      live_experiments: live,
+      top_learnings: top.map((l) => ({
+        insight: l.insight,
+        confidence: l.confidence,
+        source: l.source,
+        learned_on: l.created_at.slice(0, 10),
+        days_ago: daysAgo(l.created_at),
+        ...(agent.results_from && l.created_at.slice(0, 10) < agent.results_from ? { outdated: `from before results were reset on ${agent.results_from}: re-check it on current numbers before relying on it` } : {}),
+      })),
+    },
     reasons: ready ? [`${ready} experiment(s) ready for a verdict`] : [],
   };
 }

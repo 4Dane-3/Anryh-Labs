@@ -26,9 +26,15 @@ export async function sendConversionEvents(input: {
   const userData: Record<string, unknown> = { ph: [sha256(input.phone.replace(/\D/g, ""))] };
   if (input.email) userData.em = [sha256(input.email.trim().toLowerCase())];
   if (input.attribution._fbp) userData.fbp = input.attribution._fbp;
-  // Prefer the cookie; otherwise build fbc from the click id per Meta's format
+  // Prefer the cookie; otherwise build fbc from the click id per Meta's format, with when the ad was
+  // clicked (partner sites remember it as fbclid_at) rather than when the booking came in
   if (input.attribution._fbc) userData.fbc = input.attribution._fbc;
-  else if (input.attribution.fbclid) userData.fbc = `fb.1.${Date.now()}.${input.attribution.fbclid}`;
+  else if (input.attribution.fbclid) {
+    const clickedAt = Number(input.attribution.fbclid_at);
+    const at = Number.isFinite(clickedAt) && clickedAt > 0 && clickedAt <= Date.now() ? Math.floor(clickedAt) : Date.now();
+    userData.fbc = `fb.1.${at}.${input.attribution.fbclid}`;
+  }
+  userData.country = [sha256("us")]; // every agent sells in US states
   if (input.ip) userData.client_ip_address = input.ip;
   if (input.userAgent) userData.client_user_agent = input.userAgent;
 

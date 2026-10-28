@@ -48,7 +48,7 @@ export type GuardContext = {
   actionsThisRun: number;
   generationsThisRun: number;
   videosThisRun?: number;
-  /** Fewer new creatives than usual this review (e.g. 1 while checking whether generator credits are back). */
+  /** Fewer new creatives than usual this review (e.g. 1 while checking whether generator credits are back; 0 outside batch setup). */
   maxGenerations?: number;
   /** Start of the revision phase (campaign start + 7 days). Before it, no pauses, budget or placement edits. */
   revisionsFrom?: Date | null;
@@ -277,6 +277,8 @@ export const promotionTarget = (ctx: GuardContext) => mainAdSet(ctx)?.meta_adset
 
 export function checkGeneration(ctx: GuardContext, kind: "image" | "video" = "image") {
   const cap = ctx.maxGenerations ?? MAX_GENERATIONS_PER_RUN;
+  if (cap === 0)
+    return "New creatives are only made when a batch is set up (or when no ads are live). This review studies the live ads and records what they teach with record_learning instead.";
   if (ctx.generationsThisRun >= cap)
     return `Already started ${cap} creative${cap === 1 ? "" : "s"} this review, the most allowed${cap < MAX_GENERATIONS_PER_RUN ? " while the generator's credits are being checked" : " per review"}.`;
   if (kind === "video" && (ctx.videosThisRun ?? 0) >= MAX_VIDEOS_PER_RUN)

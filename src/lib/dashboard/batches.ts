@@ -6,6 +6,7 @@ import { isTopic, TOPICS, type TopicKey } from "@/lib/migz/topics";
 import { recommendOption, type BatchHistory, type BatchOption, type BatchOptionKey } from "@/lib/batch";
 import { callModel, defaultCreateMessage, jsonOf, monthlyBudget, planTier, type CreateMessage } from "@/lib/migz/router";
 import { notifyBatchEnded } from "@/lib/migz/notify";
+import { syncAgent } from "@/lib/migz/sync";
 import { adFunnel, funnelVerdict } from "@/lib/migz/funnel";
 import { budgetMath, ownCostPerCall, PLAYBOOK } from "@/lib/migz/playbook";
 import type { EventRow } from "@/lib/admin/page-analytics";
@@ -215,11 +216,26 @@ async function returnUnspent(agent: Agent, batch: Batch, spentCents: number) {
   if (error && error.code !== "23505") console.error("returning the batch's unspent money failed", error);
 }
 
+/** If Meta can't be read for this long after a batch's last day, it closes on the spend it has. */
+const CLOSE_WITHOUT_SYNC_DAYS = 2;
+
 /** Closes a batch whose last day is over, recording what it did. Safe to call repeatedly. */
 export async function closeEndedBatch(agent: Agent) {
   const batch = await getActiveBatch(agent.id);
   if (!batch?.ends_on) return null;
-  if (DateTime.now().setZone(agent.timezone).toISODate()! <= batch.ends_on) return null;
+  const today = DateTime.now().setZone(agent.timezone);
+  if (today.toISODate()! <= batch.ends_on) return null;
+  // The last day's spend must be pulled from Meta first: closing on an older sync would count too little
+  // spend and return too much to the balance (and that refund is never corrected)
+  if (agent.meta_ad_account_id) {
+    try {
+      await syncAgent(agent);
+    } catch (e) {
+      const daysOver = Math.floor(today.diff(DateTime.fromISO(batch.ends_on, { zone: agent.timezone }), "days").days);
+      if (daysOver < CLOSE_WITHOUT_SYNC_DAYS) throw e;
+      console.error("closing the batch on its last synced spend", e);
+    }
+  }
   const r = await results(agent, batch.starts_on, batch.ends_on);
   const result = { spent_cents: r.spentCents, booked_calls: r.bookedCalls };
   // Only the caller that actually flips it to "ended" tells the agent (the page and a review can race)

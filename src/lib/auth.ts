@@ -42,7 +42,8 @@ export const getCurrentAgent = cache(async (): Promise<Agent | null> => {
   const { data: claimed } = await supabaseAdmin
     .from("agents")
     .update({ user_id: user.id })
-    .ilike("email", user.email)
+    // Case-insensitive but exact: "_" and "%" are wildcards in ilike, so jane_doe@ must not match jane.doe@
+    .ilike("email", user.email.replace(/[\\%_]/g, (c) => `\\${c}`))
     .is("user_id", null)
     .eq("active", true)
     .select("*")

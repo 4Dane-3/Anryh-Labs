@@ -316,7 +316,7 @@ export async function buildSnapshot(agent: Agent) {
     migz_notebook: notebook,
     market_research_ideas: researchIdeas.length
       ? {
-          note: "Ideas from your research shift, checked against this account's history and Meta's ad rules. Use them as inspiration when you make new creatives (pick what fits the ad sets that need creative); never copy outside wording.",
+          note: "Ideas from your research shift (each with the date it was found), checked against this account's history and Meta's ad rules. Use them as inspiration when a batch is set up and makes new creatives; never copy outside wording.",
           ideas: researchIdeas,
         }
       : "none yet",
@@ -373,7 +373,7 @@ export async function buildSnapshot(agent: Agent) {
         phase: !revisionsFrom
           ? "not started"
           : today.toISODate()! < revisionsFrom
-            ? `collecting results: the first ${collectDays} days are for data. Build and launch creative for every focus topic, but don't pause ads, move budget or change placements yet (the system refuses). Compare the ads from ${revisionsFrom}.`
+            ? `collecting results: the first ${collectDays} days are for data on the creative the batch launched with. Don't pause ads, move budget or change placements yet (the system refuses). Compare the ads from ${revisionsFrom}.`
             : "revising: compare the ads (and the campaigns, if there are several), revise what's losing (hooks, copy, budget between ad sets when there's more than one), then judge whether each change helped before the campaign ends",
         note: agent.campaign_ends_on ? "The agent chose this length. Pace tests so winners are found with time left to benefit; don't start long tests near the end." : undefined,
       },

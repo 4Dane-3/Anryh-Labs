@@ -2,12 +2,10 @@ import "server-only";
 import { DateTime } from "luxon";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
-import { sendSlackMessage } from "@/lib/slack";
 import { begin } from "@/lib/migz/events";
 import { present } from "@/lib/migz/metrics";
 import { callModel, jsonOf, planTier, type Budget, type CreateMessage } from "@/lib/migz/router";
 import type { Snapshot } from "@/lib/migz/snapshot";
-import { writeWeeklySlack } from "@/lib/migz/team/clerk";
 import { getBatchHistory } from "@/lib/dashboard/batches";
 import { adsForBudget, budgetMath, ownCostPerCall, PLAYBOOK, scaleAdvice, SCHEDULE_FROM_CALLS_PER_WEEK, type BudgetMath } from "@/lib/migz/playbook";
 
@@ -303,14 +301,8 @@ export async function runRoutines(agent: Agent, snapshot: Snapshot, team: Team, 
       attribution_note: "Results from the last 24 hours are incomplete (attribution delay).",
     };
     const memo = await weeklyMemo(agent, snapshot, team, strategy);
-    if (memo) {
-      context.strategy_memo = memo;
-      if (agent.slack_user_id && process.env.SLACK_BOT_TOKEN) {
-        const notes = JSON.stringify({ memo, account_last_14_days: snapshot.forModel.account_last_14_days, weekly_review: context.weekly_review });
-        const text = await writeWeeklySlack(notes, { agentId: agent.id, runId: team.runId, budget: team.budget, createMessage: team.createMessage });
-        await sendSlackMessage(agent.slack_user_id, text).catch(() => {});
-      }
-    }
+    // The memo stays with Migz (and the dashboard); the agent hears about it in the summary every few days
+    if (memo) context.strategy_memo = memo;
     reasons.push("weekly routine due");
     stamps.migz_last_weekly_at = now.toISOString();
   }
