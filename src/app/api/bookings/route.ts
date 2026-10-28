@@ -7,6 +7,7 @@ import { CONSENT_TEXT } from "@/lib/booking/constants";
 import { newBookingMessage } from "@/lib/booking/format";
 import { sendSlackMessage } from "@/lib/slack";
 import { sendConversionEvents } from "@/lib/meta/capi";
+import { partnerPageUrl } from "@/lib/booking/sites";
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
@@ -112,7 +113,8 @@ export async function POST(req: Request) {
         eventId: booking.id,
         email: input.email,
         phone: input.phone,
-        pageUrl: `${origin}/${agent.slug}`,
+        // A partner site's own page when the booking came from there
+        pageUrl: partnerPageUrl(body?.page_url) ?? `${origin}/${agent.slug}`,
         attribution: input.attribution,
         ip: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
         userAgent: req.headers.get("user-agent"),
