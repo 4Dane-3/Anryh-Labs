@@ -7,7 +7,8 @@ import type { PageAnalytics } from "@/lib/admin/page-analytics";
 import { EmptyState, Panel, PanelHeader } from "@/components/dashboard/ui";
 import { cn } from "@/lib/utils";
 
-// Staff only: what visitors do on each agent's booking page, to work out where people drop off.
+// What visitors do on a booking page, to work out where people drop off. Staff pick any agent (admin
+// dashboard); an agent sees their own page on the Migz brain page (`mine`).
 
 const pct = (v: number | null, d = 0) => (v === null ? "–" : `${(v * 100).toFixed(d)}%`);
 const BAR = "#f2a65a";
@@ -84,19 +85,27 @@ function Daily({ a }: { a: PageAnalytics }) {
   );
 }
 
-export function PageAnalyticsPanel({ agents }: { agents: { id: string; name: string; slug: string }[] }) {
+export function PageAnalyticsPanel({
+  agents = [],
+  mine,
+}: {
+  agents?: { id: string; name: string; slug: string }[];
+  /** The signed-in agent's own page: no picker, their data only, and a link to where their ads send people. */
+  mine?: { pageUrl: string };
+}) {
   const [agentId, setAgentId] = useState(agents.find((a) => a.slug === "miguel-cruz")?.id ?? agents[0]?.id ?? "");
   const [days, setDays] = useState<7 | 30>(7);
   const [data, setData] = useState<(PageAnalytics & { ready: true }) | { ready: false } | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!agentId) return;
+    if (!mine && !agentId) return;
     let live = true;
     const load = async () => {
       setLoading(true);
       try {
-        const res = await fetch(`/api/admin/page-analytics?agent=${agentId}&days=${days}`, { cache: "no-store" });
+        const url = mine ? `/api/dashboard/page-analytics?days=${days}` : `/api/admin/page-analytics?agent=${agentId}&days=${days}`;
+        const res = await fetch(url, { cache: "no-store" });
         if (res.ok && live) setData(await res.json());
       } finally {
         if (live) setLoading(false);
@@ -108,7 +117,7 @@ export function PageAnalyticsPanel({ agents }: { agents: { id: string; name: str
       live = false;
       clearInterval(id);
     };
-  }, [agentId, days]);
+  }, [agentId, days, mine]);
 
   const agent = agents.find((a) => a.id === agentId);
   const a = data && data.ready ? data : null;
@@ -117,9 +126,14 @@ export function PageAnalyticsPanel({ agents }: { agents: { id: string; name: str
     <Panel>
       <PanelHeader
         title="Page analytics"
-        description="What visitors do on each agent's booking page: where they drop off, how far they scroll, how long they stay. No personal data."
+        description={
+          mine
+            ? "What visitors do on your booking page: where they drop off, how far they scroll, how long they stay. Migz reads the same numbers in every review. No personal data."
+            : "What visitors do on each agent's booking page: where they drop off, how far they scroll, how long they stay. No personal data."
+        }
         action={
           <div className="flex flex-wrap items-center gap-2">
+            {!mine && (
             <select
               aria-label="Agent"
               value={agentId}
@@ -130,6 +144,7 @@ export function PageAnalyticsPanel({ agents }: { agents: { id: string; name: str
                 <option key={x.id} value={x.id}>{x.name}</option>
               ))}
             </select>
+            )}
             <div className="flex rounded-lg border border-line p-0.5 text-[12px]">
               {([7, 30] as const).map((d) => (
                 <button key={d} onClick={() => setDays(d)} className={cn("rounded-md px-2.5 py-1", days === d ? "bg-white/[0.08] text-fg" : "text-fg-muted hover:text-fg")}>
@@ -137,8 +152,8 @@ export function PageAnalyticsPanel({ agents }: { agents: { id: string; name: str
                 </button>
               ))}
             </div>
-            {agent && (
-              <a href={`/${agent.slug}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[12px] text-fg-muted hover:text-fg">
+            {(mine || agent) && (
+              <a href={mine ? mine.pageUrl : `/${agent!.slug}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[12px] text-fg-muted hover:text-fg">
                 Open page <ArrowUpRight className="size-3.5" />
               </a>
             )}
@@ -146,13 +161,17 @@ export function PageAnalyticsPanel({ agents }: { agents: { id: string; name: str
         }
       />
       {data && !data.ready ? (
-        <EmptyState title="Run the page analytics migration">
-          Run <code className="break-all font-mono text-[12px]">supabase/migrations/20261104000000_page_events.sql</code>, then visits start showing up here.
-        </EmptyState>
+        mine ? (
+          <EmptyState title="Page analytics aren't on yet">Visits to your booking page will show here once Anryh Labs switches them on.</EmptyState>
+        ) : (
+          <EmptyState title="Run the page analytics migration">
+            Run <code className="break-all font-mono text-[12px]">supabase/migrations/20261104000000_page_events.sql</code>, then visits start showing up here.
+          </EmptyState>
+        )
       ) : !a ? (
         <div className="h-48 animate-pulse" />
       ) : !a.sessions ? (
-        <EmptyState title="No visits in this period">Visits show here as people open {agent?.name ?? "this agent"}&apos;s booking page (preview views from the dashboard don&apos;t count).</EmptyState>
+        <EmptyState title="No visits in this period">Visits show here as people open {mine ? "your" : `${agent?.name ?? "this agent"}'s`} booking page (preview views from the dashboard don&apos;t count).</EmptyState>
       ) : (
         <div className={cn("space-y-6 p-5", loading && "opacity-80")}>
           <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 lg:grid-cols-8">
