@@ -3,6 +3,8 @@ import { getBrainBoard, getBrainLive } from "@/lib/migz/brain";
 import { BrainView } from "@/components/dashboard/brain/BrainView";
 import { PageHeader } from "@/components/dashboard/ui";
 import { getProposedActions } from "@/lib/dashboard/queries";
+import { PageAnalyticsPanel } from "@/components/admin/PageAnalytics";
+import { landingUrl } from "@/lib/booking/sites";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +25,10 @@ export default async function BrainPage({ searchParams }: { searchParams: Promis
         justStarted={started === "1"}
         approvals={agent.migz_mode === "approve" || proposals.length ? JSON.parse(JSON.stringify(proposals)) : null}
       />
+      {/* What the ads' visitors do on the page (their partner-site page when they have one): what Migz reads too */}
+      <div className="mt-6">
+        <PageAnalyticsPanel mine={{ pageUrl: landingUrl(agent.slug) }} />
+      </div>
     </>
   );
 }
