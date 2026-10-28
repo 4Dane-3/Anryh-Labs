@@ -1164,7 +1164,7 @@ ok("one-week sprint and Keep going: sprint from $350, $700 = $100/day for 7 days
 
 // Agents whose page lives on their agency's site: ads link there; partner page URLs are trusted only on those sites
 const sites = await import("@/lib/booking/sites");
-assert.equal(sites.landingUrl("miguel-cruz", "https://anryhlabs.com"), "https://foreignfinancial.org/miguel-cruz");
+assert.equal(sites.landingUrl("miguel-cruz", "https://anryhlabs.com"), "https://foreignfinancial.org/miguel-cruz#book", "partner-page ads open at the booking card, so the calendar is first");
 assert.equal(sites.landingUrl("someone-else", "https://anryhlabs.com/"), "https://anryhlabs.com/someone-else");
 assert.equal(sites.partnerPageUrl("https://foreignfinancial.org/miguel-cruz?utm_source=meta"), "https://foreignfinancial.org/miguel-cruz");
 assert.equal(sites.partnerPageUrl("https://evil.example/miguel-cruz"), null);

@@ -24,7 +24,12 @@ const AGENT_PAGES: Record<string, string> = {
 /** The agent's booking page on a partner site, or null when it's their page here. */
 export const partnerPage = (slug: string): string | null => AGENT_PAGES[slug] ?? null;
 
-/** Where the agent's ads send people: their partner-site page, else their page on this app. */
+/**
+ * Where the agent's ads send people: their partner-site page, else their page on this app. A partner page
+ * opens at its booking card (#book), so the calendar is the first thing a visitor sees instead of the intro
+ * above it. (The ad's tracking tags are query parameters, which come before the #.)
+ */
 export function landingUrl(slug: string, appUrl = process.env.APP_URL || "http://localhost:3000") {
-  return partnerPage(slug) ?? `${appUrl.replace(/\/$/, "")}/${slug}`;
+  const partner = partnerPage(slug);
+  return partner ? `${partner}#book` : `${appUrl.replace(/\/$/, "")}/${slug}`;
 }
