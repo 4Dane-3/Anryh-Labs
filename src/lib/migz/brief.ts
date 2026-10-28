@@ -11,8 +11,9 @@ export type CreativeBrief = {
   topic?: string; // which advertising topic it serves (topics.ts), when Migz made it
   style: string; // visual direction applied to every shot
   hook_line: string; // the opening idea in words (also leads the primary text)
-  hook_shot: string; // prompt for the first ~3 seconds
-  body_shots: { prompt: string; duration: number }[];
+  hook_shot: string; // prompt for the opening shot (HOOK_SECONDS; 1.5s on videos made since fast cuts, 3s before)
+  hook_seconds?: number; // how long the hook shot runs; briefs made before fast cuts don't have it (3)
+  body_shots: { prompt: string; duration: number }[]; // seconds, 1.5 for example; the first four of a new video are fixed (OPENING_SHOTS)
   primary_text: string;
   headline: string;
   // The short-film standard (briefs made before it don't have these):
@@ -57,7 +58,18 @@ export type AnyBrief = CreativeBrief | ImageBrief | CarouselBrief;
 export const CAROUSEL_CARDS = 2;
 export const MAX_CARD_LINES = 2;
 
+/** The hook shot of a video made before fast cuts. */
 export const HOOK_SECONDS = 3;
+/**
+ * A new video opens with fast cuts: the hook shot, then four body shots, at these lengths in seconds
+ * (1.5 / 2 / 1.5 / 1 / 3 = 9). Everything after them is free, up to MAX_VIDEO_SECONDS, and the last shot
+ * should run at least END_CARD_SECONDS because the logo end card plays over it. Seedance bills by the
+ * second of video, not by the shot, so more cuts in the same length cost the same.
+ */
+export const OPENING_SHOTS = [1.5, 2, 1.5, 1, 3] as const;
+export const OPENING_SECONDS = OPENING_SHOTS.reduce((s, n) => s + n, 0);
+export const MIN_BODY_SHOTS = OPENING_SHOTS.length - 1; // the hook shot is the first of OPENING_SHOTS
+export const MAX_BODY_SHOTS = 6;
 export const MAX_VIDEO_SECONDS = 15;
 export const MAX_OVERLAY_LINES = 3;
 
@@ -88,9 +100,24 @@ export function cardBrief(brief: CarouselBrief, i: number): ImageBrief {
   };
 }
 
+/** How long the hook shot runs: 3 seconds on videos made before fast cuts. */
+export const hookSeconds = (brief: CreativeBrief) => brief.hook_seconds ?? HOOK_SECONDS;
+
 export function briefDuration(brief: CreativeBrief) {
-  return HOOK_SECONDS + brief.body_shots.reduce((s, b) => s + b.duration, 0);
+  return hookSeconds(brief) + brief.body_shots.reduce((s, b) => s + b.duration, 0);
 }
+
+/** A new video with its opening on the fast-cut pace: the hook shot and the first four body shots get OPENING_SHOTS' lengths. */
+export function withOpeningPace(brief: CreativeBrief): CreativeBrief {
+  return {
+    ...brief,
+    hook_seconds: OPENING_SHOTS[0],
+    body_shots: brief.body_shots.map((b, i) => (i < MIN_BODY_SHOTS ? { ...b, duration: OPENING_SHOTS[i + 1] } : b)),
+  };
+}
+
+/** 1.5 -> "1.5", 3 -> "3": shot times read cleanly in the prompt. */
+const secs = (n: number) => String(Math.round(n * 100) / 100);
 
 /**
  * Added to every video, whatever the brief says. Video models fill gaps with uncanny behaviour (forced
@@ -122,7 +149,7 @@ export function timeJumpWithoutAging(shot: string) {
 
 /** Shot timings in seconds: the hook, then each body shot in order. */
 function shotTimings(brief: CreativeBrief) {
-  const lengths = [HOOK_SECONDS, ...brief.body_shots.map((b) => b.duration)];
+  const lengths = [hookSeconds(brief), ...brief.body_shots.map((b) => b.duration)];
   let t = 0;
   return lengths.map((len) => {
     const from = t;
@@ -139,9 +166,9 @@ export function videoPrompt(brief: CreativeBrief) {
   const times = shotTimings(brief);
   const shots = [brief.hook_shot, ...brief.body_shots.map((b) => b.prompt)];
   return [
-    `A ${times.at(-1)!.to}-second vertical short film about ${clean(brief.concept)}. ${clean(brief.style)}${brief.setting ? `, ${clean(brief.setting)}` : ""}. No text, no logos, no captions.`,
+    `A ${secs(times.at(-1)!.to)}-second vertical short film about ${clean(brief.concept)}. ${clean(brief.style)}${brief.setting ? `, ${clean(brief.setting)}` : ""}. No text, no logos, no captions.`,
     brief.cast ? `The same people appear throughout: ${clean(brief.cast)}.` : "",
-    ...shots.map((shot, i) => `Shot ${i + 1} (${times[i].from}–${times[i].to}s): ${clean(shot)}`),
+    ...shots.map((shot, i) => `Shot ${i + 1} (${secs(times[i].from)}–${secs(times[i].to)}s): ${clean(shot)}`),
     brief.mood ? `Mood: ${clean(brief.mood)}` : "",
     VIDEO_CONTINUITY,
     brief.voiceover
@@ -160,7 +187,8 @@ export function shotPrompts(brief: CreativeBrief) {
   const cast = brief.cast ? ` Same people: ${clean(brief.cast).slice(0, 140)}.` : "";
   return shots.map((shot, i) => {
     const tail = `${cast} ${clean(brief.style)}. ${SHOT_REALISM} ${SHOT_CONTINUITY}`;
-    return { prompt: `${clean(shot).slice(0, 512 - tail.length - 2)}.${tail}`.slice(0, 512), duration: times[i].len };
+    // Kling takes whole seconds: the fast opening rounds (1.5 -> 2), so a Kling video runs a little longer than planned
+    return { prompt: `${clean(shot).slice(0, 512 - tail.length - 2)}.${tail}`.slice(0, 512), duration: Math.max(1, Math.round(times[i].len)) };
   });
 }
 

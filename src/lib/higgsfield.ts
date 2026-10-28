@@ -100,7 +100,7 @@ export function videoRequest(brief: CreativeBrief): { path: string; body: Record
     model: "seedance",
     body: {
       prompt: videoPrompt({ ...brief, voiceover: undefined }).slice(0, 2500),
-      duration: Math.min(30, Math.max(4, Math.round(briefDuration(brief)))),
+      duration: Math.min(30, Math.max(4, Math.ceil(briefDuration(brief)))), // whole seconds
       resolution: process.env.HF_VIDEO_RESOLUTION || DEFAULT_VIDEO_RESOLUTION,
       aspect_ratio: "9:16",
       output_format: "mp4",

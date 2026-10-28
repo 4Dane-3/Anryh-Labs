@@ -3,7 +3,13 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { PLACEMENTS, type Placement } from "@/lib/meta/ads";
 import {
   CAROUSEL_CARDS,
-  HOOK_SECONDS,
+  briefDuration,
+  hookSeconds,
+  MAX_BODY_SHOTS,
+  MIN_BODY_SHOTS,
+  OPENING_SECONDS,
+  OPENING_SHOTS,
+  withOpeningPace,
   MAX_VOICEOVER_WORDS,
   timeJumpWithoutAging,
   MAX_BUTTON_CHARS,
@@ -76,7 +82,7 @@ const shotSchema = {
   type: "object",
   properties: {
     prompt: { type: "string", description: "What the camera sees in this shot: the same people doing one clear, natural action, the place and the light. E.g. 'Her two young kids run into the same sunlit kitchen in pajamas; she wipes her eyes, smiles and pulls them into a tight hug while breakfast cooks.'" },
-    duration: { type: "integer", description: "Seconds, 2 to 6." },
+    duration: { type: "number", description: `Seconds, 1 to 6. Ignored for the first ${MIN_BODY_SHOTS} body shots, which are fixed (see the tool's description); needed for any shot after them.` },
   },
   required: ["prompt", "duration"],
   additionalProperties: false,
@@ -99,7 +105,7 @@ export const MIGZ_TOOLS: Anthropic.Beta.BetaTool[] = [
   }),
   tool(
     "generate_video",
-    `Have Higgsfield make a new 9:16 video ad, written as a short film: one ${HOOK_SECONDS}-second hook shot, then 1-3 body shots (total ${MAX_VIDEO_SECONDS}s max; 3 + 4 + 4 + 4 works well). Tell one small story with an emotional arc, the same people in the same place throughout, and one clear, specific action per shot (who, what they hold or do, where, the light). E.g. a woman in her late 30s at a kitchen table at dawn holding a man's wristwatch, eyes wet, looks up at small footsteps; her two kids run in and she pulls them into a hug; years later her daughter in a graduation gown hugs her on the same porch; she straightens a family photo on the mantel and smiles. Never a specific real person or the agent; never talking to camera. Use for new angles, or when the agent has no creatives.`,
+    `Have Higgsfield make a new 9:16 video ad, written as a short film that opens with fast cuts: the hook shot and the next ${MIN_BODY_SHOTS} body shots run ${OPENING_SHOTS.join(", ")} seconds (${OPENING_SECONDS}s, fixed by the system: write ${MIN_BODY_SHOTS + 1} quick, distinct moments), then 1 or 2 more shots to finish, of any length from 1 to 6 seconds (total ${MAX_VIDEO_SECONDS}s max, so at most ${MAX_VIDEO_SECONDS - OPENING_SECONDS}s after the opening). Make the last shot at least 3 seconds: a calm pull-back, because the agent's logo end card plays over it. Tell one small story with an emotional arc, the same people in the same place throughout, and one clear, specific action per shot (who, what they hold or do, where, the light). E.g. a woman in her late 30s at a kitchen table at dawn holding a man's wristwatch, eyes wet, looks up at small footsteps; her two kids run in and she pulls them into a hug; years later her daughter in a graduation gown hugs her on the same porch; she straightens a family photo on the mantel and smiles. Never a specific real person or the agent; never talking to camera. Use for new angles, or when the agent has no creatives.`,
     {
       concept: { type: "string", description: "The angle in one line, e.g. 'Mortgage protection for new homeowners'." },
       topic: {
@@ -121,8 +127,8 @@ export const MIGZ_TOOLS: Anthropic.Beta.BetaTool[] = [
         description: `Required: narration by an off-screen narrator over the footage (nobody on screen talks), up to ${MAX_VOICEOVER_WORDS} words that tell the story and end on the call to action, e.g. 'She never had to choose between the house and the kids' future. He made sure of that. A free call can help you plan for yours.'`,
       },
       hook_line: { type: "string", description: "The opening idea in words; it also starts the primary text." },
-      hook_shot: { type: "string", description: `Shot 1, the first ${HOOK_SECONDS} seconds: a close, specific moment that stops the scroll (who, what they're holding or doing, the light). E.g. 'Close-up at dawn: the woman sits alone at the kitchen table holding a man's wristwatch, eyes wet; she hears small footsteps and looks toward the hallway.'` },
-      body_shots: { type: "array", items: shotSchema, description: "1 to 3 shots." },
+      hook_shot: { type: "string", description: `Shot 1, the first ${OPENING_SHOTS[0]} seconds: a close, specific moment that stops the scroll (who, what they're holding or doing, the light). E.g. 'Close-up at dawn: the woman sits alone at the kitchen table holding a man's wristwatch, eyes wet; she hears small footsteps and looks toward the hallway.'` },
+      body_shots: { type: "array", items: shotSchema, description: `${MIN_BODY_SHOTS + 1} to ${MAX_BODY_SHOTS} shots: the first ${MIN_BODY_SHOTS} are the quick opening cuts (${OPENING_SHOTS.slice(1).join(", ")} seconds), then one or two to finish.` },
       primary_text: { type: "string", description: "Ad copy above the video, starting with the hook line. Under 300 characters." },
       headline: { type: "string", description: "Short headline under the video, under 40 characters." },
       launch_adset_id: {
@@ -307,11 +313,11 @@ const KIND: Record<ActionPayload["tool"], string> = {
 
 function validateBrief(brief: CreativeBrief) {
   if (!brief.hook_line || !brief.hook_shot || !brief.primary_text || !brief.headline) return "Every brief field is required.";
-  if (brief.body_shots.length < 1 || brief.body_shots.length > 3) return "Use 1 to 3 body shots.";
-  if (brief.body_shots.some((s) => !s.prompt || !Number.isInteger(s.duration) || s.duration < 2 || s.duration > 6))
-    return "Each body shot needs a prompt and a whole-number duration of 2 to 6 seconds.";
-  const total = HOOK_SECONDS + brief.body_shots.reduce((s, b) => s + b.duration, 0);
-  if (total > MAX_VIDEO_SECONDS) return `The video would be ${total}s; keep it to ${MAX_VIDEO_SECONDS}s including the ${HOOK_SECONDS}s hook.`;
+  if (brief.body_shots.length < 1 || brief.body_shots.length > MAX_BODY_SHOTS) return `Use 1 to ${MAX_BODY_SHOTS} body shots.`;
+  if (brief.body_shots.some((s) => !s.prompt || !Number.isFinite(s.duration) || s.duration < 1 || s.duration > 6))
+    return "Each body shot needs a prompt and a duration of 1 to 6 seconds.";
+  const total = briefDuration(brief);
+  if (total > MAX_VIDEO_SECONDS) return `The video would be ${total}s; keep it to ${MAX_VIDEO_SECONDS}s including the ${hookSeconds(brief)}s hook.`;
   return checkCopy(brief.hook_line, brief.primary_text, brief.headline, brief.voiceover);
 }
 
@@ -354,7 +360,7 @@ export function evaluate(name: string, raw: unknown, ctx: EvalContext): Evaluate
     case "generate_video": {
       const gen = checkGeneration(ctx, "video");
       if (gen) return fail(gen);
-      const brief: CreativeBrief = {
+      const drafted: CreativeBrief = {
         concept: str(input.concept, 200),
         ...(isTopic(input.topic) ? { topic: input.topic } : {}),
         style: str(input.style, 300),
@@ -370,6 +376,11 @@ export function evaluate(name: string, raw: unknown, ctx: EvalContext): Evaluate
         setting: str(input.setting, 300),
         mood: str(input.mood, 300),
       };
+      // New videos open with fast cuts: the first shots' lengths are fixed (the model's own are ignored)
+      if (drafted.body_shots.length < MIN_BODY_SHOTS)
+        return fail(`A video opens with ${MIN_BODY_SHOTS + 1} quick shots (the hook shot and ${MIN_BODY_SHOTS} body shots, ${OPENING_SHOTS.join(", ")} seconds), then 1 or 2 more to finish. Give at least ${MIN_BODY_SHOTS} body shots.`);
+      drafted.body_shots = drafted.body_shots.map((s, i) => (i < MIN_BODY_SHOTS ? { ...s, duration: OPENING_SHOTS[i + 1] } : s));
+      const brief = withOpeningPace(drafted);
       // The short-film standard: the same people in one place, with a stated mood (see videoPrompt)
       if (!brief.cast || !brief.setting || !brief.mood)
         return fail("A video needs a cast (the same people in every shot), a setting (one real place) and a mood (the emotional arc and what never appears).");
