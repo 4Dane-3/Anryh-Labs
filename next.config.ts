@@ -35,6 +35,9 @@ const nextConfig: NextConfig = {
     return [
       { source: "/api/agents/:slug/:part(slots|events|visit|profile)", headers: cors },
       { source: "/api/bookings", headers: cors },
+      // A partner site's "help them prepare" page reads the booking and saves the optional answers
+      { source: "/api/bookings/prepare", headers: cors },
+      { source: "/api/intake", headers: cors },
       { source: "/api/quotes", headers: cors },
       {
         source: "/(.*)",

@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { getBookingByToken, getIntakeQuestions } from "@/lib/booking/data";
 import { preBookingQuestions, type IntakeAnswers } from "@/lib/booking/questions";
 import { PrepareFlow } from "@/components/booking/PrepareFlow";
 import { pageFont } from "@/lib/booking/page-fonts";
+import { partnerPage } from "@/lib/booking/sites";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,10 @@ export default async function PreparePage({ params, searchParams }: Props) {
     params,
     searchParams,
   ]);
+
+  // Agents on a partner site answer there, so the whole visit stays on one site
+  const partner = partnerPage(slug);
+  if (partner) redirect(`${partner}/prepare?b=${encodeURIComponent(token)}${justBooked === "1" ? "&new=1" : ""}`);
 
   const booking = await getBookingByToken(token);
   if (!booking || booking.agents.slug !== slug) notFound();

@@ -29,6 +29,12 @@ const AGENT_PHOTOS: Record<string, string> = {
   "miguel-cruz": "https://foreignfinancial.org/team/miguel-cruz.jpg",
 };
 
+/** Where a booked prospect answers the optional questions: their agent's partner site when they have one. */
+export function prepareUrl(slug: string, token: string, appUrl = process.env.APP_URL || "http://localhost:3000") {
+  const partner = partnerPage(slug);
+  return `${partner ?? `${appUrl.replace(/\/$/, "")}/${slug}`}/prepare?b=${token}`;
+}
+
 export const partnerPhoto = (slug: string): string | null => AGENT_PHOTOS[slug] ?? null;
 
 /**

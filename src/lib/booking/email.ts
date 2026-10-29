@@ -3,7 +3,7 @@ import { IANAZone } from "luxon";
 import type { Agent } from "@/lib/booking/data";
 import { confirmationEmail } from "@/lib/booking/confirmation-email";
 import { bookingIcs } from "@/lib/booking/ics";
-import { partnerPageUrl, partnerPhoto } from "@/lib/booking/sites";
+import { partnerPageUrl, partnerPhoto, prepareUrl } from "@/lib/booking/sites";
 
 // Booking emails, sent with Resend. Needs RESEND_API_KEY and BOOKING_EMAIL_FROM (an address on a domain
 // verified in Resend, e.g. bookings@anryhlabs.com); without them nothing is sent and booking works as before.
@@ -34,7 +34,7 @@ export async function sendBookingConfirmation(input: {
     minutes: agent.slot_minutes,
     timezone,
     calendarUrl: `${appUrl()}/api/bookings/ics?token=${booking.token}`,
-    prepareUrl: `${appUrl()}/${agent.slug}/prepare?b=${booking.token}`,
+    prepareUrl: prepareUrl(agent.slug, booking.token, appUrl()), // on the partner site when the agent has one
     bookedOn: new URL(partner ?? appUrl()).hostname.replace(/^www\./, ""),
   });
 
