@@ -25,7 +25,11 @@ export default async function CreativesPage() {
   // 14-day results per creative: Meta spend from insights, booked calls from our bookings (utm_content = ad id)
   const since = DateTime.now().setZone(agent.timezone).minus({ days: 13 }).startOf("day");
   const [{ data: ads }, { data: insights }, { data: bookings }, { data: jobs }] = await Promise.all([
-    supabaseAdmin.from("ads").select("meta_ad_id, creative_id").eq("agent_id", agent.id).not("creative_id", "is", null),
+    supabaseAdmin
+      .from("ads")
+      .select("meta_ad_id, creative_id, status, ad_sets(status, ad_campaigns(status, retired_at))")
+      .eq("agent_id", agent.id)
+      .not("creative_id", "is", null),
     supabaseAdmin
       .from("ad_insights_daily")
       .select("meta_ad_id, spend_cents")
@@ -45,6 +49,17 @@ export default async function CreativesPage() {
   ]);
 
   const creativeByAd = new Map((ads ?? []).map((a) => [a.meta_ad_id, a.creative_id as string]));
+  // Live means Meta can deliver one of its ads now: the ad, its ad set and its campaign all on. A creative
+  // whose ads were all paused or retired keeps "live" in the table, so it shows as paused here.
+  type AdSetJoin = { status: string; ad_campaigns: { status: string; retired_at: string | null } | null } | null;
+  const running = new Set(
+    (ads ?? [])
+      .filter((a) => {
+        const set = a.ad_sets as unknown as AdSetJoin;
+        return a.status === "ACTIVE" && set?.status === "ACTIVE" && set.ad_campaigns?.status === "ACTIVE" && !set.ad_campaigns.retired_at;
+      })
+      .map((a) => a.creative_id as string),
+  );
   const stats = new Map<string, { spend_cents: number; booked: number }>();
   const bump = (creativeId: string | undefined, spend: number, booked: number) => {
     if (!creativeId) return;
@@ -58,6 +73,7 @@ export default async function CreativesPage() {
 
   const creatives: Creative[] = rows.map((r) => ({
     ...r,
+    status: r.status === "live" && !running.has(r.id) ? "paused" : r.status,
     url: urlByPath.get(r.storage_path) ?? null,
     stats: stats.get(r.id) ?? null,
   }));

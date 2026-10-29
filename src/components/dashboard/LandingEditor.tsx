@@ -512,7 +512,7 @@ function TestimonialsList({ testimonials, onChanged }: { testimonials: Testimoni
 
 // ---------- Preview ----------
 
-function PagePreview({ slug, version }: { slug: string; version: number }) {
+function PagePreview({ pageUrl, version }: { pageUrl: string; version: number }) {
   const boxRef = useRef<HTMLDivElement>(null);
   const [device, setDevice] = useState<"phone" | "desktop">("phone");
   const [boxWidth, setBoxWidth] = useState(0);
@@ -555,7 +555,9 @@ function PagePreview({ slug, version }: { slug: string; version: number }) {
             </button>
           ))}
         </div>
-        <span className="text-[12px] text-fg-faint">Booking is off in the preview</span>
+        <span className="text-[12px] text-fg-faint">
+          {pageUrl.startsWith("http") ? "Your live page: bookings here are real" : "Booking is off in the preview"}
+        </span>
         <button
           onClick={() => {
             setManual((m) => m + 1);
@@ -578,7 +580,7 @@ function PagePreview({ slug, version }: { slug: string; version: number }) {
             <iframe
               key={key}
               title="Your page"
-              src={`/${slug}?preview=1`}
+              src={`${pageUrl}?preview=1`}
               onLoad={() => setLoaded(true)}
               className="origin-top-left border-0"
               style={{ width: frame.w, height: frame.h, transform: `scale(${scale})` }}
@@ -690,13 +692,13 @@ function FontPicker({ current, firstName, onSaved }: { current: string; firstNam
 
 export function LandingEditor({
   tab,
-  slug,
+  pageUrl,
   profile,
   testimonials,
   pageFontKey = "arial",
 }: {
   tab: "profile" | "testimonials";
-  slug: string;
+  pageUrl: string; // the page their ads open: here, or their agency's site
   profile: Profile;
   testimonials: Testimonial[];
   pageFontKey?: string;
@@ -725,7 +727,7 @@ export function LandingEditor({
           <TestimonialsList testimonials={testimonials} onChanged={bump} />
         )}
       </div>
-      <PagePreview slug={slug} version={version} />
+      <PagePreview pageUrl={pageUrl} version={version} />
     </div>
   );
 }

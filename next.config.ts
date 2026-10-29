@@ -40,7 +40,8 @@ const nextConfig: NextConfig = {
       { source: "/api/intake", headers: cors },
       { source: "/api/quotes", headers: cors },
       {
-        source: "/(.*)",
+        // Not on My page: its preview frames the agent's page on their agency's site, which these would block
+        source: "/((?!dashboard/landing).*)",
         headers: [
           {
             key: "Cross-Origin-Opener-Policy",

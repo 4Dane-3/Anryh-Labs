@@ -2,6 +2,7 @@ import { requireAgent } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { PageHeader } from "@/components/dashboard/ui";
 import { LandingEditor } from "@/components/dashboard/LandingEditor";
+import { partnerPage } from "@/lib/booking/sites";
 
 export default async function LandingPage({
   searchParams,
@@ -10,6 +11,8 @@ export default async function LandingPage({
 }) {
   const agent = await requireAgent();
   const { tab } = await searchParams;
+  // Agents whose page lives on their agency's site (Foreign Financial) see and preview that one
+  const pageUrl = partnerPage(agent.slug) ?? `/${agent.slug}`;
 
   const { data: testimonials } = await supabaseAdmin
     .from("testimonials")
@@ -24,8 +27,8 @@ export default async function LandingPage({
         description={
           <>
             What people see when they tap your ad, at{" "}
-            <a href={`/${agent.slug}`} target="_blank" rel="noreferrer" className="text-fg underline-offset-4 hover:underline">
-              /{agent.slug}
+            <a href={pageUrl} target="_blank" rel="noreferrer" className="text-fg underline-offset-4 hover:underline">
+              {pageUrl.replace(/^https:\/\//, "")}
             </a>
             .
           </>
@@ -33,7 +36,7 @@ export default async function LandingPage({
       />
       <LandingEditor
         tab={tab === "testimonials" ? "testimonials" : "profile"}
-        slug={agent.slug}
+        pageUrl={pageUrl}
         profile={{
           full_name: agent.full_name,
           title: agent.title ?? "",
