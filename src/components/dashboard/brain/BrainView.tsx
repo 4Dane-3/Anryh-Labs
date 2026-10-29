@@ -29,6 +29,9 @@ type Board = {
   notebook: { date: string; phase: Phase; headline: string; thoughts: Thought[]; sentToSlack: boolean } | null;
 };
 
+/** Room above a section when a jump tab scrolls to it (below the sticky tab bar, and the phone top bar). */
+export const JUMP = "scroll-mt-32 lg:scroll-mt-20";
+
 const pct = (v: number | null, d = 1) => (v === null ? "–" : `${(v * 100).toFixed(d)}%`);
 
 /** Ticks once a second so "a few seconds ago" and the step lights stay true between polls. */
@@ -63,7 +66,7 @@ export function BrainView({
   return (
     <div className="space-y-6">
       {approvals && !demo && <ApprovalsPanel proposals={approvals} />}
-      <Panel className="overflow-hidden">
+      <Panel id="brain-overview" className={cn("overflow-hidden", JUMP)}>
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-3">
           <StatusLine live={live} demo={demo} />
           <div className="flex items-center gap-3">
@@ -95,10 +98,14 @@ export function BrainView({
         </div>
       </Panel>
 
-      {!demo && <LivePanel events={live.events} agentId={agentId} />}
+      {!demo && (
+        <div id="brain-live" className={JUMP}>
+          <LivePanel events={live.events} agentId={agentId} />
+        </div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
-        <Panel>
+        <Panel id="brain-log" className={JUMP}>
           <PanelHeader title="Session log" description="Every step Migz takes, with the numbers behind it." />
           <div className="max-h-[520px] overflow-y-auto">
             <SessionLog events={live.events} />
@@ -131,7 +138,7 @@ function NotebookPanel({ notebook }: { notebook: Board["notebook"] }) {
       ? "Migz can't change anything during the first week of a batch, so it collects thoughts and tests them against each new day."
       : "What Migz is considering, testing and ready to act on, carried from night to night.";
   return (
-    <Panel>
+    <Panel id="brain-notebook" className={JUMP}>
       <PanelHeader
         title="Migz's notebook"
         description={description}
@@ -170,7 +177,7 @@ function AuditPanel({ findings }: { findings: Board["findings"] }) {
   const open = findings.filter((f) => f.status === "open");
   const resolved = findings.filter((f) => f.status === "resolved");
   return (
-    <Panel>
+    <Panel id="brain-auditor" className={JUMP}>
       <PanelHeader title="Auditor" description={open.length ? `${open.length} open finding${open.length === 1 ? "" : "s"}` : "All checks passing"} />
       {findings.length ? (
         <ul className="divide-y divide-line">
@@ -198,7 +205,7 @@ function ExperimentsPanel({ experiments }: { experiments: Board["experiments"] }
     { key: "concluded", label: "Concluded" },
   ];
   return (
-    <Panel>
+    <Panel id="brain-experiments" className={JUMP}>
       <PanelHeader title="Experiments" description="One lever at a time, judged only after every variant has enough data." />
       {experiments.length ? (
         <div className="grid gap-3 p-4 sm:grid-cols-3">
@@ -234,7 +241,7 @@ function ExperimentsPanel({ experiments }: { experiments: Board["experiments"] }
 
 function LearningsPanel({ learnings }: { learnings: Board["learnings"] }) {
   return (
-    <Panel>
+    <Panel id="brain-learnings" className={JUMP}>
       <PanelHeader title="Learnings" description="What this account has taught Migz. Yours only, never pooled with other agents." />
       {learnings.length ? (
         <ul className="divide-y divide-line">
@@ -269,7 +276,7 @@ function Retention({ r }: { r: Scorecard["retention"] }) {
 
 function ScorecardsPanel({ cards }: { cards: Scorecard[] }) {
   return (
-    <Panel>
+    <Panel id="brain-scorecards" className={JUMP}>
       <PanelHeader title="Creative scorecards" description="Each live ad against its own ad set's average, last 14 days." />
       {cards.length ? (
         <div className="overflow-x-auto">
@@ -322,7 +329,7 @@ function SwipePanel({ swipes }: { swipes: Board["swipes"] }) {
       router.refresh();
     });
   return (
-    <Panel>
+    <Panel id="brain-swipes" className={JUMP}>
       <PanelHeader title="Swipe file" description="Outside ads Migz studies for ideas. Inspiration only: it never copies wording." />
       <div className="grid gap-6 p-5 lg:grid-cols-[1fr_320px]">
         {swipes.length ? (

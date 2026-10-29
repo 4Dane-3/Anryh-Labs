@@ -30,9 +30,13 @@ export async function getMigzUpdate(agent: Agent): Promise<MigzUpdate> {
       .in("stage", ["generating", "stored", "meta_processing"]),
     supabaseAdmin
       .from("ads")
-      .select("meta_ad_id, status, created_at, ad_sets!inner(ad_campaigns!inner(retired_at))")
+      // Live means Meta can deliver it: the ad, its ad set and its campaign all switched on (an ad left
+      // on inside a paused ad set doesn't show)
+      .select("meta_ad_id, status, created_at, ad_sets!inner(status, ad_campaigns!inner(status, retired_at))")
       .eq("agent_id", agent.id)
       .eq("status", "ACTIVE")
+      .eq("ad_sets.status", "ACTIVE")
+      .eq("ad_sets.ad_campaigns.status", "ACTIVE")
       .is("ad_sets.ad_campaigns.retired_at", null),
     supabaseAdmin.from("ad_actions").select("id", { count: "exact", head: true }).eq("agent_id", agent.id).eq("status", "proposed"),
     supabaseAdmin.from("migz_runs").select("started_at, finished_at, status, summary").eq("agent_id", agent.id).neq("status", "running").order("started_at", { ascending: false }).limit(1).maybeSingle(),
@@ -51,7 +55,7 @@ export async function getMigzUpdate(agent: Agent): Promise<MigzUpdate> {
     detail = collecting
       ? `Migz is letting your ads gather a full week of data. It won't change budgets or pause ads until ${revisionsFrom.toFormat("cccc, LLL d")}, so its decisions rest on real results.`
       : "Migz is comparing your campaigns and fixing what's underperforming, then checking that each change actually helps.";
-    lines.push(`${money(progress.spentCents)} of your ${money(batch.budget_cents)} batch spent · ${progress.bookedCalls} booked call${progress.bookedCalls === 1 ? "" : "s"} so far`);
+    lines.push(`${money(progress.spentCents)} of your ${money(batch.budget_cents)} batch spent · ${progress.bookedCalls} booked call${progress.bookedCalls === 1 ? "" : "s"} so far (spend updates hourly; Meta itself can run a few hours behind)`);
   }
 
   const live = ads.data ?? [];

@@ -122,7 +122,7 @@ export function ApprovalsPanel({ proposals }: { proposals: MigzAction[] }) {
     });
 
   return (
-    <Panel id="approvals" className="scroll-mt-6">
+    <Panel id="approvals" className="scroll-mt-32 lg:scroll-mt-20">
       <PanelHeader
         title="Waiting for your OK"
         description="Ask me first is on, so nothing below happens until you approve it. Proposals expire after 48 hours."

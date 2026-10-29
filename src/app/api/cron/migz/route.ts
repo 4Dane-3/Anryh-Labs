@@ -4,6 +4,7 @@ import { isCronRequest } from "@/lib/cron-auth";
 import { migzReadyFor } from "@/lib/integrations";
 import { runMigz } from "@/lib/migz/agent";
 import { renewBatches } from "@/lib/dashboard/renew";
+import { syncSpend } from "@/lib/migz/sync";
 
 export const maxDuration = 300;
 
@@ -50,6 +51,26 @@ export async function GET(req: Request) {
     }
     const run = await runMigz(agent, { trigger: "schedule" });
     results[agent.slug] = run.status;
+  }
+
+  // Between reviews, keep each running batch's spend current on the dashboard (reads Meta, changes nothing)
+  const reviewedBefore = new Date(Date.now() - 50 * 60_000).toISOString();
+  const { data: running } = await supabaseAdmin
+    .from("agents")
+    .select("*")
+    .eq("active", true)
+    .not("meta_ad_account_id", "is", null)
+    .not("onboarding_completed_at", "is", null)
+    .not("campaign_ends_on", "is", null)
+    .lt("migz_last_run_at", reviewedBefore)
+    .limit(25);
+  const today = new Date().toISOString().slice(0, 10);
+  for (const agent of (running ?? []) as Agent[]) {
+    if (Date.now() > deadline + 30_000) break;
+    if (!migzReadyFor(agent) || (agent.campaign_ends_on ?? "") < today) continue;
+    await syncSpend(agent)
+      .then(() => ((results[`${agent.slug} spend`] = "synced"), null))
+      .catch((e) => ((results[`${agent.slug} spend`] = `failed: ${e instanceof Error ? e.message.slice(0, 120) : "error"}`), null));
   }
   return Response.json(results);
 }
