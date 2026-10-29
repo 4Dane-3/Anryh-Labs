@@ -55,7 +55,16 @@ export async function getBrainBoard(agent: Agent) {
     supabaseAdmin.from("learnings").select("id, insight, confidence, source, created_at").eq("agent_id", agent.id).eq("active", true).order("created_at", { ascending: false }).limit(24),
     supabaseAdmin.from("swipe_files").select("id, source_url, advertiser, notes, traits, added_by, created_at").or(`agent_id.is.null,agent_id.eq.${agent.id}`).order("created_at", { ascending: false }).limit(12),
     buildSnapshot(agent),
-    supabaseAdmin.from("ads").select("meta_ad_id, name, status, adset_id, creatives(kind, hook, traits, script)").eq("agent_id", agent.id).eq("status", "ACTIVE"),
+    // Live means Meta can deliver it: the ad, its ad set and its campaign all on (ads left on inside a campaign
+    // a batch retired, like the originals of carried-over ads, don't show)
+    supabaseAdmin
+      .from("ads")
+      .select("meta_ad_id, name, status, adset_id, creatives(kind, hook, traits, script), ad_sets!inner(status, ad_campaigns!inner(status, retired_at))")
+      .eq("agent_id", agent.id)
+      .eq("status", "ACTIVE")
+      .eq("ad_sets.status", "ACTIVE")
+      .eq("ad_sets.ad_campaigns.status", "ACTIVE")
+      .is("ad_sets.ad_campaigns.retired_at", null),
     latestNotebook(agent.id),
   ]);
 
