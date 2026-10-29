@@ -35,6 +35,7 @@ const STATUS: Record<string, { label: string; tone: "neutral" | "accent" | "good
   submitted: { label: "Submitted", tone: "neutral" },
   in_review: { label: "In review", tone: "accent" },
   live: { label: "Live in ads", tone: "good" },
+  paused: { label: "Paused", tone: "neutral" },
   rejected: { label: "Not used", tone: "bad" },
 };
 
