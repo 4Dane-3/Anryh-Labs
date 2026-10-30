@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { DEFAULT_INTENT, DEFAULT_VIDEO_TIER, isIntentLevel, isVideoTier } from "@/lib/ad-options";
 import { DateTime } from "luxon";
 import { ArrowRight, ArrowUpRight } from "lucide-react";
 import { isAnryhAdmin, requireAgent } from "@/lib/auth";
@@ -119,7 +120,7 @@ export default async function OverviewPage() {
           </h1>
           <p className="mt-5 max-w-xl text-[17px] leading-relaxed text-fg-muted">{summary}</p>
           <div className="mt-6 flex flex-wrap items-center gap-4">
-            <StartBatchButton balanceCents={balance} disabledReason={batchBlocked} autoRun={agent.migz_mode === "auto"} />
+            <StartBatchButton balanceCents={balance} disabledReason={batchBlocked} autoRun={agent.migz_mode === "auto"} intentLevel={isIntentLevel(agent.intent_level) ? agent.intent_level : DEFAULT_INTENT} videoTier={isVideoTier(agent.video_tier) ? agent.video_tier : DEFAULT_VIDEO_TIER} />
             <Link href="/dashboard/brain" className="inline-flex items-center gap-1 text-sm text-fg hover:underline hover:underline-offset-4">
               See what Migz AI is doing <ArrowUpRight className="size-4" />
             </Link>

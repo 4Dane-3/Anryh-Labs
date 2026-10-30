@@ -3,16 +3,19 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { landingUrl } from "@/lib/booking/sites";
 import type { Agent } from "@/lib/booking/data";
-import { getRequestStatus, submitImage, submitVideo } from "@/lib/higgsfield";
+import { getRequestStatus, submitImage, submitVideo, videoModel } from "@/lib/higgsfield";
 import { createAd, createAdCreative, uploadImage, uploadVideo, videoState } from "@/lib/meta/ads";
 import { MetaApiError } from "@/lib/meta/graph";
 import { isTestMode } from "@/lib/migz/test-mode";
 import { alertAdmin, alertCreativeFailed } from "@/lib/migz/slack";
 import { recordEventAlert } from "@/lib/admin/alerts";
-import { briefLabel, cardBrief, isCarouselBrief, isImageBrief, isVideoBrief, type AnyBrief, type CreativeBrief } from "@/lib/migz/brief";
+import { briefLabel, cardBrief, fitBrief, isCarouselBrief, isImageBrief, isVideoBrief, type AnyBrief, type CreativeBrief } from "@/lib/migz/brief";
 import { closeEvent, openEvent } from "@/lib/migz/events";
 import { narrateVideo } from "@/lib/migz/narration";
 import { addLogoToImage, addLogoToVideo, DEFAULT_LOGO_CORNER, isLogoCorner, type LogoCorner } from "@/lib/migz/endcard";
+import { DEFAULT_VIDEO_TIER, isVideoTier, MAX_PAID_VIDEOS_PER_ADSET_PER_WEEK, VIDEO_TIERS, type VideoTier } from "@/lib/ad-options";
+import { getBalanceCents } from "@/lib/dashboard/queries";
+import { leadFormFor } from "@/lib/migz/leads";
 
 // Creative jobs move through stages, advanced by the creatives cron (every 10 min) and the
 // Higgsfield webhook:  generating -> stored -> meta_processing -> launched   (or failed)
@@ -37,6 +40,7 @@ type Job = {
   meta_ad_id?: string | null;
   event_id?: number | null; // the Brain step open while this job works (Higgsfield, then Meta)
   parts?: CardPart[] | null; // carousels: one generation per card
+  video_charge_cents?: number; // what the agent was charged for this video (missing before its migration)
 };
 
 type CardPart = { request_id: string; status_url: string; creative_id: string | null };
@@ -110,6 +114,8 @@ export async function enqueueGeneration(input: {
       ? `${base}/api/webhooks/higgsfield?job=${job.id}&token=${webhookToken(job.id)}`
       : null;
     const opts = { idempotencyKey: job.id, webhookUrl };
+    // A video's tier decides its model; a Seedance video is charged to the agent's ad funds before it starts
+    const tier = isVideoBrief(input.brief) ? await chargeForVideo(input.agentId, job.id, input.brief, input.launchAdsetId ?? null) : DEFAULT_VIDEO_TIER;
     if (isCarouselBrief(input.brief)) {
       // Each card is its own square still; the job is "generated" once every card is back
       const parts: CardPart[] = [];
@@ -121,7 +127,7 @@ export async function enqueueGeneration(input: {
     } else {
       const { requestId, statusUrl } = isImageBrief(input.brief)
         ? await submitImage(input.brief, opts)
-        : await submitVideo(input.brief, opts);
+        : await submitVideo(VIDEO_TIERS[tier].model === "kling" ? fitBrief(input.brief, VIDEO_TIERS[tier].seconds) : input.brief, opts, tier);
       await update(job.id, { provider_request_id: requestId, status_url: statusUrl });
     }
     await openJobEvent(
@@ -132,6 +138,7 @@ export async function enqueueGeneration(input: {
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     await update(job.id, { stage: "failed", error: message });
+    await refundVideo(job.id).catch((r) => console.error("refunding the video failed", r));
     try {
       const { data: owner } = await supabaseAdmin.from("agents").select("slug").eq("id", input.agentId).single();
       await alertCreativeFailed(input.agentId, owner?.slug ?? "unknown", job.id, message);
@@ -175,6 +182,84 @@ export async function enqueueLaunch(input: {
     .single();
   if (error || !data) throw new Error(`Couldn't queue the launch: ${error?.message}`);
   return data.id as string;
+}
+
+const money = (cents: number) => `$${(cents / 100).toFixed(cents % 100 ? 2 : 0)}`;
+
+/**
+ * Picks the tier a new video is made on and charges for it. A Seedance tier takes its price from the free
+ * ad balance (one wallet line per video, so it shows in the funds history) before anything is submitted.
+ * Falls back to Standard, and tells the agent, when the batch has used its paid videos or the free balance
+ * can't cover one: the campaign keeps its video either way. Returns the tier to submit on.
+ */
+async function chargeForVideo(agentId: string, jobId: string, brief: CreativeBrief, launchAdsetId: string | null): Promise<VideoTier> {
+  const { data: row, error } = await supabaseAdmin.from("agents").select("video_tier").eq("id", agentId).single();
+  const tier: VideoTier = !error && isVideoTier(row?.video_tier) ? row.video_tier : DEFAULT_VIDEO_TIER;
+  const price = VIDEO_TIERS[tier].priceCents;
+  // HF_VIDEO_MODEL=kling (staff's switch for a bad day on Seedance) makes it on Kling: nothing to charge
+  if (!price || videoModel(tier) !== "seedance") {
+    await update(jobId, { video_model: videoModel(tier), video_charge_cents: 0 });
+    return tier;
+  }
+
+  const fallback = async (why: string) => {
+    await update(jobId, { video_model: videoModel(DEFAULT_VIDEO_TIER), video_charge_cents: 0 });
+    await supabaseAdmin.from("ad_actions").insert({
+      agent_id: agentId,
+      kind: "creative",
+      title: "Made this video on Standard",
+      detail: `${why} So Migz made "${briefLabel(brief)}" on Standard (Kling 3.0, included) instead, and nothing was charged.`.slice(0, 500),
+      status: "applied",
+      tool: "system_video_tier",
+    });
+    return DEFAULT_VIDEO_TIER;
+  };
+
+  // The cap counts this ad set's paid videos over the last 7 days (library videos count together)
+  let paid = supabaseAdmin
+    .from("creative_jobs")
+    .select("id", { count: "exact", head: true })
+    .eq("agent_id", agentId)
+    .neq("id", jobId)
+    .gt("video_charge_cents", 0)
+    .neq("stage", "failed")
+    .gte("created_at", new Date(Date.now() - 7 * 86_400_000).toISOString());
+  paid = launchAdsetId ? paid.eq("launch_adset_id", launchAdsetId) : paid.is("launch_adset_id", null);
+  const { count } = await paid;
+  if ((count ?? 0) >= MAX_PAID_VIDEOS_PER_ADSET_PER_WEEK)
+    return fallback(`This ad set already had ${MAX_PAID_VIDEOS_PER_ADSET_PER_WEEK} Seedance videos this week, the most one ad set is charged for in a week.`);
+  const free = await getBalanceCents(agentId);
+  if (free < price)
+    return fallback(`A ${VIDEO_TIERS[tier].title} video costs ${money(price)}, and your free ad balance is ${money(Math.max(0, free))}.`);
+
+  const { error: charged } = await supabaseAdmin.from("wallet_transactions").insert({
+    agent_id: agentId,
+    kind: "adjustment",
+    amount_cents: -price,
+    status: "completed",
+    description: `${VIDEO_TIERS[tier].title} video for your ads: ${briefLabel(brief)}`.slice(0, 200),
+    external_id: `video:${jobId}`,
+  });
+  if (charged && charged.code !== "23505") throw new Error(`Couldn't charge for the video: ${charged.message}`);
+  await update(jobId, { video_model: "seedance", video_charge_cents: price });
+  return tier;
+}
+
+/** Gives a video's charge back (once): its generation never produced anything, or Meta rejected its ad. */
+export async function refundVideo(jobId: string, description = "Refund: the Seedance video couldn't be made") {
+  const { data: job } = await supabaseAdmin.from("creative_jobs").select("agent_id, video_charge_cents").eq("id", jobId).single();
+  const cents = (job as { video_charge_cents?: number } | null)?.video_charge_cents ?? 0;
+  if (!job || cents <= 0) return false;
+  const { error } = await supabaseAdmin.from("wallet_transactions").insert({
+    agent_id: job.agent_id,
+    kind: "refund",
+    amount_cents: cents,
+    status: "completed",
+    description,
+    external_id: `video:${jobId}:refund`,
+  });
+  if (error && error.code !== "23505") throw new Error(`Couldn't refund the video: ${error.message}`);
+  return !error;
 }
 
 const IMAGE_TYPES: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" };
@@ -286,6 +371,8 @@ async function createLiveAd(job: Job, agent: Agent, media: Parameters<typeof cre
       link: landingUrl(agent.slug, appUrl()),
       primaryText: job.brief.primary_text,
       headline: job.brief.headline,
+      // An instant-form ad set's ads open the agent's lead form instead of the booking page
+      leadFormId: await leadFormFor(agent, job.launch_adset_id!),
       media,
     });
     await update(job.id, { meta_creative_id: metaCreativeId });
@@ -504,6 +591,13 @@ async function advance(job: Job) {
           ? e.message
           : String(e);
     await update(job.id, { stage: "failed", error: message.slice(0, 500) });
+    // The agent only pays for a video that runs: a generation that never came back (failed, blocked, timed
+    // out) or an ad Meta refused to make gets its charge back. A live ad Meta disapproves later is refunded
+    // by the sync (refundRejectedVideo).
+    if (!job.meta_ad_id)
+      await refundVideo(job.id, job.stage === "generating" ? "Refund: the Seedance video couldn't be made" : "Refund: Meta didn't accept the ad for your Seedance video").catch((r) =>
+        console.error("refunding the video failed", r),
+      );
     await closeJobEvent(job, `Failed: ${message}`.slice(0, 200)).catch(() => {});
     try {
       const { data: owner } = await supabaseAdmin.from("agents").select("slug").eq("id", job.agent_id).single();
@@ -536,4 +630,15 @@ export async function advanceOpenJobs(deadlineMs: number) {
 export async function advanceJobById(jobId: string) {
   const { data } = await supabaseAdmin.from("creative_jobs").select("*").eq("id", jobId).maybeSingle();
   return data ? advanceJob(data as Job) : "not_found";
+}
+
+/** Meta disapproved an ad: if its video was a paid one, the agent gets the charge back (once). */
+export async function refundRejectedVideo(agentId: string, metaAdId: string) {
+  const { data: ad } = await supabaseAdmin.from("ads").select("creative_id").eq("agent_id", agentId).eq("meta_ad_id", metaAdId).maybeSingle();
+  if (!ad?.creative_id) return false;
+  const { data: jobs, error } = await supabaseAdmin.from("creative_jobs").select("id").eq("creative_id", ad.creative_id).gt("video_charge_cents", 0);
+  if (error) return false; // before the video-tier migration nothing was charged
+  let refunded = false;
+  for (const j of jobs ?? []) refunded = (await refundVideo(j.id, "Refund: Meta rejected the ad for your Seedance video")) || refunded;
+  return refunded;
 }

@@ -60,6 +60,14 @@ export function newQuoteMessage(p: { name: string; phone: string; coverage: stri
   ].join("\n");
 }
 
+export function newFormLeadMessage(p: { name: string; phone: string | null; email: string | null; coverage: string | null }) {
+  return [
+    `:inbox_tray: *New lead from your instant form* — call them back soon, form leads go cold fast`,
+    `*${esc(p.name)}*${p.phone ? ` · ${formatPhone(p.phone)}` : ""}${p.email ? ` · ${esc(p.email)}` : ""}`,
+    ...(p.coverage ? [`• Interested in: ${p.coverage}`] : []),
+  ].join("\n");
+}
+
 export function intakeCompletedMessage(
   agent: Agent,
   p: Prospect,

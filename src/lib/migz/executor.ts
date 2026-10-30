@@ -11,6 +11,7 @@ import type { ActionPayload } from "@/lib/migz/tools";
 import { planTopic } from "@/lib/campaign";
 import { EXPLORE } from "@/lib/batch";
 import { cleanFocus } from "@/lib/migz/topics";
+import { destinationOf, leadFormFor } from "@/lib/migz/leads";
 
 export type ApplyResult = { ok: true; result: Record<string, unknown> } | { ok: false; error: string };
 
@@ -144,6 +145,11 @@ type CopySource = { id: string; meta_ad_id: string; meta_creative_id: string | n
 export async function copyAdInto(agent: Agent, source: CopySource, targetMetaAdsetId: string) {
   const { data: target } = await supabaseAdmin.from("ad_sets").select("id").eq("agent_id", agent.id).eq("meta_adset_id", targetMetaAdsetId).single();
   if (!target || !source.meta_creative_id) throw new Error("Can't copy that ad: its creative or the target ad set is missing.");
+  // The Meta creative carries its button: a booking-page ad can't run in an instant-form ad set, or back
+  const { data: from } = await supabaseAdmin.from("ads").select("ad_sets(meta_adset_id)").eq("id", source.id).maybeSingle();
+  const fromSet = (from?.ad_sets as { meta_adset_id?: string } | null)?.meta_adset_id;
+  if (fromSet && (await destinationOf(fromSet)) !== (await destinationOf(targetMetaAdsetId)))
+    throw new Error("That ad sends people somewhere else (booking page vs instant form), so it can't be copied into this ad set. Launch its creative there instead (launch_creative).");
   const held = isTestMode();
   const adId = await createAd(agent.meta_ad_account_id!, { name: source.name, adsetId: targetMetaAdsetId, creativeId: source.meta_creative_id, status: held ? "PAUSED" : "ACTIVE" });
   await supabaseAdmin.from("ads").insert({
@@ -186,6 +192,7 @@ async function launchCopyVariants(agent: Agent, payload: Extract<ActionPayload, 
   // Variants of a main ad launch into the exploration ad set (variantTarget), so look up where they land
   const { data: target } = await supabaseAdmin.from("ad_sets").select("id").eq("agent_id", agent.id).eq("meta_adset_id", payload.adset_id).single();
   if (!target) throw new Error("The ad set for these variants is gone.");
+  const leadFormId = await leadFormFor(agent, payload.adset_id);
   const ids: string[] = [];
   for (const [i, v] of payload.variants.entries()) {
     const name = `${source.name.replace(/ · copy [A-Z]$/, "")} · copy ${String.fromCharCode(66 + i)}`.slice(0, 100);
@@ -196,6 +203,7 @@ async function launchCopyVariants(agent: Agent, payload: Extract<ActionPayload, 
       link: landingUrl(agent.slug, appUrl()),
       primaryText: v.primary_text,
       headline: v.headline,
+      leadFormId,
       media,
     });
     const held = isTestMode();

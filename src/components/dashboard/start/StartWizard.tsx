@@ -15,6 +15,7 @@ import { MIN_DEPOSIT_CENTS, MIN_TOP_UP_CENTS } from "@/lib/campaign";
 import { usd } from "@/lib/dashboard/format";
 import { cleanFocus, MAX_FOCUS, TOPIC_KEYS, TOPICS, type TopicKey } from "@/lib/migz/topics";
 import { cn } from "@/lib/utils";
+import type { IntentLevel, VideoTier } from "@/lib/ad-options";
 
 type StepState = { key: string; done: boolean; missing: string | null };
 
@@ -29,6 +30,8 @@ type Props = {
     topics: string[];
     batch: { budget_cents: number; option: string; campaigns: string[]; days: number; daily_cents: number } | null;
     autoRun: boolean;
+    intentLevel: IntentLevel;
+    videoTier: VideoTier;
   };
   creativeMode: "upload" | "ai" | "both" | null;
   creativeCount: number;
@@ -145,6 +148,8 @@ function PlanStep({ plan, balanceCents, onSaved }: { plan: Props["plan"]; balanc
           balanceCents={balanceCents}
           initialBudgetCents={plan.batch?.budget_cents}
           initialAutoRun={plan.autoRun}
+          initialIntent={plan.intentLevel}
+          initialVideoTier={plan.videoTier}
           confirmLabel="Save plan"
           needsBalance={false}
           onConfirm={async (choice) => {

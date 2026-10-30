@@ -7,9 +7,10 @@ import { Plus, X } from "lucide-react";
 import { startBatch } from "@/app/dashboard/actions";
 import { BatchPlanner } from "@/components/dashboard/batch/BatchPlanner";
 import { Button } from "@/components/dashboard/ui";
+import type { IntentLevel, VideoTier } from "@/lib/ad-options";
 
 /** "Start campaign batch": a dialog with the batch planner; starting one opens the Brain to watch Migz set it up. */
-export function StartBatchButton({ balanceCents, disabledReason, autoRun }: { balanceCents: number; disabledReason: string | null; autoRun: boolean }) {
+export function StartBatchButton({ balanceCents, disabledReason, autoRun, intentLevel, videoTier }: { balanceCents: number; disabledReason: string | null; autoRun: boolean; intentLevel: IntentLevel; videoTier: VideoTier }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
 
@@ -60,6 +61,8 @@ export function StartBatchButton({ balanceCents, disabledReason, autoRun }: { ba
                 <BatchPlanner
                   balanceCents={balanceCents}
                   initialAutoRun={autoRun}
+                  initialIntent={intentLevel}
+                  initialVideoTier={videoTier}
                   confirmLabel="Start batch"
                   onConfirm={async (choice) => {
                     const res = await startBatch(choice);

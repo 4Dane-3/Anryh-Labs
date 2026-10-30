@@ -26,6 +26,7 @@ import {
   checkBudgetChange,
   checkCopy,
   checkGeneration,
+  checkRefreshTarget,
   checkLaunchTarget,
   checkPromoteAd,
   checkRestructure,
@@ -105,7 +106,7 @@ export const MIGZ_TOOLS: Anthropic.Beta.BetaTool[] = [
   }),
   tool(
     "generate_video",
-    `Have Higgsfield make a new 9:16 video ad, written as a short film that opens with fast cuts: the hook shot and the next ${MIN_BODY_SHOTS} body shots run ${OPENING_SHOTS.join(", ")} seconds (${OPENING_SECONDS}s, fixed by the system: write ${MIN_BODY_SHOTS + 1} quick, distinct moments), then 1 or 2 more shots to finish, of any length from 1 to 6 seconds (total ${MAX_VIDEO_SECONDS}s max, so at most ${MAX_VIDEO_SECONDS - OPENING_SECONDS}s after the opening). Make the last shot at least 3 seconds: a calm pull-back, because the agent's logo end card plays over it. Tell one small story with an emotional arc, the same people in the same place throughout, and one clear, specific action per shot (who, what they hold or do, where, the light). E.g. a woman in her late 30s at a kitchen table at dawn holding a man's wristwatch, eyes wet, looks up at small footsteps; her two kids run in and she pulls them into a hug; years later her daughter in a graduation gown hugs her on the same porch; she straightens a family photo on the mantel and smiles. Never a specific real person or the agent; never talking to camera. Use for new angles, or when the agent has no creatives.`,
+    `Have Higgsfield make a new 9:16 video ad, written as a short film that opens with fast cuts: the hook shot and the next ${MIN_BODY_SHOTS} body shots run ${OPENING_SHOTS.join(", ")} seconds (${OPENING_SECONDS}s, fixed by the system: write ${MIN_BODY_SHOTS + 1} quick, distinct moments), then 1 or 2 more shots to finish, of any length from 1 to 6 seconds (total ${MAX_VIDEO_SECONDS}s max, so at most ${MAX_VIDEO_SECONDS - OPENING_SECONDS}s after the opening; when agent.video_quality allows 30 seconds, up to 30s and ${MAX_BODY_SHOTS + 4} body shots, a longer story with a fuller voiceover). Make the last shot at least 3 seconds: a calm pull-back, because the agent's logo end card plays over it. Tell one small story with an emotional arc, the same people in the same place throughout, and one clear, specific action per shot (who, what they hold or do, where, the light). E.g. a woman in her late 30s at a kitchen table at dawn holding a man's wristwatch, eyes wet, looks up at small footsteps; her two kids run in and she pulls them into a hug; years later her daughter in a graduation gown hugs her on the same porch; she straightens a family photo on the mantel and smiles. Never a specific real person or the agent; never talking to camera. Use for new angles, or when the agent has no creatives.`,
     {
       concept: { type: "string", description: "The angle in one line, e.g. 'Mortgage protection for new homeowners'." },
       topic: {
@@ -128,7 +129,7 @@ export const MIGZ_TOOLS: Anthropic.Beta.BetaTool[] = [
       },
       hook_line: { type: "string", description: "The opening idea in words; it also starts the primary text." },
       hook_shot: { type: "string", description: `Shot 1, the first ${OPENING_SHOTS[0]} seconds: a close, specific moment that stops the scroll (who, what they're holding or doing, the light). E.g. 'Close-up at dawn: the woman sits alone at the kitchen table holding a man's wristwatch, eyes wet; she hears small footsteps and looks toward the hallway.'` },
-      body_shots: { type: "array", items: shotSchema, description: `${MIN_BODY_SHOTS + 1} to ${MAX_BODY_SHOTS} shots: the first ${MIN_BODY_SHOTS} are the quick opening cuts (${OPENING_SHOTS.slice(1).join(", ")} seconds), then one or two to finish.` },
+      body_shots: { type: "array", items: shotSchema, description: `${MIN_BODY_SHOTS + 1} to ${MAX_BODY_SHOTS} shots: the first ${MIN_BODY_SHOTS} are the quick opening cuts (${OPENING_SHOTS.slice(1).join(", ")} seconds), then one or two to finish (more when agent.video_quality allows 30 seconds).` },
       primary_text: { type: "string", description: "Ad copy above the video, starting with the hook line. Under 300 characters." },
       headline: { type: "string", description: "Short headline under the video, under 40 characters." },
       launch_adset_id: {
@@ -311,18 +312,32 @@ const KIND: Record<ActionPayload["tool"], string> = {
   hold: "other",
 };
 
-function validateBrief(brief: CreativeBrief) {
+/** A longer video tier (30s) has room for more shots than the 15s standard. */
+const maxBodyShots = (maxSeconds: number) => (maxSeconds > MAX_VIDEO_SECONDS ? MAX_BODY_SHOTS + 4 : MAX_BODY_SHOTS);
+
+function validateBrief(brief: CreativeBrief, maxSeconds = MAX_VIDEO_SECONDS) {
   if (!brief.hook_line || !brief.hook_shot || !brief.primary_text || !brief.headline) return "Every brief field is required.";
-  if (brief.body_shots.length < 1 || brief.body_shots.length > MAX_BODY_SHOTS) return `Use 1 to ${MAX_BODY_SHOTS} body shots.`;
+  const maxShots = maxBodyShots(maxSeconds);
+  if (brief.body_shots.length < 1 || brief.body_shots.length > maxShots) return `Use 1 to ${maxShots} body shots.`;
   if (brief.body_shots.some((s) => !s.prompt || !Number.isFinite(s.duration) || s.duration < 1 || s.duration > 6))
     return "Each body shot needs a prompt and a duration of 1 to 6 seconds.";
   const total = briefDuration(brief);
-  if (total > MAX_VIDEO_SECONDS) return `The video would be ${total}s; keep it to ${MAX_VIDEO_SECONDS}s including the ${hookSeconds(brief)}s hook.`;
+  if (total > maxSeconds) return `The video would be ${total}s; keep it to ${maxSeconds}s including the ${hookSeconds(brief)}s hook.`;
   return checkCopy(brief.hook_line, brief.primary_text, brief.headline, brief.voiceover);
 }
 
 /** Validates one tool call against the current state. Also used to re-check proposals at approval time. */
 export function evaluate(name: string, raw: unknown, ctx: EvalContext): Evaluated {
+  const out = evaluateTool(name, raw, ctx);
+  if (!out.ok || !isGeneration(out.payload)) return out;
+  const refresh = checkRefreshTarget(ctx, out.payload.launch_adset_id);
+  return refresh ? { ok: false, error: refresh } : out;
+}
+
+const isGeneration = (p: ActionPayload): p is Extract<ActionPayload, { tool: "generate_video" | "new_hook_variant" | "generate_image" | "generate_carousel" }> =>
+  p.tool === "generate_video" || p.tool === "new_hook_variant" || p.tool === "generate_image" || p.tool === "generate_carousel";
+
+function evaluateTool(name: string, raw: unknown, ctx: EvalContext): Evaluated {
   const input = (raw ?? {}) as Record<string, unknown>;
   const title = str(input.title, 90);
   const detail = str(input.reason, 500);
@@ -388,7 +403,9 @@ export function evaluate(name: string, raw: unknown, ctx: EvalContext): Evaluate
       const voiceover = typeof input.voiceover === "string" ? str(input.voiceover, 400) : "";
       if (!voiceover) return fail("Every video needs a voiceover: a few warm, plain sentences from an off-screen narrator that tell the story and end on the call to action.");
       const words = voiceover.split(/\s+/).filter(Boolean).length;
-      if (words > MAX_VOICEOVER_WORDS) return fail(`The voiceover is ${words} words; keep it to ${MAX_VOICEOVER_WORDS} so it fits 15 seconds without rushing.`);
+      const maxSeconds = ctx.maxVideoSeconds ?? MAX_VIDEO_SECONDS;
+      const maxWords = Math.round((MAX_VOICEOVER_WORDS * maxSeconds) / MAX_VIDEO_SECONDS);
+      if (words > maxWords) return fail(`The voiceover is ${words} words; keep it to ${maxWords} so it fits ${maxSeconds} seconds without rushing.`);
       brief.voiceover = voiceover;
       brief.narrator = input.narrator === "male" ? "male" : "female";
       // Continuity: a time jump has to say how the people aged, or the model shows a grown tree next to an unchanged family
@@ -396,7 +413,7 @@ export function evaluate(name: string, raw: unknown, ctx: EvalContext): Evaluate
       const jumpAt = shots.findIndex(timeJumpWithoutAging);
       if (jumpAt >= 0)
         return fail(`Shot ${jumpAt + 1} jumps forward in time but doesn't say how the people have aged. Either keep the story in one stretch of time, or say it plainly (e.g. "Years later, the daughter is a teenager in a graduation gown and her mother has grey in her hair").`);
-      const err = validateBrief(brief);
+      const err = validateBrief(brief, maxSeconds);
       if (err) return fail(err);
       const launchId = typeof input.launch_adset_id === "string" && input.launch_adset_id ? input.launch_adset_id : null;
       if (launchId) {
@@ -488,7 +505,7 @@ export function evaluate(name: string, raw: unknown, ctx: EvalContext): Evaluate
         primary_text: str(input.primary_text, 500),
       };
       const target = variantTarget(ctx, source.meta_adset_id);
-      const err = validateBrief(brief) ?? checkLaunchTarget(ctx, target);
+      const err = validateBrief(brief, ctx.maxVideoSeconds) ?? checkLaunchTarget(ctx, target);
       if (err) return fail(err);
       return done({ tool: "new_hook_variant", brief, launch_adset_id: target, parent_creative_id: source.creative_id });
     }
@@ -558,7 +575,11 @@ export function recheck(payload: ActionPayload, ctx: EvalContext): string | null
     case "generate_image":
     case "generate_carousel":
     case "new_hook_variant":
-      return checkGeneration(ctx, payload.tool === "generate_image" || payload.tool === "generate_carousel" ? "image" : "video") ?? (payload.launch_adset_id ? checkLaunchTarget(ctx, payload.launch_adset_id) : null);
+      return (
+        checkGeneration(ctx, payload.tool === "generate_image" || payload.tool === "generate_carousel" ? "image" : "video") ??
+        checkRefreshTarget(ctx, payload.launch_adset_id) ??
+        (payload.launch_adset_id ? checkLaunchTarget(ctx, payload.launch_adset_id) : null)
+      );
     case "launch_creative":
       return ctx.libraryCreativeIds.has(payload.creative_id)
         ? checkLaunchTarget(ctx, payload.adset_id)

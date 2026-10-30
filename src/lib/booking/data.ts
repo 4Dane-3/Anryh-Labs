@@ -63,6 +63,10 @@ export type Agent = {
   ad_logo_path?: string | null; // the agent's transparent logo (creatives bucket), on Migz ads and as their end card; missing before its migration
   ad_logo_corner?: "top_left" | "top_right" | "bottom_left" | "bottom_right"; // where the small logo sits; missing before its migration
   quote_mode?: QuoteMode; // "Get a free quote" on the booking page (missing before its migration)
+  intent_level?: "low_medium" | "medium_high"; // low_medium also runs Meta instant forms (missing before its migration)
+  video_tier?: "standard" | "seedance_15" | "seedance_30"; // Seedance tiers are charged per video (missing before its migration)
+  meta_lead_form_id?: string | null; // the instant form Migz made on the agent's Page
+  lead_form_blocked?: string | null; // why making that form last failed
 };
 
 export type Booking = {

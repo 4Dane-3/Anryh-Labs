@@ -78,9 +78,10 @@ How to report
 
 ${PLAYBOOK}`;
 
-export function reviewMessage(input: { mode: "approve" | "auto"; producing?: boolean; snapshotJson: string; contextJson?: string; reasons?: string[]; today?: string }) {
-  const productionLine =
-    input.producing ?? true
+export function reviewMessage(input: { mode: "approve" | "auto"; producing?: boolean; refreshAdsets?: string[]; snapshotJson: string; contextJson?: string; reasons?: string[]; today?: string }) {
+  const productionLine = input.refreshAdsets?.length
+    ? `This is a weekly creative refresh: the live ads in ad set${input.refreshAdsets.length === 1 ? "" : "s"} ${input.refreshAdsets.join(", ")} are under 2.5% link CTR this week (see creative_refresh). Make new creatives for ${input.refreshAdsets.length === 1 ? "it" : "them"}, launched straight in, on angles and hooks unlike what's failing; study the rest as usual.`
+    : input.producing ?? true
       ? "This review sets up a batch (or nothing is live): you may generate the batch's first creatives."
       : "This is a regular review: no new creatives. Study the live ads, act on clear results, and record what they teach.";
   const modeLine =
