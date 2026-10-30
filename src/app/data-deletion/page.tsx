@@ -4,7 +4,7 @@ import { CONTACT_EMAIL, SiteFooter, SiteHeader, SiteShell } from "@/components/s
 
 export const metadata: Metadata = {
   title: "delete your data · anryh labs",
-  description: "how to ask anryh labs and migz to delete the personal information we hold about you, including data from meta.",
+  description: "how to ask anryh labs and migz ai to delete the personal information we hold about you, including data from meta.",
 };
 
 const SUBJECT = "data deletion request";
@@ -21,7 +21,7 @@ export default function DataDeletionPage() {
           <h1 className="sb-h2">delete your data.</h1>
           <p className="sb-lead">
             you can ask anryh labs to delete the personal information we hold about you at any time. it works the same
-            whether you are an agent using migz or someone who booked a call on an agent&apos;s page.
+            whether you are an agent using migz ai or someone who booked a call on an agent&apos;s page.
           </p>
           <div className="sb-help__facts">
             <div>
@@ -59,8 +59,8 @@ export default function DataDeletionPage() {
               agents who connected meta
             </h2>
             <p style={{ margin: "12px 0 0", fontSize: 17, lineHeight: 1.45 }}>
-              you can remove migz&apos;s access yourself at any time in facebook: settings &amp; privacy → settings →
-              business integrations → remove migz. when access is removed, we delete the meta data we received for your
+              you can remove migz ai&apos;s access yourself at any time in facebook: settings &amp; privacy → settings →
+              business integrations → remove migz ai. when access is removed, we delete the meta data we received for your
               account within 30 days. you can also email us and we will do it for you.
             </p>
           </section>

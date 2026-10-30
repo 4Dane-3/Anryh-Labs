@@ -5,7 +5,7 @@ import { ContactForm } from "@/components/site/ContactForm";
 
 export const metadata: Metadata = {
   title: "help · anryh labs",
-  description: "questions about migz, your ads or your account? email anryh labs.",
+  description: "questions about migz ai, your ads or your account? email anryh labs.",
 };
 
 export default function ContactPage() {
@@ -16,7 +16,7 @@ export default function ContactPage() {
         <div>
           <h1 className="sb-h2">how can we help?</h1>
           <p className="sb-lead">
-            questions about migz, your ads, billing or your data. we usually reply within one business day.
+            questions about migz ai, your ads, billing or your data. we usually reply within one business day.
           </p>
           <div className="sb-help__facts">
             <div>

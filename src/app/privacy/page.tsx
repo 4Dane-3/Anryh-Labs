@@ -5,7 +5,7 @@ import { CONTACT_EMAIL, SiteFooter, SiteHeader, SiteShell } from "@/components/s
 export const metadata: Metadata = {
   title: "privacy policy · anryh labs",
   description:
-    "how anryh labs and the migz platform collect, use, share and delete data, including data from meta and from people who book calls with our agents.",
+    "how anryh labs and the migz ai platform collect, use, share and delete data, including data from meta and from people who book calls with our agents.",
 };
 
 const EFFECTIVE = "october 29, 2026";
@@ -71,15 +71,15 @@ export default function PrivacyPage() {
               <p className="text-sm text-slate-500">effective {EFFECTIVE}</p>
               <p>
                 this policy explains how anryh labs collects, uses, shares and deletes information through our website
-                and the migz platform. if you have a question, or want your data deleted, email {email}.
+                and the migz ai platform. if you have a question, or want your data deleted, email {email}.
               </p>
             </header>
 
             <H2 id="who-we-are">1. who we are</H2>
             <p>
               anryh labs (&ldquo;we&rdquo;, &ldquo;us&rdquo;) is an ai ad automation agency. we run{" "}
-              <span className="font-medium text-slate-900">migz</span>, a platform that independent life insurance
-              agents use to run their advertising. with an agent&apos;s permission, migz creates and manages ad campaigns
+              <span className="font-medium text-slate-900">migz ai</span>, a platform that independent life insurance
+              agents use to run their advertising. with an agent&apos;s permission, migz ai creates and manages ad campaigns
               on meta (facebook and instagram) on their behalf, generates ad creatives, hosts the agent&apos;s booking page
               and calendar, and reports results back to the agent. anryh labs is not an insurance company or agency and
               does not sell insurance.
@@ -87,7 +87,7 @@ export default function PrivacyPage() {
 
             <H2 id="who-this-covers">2. who this policy covers</H2>
             <ul className="list-disc space-y-2 pl-5">
-              <Item label="agents">insurance agents who use migz and their dashboard.</Item>
+              <Item label="agents">insurance agents who use migz ai and their dashboard.</Item>
               <Item label="prospects">people who visit an agent&apos;s booking page, book a call or answer prep questions.</Item>
               <Item label="visitors">anyone browsing this website or contacting us.</Item>
             </ul>
@@ -115,7 +115,7 @@ export default function PrivacyPage() {
 
             <H2 id="how-we-use">4. how we use information</H2>
             <ul className="list-disc space-y-2 pl-5">
-              <li>to run and improve agents&apos; ad campaigns: migz analyzes performance data, adjusts budgets, placements and ads, and generates new creatives.</li>
+              <li>to run and improve agents&apos; ad campaigns: migz ai analyzes performance data, adjusts budgets, placements and ads, and generates new creatives.</li>
               <li>to let prospects book calls with an agent, confirm appointments and give the agent the prep answers before the call.</li>
               <li>to notify agents about new bookings and send a daily summary, including through slack.</li>
               <li>to measure which ads lead to booked calls, including by reporting a booking to meta as a conversion (see below).</li>
@@ -133,7 +133,7 @@ export default function PrivacyPage() {
               <Item label="supabase">stores our database, files and logins.</Item>
               <Item label="vercel">hosts our website and app.</Item>
               <Item label="slack">delivers booking notifications and summaries to the agent.</Item>
-              <Item label="anthropic (claude)">powers migz&apos;s decisions. it receives ad performance data, campaign settings and ad copy, not prospects&apos; contact details or prep answers.</Item>
+              <Item label="anthropic (claude)">powers migz ai&apos;s decisions. it receives ad performance data, campaign settings and ad copy, not prospects&apos; contact details or prep answers.</Item>
               <Item label="higgsfield">generates ad videos and images from creative descriptions. it does not receive personal information.</Item>
               <Item label="stripe">processes payments when agents add ad funds.</Item>
             </ul>
@@ -145,9 +145,9 @@ export default function PrivacyPage() {
             <H2 id="meta-data">6. data from meta</H2>
             <p>
               we access meta&apos;s platform only with an agent&apos;s authorization and use the data we receive only to provide
-              migz to that agent: running their campaigns, reporting their results and improving their ads. we follow
+              migz ai to that agent: running their campaigns, reporting their results and improving their ads. we follow
               meta&apos;s platform terms. we do not sell meta platform data, use it to build profiles of individual people,
-              or share it with anyone other than the service providers listed above. when an agent stops using migz,
+              or share it with anyone other than the service providers listed above. when an agent stops using migz ai,
               removes our access, or asks us to, we delete the meta data we hold for them as described below.
             </p>
 
@@ -161,7 +161,7 @@ export default function PrivacyPage() {
             <H2 id="retention">8. how long we keep it</H2>
             <ul className="list-disc space-y-2 pl-5">
               <li>agent accounts and meta data: while the account is active, then deleted within 30 days of closing the account or revoking access.</li>
-              <li>prospect bookings and prep answers: for as long as the agent uses migz, unless you ask us to delete them sooner.</li>
+              <li>prospect bookings and prep answers: for as long as the agent uses migz ai, unless you ask us to delete them sooner.</li>
               <li>billing records: as long as the law requires.</li>
               <li>emails to us: as long as needed to answer you.</li>
             </ul>
@@ -188,7 +188,7 @@ export default function PrivacyPage() {
                 <li>we will confirm the request came from you, delete your data within 30 days, and email you when it&apos;s done.</li>
               </ol>
               <p>
-                agents can also remove migz&apos;s access to their meta account at any time in their facebook settings
+                agents can also remove migz ai&apos;s access to their meta account at any time in their facebook settings
                 (settings &amp; privacy → business integrations). when access is removed, we delete the meta data we
                 received for that agent within 30 days. we may keep records we are legally required to retain, such as
                 billing records.
@@ -203,7 +203,7 @@ export default function PrivacyPage() {
             </section>
 
             <H2 id="children">11. children</H2>
-            <p>migz and our booking pages are for adults. we do not knowingly collect information from anyone under 18.</p>
+            <p>migz ai and our booking pages are for adults. we do not knowingly collect information from anyone under 18.</p>
 
             <H2 id="changes">12. changes to this policy</H2>
             <p>

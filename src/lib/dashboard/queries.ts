@@ -56,6 +56,19 @@ export async function getTransactions(agentId: string): Promise<WalletTransactio
 }
 
 /** Last `days` days of metrics, one row per day (missing days filled with zeros), oldest first. */
+/** Ads Meta can deliver right now: the ad, its ad set and its campaign all on, and the campaign not retired. */
+export async function getLiveAdCount(agentId: string) {
+  const { count } = await supabaseAdmin
+    .from("ads")
+    .select("meta_ad_id, ad_sets!inner(status, ad_campaigns!inner(status, retired_at))", { count: "exact", head: true })
+    .eq("agent_id", agentId)
+    .eq("status", "ACTIVE")
+    .eq("ad_sets.status", "ACTIVE")
+    .eq("ad_sets.ad_campaigns.status", "ACTIVE")
+    .is("ad_sets.ad_campaigns.retired_at", null);
+  return count ?? 0;
+}
+
 export async function getDailyMetrics(agent: Agent, days = 30): Promise<DailyMetric[]> {
   const today = DateTime.now().setZone(agent.timezone).startOf("day");
   const from = today.minus({ days });

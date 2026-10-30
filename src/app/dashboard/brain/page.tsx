@@ -11,14 +11,14 @@ const SECTIONS = [
   { id: "approvals", label: "Waiting for OK" },
   { id: "brain-overview", label: "Overview" },
   { id: "brain-live", label: "Live" },
+  { id: "brain-page", label: "Page visits" },
+  { id: "brain-scorecards", label: "Scorecards" },
   { id: "brain-log", label: "Session log" },
   { id: "brain-auditor", label: "Auditor" },
   { id: "brain-notebook", label: "Notebook" },
   { id: "brain-experiments", label: "Experiments" },
   { id: "brain-learnings", label: "Learnings" },
-  { id: "brain-scorecards", label: "Scorecards" },
   { id: "brain-swipes", label: "Swipe file" },
-  { id: "brain-page", label: "Page visits" },
 ];
 
 export const dynamic = "force-dynamic";
@@ -30,8 +30,8 @@ export default async function BrainPage({ searchParams }: { searchParams: Promis
   return (
     <>
       <PageHeader
-        title="Migz brain"
-        description="How Migz runs your ads: Sonnet leads each review, a Haiku crew audits and researches, and Opus advises before anything that touches your spend. Everything here comes from real activity."
+        title="Migz AI Brain"
+        description="How Migz AI runs your ads: Sonnet leads each review, a Haiku crew audits and researches, and Opus advises before anything that touches your spend. Everything here comes from real activity."
       />
       <JumpTabs sections={SECTIONS} />
       <BrainView
@@ -40,11 +40,9 @@ export default async function BrainPage({ searchParams }: { searchParams: Promis
         agentId={agent.id}
         justStarted={started === "1"}
         approvals={agent.migz_mode === "approve" || proposals.length ? JSON.parse(JSON.stringify(proposals)) : null}
+        // What the ads' visitors do on the page (their partner-site page when they have one): what Migz reads too
+        pageAnalytics={<PageAnalyticsPanel mine={{ pageUrl: landingUrl(agent.slug) }} />}
       />
-      {/* What the ads' visitors do on the page (their partner-site page when they have one): what Migz reads too */}
-      <div id="brain-page" className="mt-6 scroll-mt-32 lg:scroll-mt-20">
-        <PageAnalyticsPanel mine={{ pageUrl: landingUrl(agent.slug) }} />
-      </div>
     </>
   );
 }

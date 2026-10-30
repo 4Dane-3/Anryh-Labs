@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { DateTime } from "luxon";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, ArrowUpRight } from "lucide-react";
 import { isAnryhAdmin, requireAgent } from "@/lib/auth";
 import { getMigzUpdate } from "@/lib/dashboard/status";
 import { integrations, migzReadyFor } from "@/lib/integrations";
@@ -10,13 +10,14 @@ import {
   getProposedActions,
   getDailyMetrics,
   getUpcomingBookings,
+  getLiveAdCount,
 } from "@/lib/dashboard/queries";
 import { pct, usd } from "@/lib/dashboard/format";
-import { StatTile } from "@/components/dashboard/StatTile";
+import { MetricRow } from "@/components/dashboard/MetricRow";
 import { BarChart } from "@/components/dashboard/BarChart";
-import { Badge, EmptyState, NotConnected, PageHeader, Panel, PanelHeader } from "@/components/dashboard/ui";
+import { Badge, EmptyState, NotConnected, Panel, PanelHeader } from "@/components/dashboard/ui";
 import { MigzPanel } from "@/components/dashboard/MigzPanel";
-import { BrainWidget } from "@/components/dashboard/brain/BrainWidget";
+import { LiveBrainCard } from "@/components/dashboard/brain/BrainCard";
 import { getBrainLive } from "@/lib/migz/brain";
 import { closeEndedBatch, ensureBatchSetAside, getBatchProgress, getOpenBatch, getRecentBatches } from "@/lib/dashboard/batches";
 import { BatchCard } from "@/components/dashboard/batch/BatchCard";
@@ -27,7 +28,7 @@ export default async function OverviewPage() {
   // A batch past its last day is closed (with its results) before the page reads it
   await closeEndedBatch(agent).catch(() => null);
   await ensureBatchSetAside(agent).catch(() => null);
-  const [metrics, balance, upcoming, actions, proposals, brain, openBatch, pastBatches] = await Promise.all([
+  const [metrics, balance, upcoming, actions, proposals, brain, openBatch, pastBatches, liveAds] = await Promise.all([
     getDailyMetrics(agent, 30),
     getBalanceCents(agent.id),
     getUpcomingBookings(agent.id, 5),
@@ -36,6 +37,7 @@ export default async function OverviewPage() {
     getBrainLive(agent),
     getOpenBatch(agent.id),
     getRecentBatches(agent.id, 4),
+    getLiveAdCount(agent.id),
   ]);
   const activeBatch = openBatch?.status === "active" ? openBatch : null;
   const [update, canReview] = await Promise.all([getMigzUpdate(agent), isAnryhAdmin()]);
@@ -62,18 +64,28 @@ export default async function OverviewPage() {
   const hour = DateTime.now().setZone(agent.timezone).hour;
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
 
+  const costPerCall = leads ? Math.round(spend / leads) : null;
+  // Where the money stands: a running batch has its own budget set aside; otherwise how long the balance lasts
+  const money = activeBatch
+    ? ` Your running batch has ${usd(activeBatch.budget_cents)} set aside.`
+    : daysLeft === 0
+      ? " Your ad balance is empty: add funds so your ads keep running."
+      : daysLeft !== null
+        ? ` Your balance covers about ${daysLeft} more day${daysLeft === 1 ? "" : "s"}.`
+        : "";
+  // The campaign in one or two plain sentences, from the same numbers as the row below
+  const summary = agent.ads_paused
+    ? "Your ads are paused, so nothing is spending right now. Migz AI picks up again when you turn them back on."
+    : !hasMetrics
+      ? "Your ads haven't spent anything yet. Once they run, this shows what you spent and how many calls they booked."
+      : `Migz AI has ${liveAds} ad${liveAds === 1 ? "" : "s"} running. Over the last 30 days you spent ${usd(spend)} and booked ${leads} call${leads === 1 ? "" : "s"} from your ads${costPerCall ? `, about ${usd(costPerCall)} each` : ""}.${money}`;
+
   return (
     <>
-      <PageHeader
-        title={`${greeting}, ${firstName}`}
-        description="How your ads performed over the last 30 days, and what's coming up. Migz AI runs your ads and tunes them as results come in."
-        action={<StartBatchButton balanceCents={balance} disabledReason={batchBlocked} autoRun={agent.migz_mode === "auto"} />}
-      />
-
       {!agent.onboarding_completed_at && (
         <Link
           href="/dashboard/start"
-          className="mb-6 flex items-center gap-4 rounded-xl border border-brand/40 bg-brand/[0.08] px-5 py-4 transition-colors hover:bg-brand/[0.12]"
+          className="mb-6 flex items-center gap-4 rounded-2xl border border-brand/40 bg-brand/[0.08] px-5 py-4 backdrop-blur-xl transition-colors hover:bg-brand/[0.12]"
         >
           <span className="min-w-0 flex-1">
             <span className="block text-sm font-semibold text-fg">Finish setting up to start your first campaign</span>
@@ -95,36 +107,62 @@ export default async function OverviewPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatTile
-          index={0}
-          emphasis
-          label="Ad balance"
-          value={balance}
-          format="usd"
-          hint={
-            agent.ads_paused
-              ? "Ads are paused"
-              : activeBatch
-                ? `Plus ${usd(activeBatch.budget_cents)} set aside for your running batch`
-                : daysLeft !== null
-                  ? `About ${daysLeft} day${daysLeft === 1 ? "" : "s"} at ${usd(agent.daily_budget_cents)}/day`
-                  : undefined
-          }
-        />
-        <StatTile index={1} label="Spent · 30 days" value={spend} format="usd" hint={`${usd(Math.round(spend / 30))} a day on average`} />
-        <StatTile
-          index={2}
-          label="Calls booked from ads"
-          value={leads}
-          hint={clicks ? `${clicks.toLocaleString()} clicks · ${pct(clicks / Math.max(impressions, 1))} click rate` : undefined}
-        />
-        <StatTile
-          index={3}
-          label="Cost per booked call"
-          value={leads ? Math.round(spend / leads) : null}
-          format="usd"
-          hint={leads ? "Ad spend ÷ calls booked" : "Needs at least one booked call"}
+      <section className="mb-8 grid gap-8 lg:min-h-[480px] lg:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="flex flex-col justify-end lg:pb-1">
+          <p className="text-sm text-fg-muted">
+            Your Meta campaign · {liveAds} ad{liveAds === 1 ? "" : "s"} running
+          </p>
+          <h1 className="mt-3 text-5xl font-normal leading-[0.98] tracking-[-0.045em] text-fg sm:text-7xl">
+            {greeting},
+            <br />
+            {firstName}.
+          </h1>
+          <p className="mt-5 max-w-xl text-[17px] leading-relaxed text-fg-muted">{summary}</p>
+          <div className="mt-6 flex flex-wrap items-center gap-4">
+            <StartBatchButton balanceCents={balance} disabledReason={batchBlocked} autoRun={agent.migz_mode === "auto"} />
+            <Link href="/dashboard/brain" className="inline-flex items-center gap-1 text-sm text-fg hover:underline hover:underline-offset-4">
+              See what Migz AI is doing <ArrowUpRight className="size-4" />
+            </Link>
+          </div>
+        </div>
+        <div id="migz-brain" className="lg:self-start">
+          {migzReadyFor(agent) ? (
+            <LiveBrainCard initial={brain} />
+          ) : (
+            <div className="rounded-[26px] border border-white/20 bg-[rgb(120_165_220/0.16)] px-5 py-8 text-[14px] text-fg-muted backdrop-blur-2xl">
+              <p className="font-medium text-fg">Migz AI Brain</p>
+              <p className="mt-1">Once your ad account is linked, you&apos;ll see Migz AI reading your numbers and changing your ads here, live.</p>
+            </div>
+          )}
+        </div>
+      </section>
+
+      <div className="mb-8">
+        <MetricRow
+          items={[
+            {
+              label: "Ad balance",
+              value: usd(balance),
+              hint: agent.ads_paused
+                ? "Ads are paused"
+                : activeBatch
+                  ? `Plus ${usd(activeBatch.budget_cents)} set aside for your running batch`
+                  : daysLeft !== null
+                    ? `About ${daysLeft} day${daysLeft === 1 ? "" : "s"} at ${usd(agent.daily_budget_cents)}/day`
+                    : undefined,
+            },
+            { label: "Spent · 30 days", value: usd(spend), hint: `${usd(Math.round(spend / 30))} a day on average` },
+            {
+              label: "Calls booked from ads",
+              value: leads.toLocaleString(),
+              hint: clicks ? `${clicks.toLocaleString()} clicks · ${pct(clicks / Math.max(impressions, 1))} click rate` : undefined,
+            },
+            {
+              label: "Cost per booked call",
+              value: costPerCall ? usd(costPerCall) : null,
+              hint: leads ? "Ad spend ÷ calls booked" : "Needs at least one booked call",
+            },
+          ]}
         />
       </div>
 
@@ -183,8 +221,8 @@ export default async function OverviewPage() {
         </Panel>
       </div>
 
-      <div className="mt-3 grid gap-3 lg:grid-cols-5">
-        <Panel className="lg:col-span-3">
+      <div className="mt-3">
+        <Panel>
           <PanelHeader
             title="Upcoming calls"
             action={
@@ -233,11 +271,6 @@ export default async function OverviewPage() {
           )}
         </Panel>
 
-        {migzReadyFor(agent) && (
-          <div className="lg:col-span-2">
-            <BrainWidget initial={brain} />
-          </div>
-        )}
       </div>
     </>
   );

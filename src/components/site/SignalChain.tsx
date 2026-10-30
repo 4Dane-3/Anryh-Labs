@@ -1,8 +1,8 @@
 const STEPS = [
-  { title: "an ad", body: "migz runs it on facebook and instagram, only in the states you’re licensed in." },
+  { title: "an ad", body: "migz ai runs it on facebook and instagram, only in the states you’re licensed in." },
   { title: "your page", body: "the ad opens your own booking page, with your calendar on it." },
   { title: "a booked call", body: "someone picks a time. a lamp lights, and you get a message in slack." },
-  { title: "meta learns", body: "migz tells meta who booked, so it shows the next ad to more people like them." },
+  { title: "meta learns", body: "migz ai tells meta who booked, so it shows the next ad to more people like them." },
 ];
 
 const ROW = 132; // px per step; the drawing and the text rows share it

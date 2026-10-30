@@ -1,4 +1,4 @@
-// Sample entries, written the way Migz writes them in an agent's dashboard.
+// Sample entries, written the way Migz AI writes them in an agent's dashboard.
 const SLIPS = [
   {
     title: "Held budget steady",

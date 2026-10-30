@@ -292,9 +292,9 @@ export function Board() {
   const shownSlips = s.slips.slice(0, MAX_SLIPS);
 
   return (
-    <section ref={rootRef} className="bd" aria-label="Migz demo with sample activity">
+    <section ref={rootRef} className="bd" aria-label="Migz AI demo with sample activity">
       <p className="sr-only">
-        Sample activity: Migz paused an image ad with a 0.41% click-through rate, moved $6 a day to the video that books
+        Sample activity: Migz AI paused an image ad with a 0.41% click-through rate, moved $6 a day to the video that books
         calls at $21 each, launched two new hooks on the winning video, and held the budget steady while Meta learns.
       </p>
 
@@ -372,8 +372,8 @@ export function Board() {
           )}
         </div>
 
-        <aside className="bd-slips" aria-label="What Migz changed, and why (sample)">
-          <p className="bd-label">what migz changed, and why</p>
+        <aside className="bd-slips" aria-label="What Migz AI changed, and why (sample)">
+          <p className="bd-label">what migz ai changed, and why</p>
           <ul>
             <AnimatePresence initial={false} mode="popLayout">
               {shownSlips.map((sl) => (
@@ -411,8 +411,8 @@ export function Board() {
       </div>
 
       <footer className="bd-bar">
-        <div className="bd-mode" role="group" aria-label="How Migz works">
-          <span className="bd-mode__label">migz works</span>
+        <div className="bd-mode" role="group" aria-label="How Migz AI works">
+          <span className="bd-mode__label">migz ai works</span>
           <div className="bd-seg">
             {(
               [

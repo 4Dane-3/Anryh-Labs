@@ -146,7 +146,7 @@ function HourBars({ hours, nowHour }: { hours: LiveStats["hours"]; nowHour: numb
       </svg>
       {hovered && (
         <div
-          className="pointer-events-none absolute -top-2 z-10 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-md border border-line-strong bg-ink-high px-2.5 py-1.5 font-mono text-[11px] text-fg shadow-lg"
+          className="pointer-events-none absolute -top-2 z-10 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-md border border-line-strong bg-ink px-2.5 py-1.5 font-mono text-[11px] text-fg shadow-lg"
           style={{ left: `${((hovered.hour + 0.5) / 24) * 100}%` }}
         >
           <p className="text-fg-muted">{HOUR_LABEL(hovered.hour)}{hovered.hour === nowHour ? " · now" : ""}</p>

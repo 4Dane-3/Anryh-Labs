@@ -1,7 +1,7 @@
 import { forwardRef } from "react";
 import { cn } from "@/lib/utils";
 
-// Small dark-theme primitives shared by every dashboard page.
+// Small glass-theme primitives shared by every dashboard page.
 
 export const inputClass =
   "w-full rounded-lg border border-line bg-ink-high px-3 py-2 text-sm text-fg placeholder:text-fg-faint transition-colors focus:border-brand/60 focus:outline-none focus:ring-2 focus:ring-brand/15 disabled:opacity-50";
@@ -36,7 +36,7 @@ export function Panel({ className, ...props }: React.ComponentProps<"section">) 
   return (
     <section
       // min-w-0 lets panels shrink inside grids (otherwise a measured chart width pins them wide)
-      className={cn("min-w-0 rounded-xl border border-line bg-ink-raised", className)}
+      className={cn("min-w-0 rounded-2xl border border-line bg-ink-raised backdrop-blur-xl", className)}
       {...props}
     />
   );
@@ -74,7 +74,7 @@ export function PageHeader({
   return (
     <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-fg">{title}</h1>
+        <h1 className="text-4xl font-normal tracking-[-0.035em] text-fg sm:text-5xl">{title}</h1>
         {description && <p className="mt-1 max-w-xl text-sm text-fg-muted">{description}</p>}
       </div>
       {action}

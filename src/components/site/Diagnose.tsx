@@ -1,4 +1,4 @@
-// Sample reads, one per part of the campaign Migz can change. Illustrative numbers.
+// Sample reads, one per part of the campaign Migz AI can change. Illustrative numbers.
 const ROWS = [
   {
     lever: "budget",
@@ -43,7 +43,7 @@ export function Diagnose() {
         <li key={r.lever} className="dg__row" data-reveal style={{ "--i": i } as React.CSSProperties}>
           <span className="dg__lever">{r.lever}</span>
           <div className="dg__col">
-            <p className="dg__k">what migz saw</p>
+            <p className="dg__k">what migz ai saw</p>
             <p>{r.saw}</p>
           </div>
           <div className="dg__col">

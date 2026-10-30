@@ -12,7 +12,7 @@ const TYPICAL: Ad[] = [
   { src: "/examples/typical-4.webp", w: 600, h: 600, alt: "A red starburst ad: no waiting period, act now, select your age" },
 ];
 
-// What Migz made for an agent's live campaign: a real photo, one line, one next step
+// What Migz AI made for an agent's live campaign: a real photo, one line, one next step
 const MIGZ: Ad[] = [
   { src: "/examples/migz-1.webp", w: 720, h: 900, alt: "A couple laughing over coffee: rates locked in for life" },
   { src: "/examples/migz-2.webp", w: 720, h: 900, alt: "A grandmother baking with her granddaughter: as low as $50 a month to protect your family" },
@@ -28,7 +28,7 @@ function Item({ ad, sizes }: { ad: Ad; sizes: string }) {
   );
 }
 
-/** Typical life insurance ads next to the ones Migz makes, split by a rule. */
+/** Typical life insurance ads next to the ones Migz AI makes, split by a rule. */
 export function Examples() {
   return (
     <div className="ex">
@@ -52,10 +52,10 @@ export function Examples() {
       <div className="ex__rule" aria-hidden="true" />
       <div>
         <p className="ex__label">
-          what migz makes.
+          what migz ai makes.
           <span>video and image ads, live for one agent</span>
         </p>
-        <div className="ex__grid" role="group" aria-label="Ads made by Migz">
+        <div className="ex__grid" role="group" aria-label="Ads made by Migz AI">
           <div className="ex__row">
             <ExampleVideo src="/examples/migz-video-3.mp4" poster="/examples/migz-video-3.jpg" w={1080} h={1350} label="Video ad: an agent talking to the camera about whole life" />
             <ExampleVideo src="/examples/migz-video-2.mp4" poster="/examples/migz-video-2.jpg" w={540} h={960} label="Video ad: a podcast conversation about leaving a bill behind" />
