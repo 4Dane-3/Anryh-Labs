@@ -169,3 +169,37 @@ export async function getAllClients(agentId: string) {
     .limit(500);
   return ((data ?? []) as BookingRow[]).map(toClient);
 }
+
+export type CallBack = {
+  id: string;
+  name: string;
+  phone: string;
+  email: string | null;
+  coverage: string | null;
+  best_time: string | null;
+  source: "page" | "instant_form";
+  booked_at: string | null;
+  created_at: string;
+};
+
+/** People to call back: "Get a free quote" requests and instant-form leads, newest first (last 60 days). */
+export async function getCallBacks(agentId: string, limit = 100): Promise<CallBack[]> {
+  const since = new Date(Date.now() - 60 * 86_400_000).toISOString();
+  const full = await supabaseAdmin
+    .from("quote_requests")
+    .select("id, name, phone, email, coverage, best_time, source, booked_at, created_at")
+    .eq("agent_id", agentId)
+    .gte("created_at", since)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (!full.error) return (full.data ?? []) as CallBack[];
+  // Before the intent-level migration: quote requests only
+  const { data } = await supabaseAdmin
+    .from("quote_requests")
+    .select("id, name, phone, coverage, best_time, created_at")
+    .eq("agent_id", agentId)
+    .gte("created_at", since)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  return (data ?? []).map((r) => ({ ...r, email: null, source: "page" as const, booked_at: null }));
+}

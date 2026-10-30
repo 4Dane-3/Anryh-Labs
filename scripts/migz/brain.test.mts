@@ -1148,6 +1148,12 @@ const rnow = new Date("2026-11-04T10:00:00Z");
 const rbatch = (over: Record<string, unknown> = {}) => ({ renew: true, status: "ended", ended_at: "2026-11-04T05:00:00Z", budget_cents: 70_000, result: { spent_cents: 61_000 }, ...over });
 const ragent = (over: Record<string, unknown> = {}) => ({ ads_paused: false, migz_mode: "auto", hasMeta: true, onboarded: true, focusCount: 1, ...over });
 const gate = (b: Record<string, unknown> = {}, a: Record<string, unknown> = {}, balanceCents = 70_000) => renewalGate({ batch: rbatch(b) as never, agent: ragent(a), balanceCents, now: rnow });
+{
+  const withVideo = renewalGate({ batch: rbatch({ budget_cents: 28_000 }) as never, agent: ragent({}), balanceCents: 28_300, videoCents: 600, now: rnow });
+  assert.equal(withVideo.action, "wait", "a paid video tier needs the setup video's price free too");
+  assert.match((withVideo as { reason: string }).reason, /\$280 batch plus the \$6 video/);
+  assert.equal(renewalGate({ batch: rbatch({ budget_cents: 28_000 }) as never, agent: ragent({}), balanceCents: 28_600, videoCents: 600, now: rnow }).action, "renew");
+}
 assert.deepEqual(gate(), { action: "renew" }, "ended, delivered, balance covers it");
 assert.equal(gate({ renew: false }).action, "skip");
 assert.equal(gate({ status: "active" }).action, "skip");
@@ -1177,8 +1183,9 @@ ok("partner sites: ads link to the agency page, and only partner pages are repor
 const { videoRequest, videoCostUsd, videoModel } = await import("@/lib/higgsfield");
 const vbrief = { concept: "a dad planning ahead", style: "Warm, natural light", hook_line: "Plan ahead", hook_shot: "A dad at a kitchen table", body_shots: [{ prompt: "He closes a folder", duration: 6 }, { prompt: "The kids run in", duration: 6 }], primary_text: "x", headline: "y", cast: "a dad in his late 30s", setting: "a family kitchen", mood: "hopeful", voiceover: "Plan ahead so they never have to." } as never;
 delete process.env.HF_VIDEO_MODEL;
-assert.equal(videoModel(), "seedance", "Seedance unless HF_VIDEO_MODEL says kling");
-const sd = videoRequest(vbrief);
+assert.equal(videoModel(), "kling", "Standard (Kling 3.0) by default");
+assert.equal(videoModel("seedance_15"), "seedance", "a Seedance tier makes it on Seedance");
+const sd = videoRequest(vbrief, "seedance_15");
 assert.equal(sd.path, "/bytedance/seedance-2.5/text-to-video");
 assert.deepEqual([sd.body.duration, sd.body.resolution, sd.body.aspect_ratio, sd.body.output_format, sd.body.generate_audio], [15, "720p", "9:16", "mp4", true], "a 15s 720p 9:16 reel by default");
 assert.match(String(sd.body.prompt), /Shot 1 \(0–3s\).*\nShot 2 \(3–9s\).*\nShot 3 \(9–15s\)/, "one prompt that times its shots");
@@ -1186,14 +1193,29 @@ assert.doesNotMatch(String(sd.body.prompt), /narrator|Plan ahead so they never/,
 assert.equal("multi_prompt" in sd.body, false);
 assert.equal(videoCostUsd(vbrief), 6.45, "15 seconds of 720p at the measured $0.43 a second");
 process.env.HF_VIDEO_RESOLUTION = "1080p";
-assert.equal(videoRequest(vbrief).body.resolution, "1080p"); assert.equal(videoCostUsd(vbrief), 13.2, "1080p is about twice that");
+assert.equal(videoRequest(vbrief, "seedance_15").body.resolution, "1080p"); assert.equal(videoCostUsd(vbrief), 13.2, "1080p is about twice that");
 process.env.HF_VIDEO_RESOLUTION = "480p";
 assert.equal(videoCostUsd(vbrief), null, "no rate known for a resolution we haven't measured");
 delete process.env.HF_VIDEO_RESOLUTION;
-process.env.HF_VIDEO_MODEL = "kling";
 const kl = videoRequest(vbrief);
-assert.match(kl.path, /kling/); assert.equal((kl.body.multi_prompt as unknown[]).length, 3); assert.equal(videoCostUsd(vbrief), null);
+assert.match(kl.path, /kling-video\/v3\.0\/std/, "Standard is Kling 3.0 Standard (720p)"); assert.equal((kl.body.multi_prompt as unknown[]).length, 3); assert.doesNotMatch(String(kl.body.prompt), /Plan ahead so they never/, "Kling isn't asked to voice the narrator either (it's mixed in afterwards)");
+process.env.HF_VIDEO_MODEL = "kling";
+assert.equal(videoModel("seedance_30"), "kling", "staff's HF_VIDEO_MODEL=kling switch overrides a paid tier"); assert.equal(videoCostUsd(vbrief, "seedance_30"), null);
 delete process.env.HF_VIDEO_MODEL;
+// A 30s tier: Seedance gets up to 30 seconds; a 15s tier never asks for more than 15
+const long = { ...(vbrief as object), body_shots: [6, 6, 6, 6].map((d, i) => ({ prompt: `Moment ${i}`, duration: d })) } as never; // 3 + 24 = 27s
+assert.equal(videoRequest(long, "seedance_30").body.duration, 27); assert.equal(videoRequest(long, "seedance_15").body.duration, 15);
+assert.equal(videoCostUsd(long, "seedance_30"), 11.61, "27s at $0.43");
+const { VIDEO_TIERS, videoPrice, setupVideoCents, MAX_PAID_VIDEOS_PER_ADSET_PER_WEEK, videoChargeLine, INTENT_LEVELS, MIN_SPLIT_DAILY_CENTS } = await import("@/lib/ad-options");
+assert.deepEqual([videoPrice("standard"), videoPrice("seedance_15"), videoPrice("seedance_30")], [0, 600, 1200]);
+assert.deepEqual([setupVideoCents("standard"), setupVideoCents("seedance_30")], [0, 1200], "a paid tier needs its setup video free on top of the batch");
+assert.equal(VIDEO_TIERS.standard.model, "kling"); assert.equal(MAX_PAID_VIDEOS_PER_ADSET_PER_WEEK, 2);
+assert.match(videoChargeLine("seedance_15"), /\$6.*refunded if it can't be made.*weekly refresh.*2 a week per ad set.*Meta rejects/); assert.match(videoChargeLine("standard"), /included/i);
+assert.match(INTENT_LEVELS.low_medium.detail, /more leads/); assert.match(INTENT_LEVELS.medium_high.detail, /booking page/); assert.equal(MIN_SPLIT_DAILY_CENTS, 1000);
+const { fitBrief, briefDuration: bd } = await import("@/lib/migz/brief");
+const fitted = fitBrief(long, 15);
+assert.ok(bd(fitted) <= 15 && fitted.body_shots.length >= 1, `a 30s brief falling back to Standard fits 15s (${bd(fitted)}s)`);
+assert.equal(fitted.body_shots.at(-1)!.prompt, "Moment 3", "it keeps the last shot for the end card");
 const { overlayFilter, imageOverlayFilter, cornerPosition, opaqueBounds, markFilter, addLogoToVideo, addLogoToImage, END_CARD_SECONDS, isLogoCorner } = await import("@/lib/migz/endcard");
 const ecf = overlayFilter(15, 1080, 1920, { corner: "top_right", endCard: true });
 assert.match(ecf, /clip\(\(t-12\.000\)\/2,0,1\)/, "the pull-back starts 3s before the end");
@@ -1243,10 +1265,11 @@ assert.match(cutsPrompt, /^A 15-second vertical short film/);
 for (const t of ["Shot 1 \\(0–1\\.5s\\)", "Shot 2 \\(1\\.5–3\\.5s\\)", "Shot 3 \\(3\\.5–5s\\)", "Shot 4 \\(5–6s\\)", "Shot 5 \\(6–9s\\)", "Shot 6 \\(9–15s\\)"]) assert.match(cutsPrompt, new RegExp(t));
 assert.match((evalTool("generate_video", { ...goodVideo, body_shots: [{ prompt: "a", duration: 4 }, { prompt: "b", duration: 4 }] }, gctx) as { error: string }).error, /opens with 5 quick shots/, "a video needs the four opening body shots");
 assert.match((evalTool("generate_video", { ...cutsInput, body_shots: [...cutsInput.body_shots, { prompt: "Moment 6", duration: 6 }] }, gctx) as { error: string }).error, /would be 21s/, "past 15 seconds is refused");
-const cutsReq = videoRequest(withOpeningPace({ ...(cuts.payload.brief as never), body_shots: [...(cuts.payload.brief.body_shots as never[]).slice(0, 4), { prompt: "End", duration: 3.5 }] } as never));
+assert.equal((evalTool("generate_video", { ...cutsInput, body_shots: [...cutsInput.body_shots, { prompt: "Moment 6", duration: 6 }] }, { ...gctx, maxVideoSeconds: 30 }) as { ok: boolean }).ok, true, "a 30s tier takes a 21s video");
+const cutsReq = videoRequest(withOpeningPace({ ...(cuts.payload.brief as never), body_shots: [...(cuts.payload.brief.body_shots as never[]).slice(0, 4), { prompt: "End", duration: 3.5 }] } as never), "seedance_15");
 assert.equal(cutsReq.body.duration, 13, "12.5 seconds of video bills as 13 whole seconds");
 assert.equal(videoCostUsd(cuts.payload.brief as never), videoCostUsd(vbrief), "the same 15 seconds cost the same however many cuts are in it");
 assert.deepEqual(shotPrompts(cuts.payload.brief as never).map((x) => x.duration), [2, 2, 2, 1, 3, 6], "Kling takes whole seconds: 1.5 rounds up");
-ok("Seedance 2.5 video request (15s 720p 9:16 by default, 1080p a setting, timed shots, no narration, measured cost) with Kling as a setting; transparent logo: small corner mark on every video and image, frosted end card on videos; fast-cut opening 1.5/2/1.5/1/3s");
+ok("video tiers: Kling 3.0 Standard by default, Seedance 2.5 15s/30s charged $6/$12 per video (2 a week per ad set), staff's Kling switch never charges, 30s briefs fit 15s on fallback; Seedance 2.5 video request (15s 720p 9:16, 1080p a setting, timed shots, no narration, measured cost) with Kling as a setting; transparent logo: small corner mark on every video and image, frosted end card on videos; fast-cut opening 1.5/2/1.5/1/3s");
 
 console.log(`\nALL ${n} UNIT GROUPS PASSED`);

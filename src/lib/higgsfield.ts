@@ -1,14 +1,17 @@
 import "server-only";
+import { DEFAULT_VIDEO_TIER, VIDEO_TIERS, type VideoTier } from "@/lib/ad-options";
 import { briefDuration, imagePrompt, shotPrompts, videoPrompt, type CreativeBrief, type ImageBrief } from "@/lib/migz/brief";
 
 // Higgsfield API (https://docs.higgsfield.ai): async generation. Submit -> store request_id and
 // status_url -> poll or receive a webhook -> download the output (URLs are kept ~7 days, so we
 // copy finished videos into our own Storage).
 const BASE = "https://api.higgsfield.ai";
-// Reel video, by model (HF_VIDEO_MODEL picks one; Seedance unless it says "kling"):
-//  - Seedance 2.5 text-to-video, 1080p: one prompt that times its shots ("Shot 1 (0-3s): ..."), up to 30s.
-//  - Kling 3.0 Standard: multi-shot prompts (hook shot + body shots). Kept so a bad day on one model is a
-//    setting, not a deploy.
+// Reel video, by the agent's video quality (lib/ad-options.ts):
+//  - Standard (the default, included): Kling 3.0 Standard (720p), multi-shot prompts (hook shot + body shots), up to 15s.
+//  - Seedance tiers (charged per video): Seedance 2.5 text-to-video at 720p, one prompt that times its
+//    shots ("Shot 1 (0-3s): ..."), up to 15s or 30s.
+// HF_VIDEO_MODEL=kling puts every video on Kling (a bad day on Seedance is a setting, not a deploy); such
+// videos aren't charged.
 const SEEDANCE_PATH = () => process.env.HF_SEEDANCE_PATH || "/bytedance/seedance-2.5/text-to-video";
 const KLING_PATH = () => process.env.HF_TEXT_TO_VIDEO_PATH || "/kling-video/v3.0/std/text-to-video";
 /**
@@ -72,7 +75,14 @@ async function submit(path: string, body: Record<string, unknown>, opts: SubmitO
 }
 
 export type VideoModel = "seedance" | "kling";
-export const videoModel = (): VideoModel => (process.env.HF_VIDEO_MODEL?.toLowerCase() === "kling" ? "kling" : "seedance");
+/** The model a video for this tier is made on: the tier's own, unless HF_VIDEO_MODEL=kling forces Kling. */
+export const videoModel = (tier: VideoTier = DEFAULT_VIDEO_TIER): VideoModel =>
+  process.env.HF_VIDEO_MODEL?.toLowerCase() === "kling" ? "kling" : VIDEO_TIERS[tier].model;
+/**
+ * Kling 3.0's list price on Higgsfield (Oct 2026, from $0.084 a second; not measured on our API account),
+ * for cost estimates only: Standard videos are included, so nothing is charged from it.
+ */
+export const KLING_USD_PER_SECOND = 0.084;
 
 /**
  * Which model and request body a video uses. Pure, so routing is testable. Both are written as a short-film
@@ -80,14 +90,15 @@ export const videoModel = (): VideoModel => (process.env.HF_VIDEO_MODEL?.toLower
  * is spoken by ElevenLabs and mixed in afterwards, so the prompt leaves the voiceover out (a model told to
  * "narrate" would speak it too, and the video would say everything twice).
  */
-export function videoRequest(brief: CreativeBrief): { path: string; body: Record<string, unknown>; model: VideoModel } {
-  if (videoModel() === "kling") {
+export function videoRequest(brief: CreativeBrief, tier: VideoTier = DEFAULT_VIDEO_TIER): { path: string; body: Record<string, unknown>; model: VideoModel } {
+  if (videoModel(tier) === "kling") {
     return {
       path: KLING_PATH(),
       model: "kling",
       body: {
-        // Required even with multi_prompt; describes the whole piece
-        prompt: videoPrompt(brief).slice(0, 2500),
+        // Required even with multi_prompt; describes the whole piece. No voiceover: like Seedance, the narrator
+        // is mixed in afterwards, and Kling's own sound would speak it a second time
+        prompt: videoPrompt({ ...brief, voiceover: undefined }).slice(0, 2500),
         aspect_ratio: "9:16",
         sound: "on",
         multi_shots: true,
@@ -100,7 +111,7 @@ export function videoRequest(brief: CreativeBrief): { path: string; body: Record
     model: "seedance",
     body: {
       prompt: videoPrompt({ ...brief, voiceover: undefined }).slice(0, 2500),
-      duration: Math.min(30, Math.max(4, Math.ceil(briefDuration(brief)))), // whole seconds
+      duration: Math.min(VIDEO_TIERS[tier].seconds, Math.max(4, Math.ceil(briefDuration(brief)))), // whole seconds, up to the tier's length
       resolution: process.env.HF_VIDEO_RESOLUTION || DEFAULT_VIDEO_RESOLUTION,
       aspect_ratio: "9:16",
       output_format: "mp4",
@@ -110,16 +121,16 @@ export function videoRequest(brief: CreativeBrief): { path: string; body: Record
 }
 
 /** What a video should cost to generate, in dollars (null for a model whose rate isn't known here). */
-export function videoCostUsd(brief: CreativeBrief) {
-  if (videoModel() !== "seedance") return null;
-  const body = videoRequest(brief).body;
+export function videoCostUsd(brief: CreativeBrief, tier: VideoTier = "seedance_15") {
+  if (videoModel(tier) !== "seedance") return null;
+  const body = videoRequest(brief, tier).body;
   const rate = Number(process.env.HF_SEEDANCE_USD_PER_SECOND) || SEEDANCE_USD_PER_SECOND[String(body.resolution)];
   return rate ? Math.round((body.duration as number) * rate * 100) / 100 : null;
 }
 
-/** Submits a 9:16 video for a brief, on the model chosen by HF_VIDEO_MODEL. */
-export async function submitVideo(brief: CreativeBrief, opts: SubmitOptions) {
-  const req = videoRequest(brief);
+/** Submits a 9:16 video for a brief, on the agent's video tier's model. */
+export async function submitVideo(brief: CreativeBrief, opts: SubmitOptions, tier: VideoTier = DEFAULT_VIDEO_TIER) {
+  const req = videoRequest(brief, tier);
   return submit(req.path, req.body, opts);
 }
 

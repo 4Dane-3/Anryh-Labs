@@ -4,6 +4,8 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
 import { actionValue, getAdInsights, getAdSet, getPlacementInsights, keepToFacebookAndInstagram, reachesOtherApps, scheduleConversions } from "@/lib/meta/ads";
 import { graphAll } from "@/lib/meta/graph";
+import { pullFormLeads } from "@/lib/migz/leads";
+import { refundRejectedVideo } from "@/lib/migz/creative-jobs";
 
 export const LOOKBACK_DAYS = 14;
 
@@ -76,6 +78,8 @@ export async function syncAgent(agent: Agent) {
   });
   for (const ad of ads) {
     const status = ad.effective_status === "DISAPPROVED" ? "DISAPPROVED" : ad.status;
+    // A rejected ad's paid video is refunded (idempotent, so every sync can check)
+    if (status === "DISAPPROVED") await refundRejectedVideo(agent.id, ad.id).catch((e) => console.error("refunding a rejected video failed", e));
     await supabaseAdmin
       .from("ads")
       .update({ status, updated_at: new Date().toISOString() })
@@ -87,6 +91,9 @@ export async function syncAgent(agent: Agent) {
   // mark them so they stop counting as live (scorecards, live-ad counts, the review)
   await markGoneAds(agent, account, new Set(ads.map((a) => a.id)));
 
+  // 4. Instant-form leads the webhook missed (low–medium intent). Never fails the sync.
+  if (agent.meta_lead_form_id)
+    await pullFormLeads(agent).catch((e) => console.error("pulling form leads failed", e instanceof Error ? e.message : e));
 }
 
 /**

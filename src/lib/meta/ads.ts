@@ -111,21 +111,29 @@ export async function createAdSet(
     status: "ACTIVE" | "PAUSED";
     /** ISO time Meta stops delivery by itself (the batch's last day), so spend ends even if we're down. */
     endTime?: string | null;
+    /** An instant-form ad set (low–medium intent) keeps people on Meta and optimizes for form leads. */
+    instantForm?: { pageId: string } | null;
   },
 ) {
   const regions = await stateRegionKeys(input.states);
   if (!regions.length) throw new Error("The agent has no licensed states to target.");
+  const goal = input.instantForm
+    ? // Lead ads: the form opens on Facebook/Instagram and Meta optimizes for submitted forms
+      { optimization_goal: "LEAD_GENERATION", destination_type: "ON_AD", promoted_object: { page_id: input.instantForm.pageId } }
+    : {
+        optimization_goal: "OFFSITE_CONVERSIONS",
+        destination_type: "WEBSITE",
+        // Optimize for leads: booked calls and quote requests both send a "Lead" event via the Conversions API.
+        // Bookings alone are too rare for Meta to learn from at our budgets; booked calls stay the scoreboard.
+        promoted_object: { pixel_id: input.pixelId, custom_event_type: "LEAD" },
+      };
   const res = await graph<{ id: string }>("POST", `${account}/adsets`, {
     campaign_id: input.campaignId,
     name: input.name,
     daily_budget: input.dailyBudgetCents, // minor units (cents) for USD accounts
     billing_event: "IMPRESSIONS",
-    optimization_goal: "OFFSITE_CONVERSIONS",
     bid_strategy: "LOWEST_COST_WITHOUT_CAP",
-    destination_type: "WEBSITE",
-    // Optimize for leads: booked calls and quote requests both send a "Lead" event via the Conversions API.
-    // Bookings alone are too rare for Meta to learn from at our budgets; booked calls stay the scoreboard.
-    promoted_object: { pixel_id: input.pixelId, custom_event_type: "LEAD" },
+    ...goal,
     targeting: {
       geo_locations: { regions },
       age_min: 18,
@@ -210,6 +218,110 @@ export async function setStatus(objectId: string, status: "ACTIVE" | "PAUSED") {
   await graph("POST", objectId, { status });
 }
 
+// ---------- Instant forms (low–medium intent) ----------
+// Lead forms and leads belong to the Page, so these calls use a Page access token, which the system user
+// gets for the Pages assigned to it. The Page must have accepted Meta's lead ads terms once (Meta refuses
+// the form until then; see leadFormBlocker).
+
+const pageTokens = new Map<string, string>();
+
+export async function pageToken(pageId: string) {
+  let t = pageTokens.get(pageId);
+  if (!t) {
+    const res = await graph<{ access_token?: string }>("GET", pageId, { fields: "access_token" });
+    if (!res.access_token) throw new Error("Meta gave no Page access token: the system user needs this Page assigned with ads and leads access.");
+    t = res.access_token;
+    pageTokens.set(pageId, t);
+  }
+  return t;
+}
+
+export type LeadFormInput = {
+  name: string;
+  privacyUrl: string;
+  /** Shown before they submit: what happens next and the consent to be called. */
+  consentText: string;
+  /** "What would you like help with?" choices (the agent's topics). */
+  topics: { key: string; label: string }[];
+  /** The thank-you screen's button: book the free call on the agent's page. */
+  bookingUrl: string;
+  agentName: string;
+};
+
+/** Makes the agent's instant form (name, phone, email, what they want help with) and returns its id. */
+export async function createLeadForm(pageId: string, input: LeadFormInput) {
+  const token = await pageToken(pageId);
+  const res = await graph<{ id: string }>(
+    "POST",
+    `${pageId}/leadgen_forms`,
+    {
+      name: input.name.slice(0, 100),
+      locale: "en_US",
+      // Volume over screening: low–medium intent asked for more leads, so no extra review screen
+      is_optimized_for_quality: false,
+      questions: [
+        { type: "FULL_NAME" },
+        { type: "PHONE" },
+        { type: "EMAIL" },
+        ...(input.topics.length > 1
+          ? [{ type: "CUSTOM", key: "coverage", label: "What would you like help with?", options: input.topics.map((t) => ({ key: t.key, value: t.label })) }]
+          : []),
+      ],
+      privacy_policy: { url: input.privacyUrl, link_text: "Privacy policy" },
+      context_card: {
+        title: `A free call with ${input.agentName}`.slice(0, 60),
+        style: "PARAGRAPH_STYLE",
+        content: [input.consentText.slice(0, 600)],
+      },
+      thank_you_page: {
+        title: "Thanks! You'll get a call back soon",
+        body: "Want to pick a time that suits you? Book your free call now.",
+        button_type: "VIEW_WEBSITE",
+        button_text: "Pick a time",
+        website_url: input.bookingUrl,
+      },
+    },
+    { token },
+  );
+  // Leads reach us as they come in (the leadgen webhook); the sync also polls the form as a backstop
+  await graph("POST", `${pageId}/subscribed_apps`, { subscribed_fields: "leadgen" }, { token });
+  return res.id;
+}
+
+/** Why Meta refused to make a lead form, in words for the agent, when it's something they (or we) must fix. */
+export function leadFormBlocker(e: unknown) {
+  const msg = e instanceof Error ? `${e.message} ${(e as { userMessage?: string }).userMessage ?? ""}` : String(e);
+  if (/terms|tos/i.test(msg)) return "your Facebook Page hasn't accepted Meta's lead ads terms yet (Anryh Labs can do this with you in a minute)";
+  if (/permission|access token|leads_retrieval|pages_manage/i.test(msg)) return "Migz doesn't have lead access to your Facebook Page yet (Anryh Labs links it)";
+  return `Meta refused the form: ${msg.trim().slice(0, 160)}`;
+}
+
+export type MetaLead = {
+  id: string;
+  created_time: string;
+  ad_id?: string;
+  form_id?: string;
+  field_data: { name: string; values: string[] }[];
+};
+
+const LEAD_FIELDS = "id,created_time,ad_id,form_id,field_data";
+
+export async function getLead(pageId: string, leadId: string) {
+  return graph<MetaLead>("GET", leadId, { fields: LEAD_FIELDS }, { token: await pageToken(pageId) });
+}
+
+/** The form's leads since a time (unix seconds): the backstop for leads the webhook missed. */
+export async function getFormLeads(pageId: string, formId: string, sinceUnix: number) {
+  const token = await pageToken(pageId);
+  const res = await graph<{ data: MetaLead[] }>(
+    "GET",
+    `${formId}/leads`,
+    { fields: LEAD_FIELDS, limit: 100, filtering: [{ field: "time_created", operator: "GREATER_THAN", value: sinceUnix }] },
+    { token },
+  );
+  return res.data;
+}
+
 /** Starts an upload from a URL Meta can fetch (we pass a short-lived signed Storage URL). */
 export async function uploadVideo(account: string, fileUrl: string, name: string) {
   const res = await graph<{ id: string }>("POST", `${account}/advideos`, { file_url: fileUrl, name });
@@ -245,13 +357,17 @@ export async function createAdCreative(
     link: string;
     primaryText: string;
     headline: string;
+    /** An instant-form ad: the button opens this lead form instead of the booking page. */
+    leadFormId?: string | null;
     media:
       | { kind: "video"; videoId: string; thumbnailUrl: string }
       | { kind: "image"; imageHash: string }
       | { kind: "carousel"; cards: { imageHash: string; headline: string }[] };
   },
 ) {
-  const callToAction = { type: process.env.META_CTA_TYPE || "BOOK_NOW", value: { link: input.link } };
+  const callToAction = input.leadFormId
+    ? { type: process.env.META_LEAD_CTA_TYPE || "GET_QUOTE", value: { lead_gen_form_id: input.leadFormId } }
+    : { type: process.env.META_CTA_TYPE || "BOOK_NOW", value: { link: input.link } };
   const page = { page_id: input.pageId, ...(input.instagramId ? { instagram_user_id: input.instagramId } : {}) };
   const objectStorySpec =
     input.media.kind === "carousel"

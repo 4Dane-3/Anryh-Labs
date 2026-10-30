@@ -107,6 +107,19 @@ export function briefDuration(brief: CreativeBrief) {
   return hookSeconds(brief) + brief.body_shots.reduce((s, b) => s + b.duration, 0);
 }
 
+/**
+ * A brief cut down to a shorter length (a 30s Seedance brief that falls back to the 15s Standard model):
+ * drops the last body shots, keeping the final one as the end card's pull-back, then trims it if needed.
+ */
+export function fitBrief(brief: CreativeBrief, maxSeconds: number): CreativeBrief {
+  if (briefDuration(brief) <= maxSeconds) return brief;
+  const last = brief.body_shots.at(-1)!;
+  let shots = brief.body_shots.slice(0, -1);
+  while (shots.length && hookSeconds(brief) + shots.reduce((n, b) => n + b.duration, 0) + Math.min(last.duration, 3) > maxSeconds) shots = shots.slice(0, -1);
+  const room = maxSeconds - hookSeconds(brief) - shots.reduce((n, b) => n + b.duration, 0);
+  return { ...brief, body_shots: [...shots, { ...last, duration: Math.max(1, Math.min(last.duration, room)) }] };
+}
+
 /** A new video with its opening on the fast-cut pace: the hook shot and the first four body shots get OPENING_SHOTS' lengths. */
 export function withOpeningPace(brief: CreativeBrief): CreativeBrief {
   return {

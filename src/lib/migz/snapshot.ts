@@ -18,6 +18,7 @@ import { adsForBudget } from "@/lib/migz/playbook";
 import type { QuoteMode } from "@/lib/booking/constants";
 import type { EventRow } from "@/lib/admin/page-analytics";
 import { emptyPlatformStats, platformOf, PLATFORMS, strongerPlatform, type PlatformStats } from "@/lib/migz/platforms";
+import { DEFAULT_INTENT, DEFAULT_VIDEO_TIER, isIntentLevel, isVideoTier, MIN_SPLIT_DAILY_CENTS, VIDEO_TIERS, type IntentLevel, type VideoTier } from "@/lib/ad-options";
 
 /**
  * Everything Migz needs for one review: the campaign tree with 14-day and 3-day results per ad,
@@ -74,6 +75,21 @@ export async function buildSnapshot(agent: Agent) {
     // Each step of the booking page, to tell an ads problem from a page problem
     fetchPageEvents(agent.id, DateTime.fromISO(since14, { zone: agent.timezone }).toUTC().toISO()!),
   ]);
+  // Instant-form leads per ad (low–medium intent). Before its migration the query errors and there are none.
+  const { data: formLeadRows } = await supabaseAdmin
+    .from("quote_requests")
+    .select("meta_ad_id, created_at, booked_at")
+    .eq("agent_id", agent.id)
+    .eq("source", "instant_form")
+    .gte("created_at", DateTime.fromISO(since14, { zone: agent.timezone }).toUTC().toISO()!);
+  const formLeadsByAd = new Map<string, { leads: number; booked: number }>();
+  for (const r of formLeadRows ?? []) {
+    if (!r.meta_ad_id) continue;
+    const e = formLeadsByAd.get(r.meta_ad_id) ?? { leads: 0, booked: 0 };
+    e.leads++;
+    if (r.booked_at) e.booked++;
+    formLeadsByAd.set(r.meta_ad_id, e);
+  }
 
   // Booked calls per ad come from our bookings: Meta fills utm_content with the ad id
   const bookingsByAd = new Map<string, { d14: number; d3: number }>();
@@ -189,6 +205,7 @@ export async function buildSnapshot(agent: Agent) {
     learning_status: s.learning_status,
     last_edited_at: s.last_edited_at,
     optimization_event: s.optimization_event === "LEAD" ? "LEAD" : "SCHEDULE",
+    destination: s.destination === "instant_form" ? "instant_form" : "website",
     role: (campaigns.data ?? []).find((c) => c.id === s.campaign_id)?.role === "explore" ? "explore" : "main",
     platforms: platformsBySet.get(s.id) ?? emptyPlatformStats(),
     ads: (ads.data ?? [])
@@ -312,6 +329,11 @@ export async function buildSnapshot(agent: Agent) {
         fix_is_in: verdict.fix,
       };
 
+  const intent: IntentLevel = isIntentLevel(agent.intent_level) ? agent.intent_level : DEFAULT_INTENT;
+  const videoTierNow: VideoTier = isVideoTier(agent.video_tier) ? agent.video_tier : DEFAULT_VIDEO_TIER;
+  // A Seedance tier's longer videos only when the free balance covers one; otherwise it's made on Standard (15s)
+  const videoSeconds = balance >= VIDEO_TIERS[videoTierNow].priceCents ? VIDEO_TIERS[videoTierNow].seconds : VIDEO_TIERS.standard.seconds;
+
   const forModel = {
     migz_notebook: notebook,
     market_research_ideas: researchIdeas.length
@@ -377,6 +399,12 @@ export async function buildSnapshot(agent: Agent) {
             : "revising: compare the ads (and the campaigns, if there are several), revise what's losing (hooks, copy, budget between ad sets when there's more than one), then judge whether each change helped before the campaign ends",
         note: agent.campaign_ends_on ? "The agent chose this length. Pace tests so winners are found with time left to benefit; don't start long tests near the end." : undefined,
       },
+      lead_style: intent === "low_medium"
+        ? `low–medium intent: the agent chose more, cheaper leads. The main campaign runs a booking-page ad set and an instant-form ad set side by side (the system builds both when the daily budget is at least $${MIN_SPLIT_DAILY_CENTS / 100}). Launch creatives into both; compare cost per form lead with cost per booked call, and remember a form lead is an early call-back, worth less than a booked call.${agent.lead_form_blocked ? ` The instant form couldn't be made yet (${agent.lead_form_blocked}), so only the booking page runs for now.` : ""}`
+        : "medium–high intent: every ad sends people to the booking page to book a call (no instant forms).",
+      video_quality: videoTierNow === "standard"
+        ? `Standard (Kling 3.0, 720p, included): videos up to ${VIDEO_TIERS.standard.seconds} seconds.`
+        : `${VIDEO_TIERS[videoTierNow].title} at 720p, chosen by the agent: each new video costs them $${(VIDEO_TIERS[videoTierNow].priceCents / 100).toFixed(0)} from their ad funds, so make each one count. Write videos up to ${videoSeconds} seconds.${videoSeconds < VIDEO_TIERS[videoTierNow].seconds ? " (Their free balance can't cover a Seedance video right now, so it would be made on Standard: keep it to 15 seconds.)" : ""}`,
       creative_generation: outOfCredits > 0
         ? `uncertain: the generator refused the last attempt (${DateTime.fromISO(refusedAt!).toRelative({ base: DateTime.now() })}) for lack of credits, but credits may have been added since. Try ONE creative now (an image first: they cost the least). If it fails again, stop starting creatives this review and say so; if it works, carry on as normal next review.`
         : "available",
@@ -417,7 +445,10 @@ export async function buildSnapshot(agent: Agent) {
           status: s.status,
           daily_budget: `$${(s.daily_budget_cents / 100).toFixed(2)}`,
           meta_learning_status: s.learning_status ?? "unknown",
-          optimizes_for: s.optimization_event === "LEAD" ? "LEAD (quote requests and booked calls)" : "SCHEDULE (booked calls only)",
+          sends_people_to: s.destination === "instant_form"
+            ? "an instant form on Facebook/Instagram (name, phone, email; the agent calls them back). Judge these ads on form_leads and cost per form lead; the thank-you screen offers the booking page too"
+            : "the agent's booking page to book a call",
+          optimizes_for: s.destination === "instant_form" ? "LEAD (instant-form leads)" : s.optimization_event === "LEAD" ? "LEAD (quote requests and booked calls)" : "SCHEDULE (booked calls only)",
           live_ads_its_budget_can_read: adsForBudget(s.daily_budget_cents),
           last_changed: DateTime.fromISO(s.last_edited_at).toRelative({ base: DateTime.now() }),
           placements: s.placements.length ? s.placements : "automatic (Facebook and Instagram only)",
@@ -453,6 +484,13 @@ export async function buildSnapshot(agent: Agent) {
                 can_make_hook_variants: !!creative?.script && isVideoBrief(creative.script as AnyBrief),
                 headline: a.headline,
                 last_14_days: present(results.d14),
+                ...(s.destination === "instant_form"
+                  ? (() => {
+                      const f = formLeadsByAd.get(a.meta_ad_id) ?? { leads: 0, booked: 0 };
+                      const spend = results.t.d14.spend_cents;
+                      return { form_leads_last_14_days: { leads: f.leads, later_booked_a_call: f.booked, cost_per_lead: f.leads ? `$${(spend / f.leads / 100).toFixed(2)}` : "n/a" } };
+                    })()
+                  : {}),
                 last_3_days: present(results.d3),
                 fatigue: results.fatigue.signals.length ? results.fatigue.signals.join("; ") : "none",
               };
@@ -492,6 +530,7 @@ export async function buildSnapshot(agent: Agent) {
     creditsRecentlyRefused: outOfCredits > 0,
     focus,
     balanceCents: balance,
+    videoSeconds,
     revisionsFrom,
     collectDays,
     quoteMode: (agent.quote_mode ?? "folded") as QuoteMode,

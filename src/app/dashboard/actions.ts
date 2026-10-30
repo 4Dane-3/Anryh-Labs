@@ -6,7 +6,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import { isAnryhAdmin, requireAgent } from "@/lib/auth";
 import { usPhone } from "@/lib/booking/call";
 import { integrations, migzReadyFor } from "@/lib/integrations";
-import { batchPacing, buildEvalContext, pauseAdSetsNow, retargetNow, runMigz } from "@/lib/migz/agent";
+import { batchPacing, buildEvalContext, pauseAdSetsNow, retargetNow, runMigz, syncLeadStyle } from "@/lib/migz/agent";
 import { applyPayload } from "@/lib/migz/executor";
 import { buildSnapshot } from "@/lib/migz/snapshot";
 import { syncAgent } from "@/lib/migz/sync";
@@ -25,6 +25,7 @@ import { setupBlockers } from "@/lib/dashboard/setup";
 import type { Agent } from "@/lib/booking/data";
 import { recheck, type ActionPayload } from "@/lib/migz/tools";
 import { STEP_TITLES, type IntakeQuestion, type QuestionKind } from "@/lib/booking/questions";
+import { DEFAULT_INTENT, DEFAULT_VIDEO_TIER, isIntentLevel, isVideoTier, setupVideoCents, VIDEO_TIERS, type IntentLevel, type VideoTier } from "@/lib/ad-options";
 
 // Every action re-resolves the signed-in agent and scopes writes to agent.id,
 // so a client can never touch another agent's rows by passing someone else's ids.
@@ -541,6 +542,33 @@ export async function setMigzMode(mode: "off" | "approve" | "auto"): Promise<Res
   return { ok: true };
 }
 
+/** Settings: how Migz finds leads (booking page only, or instant forms too). Takes effect at the next review. */
+export async function setIntentLevel(level: IntentLevel): Promise<Result> {
+  const agent = await requireAgent();
+  if (!isIntentLevel(level)) return fail("Choose a lead style.");
+  const { error } = await supabaseAdmin.from("agents").update({ intent_level: level }).eq("id", agent.id);
+  if (error) return fail("Couldn't save your lead style. If this keeps happening, the latest migration may not have run yet.");
+  // Builds (or retires) the instant-form ad set now rather than at the next review. Only that: never a full
+  // review, which could make new creatives (agents can't start creative generation themselves)
+  if ((agent.intent_level ?? DEFAULT_INTENT) !== level && agent.onboarding_completed_at && migzReadyFor(agent) && agent.migz_mode !== "off")
+    after(async () => {
+      const fresh = (await supabaseAdmin.from("agents").select("*").eq("id", agent.id).single()).data as Agent;
+      await syncLeadStyle(fresh, null).catch((e) => console.error("applying the lead style failed", e));
+    });
+  revalidatePath("/dashboard", "layout");
+  return { ok: true };
+}
+
+/** Settings: the video model Migz makes videos on. A Seedance tier is charged per video from the ad funds. */
+export async function setVideoTier(tier: VideoTier): Promise<Result> {
+  const agent = await requireAgent();
+  if (!isVideoTier(tier)) return fail("Choose a video quality.");
+  const { error } = await supabaseAdmin.from("agents").update({ video_tier: tier }).eq("id", agent.id);
+  if (error) return fail("Couldn't save your video quality. If this keeps happening, the latest migration may not have run yet.");
+  revalidatePath("/dashboard", "layout");
+  return { ok: true };
+}
+
 /** The booking page's font (My page). */
 export async function setPageFont(key: string): Promise<Result> {
   const agent = await requireAgent();
@@ -669,7 +697,39 @@ export async function planBatch(budgetCents: number, topics?: string[]): Promise
   return { ok: true, options, recommended, estimate: outcomeEstimate(budgetCents, history), advice: exploreAdvice(budgetCents), diagnosis, math, balanceCents };
 }
 
-type BatchChoice = { budgetCents: number; option: string; recommended?: string | null; reason?: string | null; autoRun?: boolean; renew?: boolean };
+type BatchChoice = {
+  budgetCents: number;
+  option: string;
+  recommended?: string | null;
+  reason?: string | null;
+  autoRun?: boolean;
+  renew?: boolean;
+  /** Lead style and video quality, chosen with the batch (they stay the agent's settings afterwards). */
+  intentLevel?: IntentLevel;
+  videoTier?: VideoTier;
+};
+
+/** The agent's lead style and video quality, from the batch choice when it made one, else what they have. */
+const adChoices = (agent: Agent, input: Pick<BatchChoice, "intentLevel" | "videoTier">) => ({
+  intent_level: isIntentLevel(input.intentLevel) ? input.intentLevel : isIntentLevel(agent.intent_level) ? agent.intent_level : DEFAULT_INTENT,
+  video_tier: isVideoTier(input.videoTier) ? input.videoTier : isVideoTier(agent.video_tier) ? agent.video_tier : DEFAULT_VIDEO_TIER,
+});
+
+/** Saves the two choices; before their migration the columns don't exist, so only the defaults are possible. */
+async function saveAdChoices(agent: Agent, choices: ReturnType<typeof adChoices>) {
+  if (choices.intent_level === (agent.intent_level ?? DEFAULT_INTENT) && choices.video_tier === (agent.video_tier ?? DEFAULT_VIDEO_TIER)) return null;
+  const { error } = await supabaseAdmin.from("agents").update(choices).eq("id", agent.id);
+  return error ? "Couldn't save your lead style and video quality. If this keeps happening, the latest migration may not have run yet." : null;
+}
+
+/** The batch's budget plus the video Migz makes when it sets the batch up, on a paid video tier. */
+const neededFor = (budgetCents: number, tier: VideoTier) => budgetCents + setupVideoCents(tier);
+const short = (budgetCents: number, tier: VideoTier, balance: number) => {
+  const video = setupVideoCents(tier);
+  return video
+    ? `Your batch is $${(budgetCents / 100).toFixed(2)}, plus $${(video / 100).toFixed(2)} for the ${VIDEO_TIERS[tier].title} video Migz makes when it sets the batch up, and your ad balance is $${(balance / 100).toFixed(2)}. Add funds, choose a smaller batch, or switch videos to Standard.`
+    : null;
+};
 
 /** The mode a batch runs in: the agent's choice when they made one, otherwise what they had (never "off"). */
 const modeFor = (agent: Agent, autoRun: boolean | undefined) =>
@@ -706,10 +766,13 @@ export async function startBatch(input: BatchChoice): Promise<Result> {
   const focus = cleanFocus(agent.ad_focus);
   if (!focus.length) return fail("Choose what you want to promote on the Setup page first.");
   const balance = await getBalanceCents(agent.id);
-  if (input.budgetCents > balance)
-    return fail(`Your ad balance is $${(balance / 100).toFixed(2)}. Add funds, or choose a batch of $${(balance / 100).toFixed(0)} or less.`);
+  const choices = adChoices(agent, input);
+  if (neededFor(input.budgetCents, choices.video_tier) > balance)
+    return fail(short(input.budgetCents, choices.video_tier, balance) ?? `Your ad balance is $${(balance / 100).toFixed(2)}. Add funds, or choose a batch of $${(balance / 100).toFixed(0)} or less.`);
   const row = await resolveChoice(agent, input, focus);
   if (!row) return fail("That plan doesn't fit this budget. Pick one of the options shown.");
+  const saveError = await saveAdChoices(agent, choices);
+  if (saveError) return fail(saveError);
 
   if (open) await supabaseAdmin.from("campaign_batches").update({ status: "canceled" }).eq("id", open.id);
   const { data: batch, error } = await supabaseAdmin.from("campaign_batches").insert({ ...row, status: "planned" }).select("id").single();
@@ -756,6 +819,8 @@ export async function saveBatchPlan(input: BatchChoice & { topics: string[] }): 
   // The run mode chosen with the plan applies once the batch starts (nothing runs before that)
   const { error: focusError } = await supabaseAdmin.from("agents").update({ ad_focus: focus, migz_mode: modeFor(agent, input.autoRun) }).eq("id", agent.id);
   if (focusError) return fail("Couldn't save what you want to promote.");
+  const saveError = await saveAdChoices(agent, adChoices(agent, input));
+  if (saveError) return fail(saveError);
   if (open) await supabaseAdmin.from("campaign_batches").delete().eq("id", open.id).eq("status", "planned");
   const { error } = await supabaseAdmin.from("campaign_batches").insert({ ...row, status: "planned" });
   if (error) return fail("Couldn't save your plan. If this keeps happening, the batches migration may not have run yet.");
@@ -783,8 +848,9 @@ export async function launchCampaign(): Promise<Result> {
   const planned = await getOpenBatch(agent.id);
   if (!planned || planned.status !== "planned") return fail("Choose your first batch in step 4.");
   const balance = await getBalanceCents(agent.id);
-  if (planned.budget_cents > balance)
-    return fail(`Your batch is $${(planned.budget_cents / 100).toFixed(2)} but your ad balance is $${(balance / 100).toFixed(2)}. Add funds or choose a smaller batch.`);
+  const tier = adChoices(agent, {}).video_tier;
+  if (neededFor(planned.budget_cents, tier) > balance)
+    return fail(short(planned.budget_cents, tier, balance) ?? `Your batch is $${(planned.budget_cents / 100).toFixed(2)} but your ad balance is $${(balance / 100).toFixed(2)}. Add funds or choose a smaller batch.`);
 
   const { error } = await supabaseAdmin.from("agents").update({ onboarding_completed_at: new Date().toISOString() }).eq("id", agent.id);
   if (error) return fail("Couldn't start your campaign. Please try again.");

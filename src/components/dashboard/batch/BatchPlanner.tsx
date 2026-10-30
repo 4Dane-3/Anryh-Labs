@@ -9,12 +9,14 @@ import { depositFor } from "@/lib/campaign";
 import { MIN_BATCH_CENTS, SPRINT_MIN_BATCH_CENTS, type BatchOptionKey } from "@/lib/batch";
 import { usd } from "@/lib/dashboard/format";
 import { cn } from "@/lib/utils";
+import { IntentPicker, VideoTierPicker } from "@/components/dashboard/AdChoices";
+import { DEFAULT_INTENT, DEFAULT_VIDEO_TIER, setupVideoCents, VIDEO_TIERS, type IntentLevel, type VideoTier } from "@/lib/ad-options";
 
-export type BatchChoice = { budgetCents: number; option: BatchOptionKey; recommended: BatchOptionKey; reason: string; autoRun: boolean; renew: boolean };
+export type BatchChoice = { budgetCents: number; option: BatchOptionKey; recommended: BatchOptionKey; reason: string; autoRun: boolean; renew: boolean; intentLevel: IntentLevel; videoTier: VideoTier };
 
 const RUN_MODES = [
-  { auto: true, title: "Let Migz run it", detail: "Migz launches ads and makes changes on its own, within the budget and guardrails. You get a Slack update every 3 days with what it changed." },
-  { auto: false, title: "Ask me first", detail: "Migz proposes each new ad and change. Nothing goes live until you approve it in the Brain or on the Overview." },
+  { auto: true, title: "Let Migz run it", recommended: true, detail: "Migz launches ads and makes changes on its own, within the budget and guardrails. You get a Slack update every 3 days with what it changed." },
+  { auto: false, title: "Ask me first", recommended: false, detail: "Migz proposes each new ad and change. Nothing goes live until you approve it in the Brain or on the Overview." },
 ] as const;
 
 const QUICK = [28_000, 42_000, 56_000, 70_000, 84_000]; // ad spend: $20, $30 and $40 a day for two weeks, $700 ($50/day for two weeks or $100/day for a week), $60 a day
@@ -33,6 +35,8 @@ export function BatchPlanner({
   onConfirm,
   needsBalance = true,
   initialAutoRun = false,
+  initialIntent = DEFAULT_INTENT,
+  initialVideoTier = DEFAULT_VIDEO_TIER,
 }: {
   topics?: string[]; // setup passes the focus being edited; the overview uses the saved focus
   balanceCents: number;
@@ -43,6 +47,9 @@ export function BatchPlanner({
   needsBalance?: boolean;
   /** The agent's current mode (auto = Migz runs it), preselected in the choice. */
   initialAutoRun?: boolean;
+  /** The agent's current lead style and video quality, preselected. */
+  initialIntent?: IntentLevel;
+  initialVideoTier?: VideoTier;
 }) {
   const [amount, setAmount] = useState(String(Math.round((initialBudgetCents ?? Math.max(MIN_BATCH_CENTS, Math.min(balanceCents, 56_000))) / 100)));
   const [plan, setPlan] = useState<Extract<BatchPlanResult, { ok: true }> | null>(null);
@@ -53,10 +60,14 @@ export function BatchPlanner({
   const [plannedFor, setPlannedFor] = useState(0);
   const [autoRun, setAutoRun] = useState(initialAutoRun);
   const [renew, setRenew] = useState(false);
+  const [intentLevel, setIntent] = useState<IntentLevel>(initialIntent);
+  const [videoTier, setTier] = useState<VideoTier>(initialVideoTier);
 
   const budgetCents = Math.round(Number(amount.replace(/[^0-9.]/g, "")) * 100) || 0;
   const tooSmall = budgetCents > 0 && budgetCents < MIN_BATCH_CENTS;
-  const overBalance = needsBalance && budgetCents > balanceCents;
+  // A paid video tier needs the setup video's price free on top of the batch
+  const videoCents = setupVideoCents(videoTier);
+  const overBalance = needsBalance && budgetCents + videoCents > balanceCents;
   const stale = plan !== null && budgetCents !== plannedFor;
 
   const ask = (cents = budgetCents) =>
@@ -82,7 +93,7 @@ export function BatchPlanner({
     startConfirming(async () => {
       if (!plan || !picked) return;
       setError(null);
-      const res = await onConfirm({ budgetCents: plannedFor, option: picked, recommended: plan.recommended.key, reason: plan.recommended.reason, autoRun, renew });
+      const res = await onConfirm({ budgetCents: plannedFor, option: picked, recommended: plan.recommended.key, reason: plan.recommended.reason, autoRun, renew, intentLevel, videoTier });
       if (!res.ok) setError(res.error);
     });
 
@@ -236,11 +247,24 @@ export function BatchPlanner({
                     autoRun === m.auto ? "border-brand/60 bg-brand/[0.08]" : "border-line hover:border-line-strong hover:bg-white/[0.03]",
                   )}
                 >
-                  <span className="block text-sm font-medium text-fg">{m.title}</span>
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-medium text-fg">{m.title}</span>
+                    {m.recommended && <span className="rounded-full bg-brand/15 px-2 py-0.5 text-[11px] font-medium text-brand">Recommended</span>}
+                  </span>
                   <span className="mt-1 block text-[12px] leading-snug text-fg-muted">{m.detail}</span>
                 </button>
               ))}
             </div>
+          </div>
+
+          <div>
+            <p className="mb-2 text-[13px] font-medium text-fg-muted">What kind of leads do you want?</p>
+            <IntentPicker value={intentLevel} onChange={setIntent} idPrefix="batch-intent" />
+          </div>
+
+          <div>
+            <p className="mb-2 text-[13px] font-medium text-fg-muted">Video quality</p>
+            <VideoTierPicker value={videoTier} onChange={setTier} idPrefix="batch-video" />
           </div>
 
           <button
@@ -264,6 +288,19 @@ export function BatchPlanner({
               </span>
             </span>
           </button>
+
+          {videoCents > 0 && (
+            <div className="rounded-lg border border-brand/30 bg-brand/[0.05] px-4 py-3 text-[13px]">
+              <p className="font-semibold text-fg">You&apos;ll be charged for Seedance videos</p>
+              <p className="mt-1 text-fg-muted">
+                {whole(plannedFor)} for the batch, plus {whole(videoCents)} for each {VIDEO_TIERS[videoTier].title} video Migz makes from your ad funds:
+                usually one when it sets the batch up, plus any it makes in a weekly refresh when ads get under 2.5% clicks (at most 2 a week per ad set), including later batches with Keep going. Refunded if Meta rejects the ad. Keep at least {whole(plannedFor + videoCents)} in your balance to start.
+              </p>
+              {needsBalance && overBalance && budgetCents <= balanceCents && (
+                <p className="mt-1 text-bad">Your balance is {usd(balanceCents, { cents: true })}: add {whole(depositFor(budgetCents + videoCents - balanceCents))} in funds or switch videos to Standard.</p>
+              )}
+            </div>
+          )}
 
           <div className="flex flex-wrap items-center gap-3">
             <Button variant="primary" onClick={confirm} disabled={confirming || !picked || !!stale || overBalance}>

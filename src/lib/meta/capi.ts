@@ -55,3 +55,26 @@ export async function sendConversionEvents(input: {
   });
   return { skipped: false as const };
 }
+
+/**
+ * Tells Meta an instant-form lead went on to book a call: a CRM event on the lead itself (Conversions API for
+ * CRM), so Meta learns which form leads turn into real conversations, not just which ones fill in the form.
+ */
+export async function sendLeadStageEvent(input: { leadId: string; eventName: "Schedule"; eventId: string }) {
+  const pixelId = process.env.META_PIXEL_ID;
+  if (!pixelId || !process.env.META_SYSTEM_USER_TOKEN) return { skipped: true as const };
+  await graph("POST", `${pixelId}/events`, {
+    data: [
+      {
+        event_name: input.eventName,
+        event_time: Math.floor(Date.now() / 1000),
+        event_id: input.eventId,
+        action_source: "system_generated",
+        user_data: { lead_id: Number(input.leadId) || input.leadId },
+        custom_data: { event_source: "crm", lead_event_source: "Migz AI" },
+      },
+    ],
+    ...(process.env.META_TEST_EVENT_CODE ? { test_event_code: process.env.META_TEST_EVENT_CODE } : {}),
+  });
+  return { skipped: false as const };
+}

@@ -38,6 +38,8 @@ export type AdSetState = {
   platforms?: PlatformStats;
   /** The conversion Meta optimizes this ad set for (ad sets made before leads existed optimize for SCHEDULE). */
   optimization_event?: "SCHEDULE" | "LEAD";
+  /** Where its ads send people: the booking page, or an instant form on Meta (low–medium intent). */
+  destination?: "website" | "instant_form";
   ads: AdState[];
 };
 
@@ -48,6 +50,13 @@ export type GuardContext = {
   actionsThisRun: number;
   generationsThisRun: number;
   videosThisRun?: number;
+  /**
+   * A weekly creative refresh (not batch setup): new creatives may only launch into these ad sets, whose live
+   * ads are under REFRESH_CTR_BELOW link CTR over the last 7 days.
+   */
+  refreshAdsets?: string[];
+  /** The longest video this agent's video quality allows (15s, or 30s on Seedance 30s). */
+  maxVideoSeconds?: number;
   /** Fewer new creatives than usual this review (e.g. 1 while checking whether generator credits are back; 0 outside batch setup). */
   maxGenerations?: number;
   /** Start of the revision phase (campaign start + 7 days). Before it, no pauses, budget or placement edits. */
@@ -274,6 +283,18 @@ export function checkPromoteAd(ctx: GuardContext, adId: string) {
 
 /** The main ad set a promoted ad goes into. */
 export const promotionTarget = (ctx: GuardContext) => mainAdSet(ctx)?.meta_adset_id ?? null;
+
+/** Live ads under this link CTR (last 7 days, with enough impressions to judge) get new creative weekly. */
+export const REFRESH_CTR_BELOW = 0.025;
+export const REFRESH_EVERY_DAYS = 7;
+
+/** In a weekly refresh, new creatives go only into the ad sets that are due one (and must launch straight in). */
+export function checkRefreshTarget(ctx: GuardContext, launchAdsetId: string | null) {
+  if (!ctx.refreshAdsets) return null;
+  if (!launchAdsetId || !ctx.refreshAdsets.includes(launchAdsetId))
+    return `This review only refreshes creative in ad sets whose live ads are under ${REFRESH_CTR_BELOW * 100}% link CTR this week: ${ctx.refreshAdsets.join(", ")}. Launch new creatives straight into ${ctx.refreshAdsets.length === 1 ? "it" : "one of them"}.`;
+  return null;
+}
 
 export function checkGeneration(ctx: GuardContext, kind: "image" | "video" = "image") {
   const cap = ctx.maxGenerations ?? MAX_GENERATIONS_PER_RUN;

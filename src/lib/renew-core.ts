@@ -16,6 +16,8 @@ export type RenewalInput = {
   batch: { renew: boolean; status: string; ended_at: string | null; budget_cents: number; result: { spent_cents: number } | null };
   agent: { ads_paused: boolean; migz_mode: string; hasMeta: boolean; onboarded: boolean; focusCount: number };
   balanceCents: number;
+  /** Needed free on top of the budget: the paid video Migz makes when it sets the next batch up (0 on Standard). */
+  videoCents?: number;
   now: Date;
 };
 
@@ -40,9 +42,11 @@ export function renewalGate(input: RenewalInput): Renewal {
     return { action: "stop", reason: `Your last batch spent only ${usd(spent)} of its ${usd(batch.budget_cents)}, so the ads weren't delivering and a repeat wouldn't put the money to work. Check your ads, then start the next batch yourself.` };
   if (agent.ads_paused) return { action: "wait", reason: "Your ads are paused, so the next batch hasn't started. Turn them back on and it starts on its own." };
   if (agent.migz_mode === "off") return { action: "wait", reason: "Migz is turned off, so the next batch hasn't started. Turn it back on and it starts on its own." };
-  if (input.balanceCents < batch.budget_cents) {
-    const short = batch.budget_cents - input.balanceCents;
-    return { action: "wait", reason: `Your balance is ${usd(input.balanceCents)}, ${usd(short)} short of the ${usd(batch.budget_cents)} the next batch needs. Add about ${usd(depositFor(short))} in funds and it starts on its own.` };
+  const needed = batch.budget_cents + (input.videoCents ?? 0);
+  if (input.balanceCents < needed) {
+    const short = needed - input.balanceCents;
+    const what = input.videoCents ? `${usd(batch.budget_cents)} batch plus the ${usd(input.videoCents)} video Migz makes for it` : usd(batch.budget_cents);
+    return { action: "wait", reason: `Your balance is ${usd(input.balanceCents)}, ${usd(short)} short of the ${what} the next batch needs. Add about ${usd(depositFor(short))} in funds and it starts on its own.` };
   }
   return { action: "renew" };
 }

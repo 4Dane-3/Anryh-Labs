@@ -12,7 +12,9 @@ import { closeEndedBatch, ensureBatchSetAside, getActiveBatch, type Batch } from
 import { campaignEnded, campaignLabels, daysLeft as daysLeftIn, pickCarryOver, planTopic, type AdResults } from "@/lib/campaign";
 import { adsForBudget } from "@/lib/migz/playbook";
 import { cleanFocus, isTopic, type TopicKey } from "@/lib/migz/topics";
-import { MIN_ADSET_BUDGET_CENTS } from "@/lib/migz/guardrails";
+import { MIN_ADSET_BUDGET_CENTS, MIN_IMPRESSIONS_TO_JUDGE, REFRESH_CTR_BELOW, REFRESH_EVERY_DAYS } from "@/lib/migz/guardrails";
+import { MIN_SPLIT_DAILY_CENTS } from "@/lib/ad-options";
+import { ensureLeadForm, wantsInstantForms } from "@/lib/migz/leads";
 import { isTestMode } from "@/lib/migz/test-mode";
 import { gateState, materialChanges, type GateState } from "@/lib/migz/gate";
 import { MODELS } from "@/lib/migz/models";
@@ -93,6 +95,7 @@ export async function buildEvalContext(agent: Agent, snapshot: Snapshot): Promis
     batchDaysLeft: agent.campaign_ends_on ? daysLeftIn(agent.campaign_ends_on, agent.timezone) : null,
     ...(snapshot.creditsRecentlyRefused ? { maxGenerations: 1 } : {}),
     openGenerations: snapshot.openGenerations,
+    maxVideoSeconds: snapshot.videoSeconds,
     quoteMode: snapshot.quoteMode,
     bookedLast7: snapshot.bookedLast7,
     pageFunnel: snapshot.pageFunnel,
@@ -235,6 +238,7 @@ export async function syncCampaignPlan(agent: Agent, runId: string | null, batch
   const topicOf = (slot: CampaignSlot) => (slot === EXPLORE ? null : slot);
   const single = slots.filter((t) => t !== EXPLORE).length === 1;
   const applying = !!batch && !batch.applied_at;
+  const forms = wantsInstantForms(agent);
   const { data: existing, error } = await supabaseAdmin
     .from("ad_campaigns")
     .select("id, topic, role, meta_campaign_id, retired_at")
@@ -255,6 +259,8 @@ export async function syncCampaignPlan(agent: Agent, runId: string | null, batch
     let j = pick((c) => c.topic === topic && !c.retired_at);
     if (j === -1) j = pick((c) => c.topic === topic);
     if (j === -1 && role === "main") j = pick((c) => c.topic === null && !c.retired_at);
+    // Outside a batch there's one main campaign: a focus change retags it rather than building a second
+    if (j === -1 && role === "main" && !batch) j = pick((c) => !c.retired_at);
     if (j === -1) {
       missing.push(i);
       continue;
@@ -292,8 +298,8 @@ export async function syncCampaignPlan(agent: Agent, runId: string | null, batch
         await supabaseAdmin.from("ad_campaigns").update({ status: "PAUSED", retired_at: now(), updated_at: now() }).eq("id", c.id);
       }
       if (single && unused.length) {
-        const { data: retiredSets } = await supabaseAdmin.from("ad_sets").select("id").in("campaign_id", unused.map((c) => c.id)).neq("status", "DELETED");
-        sources.push(...(retiredSets ?? []).map((x) => x.id));
+        const retiredSets = await adSetsOf(unused.map((c) => c.id));
+        sources.push(...retiredSets.filter((x) => x.destination === "website").map((x) => x.id));
       }
       for (const c of claimed.filter((x) => x.retired_at)) {
         if (campaignStatus === "ACTIVE") await setStatus(c.meta_campaign_id, "ACTIVE");
@@ -304,23 +310,28 @@ export async function syncCampaignPlan(agent: Agent, runId: string | null, batch
     // Campaigns the plan keeps get their share of the daily spend
     const keptIds = applying ? claimed.map((c) => c.id) : (existing ?? []).filter((c) => !c.retired_at).map((c) => c.id);
     if (keptIds.length) {
-      const { data: sets } = await supabaseAdmin
-        .from("ad_sets")
-        .select("id, campaign_id, meta_adset_id, daily_budget_cents, status")
-        .in("campaign_id", keptIds)
-        .neq("status", "DELETED")
-        .order("created_at");
-      // A one-campaign batch runs one ad set: the kept campaign's first live one (else its first)
+      const sets = await adSetsOf(keptIds);
+      // A one-campaign batch runs one ad set per destination: the booking-page one, plus the instant-form one
+      // when the agent chose more leads (each the kept campaign's first live one, else its first)
+      const key = (set: { campaign_id: string; destination: string }) => `${set.campaign_id}:${set.destination}`;
       const primary = new Map<string, string>();
-      for (const set of sets ?? []) if (set.status === "ACTIVE" && !primary.has(set.campaign_id)) primary.set(set.campaign_id, set.id);
-      for (const set of sets ?? []) if (!primary.has(set.campaign_id)) primary.set(set.campaign_id, set.id);
-      for (const set of sets ?? []) {
-        if (applying && single && primary.get(set.campaign_id) !== set.id) {
+      for (const set of sets) if (set.status === "ACTIVE" && !primary.has(key(set))) primary.set(key(set), set.id);
+      for (const set of sets) if (!primary.has(key(set))) primary.set(key(set), set.id);
+      // A main campaign with a live form ad set shares its daily spend between the two
+      // (only when the share is big enough to split; below it the form ad set sits this batch out)
+      const roomFor = (campaignId: string) => centsFor(slotOf.get(campaignId)) >= MIN_SPLIT_DAILY_CENTS;
+      const splitIn = new Set(
+        sets.filter((x) => forms && x.destination === "instant_form" && primary.get(key(x)) === x.id && roomFor(x.campaign_id) && (x.status === "ACTIVE" || applying)).map((x) => x.campaign_id),
+      );
+      for (const set of sets) {
+        // The form ad set is out of the plan when the agent wants booked calls only (or the budget can't split)
+        const unwanted = set.destination === "instant_form" && (!forms || !roomFor(set.campaign_id));
+        if ((applying && single && primary.get(key(set)) !== set.id) || (applying && unwanted)) {
           if (set.status === "ACTIVE") {
             await setStatus(set.meta_adset_id, "PAUSED");
             await supabaseAdmin.from("ad_sets").update({ status: "PAUSED", updated_at: now() }).eq("id", set.id);
           }
-          sources.push(set.id);
+          if (set.destination === "website") sources.push(set.id); // form ads can't carry into a booking-page ad set
           continue;
         }
         if (applying && endTime) await setEndTime(set.meta_adset_id, endTime);
@@ -329,7 +340,8 @@ export async function syncCampaignPlan(agent: Agent, runId: string | null, batch
           await setStatus(set.meta_adset_id, "ACTIVE");
           await supabaseAdmin.from("ad_sets").update({ status: "ACTIVE", updated_at: now() }).eq("id", set.id);
         }
-        const budget = centsFor(slotOf.get(set.campaign_id));
+        const share = centsFor(slotOf.get(set.campaign_id));
+        const budget = splitIn.has(set.campaign_id) ? splitShare(share, set.destination) : share;
         if (set.daily_budget_cents === budget) continue;
         await setDailyBudget(set.meta_adset_id, budget);
         await supabaseAdmin.from("ad_sets").update({ daily_budget_cents: budget, last_edited_at: now(), updated_at: now() }).eq("id", set.id);
@@ -392,6 +404,112 @@ export async function syncCampaignPlan(agent: Agent, runId: string | null, batch
   return true;
 }
 
+let destinationColumn: boolean | null = null;
+
+/** Ad sets of some campaigns (not deleted), oldest first, with where each sends people. */
+async function adSetsOf(campaignIds: string[]) {
+  if (!campaignIds.length) return [];
+  type Row = { id: string; campaign_id: string; meta_adset_id: string; daily_budget_cents: number; status: string; destination: "website" | "instant_form" };
+  const cols = "id, campaign_id, meta_adset_id, daily_budget_cents, status";
+  const full = await supabaseAdmin.from("ad_sets").select(`${cols}, destination`).in("campaign_id", campaignIds).neq("status", "DELETED").order("created_at");
+  destinationColumn = !full.error; // before the intent-level migration every ad set goes to the booking page
+  if (!full.error) return (full.data ?? []) as Row[];
+  const { data } = await supabaseAdmin.from("ad_sets").select(cols).in("campaign_id", campaignIds).neq("status", "DELETED").order("created_at");
+  return (data ?? []).map((x) => ({ ...x, destination: "website" as const }));
+}
+
+/** A campaign's daily share split between its booking-page and instant-form ad sets (never below an ad set's minimum). */
+function splitShare(share: number, destination: "website" | "instant_form") {
+  const form = Math.max(MIN_ADSET_BUDGET_CENTS, Math.floor(share / 2));
+  return destination === "instant_form" ? form : Math.max(MIN_ADSET_BUDGET_CENTS, share - form);
+}
+
+/**
+ * Lead style (intent level) between batches: with low–medium intent each main campaign gets an instant-form
+ * ad set beside its booking-page one, taking half of the booking-page ad set's daily budget (only when that's
+ * at least MIN_SPLIT_DAILY_CENTS); back on medium–high, the form ad set is paused and its budget handed back.
+ * A new batch's setup (syncCampaignPlan) keeps the split itself. Returns true when it changed anything.
+ */
+export async function syncLeadStyle(agent: Agent, runId: string | null) {
+  if (!agent.meta_ad_account_id || !agent.meta_page_id) return false;
+  const forms = wantsInstantForms(agent);
+  const { data: mains } = await supabaseAdmin.from("ad_campaigns").select("id, meta_campaign_id").eq("agent_id", agent.id).eq("role", "main").is("retired_at", null);
+  if (!mains?.length) return false;
+  const sets = await adSetsOf(mains.map((c) => c.id));
+  if (destinationColumn === false) return false;
+  const now = () => new Date().toISOString();
+  const work: (() => Promise<string>)[] = [];
+  const { data: lastStyle } = await supabaseAdmin.from("ad_actions").select("title").eq("agent_id", agent.id).eq("tool", "system_lead_style").order("created_at", { ascending: false }).limit(1).maybeSingle();
+  const pausedByLeadStyle = lastStyle?.title === "Back to booked calls only";
+
+  for (const c of mains) {
+    const site = sets.find((x) => x.campaign_id === c.id && x.destination === "website" && x.status === "ACTIVE");
+    const form = sets.find((x) => x.campaign_id === c.id && x.destination === "instant_form");
+    if (!forms) {
+      if (!form || form.status !== "ACTIVE") continue;
+      work.push(async () => {
+        await setStatus(form.meta_adset_id, "PAUSED");
+        await supabaseAdmin.from("ad_sets").update({ status: "PAUSED", updated_at: now() }).eq("id", form.id);
+        if (site) {
+          const cents = site.daily_budget_cents + form.daily_budget_cents;
+          await setDailyBudget(site.meta_adset_id, cents);
+          await supabaseAdmin.from("ad_sets").update({ daily_budget_cents: cents, last_edited_at: now(), updated_at: now() }).eq("id", site.id);
+        }
+        return "paused the instant-form ad set and moved its budget back to the booking page";
+      });
+      continue;
+    }
+    // A paused form ad set comes back only if lead style paused it (pacing or the agent may have, too)
+    if (!site || (form && (form.status === "ACTIVE" || !pausedByLeadStyle)) || agent.ads_paused) continue;
+    if (site.daily_budget_cents < MIN_SPLIT_DAILY_CENTS) continue;
+    const formCents = splitShare(site.daily_budget_cents, "instant_form");
+    const siteCents = splitShare(site.daily_budget_cents, "website");
+    const formId = await ensureLeadForm(agent);
+    if (!formId) continue; // recorded on the agent (the snapshot tells Migz); the booking page keeps running
+    work.push(async () => {
+      if (form) {
+        await setDailyBudget(form.meta_adset_id, formCents);
+        await setStatus(form.meta_adset_id, "ACTIVE");
+        await supabaseAdmin.from("ad_sets").update({ status: "ACTIVE", daily_budget_cents: formCents, last_edited_at: now(), updated_at: now() }).eq("id", form.id);
+      } else {
+        const name = `${agent.licensed_states.join(", ")} · adults 18+ · instant form`;
+        const batch = await getActiveBatch(agent.id);
+        const id = await createAdSet(agent.meta_ad_account_id!, {
+          campaignId: c.meta_campaign_id,
+          name,
+          dailyBudgetCents: formCents,
+          pixelId: process.env.META_PIXEL_ID!,
+          states: agent.licensed_states,
+          placements: [],
+          status: "ACTIVE",
+          endTime: batch?.ends_on ? batchEndTime(batch.ends_on, agent.timezone) : null,
+          instantForm: { pageId: agent.meta_page_id! },
+        });
+        await supabaseAdmin.from("ad_sets").insert({ agent_id: agent.id, campaign_id: c.id, meta_adset_id: id, name, status: "ACTIVE", daily_budget_cents: formCents, states: agent.licensed_states, optimization_event: "LEAD", destination: "instant_form" });
+      }
+      await setDailyBudget(site.meta_adset_id, siteCents);
+      await supabaseAdmin.from("ad_sets").update({ daily_budget_cents: siteCents, last_edited_at: now(), updated_at: now() }).eq("id", site.id);
+      return `split ${`$${(site.daily_budget_cents / 100).toFixed(2)}`}/day: $${(siteCents / 100).toFixed(2)} to the booking page and $${(formCents / 100).toFixed(2)} to an instant form`;
+    });
+  }
+  if (!work.length) return false;
+  const done: string[] = [];
+  await metaStep({ agentId: agent.id, runId, summary: forms ? "Adding an instant form to your campaign" : "Taking the instant form out of your campaign" }, async () => {
+    for (const w of work) done.push(await w());
+  });
+  await logAction(agent.id, {
+    kind: "audience",
+    title: forms ? "Added instant-form ads" : "Back to booked calls only",
+    detail: forms
+      ? `You chose more leads, so Migz ${done.join("; ")}. Form leads show under Clients and ping your Slack; call them back quickly. New ads go into both.`
+      : `You chose booked calls, so Migz ${done.join("; ")}. Every ad now sends people to your booking page.`,
+    status: "applied",
+    tool: "system_lead_style",
+    run_id: runId,
+  });
+  return true;
+}
+
 /**
  * Copies the best live ads from retired ad sets into the campaign's ad set, up to as many live ads as
  * its budget can give a fair read (adsForBudget), so a batch that folds several campaigns into one doesn't start from nothing (which ones:
@@ -399,14 +517,7 @@ export async function syncCampaignPlan(agent: Agent, runId: string | null, batch
  */
 async function carryOverAds(agent: Agent, target: { campaignId: string; topic: TopicKey | null }, sourceAdsetIds: string[]) {
   if (!sourceAdsetIds.length) return 0;
-  const { data: set } = await supabaseAdmin
-    .from("ad_sets")
-    .select("id, meta_adset_id, daily_budget_cents")
-    .eq("campaign_id", target.campaignId)
-    .eq("status", "ACTIVE")
-    .order("created_at")
-    .limit(1)
-    .maybeSingle();
+  const set = (await adSetsOf([target.campaignId])).find((x) => x.status === "ACTIVE" && x.destination === "website");
   if (!set) return 0;
   const [{ data: live }, { data: candidates }] = await Promise.all([
     supabaseAdmin.from("ads").select("creative_id").eq("adset_id", set.id).eq("status", "ACTIVE"),
@@ -459,6 +570,38 @@ async function carryOverAds(agent: Agent, target: { campaignId: string; topic: T
 
   for (const a of picks) await copyAdInto(agent, a, set.meta_adset_id);
   return picks.length;
+}
+
+/**
+ * Ad sets due a weekly creative refresh: live, with live ads under REFRESH_CTR_BELOW link CTR over the last
+ * REFRESH_EVERY_DAYS days (on at least MIN_IMPRESSIONS_TO_JUDGE impressions, so it's a fair read), and no
+ * creative started for them in that time. Paused or test-mode accounts never get here.
+ */
+export async function creativeRefreshDue(agent: Agent, snapshot: Snapshot) {
+  const live = snapshot.guardAdsets.filter((s) => s.status === "ACTIVE" && s.ads.some((a) => a.status === "ACTIVE"));
+  if (!live.length) return [];
+  const since = DateTime.now().setZone(agent.timezone).minus({ days: REFRESH_EVERY_DAYS - 1 }).toISODate()!;
+  const startedSince = new Date(Date.now() - REFRESH_EVERY_DAYS * 86_400_000).toISOString();
+  const [{ data: rows }, { data: recent }] = await Promise.all([
+    supabaseAdmin.from("ad_insights_daily").select("meta_ad_id, impressions, link_clicks").eq("agent_id", agent.id).gte("date", since),
+    supabaseAdmin.from("creative_jobs").select("launch_adset_id").eq("agent_id", agent.id).neq("stage", "failed").gte("created_at", startedSince),
+  ]);
+  const freshly = new Set((recent ?? []).map((j) => j.launch_adset_id).filter(Boolean));
+  const due: { adsetId: string; ctr: number; impressions: number }[] = [];
+  for (const set of live) {
+    if (freshly.has(set.meta_adset_id)) continue;
+    const ids = new Set(set.ads.filter((a) => a.status === "ACTIVE").map((a) => a.meta_ad_id));
+    let impressions = 0;
+    let clicks = 0;
+    for (const r of rows ?? []) if (ids.has(r.meta_ad_id)) {
+      impressions += r.impressions;
+      clicks += r.link_clicks ?? 0;
+    }
+    if (impressions < MIN_IMPRESSIONS_TO_JUDGE) continue;
+    const ctr = clicks / impressions;
+    if (ctr < REFRESH_CTR_BELOW) due.push({ adsetId: set.meta_adset_id, ctr, impressions });
+  }
+  return due;
 }
 
 type Pacing = { budgetCents: number; spentCents: number; daysLeft: number; dailyCapCents: number; budgetUsed: boolean };
@@ -709,10 +852,15 @@ async function review(agent: Agent, trigger: "schedule" | "manual", createMessag
 
     // New creatives are made while a batch is being set up (its first review), or when nothing is live
     // to run. Every other review studies the ads it has and records what they teach.
-    const producing = (!!batch && !batch.applied_at) || !snapshot.guardAdsets.some((s) => s.ads.some((a) => a.status === "ACTIVE"));
+    let producing = (!!batch && !batch.applied_at) || !snapshot.guardAdsets.some((s) => s.ads.some((a) => a.status === "ACTIVE"));
     if (await syncCampaignPlan(agent, runId, batch)) snapshot = await buildSnapshot(agent);
+    if (await syncLeadStyle(agent, runId)) snapshot = await buildSnapshot(agent);
     if (await syncTargeting(agent, runId)) snapshot = await buildSnapshot(agent);
     if (pacing && (await paceBudgets(agent, runId, pacing))) snapshot = await buildSnapshot(agent);
+
+    // Weekly refresh: an ad set whose live ads are under 2.5% link CTR this week gets new creative
+    const refresh = producing ? [] : await creativeRefreshDue(agent, snapshot);
+    if (refresh.length) producing = true;
 
     const budget = await monthlyBudget(agent.id, agent.migz_model_budget_cents ?? 3000, agent.timezone);
     const team = { runId, budget, createMessage };
@@ -739,6 +887,13 @@ async function review(agent: Agent, trigger: "schedule" | "manual", createMessag
     };
     Object.assign(teamContext, routines.context);
     const extraReasons: string[] = [...routines.reasons];
+    if (refresh.length) {
+      teamContext.creative_refresh = {
+        why: `These ad sets' live ads are under ${REFRESH_CTR_BELOW * 100}% link CTR over the last ${REFRESH_EVERY_DAYS} days and got no new creative this week. Make new creative for them (new angles and hooks, not small edits of what's failing), launched straight in; the weak ads can be paused once the new ones have a fair read.`,
+        ad_sets: refresh.map((r) => ({ adset_id: r.adsetId, link_ctr_last_7_days: `${(r.ctr * 100).toFixed(2)}%`, impressions: r.impressions })),
+      };
+      extraReasons.push(`weekly creative refresh: ${refresh.length} ad set${refresh.length === 1 ? "" : "s"} under ${REFRESH_CTR_BELOW * 100}% link CTR`);
+    }
     const extraTools: ExtraTool[] = [...READ_TOOLS];
     for (const ext of extensions) {
       if (ext.tools) extraTools.push(...ext.tools);
@@ -784,6 +939,7 @@ async function review(agent: Agent, trigger: "schedule" | "manual", createMessag
     // Budget changes can never take the batch's campaigns above the paced cap
     if (pacing) ctx.dailyCapCents = Math.min(ctx.dailyCapCents, pacing.dailyCapCents);
     if (!producing) ctx.maxGenerations = 0;
+    if (refresh.length) ctx.refreshAdsets = refresh.map((r) => r.adsetId);
     const result = await runOperator({ agent, snapshot, runId, budget, createMessage, ctx }, extraTools, { teamContext, reasons, producing });
     const summary = result.summary ? await writeFeed(result.summary, { agentId: agent.id, runId, budget, createMessage }) : "";
 

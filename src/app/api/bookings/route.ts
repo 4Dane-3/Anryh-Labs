@@ -7,6 +7,7 @@ import { CONSENT_TEXT } from "@/lib/booking/constants";
 import { newBookingMessage } from "@/lib/booking/format";
 import { sendSlackMessage } from "@/lib/slack";
 import { sendConversionEvents } from "@/lib/meta/capi";
+import { markFormLeadBooked } from "@/lib/migz/leads";
 import { partnerPageUrl } from "@/lib/booking/sites";
 import { sendBookingConfirmation } from "@/lib/booking/email";
 
@@ -138,6 +139,8 @@ export async function POST(req: Request) {
     } catch (e) {
       console.error("conversions api failed", e);
     }
+    // Someone who sent an instant form and now booked: tell Meta on the lead, so form ads find more like them
+    await markFormLeadBooked(agent.id, { phone: input.phone, email: input.email }, booking.id).catch((e) => console.error("marking the form lead booked failed", e));
   });
 
   return Response.json({ token: booking.token });

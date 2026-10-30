@@ -11,7 +11,7 @@ const RETRYABLE_CODES = new Set([1, 2, 4, 17, 32, 341, 613, 80000, 80003, 80004,
 // Rate limits: Meta refused the call without doing it, so even a create is safe to repeat
 const THROTTLE_CODES = new Set([4, 17, 32, 341, 613, 80000, 80003, 80004, 80014]);
 // POSTs that make a new object: after a 5xx or "unknown error" it may exist already, so a retry could duplicate it
-const CREATES = /\/(campaigns|adsets|ads|adcreatives|advideos|adimages)$/;
+const CREATES = /\/(campaigns|adsets|ads|adcreatives|advideos|adimages|leadgen_forms)$/;
 
 export class MetaApiError extends Error {
   constructor(
@@ -33,13 +33,13 @@ function token() {
   return t;
 }
 
-function encode(params: Record<string, unknown>) {
+function encode(params: Record<string, unknown>, tokenOverride?: string) {
   const out = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value === undefined || value === null) continue;
     out.set(key, typeof value === "object" ? JSON.stringify(value) : String(value));
   }
-  const accessToken = token();
+  const accessToken = tokenOverride ?? token();
   out.set("access_token", accessToken);
   // appsecret_proof proves calls come from our server (recommended for system user tokens)
   if (process.env.META_APP_SECRET) {
@@ -54,12 +54,14 @@ export async function graph<T = Record<string, unknown>>(
   method: "GET" | "POST" | "DELETE",
   path: string,
   params: Record<string, unknown> = {},
+  /** A Page access token, for Page endpoints (lead forms, leads) the system user token can't call directly. */
+  opts: { token?: string } = {},
 ): Promise<T> {
   const url = path.startsWith("http") ? path : `${BASE}/${path.replace(/^\//, "")}`;
   const delays = [2000, 6000];
 
   for (let attempt = 0; ; attempt++) {
-    const body = encode(params);
+    const body = encode(params, opts.token);
     const res =
       method === "GET"
         ? await fetch(`${url}${url.includes("?") ? "&" : "?"}${body}`, { cache: "no-store" })
