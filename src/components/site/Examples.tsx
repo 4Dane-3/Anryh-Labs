@@ -38,13 +38,15 @@ export function Examples() {
           <span>per meta ad library</span>
         </p>
         <div className="ex__grid" role="group" aria-label="Typical life insurance ads">
-          {[TYPICAL.slice(0, 2), TYPICAL.slice(2)].map((row, i) => (
-            <div key={i} className="ex__row">
-              {row.map((a) => (
-                <Item key={a.src} ad={a} sizes="(max-width: 860px) 60vw, 25vw" />
-              ))}
-            </div>
-          ))}
+          <div className="ex__row">
+            <Item ad={TYPICAL[0]} sizes="(max-width: 860px) 60vw, 25vw" />
+            <ExampleVideo silent src="/examples/typical-video.mp4" poster="/examples/typical-video.jpg" w={540} h={534} label="Video ad: a cluttered no 2 year wait whole life ad with icons, a list and a clip of a woman holding a letter" />
+          </div>
+          <div className="ex__row">
+            {TYPICAL.slice(1).map((a) => (
+              <Item key={a.src} ad={a} sizes="(max-width: 860px) 60vw, 25vw" />
+            ))}
+          </div>
         </div>
       </div>
       <div className="ex__rule" aria-hidden="true" />

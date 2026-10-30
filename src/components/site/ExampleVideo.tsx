@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 
-/** A looping, muted ad that plays while it's on screen. Tap it for sound; only one plays sound at a time. */
-export function ExampleVideo({ src, poster, w, h, label }: { src: string; poster: string; w: number; h: number; label: string }) {
+/** A looping, muted ad that plays while it's on screen. Tap it for sound (only one plays sound at a time); a silent one just pauses and plays. */
+export function ExampleVideo({ src, poster, w, h, label, silent = false }: { src: string; poster: string; w: number; h: number; label: string; silent?: boolean }) {
   const ref = useRef<HTMLVideoElement>(null);
   const [sound, setSound] = useState(false);
 
@@ -36,6 +36,11 @@ export function ExampleVideo({ src, poster, w, h, label }: { src: string; poster
   const toggle = () => {
     const v = ref.current;
     if (!v) return;
+    if (silent) {
+      if (v.paused) v.play().catch(() => {});
+      else v.pause();
+      return;
+    }
     const next = !sound;
     v.muted = !next;
     setSound(next);
@@ -44,11 +49,13 @@ export function ExampleVideo({ src, poster, w, h, label }: { src: string; poster
   };
 
   return (
-    <button type="button" className="ex__item ex__video" style={{ "--a": w / h } as React.CSSProperties} onClick={toggle} aria-pressed={sound} aria-label={`${label}. ${sound ? "Sound on, tap to mute." : "Tap for sound."}`}>
+    <button type="button" className="ex__item ex__video" style={{ "--a": w / h } as React.CSSProperties} onClick={toggle} aria-label={silent ? `${label}. Tap to pause or play.` : `${label}. ${sound ? "Sound on, tap to mute." : "Tap for sound."}`} {...(silent ? {} : { "aria-pressed": sound })}>
       <video ref={ref} src={src} poster={poster} muted loop playsInline preload="metadata" />
-      <span className="ex__sound" aria-hidden="true">
-        {sound ? "sound on" : "tap for sound"}
-      </span>
+      {!silent && (
+        <span className="ex__sound" aria-hidden="true">
+          {sound ? "sound on" : "tap for sound"}
+        </span>
+      )}
     </button>
   );
 }
