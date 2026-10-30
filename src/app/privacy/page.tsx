@@ -8,7 +8,7 @@ export const metadata: Metadata = {
     "how anryh labs and the migz platform collect, use, share and delete data, including data from meta and from people who book calls with our agents.",
 };
 
-const EFFECTIVE = "october 20, 2026";
+const EFFECTIVE = "october 29, 2026";
 
 const SECTIONS = [
   ["who-we-are", "who we are"],
@@ -109,7 +109,7 @@ export default function PrivacyPage() {
             <ul className="list-disc space-y-2 pl-5">
               <Item label="booking details">name, email, phone number, the appointment time and a record of your consent to be contacted.</Item>
               <Item label="optional prep answers">answers you choose to give, which may include date of birth, gender, marital status, nicotine use, existing coverage, budget, coverage needs and notes for the agent. every question is optional.</Item>
-              <Item label="ad attribution">if you arrived from an ad: campaign tags in the link (such as utm parameters and meta&apos;s click id), meta&apos;s browser cookies if present (_fbp, _fbc), and your ip address and browser type at the moment you book.</Item>
+              <Item label="ad attribution">if you arrived from an ad: campaign tags in the link (such as utm parameters and meta&apos;s click id), meta&apos;s browser cookies if present (_fbp, _fbc), and your ip address and browser type when the page opens, when you pick a time and when you book.</Item>
             </ul>
             <p>from visitors: the details you include if you email us.</p>
 
@@ -129,7 +129,7 @@ export default function PrivacyPage() {
             <H2 id="sharing">5. who we share it with</H2>
             <ul className="list-disc space-y-2 pl-5">
               <Item label="the agent you booked with">receives your booking details and any prep answers you provided.</Item>
-              <Item label="meta">receives the agent&apos;s ads and settings, and, when you book, a conversion event containing your email and phone number in hashed (scrambled) form plus the attribution details above. prep answers are never sent to meta.</Item>
+              <Item label="meta">receives the agent&apos;s ads and settings, and, when you book, a conversion event containing your email and phone number in hashed (scrambled) form plus the attribution details above. if you arrived from one of our ads, meta is also told when the booking page opens and when you pick a time, with the ad&apos;s click id, your ip address and browser type, and no name or contact details. visits that didn&apos;t come from an ad aren&apos;t reported. prep answers are never sent to meta.</Item>
               <Item label="supabase">stores our database, files and logins.</Item>
               <Item label="vercel">hosts our website and app.</Item>
               <Item label="slack">delivers booking notifications and summaries to the agent.</Item>
