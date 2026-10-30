@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { DEFAULT_INTENT, DEFAULT_VIDEO_TIER, isIntentLevel, isVideoTier } from "@/lib/ad-options";
 import { DateTime } from "luxon";
 import { ArrowRight, ArrowUpRight } from "lucide-react";
 import { isAnryhAdmin, requireAgent } from "@/lib/auth";
@@ -23,6 +22,9 @@ import { getBrainLive } from "@/lib/migz/brain";
 import { closeEndedBatch, ensureBatchSetAside, getBatchProgress, getOpenBatch, getRecentBatches } from "@/lib/dashboard/batches";
 import { BatchCard } from "@/components/dashboard/batch/BatchCard";
 import { StartBatchButton } from "@/components/dashboard/batch/StartBatch";
+import { getCampaignStart } from "@/lib/dashboard/campaign-plan";
+import { getOutcomeItems } from "@/lib/dashboard/outcomes";
+import { OutcomeList } from "@/components/dashboard/OutcomeAsk";
 
 export default async function OverviewPage() {
   const agent = await requireAgent();
@@ -41,14 +43,14 @@ export default async function OverviewPage() {
     getLiveAdCount(agent.id),
   ]);
   const activeBatch = openBatch?.status === "active" ? openBatch : null;
-  const [update, canReview] = await Promise.all([getMigzUpdate(agent), isAnryhAdmin()]);
+  const [update, canReview, start, outcomesDue] = await Promise.all([getMigzUpdate(agent), isAnryhAdmin(), getCampaignStart(agent), getOutcomeItems(agent, { due: true, limit: 5 })]);
   const batchProgress = activeBatch ? await getBatchProgress(agent, activeBatch) : null;
   const batchBlocked = !agent.onboarding_completed_at
     ? "Finish setting up first"
     : !migzReadyFor(agent)
       ? "Your ad account isn't linked yet"
       : activeBatch
-        ? `Your batch runs until ${activeBatch.ends_on}`
+        ? `Your campaign runs until ${activeBatch.ends_on}`
         : null;
   const recentlyRan =
     !!agent.migz_last_operator_at && DateTime.now().diff(DateTime.fromISO(agent.migz_last_operator_at), "minutes").minutes < 10;
@@ -120,7 +122,7 @@ export default async function OverviewPage() {
           </h1>
           <p className="mt-5 max-w-xl text-[17px] leading-relaxed text-fg-muted">{summary}</p>
           <div className="mt-6 flex flex-wrap items-center gap-4">
-            <StartBatchButton balanceCents={balance} disabledReason={batchBlocked} autoRun={agent.migz_mode === "auto"} intentLevel={isIntentLevel(agent.intent_level) ? agent.intent_level : DEFAULT_INTENT} videoTier={isVideoTier(agent.video_tier) ? agent.video_tier : DEFAULT_VIDEO_TIER} />
+            <StartBatchButton balanceCents={balance} disabledReason={batchBlocked} start={start.initial} own={start.own} />
             <Link href="/dashboard/brain" className="inline-flex items-center gap-1 text-sm text-fg hover:underline hover:underline-offset-4">
               See what Migz AI is doing <ArrowUpRight className="size-4" />
             </Link>
@@ -166,6 +168,12 @@ export default async function OverviewPage() {
           ]}
         />
       </div>
+
+      {outcomesDue.length > 0 && (
+        <div className="mb-3">
+          <OutcomeList rows={outcomesDue} timezone={agent.timezone} />
+        </div>
+      )}
 
       <div className="mt-3 grid gap-3 lg:grid-cols-2">
         <Panel>

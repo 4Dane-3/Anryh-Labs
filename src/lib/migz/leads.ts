@@ -128,6 +128,8 @@ export async function markFormLeadBooked(agentId: string, contact: { phone?: str
     .maybeSingle();
   if (!lead?.meta_lead_id) return false;
   await supabaseAdmin.from("quote_requests").update({ booked_at: new Date().toISOString() }).eq("id", lead.id);
+  // Its outcome is "booked" (the call gets its own ask); unless the agent already answered. No-op before the outcomes migration
+  await supabaseAdmin.from("quote_requests").update({ outcome: "booked", outcome_at: new Date().toISOString(), outcome_sent: "Contact" }).eq("id", lead.id).is("outcome", null);
   await sendLeadStageEvent({ leadId: lead.meta_lead_id, eventName: "Schedule", eventId: `lead-booked:${bookingId}` });
   return true;
 }

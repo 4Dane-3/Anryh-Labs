@@ -4,13 +4,13 @@ import { integrations, migzReadyFor } from "@/lib/integrations";
 import { getSetupState } from "@/lib/dashboard/setup";
 import { StartWizard } from "@/components/dashboard/start/StartWizard";
 import { PageHeader } from "@/components/dashboard/ui";
-import { DEFAULT_INTENT, DEFAULT_VIDEO_TIER, isIntentLevel, isVideoTier } from "@/lib/ad-options";
+import { getCampaignStart } from "@/lib/dashboard/campaign-plan";
 
 export const dynamic = "force-dynamic";
 
 export default async function StartPage() {
   const agent = await requireAgent();
-  const state = await getSetupState(agent);
+  const [state, start] = await Promise.all([getSetupState(agent), getCampaignStart(agent)]);
 
   return (
     <>
@@ -36,9 +36,9 @@ export default async function StartPage() {
         plan={{
           topics: agent.ad_focus ?? [],
           batch: state.batch,
-          autoRun: agent.migz_mode === "auto",
-          intentLevel: isIntentLevel(agent.intent_level) ? agent.intent_level : DEFAULT_INTENT,
-          videoTier: isVideoTier(agent.video_tier) ? agent.video_tier : DEFAULT_VIDEO_TIER,
+          start: start.initial,
+          own: start.own,
+          fundsNeeded: state.fundsNeeded,
         }}
         creativeMode={agent.creative_mode ?? null}
         creativeCount={state.creativeCount}

@@ -13,7 +13,9 @@ import { briefLabel, cardBrief, fitBrief, isCarouselBrief, isImageBrief, isVideo
 import { closeEvent, openEvent } from "@/lib/migz/events";
 import { narrateVideo } from "@/lib/migz/narration";
 import { addLogoToImage, addLogoToVideo, DEFAULT_LOGO_CORNER, isLogoCorner, type LogoCorner } from "@/lib/migz/endcard";
-import { DEFAULT_VIDEO_TIER, isVideoTier, MAX_PAID_VIDEOS_PER_ADSET_PER_WEEK, VIDEO_TIERS, type VideoTier } from "@/lib/ad-options";
+import { DEFAULT_VIDEO_TIER, isVideoTier, VIDEO_TIERS, type VideoTier } from "@/lib/ad-options";
+import { creativeMix, INCLUDED_VIDEOS, videoPriceFor } from "@/lib/campaign-plan";
+import { getActiveBatch } from "@/lib/dashboard/batches";
 import { getBalanceCents } from "@/lib/dashboard/queries";
 import { leadFormFor } from "@/lib/migz/leads";
 
@@ -195,9 +197,8 @@ const money = (cents: number) => `$${(cents / 100).toFixed(cents % 100 ? 2 : 0)}
 async function chargeForVideo(agentId: string, jobId: string, brief: CreativeBrief, launchAdsetId: string | null): Promise<VideoTier> {
   const { data: row, error } = await supabaseAdmin.from("agents").select("video_tier").eq("id", agentId).single();
   const tier: VideoTier = !error && isVideoTier(row?.video_tier) ? row.video_tier : DEFAULT_VIDEO_TIER;
-  const price = VIDEO_TIERS[tier].priceCents;
   // HF_VIDEO_MODEL=kling (staff's switch for a bad day on Seedance) makes it on Kling: nothing to charge
-  if (!price || videoModel(tier) !== "seedance") {
+  if (!VIDEO_TIERS[tier].priceCents || videoModel(tier) !== "seedance") {
     await update(jobId, { video_model: videoModel(tier), video_charge_cents: 0 });
     return tier;
   }
@@ -215,7 +216,10 @@ async function chargeForVideo(agentId: string, jobId: string, brief: CreativeBri
     return DEFAULT_VIDEO_TIER;
   };
 
-  // The cap counts this ad set's paid videos over the last 7 days (library videos count together)
+  // Which video this is for the ad set in this campaign: the first two are at list price, the rest 20% off,
+  // up to the ad set's creative mix (library videos count together, against the included two)
+  const batch = await getActiveBatch(agentId).catch(() => null);
+  const since = batch?.started_at ?? new Date(Date.now() - 7 * 86_400_000).toISOString();
   let paid = supabaseAdmin
     .from("creative_jobs")
     .select("id", { count: "exact", head: true })
@@ -223,11 +227,17 @@ async function chargeForVideo(agentId: string, jobId: string, brief: CreativeBri
     .neq("id", jobId)
     .gt("video_charge_cents", 0)
     .neq("stage", "failed")
-    .gte("created_at", new Date(Date.now() - 7 * 86_400_000).toISOString());
+    .gte("created_at", since);
   paid = launchAdsetId ? paid.eq("launch_adset_id", launchAdsetId) : paid.is("launch_adset_id", null);
-  const { count } = await paid;
-  if ((count ?? 0) >= MAX_PAID_VIDEOS_PER_ADSET_PER_WEEK)
-    return fallback(`This ad set already had ${MAX_PAID_VIDEOS_PER_ADSET_PER_WEEK} Seedance videos this week, the most one ad set is charged for in a week.`);
+  const [{ count }, { data: set }] = await Promise.all([
+    paid,
+    launchAdsetId ? supabaseAdmin.from("ad_sets").select("daily_budget_cents").eq("meta_adset_id", launchAdsetId).maybeSingle() : Promise.resolve({ data: null }),
+  ]);
+  const nth = count ?? 0;
+  const cap = set ? creativeMix(set.daily_budget_cents).videos : INCLUDED_VIDEOS;
+  if (nth >= cap)
+    return fallback(`This ad set already has its ${cap} Seedance videos for this campaign, the most its budget calls for.`);
+  const price = videoPriceFor(tier, nth);
   const free = await getBalanceCents(agentId);
   if (free < price)
     return fallback(`A ${VIDEO_TIERS[tier].title} video costs ${money(price)}, and your free ad balance is ${money(Math.max(0, free))}.`);
@@ -237,7 +247,7 @@ async function chargeForVideo(agentId: string, jobId: string, brief: CreativeBri
     kind: "adjustment",
     amount_cents: -price,
     status: "completed",
-    description: `${VIDEO_TIERS[tier].title} video for your ads: ${briefLabel(brief)}`.slice(0, 200),
+    description: `${VIDEO_TIERS[tier].title} video for your ads${nth >= INCLUDED_VIDEOS ? " (extra, 20% off)" : ""}: ${briefLabel(brief)}`.slice(0, 200),
     external_id: `video:${jobId}`,
   });
   if (charged && charged.code !== "23505") throw new Error(`Couldn't charge for the video: ${charged.message}`);

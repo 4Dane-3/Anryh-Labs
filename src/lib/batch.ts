@@ -2,6 +2,7 @@ import { depositFor, MIN_AD_BALANCE_CENTS, REVISE_AFTER_DAYS, SPRINT_COLLECT_DAY
 import { DateTime } from "luxon";
 import { TOPICS, type TopicKey } from "@/lib/migz/topics";
 import type { BookingFunnel, FunnelVerdict } from "@/lib/migz/funnel";
+import { recommendedDays } from "@/lib/campaign-plan";
 
 // Campaign batches: the agent says how much to put in, Migz lays out ways to spend it. Pure helpers
 // (client-safe) so the dialog, the setup page, the start action and the tests all agree.
@@ -230,6 +231,22 @@ export function outcomeEstimate(budgetCents: number, history: BatchHistory) {
     low: Math.max(1, Math.floor(budgetCents / (cost * 1.25))),
     high: Math.max(1, Math.ceil(budgetCents / (cost * 0.85))),
   };
+}
+
+/**
+ * A campaign from a daily budget (the start flow): the agent picks the daily amount, Migz picks the length
+ * (recommendedDays) and the shape. One campaign, all the creative launched at the start: focused on a topic
+ * once one books clearly cheaper, otherwise ads on every focus topic side by side. Revisions start after 7
+ * days, or 3 days before the end on a short campaign.
+ */
+export function dailyBatch(dailyCents: number, focus: TopicKey[], history: BatchHistory): BatchOption & { reason: string } {
+  const days = recommendedDays(dailyCents);
+  const budgetCents = dailyCents * days;
+  const best = bestTopic(history);
+  const options = focus.length < 2 ? [option("focused", budgetCents, best ?? focus[0] ?? null, focus, days)] : [option("focused", budgetCents, best ?? focus[0], focus, days), option("balanced", budgetCents, null, focus, days)];
+  const rec = recommendOption(options, focus, history);
+  const chosen = options.find((o) => o.key === rec.key) ?? options[0];
+  return { ...chosen, collectDays: Math.min(REVISE_AFTER_DAYS, days - 3), reason: rec.reason };
 }
 
 /** Re-derives the option the agent picked, so the server never trusts the client's numbers. */

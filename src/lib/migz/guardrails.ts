@@ -9,6 +9,9 @@ import { QUOTE_MODES, type QuoteMode } from "@/lib/booking/constants";
 export const MAX_ACTIONS_PER_RUN = 6;
 export const MAX_GENERATIONS_PER_RUN = 3;
 export const MAX_VIDEOS_PER_RUN = 1; // videos are the expensive ones; images (4:5 feed, 9:16 story) fill the rest
+// While a campaign is being set up, every creative launches at the start, so reviews make more at a time
+export const MAX_GENERATIONS_PER_SETUP_RUN = 5;
+export const MAX_VIDEOS_PER_SETUP_RUN = 2;
 export const MAX_OPEN_GENERATIONS = 6;
 export const MIN_ADSET_BUDGET_CENTS = 500;
 export const MAX_BUDGET_CHANGE = 0.3; // per action; bigger jumps destabilise delivery
@@ -51,10 +54,12 @@ export type GuardContext = {
   generationsThisRun: number;
   videosThisRun?: number;
   /**
-   * A weekly creative refresh (not batch setup): new creatives may only launch into these ad sets, whose live
-   * ads are under REFRESH_CTR_BELOW link CTR over the last 7 days.
+   * Campaign setup: the ad sets still short of their creative mix (campaign-plan creativeMix). New creatives
+   * may only launch into these, and more are allowed per review (every creative launches at the start).
    */
-  refreshAdsets?: string[];
+  fillAdsets?: string[];
+  /** What the agent's answers allow the copy to claim (null before they answered the start flow). */
+  facts?: { noExam: boolean; healthIssuesOk: boolean } | null;
   /** The longest video this agent's video quality allows (15s, or 30s on Seedance 30s). */
   maxVideoSeconds?: number;
   /** Fewer new creatives than usual this review (e.g. 1 while checking whether generator credits are back; 0 outside batch setup). */
@@ -284,26 +289,27 @@ export function checkPromoteAd(ctx: GuardContext, adId: string) {
 /** The main ad set a promoted ad goes into. */
 export const promotionTarget = (ctx: GuardContext) => mainAdSet(ctx)?.meta_adset_id ?? null;
 
-/** Live ads under this link CTR (last 7 days, with enough impressions to judge) get new creative weekly. */
-export const REFRESH_CTR_BELOW = 0.025;
-export const REFRESH_EVERY_DAYS = 7;
+/** Ads under this link CTR at a campaign's end are replaced in the next campaign's setup (never partway through). */
+export const WEAK_CTR_BELOW = 0.025;
 
-/** In a weekly refresh, new creatives go only into the ad sets that are due one (and must launch straight in). */
-export function checkRefreshTarget(ctx: GuardContext, launchAdsetId: string | null) {
-  if (!ctx.refreshAdsets) return null;
-  if (!launchAdsetId || !ctx.refreshAdsets.includes(launchAdsetId))
-    return `This review only refreshes creative in ad sets whose live ads are under ${REFRESH_CTR_BELOW * 100}% link CTR this week: ${ctx.refreshAdsets.join(", ")}. Launch new creatives straight into ${ctx.refreshAdsets.length === 1 ? "it" : "one of them"}.`;
+/** While a campaign is set up, new creatives go only into the ad sets still short of their mix, launched straight in. */
+export function checkFillTarget(ctx: GuardContext, launchAdsetId: string | null) {
+  if (!ctx.fillAdsets) return null;
+  if (!launchAdsetId || !ctx.fillAdsets.includes(launchAdsetId))
+    return `This campaign's setup still needs creatives in ad set${ctx.fillAdsets.length === 1 ? "" : "s"} ${ctx.fillAdsets.join(", ")} (see campaign_setup). Launch new creatives straight into ${ctx.fillAdsets.length === 1 ? "it" : "one of them"}.`;
   return null;
 }
 
 export function checkGeneration(ctx: GuardContext, kind: "image" | "video" = "image") {
-  const cap = ctx.maxGenerations ?? MAX_GENERATIONS_PER_RUN;
+  const setup = !!ctx.fillAdsets?.length;
+  const cap = ctx.maxGenerations ?? (setup ? MAX_GENERATIONS_PER_SETUP_RUN : MAX_GENERATIONS_PER_RUN);
+  const videoCap = setup ? MAX_VIDEOS_PER_SETUP_RUN : MAX_VIDEOS_PER_RUN;
   if (cap === 0)
     return "New creatives are only made when a batch is set up (or when no ads are live). This review studies the live ads and records what they teach with record_learning instead.";
   if (ctx.generationsThisRun >= cap)
-    return `Already started ${cap} creative${cap === 1 ? "" : "s"} this review, the most allowed${cap < MAX_GENERATIONS_PER_RUN ? " while the generator's credits are being checked" : " per review"}.`;
-  if (kind === "video" && (ctx.videosThisRun ?? 0) >= MAX_VIDEOS_PER_RUN)
-    return `Already started ${MAX_VIDEOS_PER_RUN} video this review, the most per review (videos cost the most). Make a 4:5 feed image or a 9:16 Stories/Reels image instead.`;
+    return `Already started ${cap} creative${cap === 1 ? "" : "s"} this review, the most allowed${cap < MAX_GENERATIONS_PER_RUN ? " while the generator's credits are being checked" : " per review"}${setup ? "; the next review makes the rest of the setup" : ""}.`;
+  if (kind === "video" && (ctx.videosThisRun ?? 0) >= videoCap)
+    return `Already started ${videoCap} video${videoCap === 1 ? "" : "s"} this review, the most per review (videos cost the most). Make a 4:5 feed image or a 9:16 Stories/Reels image instead.`;
   if (ctx.openGenerations >= MAX_OPEN_GENERATIONS)
     return `${ctx.openGenerations} creatives are still being made; wait for those before starting more.`;
   return null;
@@ -322,7 +328,31 @@ const COPY_RULES: [RegExp, string][] = [
   [/\b(lowest|cheapest) (rates?|prices?|premiums?)\b/i, "no 'lowest/cheapest rate' claims"],
   [/\bno medical exam (for everyone|guaranteed)\b/i, "no blanket no-exam claims"],
   [/\b(government|state|federal) (program|benefit|plan)\b/i, "don't imply a government program"],
+  // Age: a range or a condition is fine ("for people 50–85", "if you're between 50 and 85"); telling the
+  // viewer their age or situation is not
+  [/(?<!\bif )\byou(?:'re|’re| are) (?:\d{2}\b|over \d|under \d|in your \d0s|a senior|retired|still (?:uninsured|without))/i, "don't tell the viewer their age or situation; say who it's for ('for people 50–85') or use a condition ('if you're between 50 and 85')"],
+  [/(?<!\bif )\byou (?:still )?(?:don't|don’t|do not|dont) have (?:any )?(?:life )?(?:insurance|coverage)\b/i, "don't tell the viewer their situation ('you still don't have coverage')"],
+  [/\bat your age\b/i, "don't call out the viewer's age"],
 ];
+
+/** "Are you over 60?" reads as calling out age when it's written on the ad; spoken, a condition is fine. */
+const ON_SCREEN_RULES: [RegExp, string][] = [[/\bare you (?:\d{2}|over|under|between|older|younger|a senior)\b/i, "on-screen text can't ask the viewer's age; write who it's for ('for people 50–85', 'seniors 60+')"]];
+
+export function checkOnScreen(...texts: (string | null | undefined)[]) {
+  for (const t of texts) if (t) for (const [pattern, rule] of ON_SCREEN_RULES) if (pattern.test(t)) return `Ad copy breaks insurance ad rules: ${rule}. Rewrite it.`;
+  return null;
+}
+
+/** Claims the agent's own answers don't back: "no exam" when they only write fully underwritten, health issues welcome when they don't take them. */
+export function checkClaims(facts: GuardContext["facts"], ...texts: (string | null | undefined)[]) {
+  if (!facts) return null;
+  const all = texts.filter(Boolean).join("\n");
+  if (!facts.noExam && /\b(no (?:medical )?exams?|without (?:a |an )?(?:medical )?exam|exam[- ]free|skip the exam)\b/i.test(all))
+    return "This agent writes fully underwritten coverage (with a medical exam), so the ad can't promise no exam. Use another angle.";
+  if (!facts.healthIssuesOk && /\b(no health questions|any health|health issues? (?:ok|welcome|accepted)|pre-?existing conditions? (?:ok|welcome|accepted))\b/i.test(all))
+    return "This agent doesn't take people with health issues (guaranteed issue), so the ad can't say health issues are fine. Use another angle.";
+  return null;
+}
 
 export function checkCopy(...texts: (string | null | undefined)[]) {
   const problems = new Set<string>();

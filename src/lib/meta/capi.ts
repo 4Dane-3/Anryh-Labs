@@ -60,7 +60,7 @@ export async function sendConversionEvents(input: {
  * Tells Meta an instant-form lead went on to book a call: a CRM event on the lead itself (Conversions API for
  * CRM), so Meta learns which form leads turn into real conversations, not just which ones fill in the form.
  */
-export async function sendLeadStageEvent(input: { leadId: string; eventName: "Schedule"; eventId: string }) {
+export async function sendLeadStageEvent(input: { leadId: string; eventName: "Schedule" | "Contact" | "Purchase"; eventId: string; valueCents?: number | null }) {
   const pixelId = process.env.META_PIXEL_ID;
   if (!pixelId || !process.env.META_SYSTEM_USER_TOKEN) return { skipped: true as const };
   await graph("POST", `${pixelId}/events`, {
@@ -71,9 +71,51 @@ export async function sendLeadStageEvent(input: { leadId: string; eventName: "Sc
         event_id: input.eventId,
         action_source: "system_generated",
         user_data: { lead_id: Number(input.leadId) || input.leadId },
-        custom_data: { event_source: "crm", lead_event_source: "Migz AI" },
+        custom_data: { event_source: "crm", lead_event_source: "Migz AI", ...(input.eventName === "Purchase" ? purchaseValue(input.valueCents) : {}) },
       },
     ],
+    ...(process.env.META_TEST_EVENT_CODE ? { test_event_code: process.env.META_TEST_EVENT_CODE } : {}),
+  });
+  return { skipped: false as const };
+}
+
+/** A sale's value for Meta: a year of the monthly premium when the agent gave it, else 0. */
+const purchaseValue = (monthlyCents: number | null | undefined) => ({ currency: "USD", value: monthlyCents ? Math.round((monthlyCents * 12) / 100) : 0 });
+
+/**
+ * What happened after a booking or quote request, as follow-up events matched on the same hashed contact
+ * details and Meta cookies/click id as the original Lead/Schedule: "ShowedUp" (a custom event) when the call
+ * happened, "Contact" when a quote request was reached, "Purchase" when it sold, with a year of premium as the
+ * value when the agent gave it. No names, prep answers or call notes; each event is sent once (event_id).
+ */
+export async function sendOutcomeEvents(input: {
+  events: ("ShowedUp" | "Contact" | "Purchase")[];
+  eventId: string; // the booking or quote request id
+  email?: string | null;
+  phone?: string | null;
+  attribution: Record<string, string>;
+  valueCents?: number | null;
+}) {
+  const pixelId = process.env.META_PIXEL_ID;
+  if (!pixelId || !process.env.META_SYSTEM_USER_TOKEN || !input.events.length) return { skipped: true as const };
+  const userData: Record<string, unknown> = { country: [sha256("us")] };
+  if (input.phone) userData.ph = [sha256(input.phone.replace(/\D/g, ""))];
+  if (input.email) userData.em = [sha256(input.email.trim().toLowerCase())];
+  if (input.attribution._fbp) userData.fbp = input.attribution._fbp;
+  if (input.attribution._fbc) userData.fbc = input.attribution._fbc;
+  else if (input.attribution.fbclid) {
+    const clickedAt = Number(input.attribution.fbclid_at);
+    if (Number.isFinite(clickedAt) && clickedAt > 0) userData.fbc = `fb.1.${Math.floor(clickedAt)}.${input.attribution.fbclid}`;
+  }
+  await graph("POST", `${pixelId}/events`, {
+    data: input.events.map((event_name) => ({
+      event_name,
+      event_time: Math.floor(Date.now() / 1000),
+      event_id: `${event_name}:${input.eventId}`,
+      action_source: "system_generated",
+      user_data: userData,
+      ...(event_name === "Purchase" ? { custom_data: purchaseValue(input.valueCents) } : {}),
+    })),
     ...(process.env.META_TEST_EVENT_CODE ? { test_event_code: process.env.META_TEST_EVENT_CODE } : {}),
   });
   return { skipped: false as const };

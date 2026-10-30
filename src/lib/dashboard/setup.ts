@@ -3,7 +3,9 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
 import { cleanFocus } from "@/lib/migz/topics";
 import { getBalanceCents } from "@/lib/dashboard/queries";
-import { MIN_AD_BALANCE_CENTS, MIN_DEPOSIT_CENTS, MIN_TOP_UP_CENTS } from "@/lib/campaign";
+import { depositFor, MIN_AD_BALANCE_CENTS, MIN_DEPOSIT_CENTS, MIN_TOP_UP_CENTS } from "@/lib/campaign";
+import { campaignMoney, roundUpToFundsStep } from "@/lib/campaign-plan";
+import { DEFAULT_INTENT, DEFAULT_VIDEO_TIER, isIntentLevel, isVideoTier } from "@/lib/ad-options";
 import { getOpenBatch, getRecentBatches, type Batch } from "@/lib/dashboard/batches";
 
 // What "Start here" checks. Each step is done or not, with the reason it isn't, so the page and the
@@ -25,6 +27,8 @@ export type SetupState = {
   creativeCount: number;
   /** The batch planned in setup (or running), shown on the plan step. */
   batch: Batch | null;
+  /** What the planned campaign needs in ad funds (ad spend plus paid videos), and that rounded up to the next $500. */
+  fundsNeeded: { cents: number; recommendedCents: number } | null;
   canLaunch: boolean;
   completed: boolean;
 };
@@ -48,15 +52,26 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
         ? "Write a short bio so people know who they're booking with."
         : null;
   const pageMissing = (hours.count ?? 0) === 0 ? "Set the hours you take calls." : null;
-  const fundsMissing =
-    balanceCents < MIN_AD_BALANCE_CENTS
-      ? `Add at least $${MIN_DEPOSIT_CENTS / 100} in total (you can add $${MIN_TOP_UP_CENTS / 100} or more at a time). After the 20% fee that's $${MIN_AD_BALANCE_CENTS / 100} of ads: $20/day for 2 weeks.`
+  // The planned campaign sets what the funds step needs: its ad spend plus any paid videos
+  const planned = batch && batch.status !== "ended" && batch.status !== "canceled" ? batch : null;
+  const neededCents = planned
+    ? planned.budget_cents +
+      campaignMoney({
+        dailyCents: planned.daily_cents,
+        intent: isIntentLevel(agent.intent_level) ? agent.intent_level : DEFAULT_INTENT,
+        tier: isVideoTier(agent.video_tier) ? agent.video_tier : DEFAULT_VIDEO_TIER,
+      }).videoCents
+    : null;
+  const fundsNeeded = neededCents ? { cents: neededCents, recommendedCents: roundUpToFundsStep(neededCents) } : null;
+  const money = (c: number) => `$${(c / 100).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+  const fundsMissing = fundsNeeded
+    ? balanceCents < fundsNeeded.cents
+      ? `Your campaign needs ${money(fundsNeeded.cents)} in ad funds (we recommend ${money(fundsNeeded.recommendedCents)}). Add about ${money(roundUpToFundsStep(depositFor(fundsNeeded.recommendedCents - balanceCents)))} with the 20% fee.`
+      : null
+    : balanceCents < MIN_AD_BALANCE_CENTS
+      ? `Add at least $${MIN_DEPOSIT_CENTS / 100} in total (you can add $${MIN_TOP_UP_CENTS / 100} or more at a time). Plan your campaign first to see what it needs.`
       : null;
-  const planMissing = !cleanFocus(agent.ad_focus).length
-    ? "Choose what you want to promote."
-    : !batch
-      ? "Choose how much to put into your first batch, and how Migz should spend it."
-      : null;
+  const planMissing = !cleanFocus(agent.ad_focus).length || !batch ? "Answer a few quick questions and pick a daily budget." : null;
   const mode = agent.creative_mode ?? null;
   const creativesMissing = !mode
     ? "Choose how you want your ads' videos and images made."
@@ -67,8 +82,8 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
   const steps: Step[] = [
     { key: "profile", required: true, missing: profileMissing, done: !profileMissing },
     { key: "page", required: true, missing: pageMissing, done: !pageMissing },
-    { key: "funds", required: true, missing: fundsMissing, done: !fundsMissing },
     { key: "plan", required: true, missing: planMissing, done: !planMissing },
+    { key: "funds", required: true, missing: fundsMissing, done: !fundsMissing },
     { key: "creatives", required: true, missing: creativesMissing, done: !creativesMissing },
   ];
   return {
@@ -76,6 +91,7 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
     balanceCents,
     creativeCount,
     batch,
+    fundsNeeded,
     canLaunch: steps.every((s) => s.done || !s.required),
     completed: !!agent.onboarding_completed_at,
   };

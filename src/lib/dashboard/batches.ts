@@ -2,13 +2,12 @@ import "server-only";
 import { DateTime } from "luxon";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
-import { isTopic, TOPICS, type TopicKey } from "@/lib/migz/topics";
-import { recommendOption, type BatchHistory, type BatchOption, type BatchOptionKey } from "@/lib/batch";
-import { callModel, defaultCreateMessage, jsonOf, monthlyBudget, planTier, type CreateMessage } from "@/lib/migz/router";
+import { isTopic, type TopicKey } from "@/lib/migz/topics";
+import type { BatchHistory, BatchOptionKey } from "@/lib/batch";
+import type { CampaignPlan } from "@/lib/campaign-plan";
 import { notifyBatchEnded } from "@/lib/migz/notify";
 import { syncAgent } from "@/lib/migz/sync";
 import { adFunnel, funnelVerdict } from "@/lib/migz/funnel";
-import { budgetMath, ownCostPerCall, PLAYBOOK } from "@/lib/migz/playbook";
 import type { EventRow } from "@/lib/admin/page-analytics";
 import { fetchPageEvents } from "@/lib/dashboard/page-events";
 
@@ -39,6 +38,12 @@ export type Batch = {
 
 export const BATCH_COLS = "id, status, budget_cents, option, campaigns, days, daily_cents, recommended_option, reason, starts_on, ends_on, applied_at, result, created_at, started_at, ended_at, collect_days, renew, renew_blocked";
 const COLS = BATCH_COLS;
+
+/** What Migz planned for a batch when it started (campaign_batches.plan). Null before its migration. */
+export async function getBatchPlan(batchId: string): Promise<CampaignPlan | null> {
+  const { data, error } = await supabaseAdmin.from("campaign_batches").select("plan").eq("id", batchId).maybeSingle();
+  return error ? null : ((data?.plan as CampaignPlan | null) ?? null);
+}
 
 /** The batch that's planned or running, if any. Null before the batches migration too. */
 export async function getOpenBatch(agentId: string): Promise<Batch | null> {
@@ -252,87 +257,3 @@ export async function closeEndedBatch(agent: Agent) {
   return { ...batch, status: "ended" as const, result };
 }
 
-const PLAN_SCHEMA = {
-  type: "object",
-  properties: {
-    option: { type: "string", enum: ["focused", "balanced", "explore"] },
-    reason: { type: "string", description: "Why, in one or two plain sentences for the agent. Cite their numbers when there are any." },
-  },
-  required: ["option", "reason"],
-  additionalProperties: false,
-};
-
-const PLAN_SYSTEM = `You are Migz AI, a senior media buyer running Meta ads for an independent life insurance agent. The agent is putting a new batch of money into their ads and you're choosing how to deploy it, from the options given. The goal is the most booked calls from the money, and more money behind what works. budget_math says what each option's daily spend should buy at this account's cost per booked call (or a typical one until it has bookings): put that number in the reason, so the agent sees what the money is for. Focused and balanced are one campaign with one ad set, so all the money and data stay in one place; explore (offered only when the budget covers $20/day for each) adds an exploration campaign where new creative is tested before the winners move into the main campaign. Guidance: when explore is offered it's usually best, because testing new ads in the main ad set restarts its learning every time; otherwise, with little or no booking data, ads on all the agent's topics side by side (balanced) find the best topic fastest, since Meta backs whichever ads book; once one topic clearly books cheaper, focusing on it usually brings the most calls. booking_page shows where the people who tapped the ads stopped on the agent's booking page. When the ads haven't booked calls, use it to explain why in the reason: if fix_is_in is "page", say plainly that the ads are bringing people and what on the page stops them, since more ad money alone won't fix it; the option you pick still follows the guidance above. Use only the agent's own numbers you're given; never invent results. Write the reason for the agent: plain words, no jargon, no promises ("about", "should").
-
-${PLAYBOOK}`;
-
-/**
- * Migz's pick among the options, with its reason. Sonnet decides from the agent's own history and
- * learnings; when the model is unavailable (or over this month's budget), the rule-based pick stands.
- */
-export async function recommendWithMigz(
-  agent: Agent,
-  input: { budgetCents: number; focus: TopicKey[]; options: BatchOption[]; history: BatchHistory },
-  createMessage: CreateMessage = defaultCreateMessage,
-): Promise<{ key: BatchOptionKey; reason: string; by: "migz" | "rules" }> {
-  const fallback = { ...recommendOption(input.options, input.focus, input.history), by: "rules" as const };
-  // Migz recommends among the 14-day plans; the one-week sprint is the agent's own call
-  const options = input.options.filter((o) => o.key !== "sprint");
-  if (options.length < 2) return fallback;
-  try {
-    const budget = await monthlyBudget(agent.id, agent.migz_model_budget_cents ?? 3000, agent.timezone);
-    const plan = planTier("batch_plan", budget);
-    if (!plan) return fallback;
-    const { data: learnings } = await supabaseAdmin.from("learnings").select("insight, confidence").eq("agent_id", agent.id).eq("active", true).order("created_at", { ascending: false }).limit(8);
-    const facts = {
-      batch_budget: `$${(input.budgetCents / 100).toFixed(2)} of ad spend`,
-      focus_in_order: input.focus.map((t) => TOPICS[t].label),
-      options: options.map((o) => ({
-        option: o.key,
-        plan: o.blurb,
-        budget_math: budgetMath({ dailyCents: o.perCampaignCents, adsets: 1, costPerCallCents: ownCostPerCall(input.history.spentCents, input.history.bookedCalls) }).text,
-      })),
-      history: {
-        spent_so_far: `$${(input.history.spentCents / 100).toFixed(2)}`,
-        booked_calls_so_far: input.history.bookedCalls,
-        batches_finished: input.history.batches,
-        by_topic: Object.fromEntries(
-          Object.entries(input.history.byTopic).map(([t, v]) => [TOPICS[t as TopicKey].label, { spent: `$${(v!.spentCents / 100).toFixed(2)}`, booked_calls: v!.bookedCalls }]),
-        ),
-      },
-      booking_page: input.history.page
-        ? {
-            visits_from_ads: input.history.page.funnel.visits,
-            saw_the_times: input.history.page.funnel.sawTimes,
-            picked_a_time: input.history.page.funnel.pickedTime,
-            started_details: input.history.page.funnel.startedForm,
-            booked: input.history.page.funnel.booked,
-            tapped_call: input.history.page.funnel.tappedCall,
-            verdict: input.history.page.verdict.text,
-            fix_is_in: input.history.page.verdict.fix,
-          }
-        : "unknown",
-      what_this_account_learned: (learnings ?? []).map((l) => `${l.insight} (${l.confidence})`),
-      rule_based_pick: fallback,
-    };
-    const res = await callModel({
-      task: "batch_plan",
-      tier: plan.tier,
-      agentId: agent.id,
-      runId: null,
-      createMessage,
-      params: {
-        max_tokens: 500,
-        output_config: { effort: "low", format: { type: "json_schema", schema: PLAN_SCHEMA } },
-        system: [{ type: "text", text: PLAN_SYSTEM, cache_control: { type: "ephemeral" } }],
-        messages: [{ role: "user", content: JSON.stringify(facts) }],
-      },
-    });
-    const pick = jsonOf<{ option: BatchOptionKey; reason: string }>(res.message);
-    if (!pick || !options.some((o) => o.key === pick.option) || !pick.reason?.trim()) return fallback;
-    return { key: pick.option, reason: pick.reason.trim().slice(0, 400), by: "migz" };
-  } catch (e) {
-    console.error("batch recommendation failed", e);
-    return fallback;
-  }
-}

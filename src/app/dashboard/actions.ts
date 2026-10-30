@@ -12,12 +12,15 @@ import { buildSnapshot } from "@/lib/migz/snapshot";
 import { syncAgent } from "@/lib/migz/sync";
 import { defaultCreateMessage, monthlyBudget } from "@/lib/migz/router";
 import { traitSwipe } from "@/lib/migz/team/scout";
-import { cleanFocus, type TopicKey } from "@/lib/migz/topics";
+import type { TopicKey } from "@/lib/migz/topics";
 import { PAGE_FONT_KEYS } from "@/lib/booking/page-font-keys";
-import { MAX_DEPOSIT_CENTS, MIN_DEPOSIT_CENTS, MIN_TOP_UP_CENTS } from "@/lib/campaign";
-import { batchOptions, bestTopic, exploreAdvice, findOption, MIN_BATCH_CENTS, outcomeEstimate, type BatchOption, type BatchOptionKey } from "@/lib/batch";
-import { budgetMath, ownCostPerCall } from "@/lib/migz/playbook";
-import { closeEndedBatch, getActiveBatch, getBatchHistory, getOpenBatch, recommendWithMigz } from "@/lib/dashboard/batches";
+import { MAX_DEPOSIT_CENTS, MIN_TOP_UP_CENTS } from "@/lib/campaign";
+import { dailyBatch } from "@/lib/batch";
+import { closeEndedBatch, getActiveBatch, getBatchHistory, getOpenBatch } from "@/lib/dashboard/batches";
+import { buildCampaignPlan } from "@/lib/dashboard/campaign-plan";
+import { recordOutcome } from "@/lib/dashboard/outcomes";
+import type { OutcomeKind } from "@/lib/outcomes";
+import { campaignMoney, cleanAnswers, MAX_CAMPAIGN_DAILY_CENTS, MIN_CAMPAIGN_DAILY_CENTS, type CampaignAnswers, type CampaignPlan } from "@/lib/campaign-plan";
 import { activateBatch } from "@/lib/dashboard/start-batch";
 import { getBalanceCents } from "@/lib/dashboard/queries";
 import { checkoutReturnBase, createDepositCheckout } from "@/lib/stripe";
@@ -25,7 +28,7 @@ import { setupBlockers } from "@/lib/dashboard/setup";
 import type { Agent } from "@/lib/booking/data";
 import { recheck, type ActionPayload } from "@/lib/migz/tools";
 import { STEP_TITLES, type IntakeQuestion, type QuestionKind } from "@/lib/booking/questions";
-import { DEFAULT_INTENT, DEFAULT_VIDEO_TIER, isIntentLevel, isVideoTier, setupVideoCents, VIDEO_TIERS, type IntentLevel, type VideoTier } from "@/lib/ad-options";
+import { DEFAULT_INTENT, DEFAULT_VIDEO_TIER, isIntentLevel, isVideoTier, VIDEO_TIERS, type IntentLevel, type VideoTier } from "@/lib/ad-options";
 
 // Every action re-resolves the signed-in agent and scopes writes to agent.id,
 // so a client can never touch another agent's rows by passing someone else's ids.
@@ -659,128 +662,133 @@ export async function deleteSwipe(id: string): Promise<Result> {
 
 // ---------- Campaign batches ----------
 
-export type BatchPlanResult =
-  | {
-      ok: true;
-      options: BatchOption[];
-      recommended: { key: BatchOptionKey; reason: string; by: "migz" | "rules" };
-      estimate: ReturnType<typeof outcomeEstimate>;
-      /** How much more would make room for an exploration campaign (null once the budget covers it). */
-      advice: ReturnType<typeof exploreAdvice>;
-      /** Why the ads haven't booked, from where their visitors stop on the booking page (null when nothing stands out). */
-      diagnosis: { fix: "ads" | "page" | "both"; text: string } | null;
-      /** What the recommended plan's daily spend should buy, at the agent's cost per call or a typical one. */
-      math: string;
-      balanceCents: number;
-    }
-  | { ok: false; error: string };
-
-/** The ways Migz could spend a batch, and which one it recommends for this agent (from their own history). */
-export async function planBatch(budgetCents: number, topics?: string[]): Promise<BatchPlanResult> {
-  const agent = await requireAgent();
-  const focus = cleanFocus(topics ?? agent.ad_focus);
-  if (!focus.length) return { ok: false, error: "Choose what you want to promote first." };
-  if (!Number.isInteger(budgetCents) || budgetCents < MIN_BATCH_CENTS)
-    return { ok: false, error: `The smallest batch is $${MIN_BATCH_CENTS / 100} of ad spend (a $${MIN_DEPOSIT_CENTS / 100} deposit after the fee).` };
-  if (budgetCents > MAX_DEPOSIT_CENTS) return { ok: false, error: `The largest batch is $${(MAX_DEPOSIT_CENTS / 100).toLocaleString("en-US")}.` };
-  const history = await getBatchHistory(agent);
-  const options = batchOptions(budgetCents, focus, bestTopic(history));
-  const [recommended, balanceCents] = await Promise.all([
-    recommendWithMigz(agent, { budgetCents, focus, options, history }),
-    getBalanceCents(agent.id),
-  ]);
-  // Only once the ads have run: a first batch has no visits to diagnose
-  const verdict = history.spentCents > 0 ? history.page?.verdict : null;
-  const diagnosis = verdict && verdict.fix !== "none" ? { fix: verdict.fix, text: verdict.text } : null;
-  const pick = options.find((o) => o.key === recommended.key) ?? options[0];
-  const math = budgetMath({ dailyCents: pick.perCampaignCents, adsets: 1, costPerCallCents: ownCostPerCall(history.spentCents, history.bookedCalls) }).text;
-  return { ok: true, options, recommended, estimate: outcomeEstimate(budgetCents, history), advice: exploreAdvice(budgetCents), diagnosis, math, balanceCents };
-}
-
-type BatchChoice = {
-  budgetCents: number;
-  option: string;
-  recommended?: string | null;
-  reason?: string | null;
-  autoRun?: boolean;
-  renew?: boolean;
-  /** Lead style and video quality, chosen with the batch (they stay the agent's settings afterwards). */
-  intentLevel?: IntentLevel;
-  videoTier?: VideoTier;
-};
-
-/** The agent's lead style and video quality, from the batch choice when it made one, else what they have. */
-const adChoices = (agent: Agent, input: Pick<BatchChoice, "intentLevel" | "videoTier">) => ({
-  intent_level: isIntentLevel(input.intentLevel) ? input.intentLevel : isIntentLevel(agent.intent_level) ? agent.intent_level : DEFAULT_INTENT,
-  video_tier: isVideoTier(input.videoTier) ? input.videoTier : isVideoTier(agent.video_tier) ? agent.video_tier : DEFAULT_VIDEO_TIER,
-});
-
-/** Saves the two choices; before their migration the columns don't exist, so only the defaults are possible. */
-async function saveAdChoices(agent: Agent, choices: ReturnType<typeof adChoices>) {
-  if (choices.intent_level === (agent.intent_level ?? DEFAULT_INTENT) && choices.video_tier === (agent.video_tier ?? DEFAULT_VIDEO_TIER)) return null;
-  const { error } = await supabaseAdmin.from("agents").update(choices).eq("id", agent.id);
-  return error ? "Couldn't save your lead style and video quality. If this keeps happening, the latest migration may not have run yet." : null;
-}
-
-/** The batch's budget plus the video Migz makes when it sets the batch up, on a paid video tier. */
-const neededFor = (budgetCents: number, tier: VideoTier) => budgetCents + setupVideoCents(tier);
-const short = (budgetCents: number, tier: VideoTier, balance: number) => {
-  const video = setupVideoCents(tier);
-  return video
-    ? `Your batch is $${(budgetCents / 100).toFixed(2)}, plus $${(video / 100).toFixed(2)} for the ${VIDEO_TIERS[tier].title} video Migz makes when it sets the batch up, and your ad balance is $${(balance / 100).toFixed(2)}. Add funds, choose a smaller batch, or switch videos to Standard.`
-    : null;
-};
-
 /** The mode a batch runs in: the agent's choice when they made one, otherwise what they had (never "off"). */
 const modeFor = (agent: Agent, autoRun: boolean | undefined) =>
   autoRun === undefined ? (agent.migz_mode === "off" ? "approve" : agent.migz_mode) : autoRun ? "auto" : "approve";
 
-/** Re-derives the chosen option on the server (never trusting the client's numbers). */
-async function resolveChoice(agent: Agent, input: BatchChoice, focus: TopicKey[]) {
-  if (!Number.isInteger(input.budgetCents) || input.budgetCents < MIN_BATCH_CENTS || input.budgetCents > MAX_DEPOSIT_CENTS) return null;
-  const history = await getBatchHistory(agent);
-  const chosen = findOption(input.budgetCents, focus, input.option, bestTopic(history));
-  if (!chosen) return null;
+/** One start-flow submission: the agent's answers, lead style, video quality and daily budget. */
+export type CampaignChoice = {
+  answers: unknown;
+  states: string[];
+  intentLevel: IntentLevel;
+  videoTier: VideoTier;
+  dailyCents: number;
+  autoRun?: boolean;
+  renew?: boolean;
+};
+
+type Resolved = {
+  answers: CampaignAnswers;
+  states: string[];
+  focus: TopicKey[];
+  intent: IntentLevel;
+  tier: VideoTier;
+  money: ReturnType<typeof campaignMoney>;
+  row: Record<string, unknown> & { budget_cents: number; days: number; daily_cents: number };
+};
+
+const cleanStates = (raw: unknown) =>
+  [...new Set((Array.isArray(raw) ? raw : []).map((s) => clean(s, 2).toUpperCase()))].filter((s) => US_STATES.has(s));
+
+/** Re-derives everything from the agent's choices on the server (never trusting the client's numbers). */
+async function resolveCampaign(agent: Agent, input: CampaignChoice): Promise<Resolved | string> {
+  const answers = cleanAnswers(input.answers);
+  if (!answers.products.length) return "Choose at least one product to advertise.";
+  const states = cleanStates(input.states);
+  if (!states.length) return "Choose the states you're licensed in.";
+  const daily = Math.round(Number(input.dailyCents));
+  if (!Number.isInteger(daily) || daily < MIN_CAMPAIGN_DAILY_CENTS || daily > MAX_CAMPAIGN_DAILY_CENTS)
+    return `Choose a daily budget between $${MIN_CAMPAIGN_DAILY_CENTS / 100} and $${(MAX_CAMPAIGN_DAILY_CENTS / 100).toLocaleString("en-US")}.`;
+  const intent = isIntentLevel(input.intentLevel) ? input.intentLevel : DEFAULT_INTENT;
+  const tier = isVideoTier(input.videoTier) ? input.videoTier : DEFAULT_VIDEO_TIER;
+  const plan = dailyBatch(daily, answers.products, await getBatchHistory(agent));
   return {
-    agent_id: agent.id,
-    budget_cents: input.budgetCents,
-    option: chosen.key,
-    campaigns: chosen.campaigns.map((t) => t ?? ""),
-    days: chosen.days,
-    daily_cents: chosen.dailyCents,
-    collect_days: chosen.collectDays,
-    renew: input.renew === true,
-    recommended_option: ["focused", "balanced", "explore", "spread", "sprint"].includes(input.recommended ?? "") ? input.recommended : null,
-    reason: clean(input.reason, 400) || null,
+    answers,
+    states,
+    focus: answers.products,
+    intent,
+    tier,
+    money: campaignMoney({ dailyCents: daily, intent, tier }),
+    row: {
+      agent_id: agent.id,
+      budget_cents: plan.dailyCents * plan.days,
+      option: plan.key,
+      campaigns: plan.campaigns.map((t) => t ?? ""),
+      days: plan.days,
+      daily_cents: plan.dailyCents,
+      collect_days: plan.collectDays,
+      renew: input.renew === true,
+      recommended_option: plan.key,
+      reason: plan.reason.slice(0, 400),
+    },
   };
 }
 
-/** "Start campaign batch" on the overview: the agent's money, Migz's plan, live right away. */
-export async function startBatch(input: BatchChoice): Promise<Result> {
+/** What the agent can't afford yet, in plain words, or null. */
+function shortOf(r: Resolved, balance: number) {
+  if (r.money.neededCents <= balance) return null;
+  const videos = r.money.videoCents ? ` plus ${usdShort(r.money.videoCents)} for the campaign's ${VIDEO_TIERS[r.tier].title} videos` : "";
+  return `This campaign needs ${usdShort(r.money.adSpendCents)} of ad spend${videos}, and your ad balance is ${usdShort(balance)}. Add funds (we recommend ${usdShort(r.money.recommendedFundsCents)} in ad funds), choose a smaller daily budget${r.money.videoCents ? ", or switch videos to Standard" : ""}.`;
+}
+const usdShort = (cents: number) => `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: cents % 100 ? 2 : 0, maximumFractionDigits: 2 })}`;
+
+/** Saves the answers on the agent (prefilled next time), with the focus, states and the two ad choices. */
+async function saveCampaignAnswers(agent: Agent, r: Resolved, autoRun: boolean | undefined) {
+  const base = { ad_focus: r.focus, licensed_states: r.states, migz_mode: modeFor(agent, autoRun) };
+  const { error } = await supabaseAdmin.from("agents").update({ ...base, campaign_answers: r.answers, intent_level: r.intent, video_tier: r.tier }).eq("id", agent.id);
+  if (!error) return null;
+  // Before the latest migration: keep what the old columns can hold, and say so
+  const { error: again } = await supabaseAdmin.from("agents").update(base).eq("id", agent.id);
+  return again ? "Couldn't save your answers." : "Couldn't save your answers. The latest migration may not have run yet.";
+}
+
+/** Stores Migz's plan on the batch for the Brain page (no-op before its migration). */
+async function storePlan(batchId: string, plan: CampaignPlan) {
+  await supabaseAdmin.from("campaign_batches").update({ plan }).eq("id", batchId);
+}
+
+export type CampaignPreview =
+  | { ok: true; plan: CampaignPlan; money: ReturnType<typeof campaignMoney>; balanceCents: number; short: string | null }
+  | { ok: false; error: string };
+
+/** The start flow's last screen: Migz's plan for these answers and this daily budget. Reads only. */
+export async function previewCampaign(input: CampaignChoice): Promise<CampaignPreview> {
+  const agent = await requireAgent();
+  const r = await resolveCampaign(agent, input);
+  if (typeof r === "string") return { ok: false, error: r };
+  const [plan, balanceCents] = await Promise.all([
+    buildCampaignPlan(agent, { answers: r.answers, states: r.states, intent: r.intent, dailyCents: r.row.daily_cents }),
+    getBalanceCents(agent.id),
+  ]);
+  return { ok: true, plan, money: r.money, balanceCents, short: shortOf(r, balanceCents) };
+}
+
+/** "Start campaign" on the overview: the agent's answers and daily budget, Migz's plan, live right away. */
+export async function startBatch(input: CampaignChoice): Promise<Result> {
   const agent = await requireAgent();
   if (!agent.onboarding_completed_at) return fail("Finish setting up first: Start here walks you through it.");
   if (!migzReadyFor(agent)) return fail("Your ad account isn't linked yet. Anryh Labs links it for you.");
   await closeEndedBatch(agent).catch((e) => console.error("closing the ended batch failed", e));
   const open = await getOpenBatch(agent.id);
-  if (open?.status === "active") return fail(`Your current batch runs until ${open.ends_on}. You can start the next one when it ends.`);
-  const focus = cleanFocus(agent.ad_focus);
-  if (!focus.length) return fail("Choose what you want to promote on the Setup page first.");
+  if (open?.status === "active") return fail(`Your current campaign runs until ${open.ends_on}. You can start the next one when it ends.`);
+  const r = await resolveCampaign(agent, input);
+  if (typeof r === "string") return fail(r);
   const balance = await getBalanceCents(agent.id);
-  const choices = adChoices(agent, input);
-  if (neededFor(input.budgetCents, choices.video_tier) > balance)
-    return fail(short(input.budgetCents, choices.video_tier, balance) ?? `Your ad balance is $${(balance / 100).toFixed(2)}. Add funds, or choose a batch of $${(balance / 100).toFixed(0)} or less.`);
-  const row = await resolveChoice(agent, input, focus);
-  if (!row) return fail("That plan doesn't fit this budget. Pick one of the options shown.");
-  const saveError = await saveAdChoices(agent, choices);
+  const short = shortOf(r, balance);
+  if (short) return fail(short);
+  const saveError = await saveCampaignAnswers(agent, r, input.autoRun);
   if (saveError) return fail(saveError);
+  const fresh = { ...agent, ad_focus: r.focus, licensed_states: r.states, campaign_answers: r.answers, intent_level: r.intent, video_tier: r.tier } as Agent;
+  const plan = await buildCampaignPlan(fresh, { answers: r.answers, states: r.states, intent: r.intent, dailyCents: r.row.daily_cents });
 
   if (open) await supabaseAdmin.from("campaign_batches").update({ status: "canceled" }).eq("id", open.id);
-  const { data: batch, error } = await supabaseAdmin.from("campaign_batches").insert({ ...row, status: "planned" }).select("id").single();
-  if (error || !batch) return fail("Couldn't start the batch. If this keeps happening, the batches migration may not have run yet.");
+  const { data: batch, error } = await supabaseAdmin.from("campaign_batches").insert({ ...r.row, status: "planned" }).select("id").single();
+  if (error || !batch) return fail("Couldn't start the campaign. If this keeps happening, the batches migration may not have run yet.");
+  await storePlan(batch.id, plan);
   try {
-    await activateBatch(agent, batch.id, row, modeFor(agent, input.autoRun));
+    await activateBatch(fresh, batch.id, r.row, modeFor(agent, input.autoRun));
   } catch (e) {
-    return fail(e instanceof Error ? e.message : "Couldn't start the batch.");
+    return fail(e instanceof Error ? e.message : "Couldn't start the campaign.");
   }
   revalidatePath("/dashboard", "layout");
   return { ok: true };
@@ -807,23 +815,34 @@ export async function setBatchRenew(on: boolean): Promise<Result> {
   return { ok: true };
 }
 
-/** Setup: what to promote and the first batch. It starts with "Start my campaign". */
-export async function saveBatchPlan(input: BatchChoice & { topics: string[] }): Promise<Result> {
+/** Setup: the answers and the first campaign. It starts with "Start my campaign". */
+export async function saveBatchPlan(input: CampaignChoice): Promise<Result> {
   const agent = await requireAgent();
-  const focus = cleanFocus(input.topics);
-  if (!focus.length) return fail("Choose at least one thing to promote.");
   const open = await getOpenBatch(agent.id);
-  if (open?.status === "active") return fail("A batch is already running. Start the next one from the Overview when it ends.");
-  const row = await resolveChoice(agent, input, focus);
-  if (!row) return fail("That plan doesn't fit this budget. Pick one of the options shown.");
-  // The run mode chosen with the plan applies once the batch starts (nothing runs before that)
-  const { error: focusError } = await supabaseAdmin.from("agents").update({ ad_focus: focus, migz_mode: modeFor(agent, input.autoRun) }).eq("id", agent.id);
-  if (focusError) return fail("Couldn't save what you want to promote.");
-  const saveError = await saveAdChoices(agent, adChoices(agent, input));
+  if (open?.status === "active") return fail("A campaign is already running. Start the next one from the Overview when it ends.");
+  const r = await resolveCampaign(agent, input);
+  if (typeof r === "string") return fail(r);
+  // The run mode chosen with the plan applies once the campaign starts (nothing runs before that)
+  const saveError = await saveCampaignAnswers(agent, r, input.autoRun);
   if (saveError) return fail(saveError);
   if (open) await supabaseAdmin.from("campaign_batches").delete().eq("id", open.id).eq("status", "planned");
-  const { error } = await supabaseAdmin.from("campaign_batches").insert({ ...row, status: "planned" });
-  if (error) return fail("Couldn't save your plan. If this keeps happening, the batches migration may not have run yet.");
+  const { data: batch, error } = await supabaseAdmin.from("campaign_batches").insert({ ...r.row, status: "planned" }).select("id").single();
+  if (error || !batch) return fail("Couldn't save your plan. If this keeps happening, the batches migration may not have run yet.");
+  const fresh = { ...agent, ad_focus: r.focus, licensed_states: r.states, campaign_answers: r.answers } as Agent;
+  await storePlan(batch.id, await buildCampaignPlan(fresh, { answers: r.answers, states: r.states, intent: r.intent, dailyCents: r.row.daily_cents }));
+  revalidatePath("/dashboard", "layout");
+  return { ok: true };
+}
+
+// ---------- Call outcomes ----------
+
+/** "How did it go?": the agent's one-tap answer for a call or lead (and the monthly premium when it sold). */
+export async function setOutcome(kind: OutcomeKind, id: string, outcome: string, premiumDollars?: number): Promise<Result> {
+  const agent = await requireAgent();
+  if (kind !== "call" && kind !== "lead") return fail("Unknown lead.");
+  const premium = typeof premiumDollars === "number" && premiumDollars > 0 ? Math.round(premiumDollars * 100) : null;
+  const ok = await recordOutcome(agent.id, kind, clean(id, 40), outcome, premium);
+  if (!ok) return fail("Couldn't save that. If this keeps happening, the latest migration may not have run yet.");
   revalidatePath("/dashboard", "layout");
   return { ok: true };
 }
@@ -846,11 +865,15 @@ export async function launchCampaign(): Promise<Result> {
   const blockers = await setupBlockers(agent);
   if (blockers.length) return fail(blockers[0]);
   const planned = await getOpenBatch(agent.id);
-  if (!planned || planned.status !== "planned") return fail("Choose your first batch in step 4.");
+  if (!planned || planned.status !== "planned") return fail("Plan your first campaign in step 4.");
   const balance = await getBalanceCents(agent.id);
-  const tier = adChoices(agent, {}).video_tier;
-  if (neededFor(planned.budget_cents, tier) > balance)
-    return fail(short(planned.budget_cents, tier, balance) ?? `Your batch is $${(planned.budget_cents / 100).toFixed(2)} but your ad balance is $${(balance / 100).toFixed(2)}. Add funds or choose a smaller batch.`);
+  const money = campaignMoney({
+    dailyCents: planned.daily_cents,
+    intent: isIntentLevel(agent.intent_level) ? agent.intent_level : DEFAULT_INTENT,
+    tier: isVideoTier(agent.video_tier) ? agent.video_tier : DEFAULT_VIDEO_TIER,
+  });
+  if (planned.budget_cents + money.videoCents > balance)
+    return fail(`Your campaign needs ${usdShort(planned.budget_cents + money.videoCents)}${money.videoCents ? ` (with ${usdShort(money.videoCents)} for videos)` : ""} and your ad balance is ${usdShort(balance)}. Add funds (we recommend ${usdShort(money.recommendedFundsCents)} in ad funds) or choose a smaller daily budget.`);
 
   const { error } = await supabaseAdmin.from("agents").update({ onboarding_completed_at: new Date().toISOString() }).eq("id", agent.id);
   if (error) return fail("Couldn't start your campaign. Please try again.");

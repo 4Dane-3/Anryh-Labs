@@ -1151,7 +1151,7 @@ const gate = (b: Record<string, unknown> = {}, a: Record<string, unknown> = {}, 
 {
   const withVideo = renewalGate({ batch: rbatch({ budget_cents: 28_000 }) as never, agent: ragent({}), balanceCents: 28_300, videoCents: 600, now: rnow });
   assert.equal(withVideo.action, "wait", "a paid video tier needs the setup video's price free too");
-  assert.match((withVideo as { reason: string }).reason, /\$280 batch plus the \$6 video/);
+  assert.match((withVideo as { reason: string }).reason, /\$280 batch plus the \$6 of videos/);
   assert.equal(renewalGate({ batch: rbatch({ budget_cents: 28_000 }) as never, agent: ragent({}), balanceCents: 28_600, videoCents: 600, now: rnow }).action, "renew");
 }
 assert.deepEqual(gate(), { action: "renew" }, "ended, delivered, balance covers it");
@@ -1206,16 +1206,96 @@ delete process.env.HF_VIDEO_MODEL;
 const long = { ...(vbrief as object), body_shots: [6, 6, 6, 6].map((d, i) => ({ prompt: `Moment ${i}`, duration: d })) } as never; // 3 + 24 = 27s
 assert.equal(videoRequest(long, "seedance_30").body.duration, 27); assert.equal(videoRequest(long, "seedance_15").body.duration, 15);
 assert.equal(videoCostUsd(long, "seedance_30"), 11.61, "27s at $0.43");
-const { VIDEO_TIERS, videoPrice, setupVideoCents, MAX_PAID_VIDEOS_PER_ADSET_PER_WEEK, videoChargeLine, INTENT_LEVELS, MIN_SPLIT_DAILY_CENTS } = await import("@/lib/ad-options");
+const { VIDEO_TIERS, videoPrice, videoChargeLine, INTENT_LEVELS, MIN_SPLIT_DAILY_CENTS } = await import("@/lib/ad-options");
 assert.deepEqual([videoPrice("standard"), videoPrice("seedance_15"), videoPrice("seedance_30")], [0, 600, 1200]);
-assert.deepEqual([setupVideoCents("standard"), setupVideoCents("seedance_30")], [0, 1200], "a paid tier needs its setup video free on top of the batch");
-assert.equal(VIDEO_TIERS.standard.model, "kling"); assert.equal(MAX_PAID_VIDEOS_PER_ADSET_PER_WEEK, 2);
-assert.match(videoChargeLine("seedance_15"), /\$6.*refunded if it can't be made.*weekly refresh.*2 a week per ad set.*Meta rejects/); assert.match(videoChargeLine("standard"), /included/i);
+assert.equal(VIDEO_TIERS.standard.model, "kling");
+assert.match(videoChargeLine("seedance_15"), /at least 2 videos per ad set at \$6.*\$4\.80 each \(20% off\).*start of the campaign.*Meta rejects/); assert.match(videoChargeLine("standard"), /included/i);
 assert.match(INTENT_LEVELS.low_medium.detail, /more leads/); assert.match(INTENT_LEVELS.medium_high.detail, /booking page/); assert.equal(MIN_SPLIT_DAILY_CENTS, 1000);
 const { fitBrief, briefDuration: bd } = await import("@/lib/migz/brief");
 const fitted = fitBrief(long, 15);
 assert.ok(bd(fitted) <= 15 && fitted.body_shots.length >= 1, `a 30s brief falling back to Standard fits 15s (${bd(fitted)}s)`);
 assert.equal(fitted.body_shots.at(-1)!.prompt, "Moment 3", "it keeps the last shot for the end card");
+// The campaign start flow: length from the daily budget, $500 funds, creative mix, prices, expected results
+const cp = await import("@/lib/campaign-plan");
+assert.deepEqual([2000, 7499, 7500, 14_999, 15_000, 50_000].map(cp.recommendedDays), [21, 21, 14, 14, 10, 10], "under $75/day 21 days, $75–149 14, $150+ 10");
+assert.deepEqual([1, 50_000, 50_001, 140_000].map(cp.roundUpToFundsStep), [50_000, 50_000, 100_000, 150_000], "funds round up to the next $500");
+assert.deepEqual(cp.creativeMix(5000), { total: 8, videos: 2, images: 6, extraVideos: 0 }, "about 8 under $75/day");
+assert.deepEqual(cp.creativeMix(10_000), { total: 10, videos: 2, images: 8, extraVideos: 0 }, "10 at $100/day");
+assert.deepEqual(cp.creativeMix(15_000), { total: 12, videos: 2, images: 10, extraVideos: 0 });
+assert.deepEqual(cp.creativeMix(20_000), { total: 15, videos: 5, images: 10, extraVideos: 3 }, "15 from $200/day, images capped at 10");
+assert.deepEqual([0, 1, 2, 3].map((n) => cp.videoPriceFor("seedance_15", n)), [600, 600, 480, 480], "the included two at list, extras 20% off");
+assert.equal(cp.videoPriceFor("seedance_30", 2), 960); assert.equal(cp.videoPriceFor("standard", 4), 0, "extra Standard videos: undecided, free for now");
+const m100 = cp.campaignMoney({ dailyCents: 10_000, intent: "medium_high", tier: "standard" });
+assert.deepEqual([m100.days, m100.adSpendCents, m100.videoCents, m100.recommendedFundsCents], [14, 140_000, 0, 150_000], "$100/day: 14 days, $1,400 of ads, $1,500 of funds");
+const m200 = cp.campaignMoney({ dailyCents: 20_000, intent: "medium_high", tier: "seedance_15" });
+assert.deepEqual([m200.days, m200.videoCents, m200.recommendedFundsCents], [10, 600 * 2 + 480 * 3, 250_000], "$200/day on Seedance: 2 videos at $6 and 3 at $4.80");
+assert.equal(cp.campaignMoney({ dailyCents: 10_000, intent: "low_medium", tier: "standard" }).sets.length, 2, "instant forms add a second ad set with its own mix");
+const ans = cp.cleanAnswers({ products: ["final_expense", "nope"], ageMin: 85, ageMax: 50, languages: ["en", "fr"], underwriting: "simplified", healthIssuesOk: "yes" });
+assert.deepEqual([ans.products, ans.ageMin, ans.ageMax, ans.languages, ans.healthIssuesOk], [["final_expense"], 50, 85, ["en"], null], "answers are cleaned, ages kept in order");
+assert.equal(cp.ageCallout(ans), "for people 50–85"); assert.equal(cp.ageCallout({ ageMin: null, ageMax: null }), null);
+assert.ok(cp.anglesFor(ans).includes("no_exam") && !cp.anglesFor({ ...ans, underwriting: "exam" }).includes("no_exam"), "the no-exam angle only when it's true");
+const plain = cp.cleanAnswers({ products: ["final_expense"] });
+const form = cp.expectedResults({ answers: plain, states: ["TX", "FL", "GA"], intent: "low_medium", dailyCents: 20_000 });
+assert.equal(form.lines.find((l) => l.destination === "instant_form")!.perWeek.mid, 28, "$100/day of instant forms: about 28 leads a week");
+const book = cp.expectedResults({ answers: plain, states: ["TX", "FL", "GA"], intent: "medium_high", dailyCents: 10_000 });
+assert.deepEqual([book.lines[0].perWeek.mid, book.lines[0].cost.mid, book.lines[0].source], [8, 9000, "typical"], "$100/day to the booking page: about 8 booked calls a week at $90");
+const narrow = cp.expectedResults({ answers: { ...plain, ageMin: 60, ageMax: 70 }, states: ["TX"], intent: "medium_high", dailyCents: 10_000 });
+assert.ok(narrow.lines[0].cost.mid > 9000 && narrow.notes.length === 2, "1 state and a narrow age range cost more");
+const spanish = cp.expectedResults({ answers: { ...plain, languages: ["es"], underwriting: "simplified", healthIssuesOk: true }, states: ["TX", "FL", "GA"], intent: "medium_high", dailyCents: 10_000 });
+assert.ok(spanish.lines[0].cost.mid < 9000, "Spanish, no exam and health issues OK cost less");
+assert.ok(cp.expectedResults({ answers: { ...plain, products: ["retirement_iul"] }, states: ["TX", "FL", "GA"], intent: "medium_high", dailyCents: 10_000 }).lines[0].cost.mid > 9000, "IUL costs more than final expense");
+const mine = cp.expectedResults({ answers: plain, states: ["TX", "FL", "GA"], intent: "medium_high", dailyCents: 10_000, own: { campaigns: 2, costPerCallCents: 5000, costPerLeadCents: null } });
+assert.deepEqual([mine.lines[0].cost.mid, mine.lines[0].source], [5000, "yours"], "after 2 finished campaigns, their own numbers");
+assert.equal(cp.expectedResults({ answers: plain, states: ["TX", "FL", "GA"], intent: "medium_high", dailyCents: 10_000, own: { campaigns: 1, costPerCallCents: 5000, costPerLeadCents: null } }).lines[0].source, "typical", "one campaign isn't enough");
+assert.equal(cp.recommendedDaily(9000), 13_000, "10 booked calls a week at $90: about $130/day");
+const { dailyBatch } = await import("@/lib/batch");
+const db1 = dailyBatch(5000, ["final_expense"], { spentCents: 0, bookedCalls: 0, batches: 0, byTopic: {} });
+assert.deepEqual([db1.days, db1.dailyCents, db1.key, db1.collectDays], [21, 5000, "focused", 7], "a daily budget becomes a campaign Migz sets the length of");
+assert.equal(dailyBatch(20_000, ["final_expense", "term_life"], { spentCents: 0, bookedCalls: 0, batches: 0, byTopic: {} }).collectDays, 7, "10 days: revise after 7, 3 to check");
+// Age wording and claims the agent's answers don't back
+const gw = await import("@/lib/migz/guardrails");
+assert.equal(gw.checkCopy("If you're between 50 and 85, plan ahead.", "Coverage for people 50–85", "Seniors 60+"), null, "a range or a condition is fine");
+assert.match(gw.checkCopy("You're 65 and still don't have coverage.")!, /age or situation/);
+assert.match(gw.checkCopy("You still don't have life insurance?")!, /situation/);
+assert.match(gw.checkOnScreen("Are you between 50 and 85?")!, /on-screen/); assert.equal(gw.checkOnScreen("For people 50–85"), null);
+assert.match(gw.checkClaims({ noExam: false, healthIssuesOk: false }, "Coverage with no medical exam")!, /no exam/);
+assert.equal(gw.checkClaims({ noExam: true, healthIssuesOk: false }, "Coverage with no medical exam"), null);
+assert.match(gw.checkClaims({ noExam: true, healthIssuesOk: false }, "Health issues welcome")!, /health issues/);
+assert.equal(gw.checkClaims(null, "No medical exam"), null, "before the agent answers, no claim checks");
+const { rejectionReasons } = await import("@/lib/migz/sync");
+assert.deepEqual(rejectionReasons({ global: { "Personal attributes": "Ads can't assert age" }, placement_specific: { instagram: { "Personal attributes": "Ads can't assert age" } } }), ["Personal attributes: Ads can't assert age"]);
+ok("campaign start: length, $500 funds, creative mix, video prices, expected results, age wording");
+
+// Call outcomes: what happened after each lead, what Meta hears, how ads are ranked
+const oc = await import("@/lib/outcomes");
+assert.deepEqual(oc.metaEventsFor("call", "sold"), ["ShowedUp", "Purchase"], "a sale counts as a show too");
+assert.deepEqual([oc.metaEventsFor("call", "quoted"), oc.metaEventsFor("call", "no_show"), oc.metaEventsFor("lead", "not_reached"), oc.metaEventsFor("lead", "booked")], [["ShowedUp"], [], [], ["Contact"]]);
+assert.deepEqual(oc.unsentEvents("call", "sold", "ShowedUp"), ["Purchase"], "each event goes to Meta once, ever");
+assert.deepEqual(oc.unsentEvents("call", "showed_up", "ShowedUp,Purchase"), [], "changing an answer back never resends");
+const four = ["showed_up", "no_show", null, "sold"];
+assert.equal(oc.outcomeStats(four).goodRate, null, "under 5 answers: no rate yet");
+const ten = ["showed_up", "showed_up", "quoted", "sold", "sold", "no_show", "no_show", "no_show", null, null];
+const st10 = oc.outcomeStats(ten);
+assert.deepEqual([st10.answered, st10.good, st10.sold, st10.goodRate], [8, 5, 2, 5 / 8]);
+assert.deepEqual(oc.rankingCost(40_000, 10, ten), { basis: "sale", cents: 16_000 }, "$400 for 10 bookings, a quarter sold: $160 per sale");
+assert.deepEqual(oc.rankingCost(40_000, 10, ["showed_up", "showed_up", "no_show", "no_show", "showed_up"]), { basis: "showed_up_call", cents: 6667 }, "no sales yet: per showed-up call");
+assert.deepEqual(oc.rankingCost(40_000, 10, four), { basis: "booked_call", cents: 4000 }, "too few answers: per booked call");
+assert.match(oc.showUpLine(ten)!, /^63% of its bookings showed up \(5 of 8 answered\), 2 sold$/);
+process.env.CRON_SECRET = "test-secret";
+process.env.APP_URL = "https://app.example";
+const od = await import("@/lib/dashboard/outcomes");
+const oSig = od.outcomeSignature("call", "b1");
+assert.ok(od.validSignature("call", "b1", oSig) && !od.validSignature("call", "b2", oSig) && !od.validSignature("lead", "b1", oSig) && !od.validSignature("call", "b1", null), "a link only answers for its own lead");
+const askMsg = od.outcomeAskMessage({ timezone: "America/Chicago" }, [{ kind: "call", id: "b1", name: "Pat Lee", at: "2026-10-29T19:00:00Z", outcome: null, premiumCents: null, source: "booking" }, { kind: "lead", id: "q1", name: "Sam Ruiz", at: "2026-10-29T15:00:00Z", outcome: null, premiumCents: null, source: "instant_form" }], false);
+const actions = askMsg.blocks.filter((b) => (b as { type: string }).type === "actions") as { elements: { text: { text: string }; url: string }[] }[];
+assert.deepEqual(actions.map((a) => a.elements.map((e) => e.text.text)), [["Showed up", "No show", "Quoted", "Sold"], ["Reached", "Couldn't reach", "Booked", "Sold"]]);
+assert.equal(actions[0].elements[3].url, `https://app.example/o/call/b1?r=sold&s=${oSig}`, "one-tap links, signed per lead");
+assert.match(JSON.stringify(askMsg.blocks), /Pat Lee\* · call Thu 2:00 PM/);
+assert.match(od.outcomeAskMessage({ timezone: "America/Chicago" }, [], true).text, /reminder/);
+const oExp = cp.expectedResults({ answers: plain, states: ["TX", "FL", "GA"], intent: "low_medium", dailyCents: 20_000, own: { campaigns: 0, costPerCallCents: null, costPerLeadCents: null, showRate: 0.62, reachRate: 0.4 } });
+assert.deepEqual(oExp.lines.map((l) => [l.follow, l.source]), [["62% of your booked calls show up (from your answers)", "typical"], ["you reach 40% of your form leads (from your answers)", "typical"]], "their own show-up and reach rates as soon as they're known, typical costs until 2 campaigns");
+ok("call outcomes: Meta events once each (a sale is a show too), rates from 5 answers, ads ranked per sale / showed-up call / booking, signed one-tap Slack links, own show-up rate in the estimate");
+
 const { overlayFilter, imageOverlayFilter, cornerPosition, opaqueBounds, markFilter, addLogoToVideo, addLogoToImage, END_CARD_SECONDS, isLogoCorner } = await import("@/lib/migz/endcard");
 const ecf = overlayFilter(15, 1080, 1920, { corner: "top_right", endCard: true });
 assert.match(ecf, /clip\(\(t-12\.000\)\/2,0,1\)/, "the pull-back starts 3s before the end");
@@ -1270,6 +1350,6 @@ const cutsReq = videoRequest(withOpeningPace({ ...(cuts.payload.brief as never),
 assert.equal(cutsReq.body.duration, 13, "12.5 seconds of video bills as 13 whole seconds");
 assert.equal(videoCostUsd(cuts.payload.brief as never), videoCostUsd(vbrief), "the same 15 seconds cost the same however many cuts are in it");
 assert.deepEqual(shotPrompts(cuts.payload.brief as never).map((x) => x.duration), [2, 2, 2, 1, 3, 6], "Kling takes whole seconds: 1.5 rounds up");
-ok("video tiers: Kling 3.0 Standard by default, Seedance 2.5 15s/30s charged $6/$12 per video (2 a week per ad set), staff's Kling switch never charges, 30s briefs fit 15s on fallback; Seedance 2.5 video request (15s 720p 9:16, 1080p a setting, timed shots, no narration, measured cost) with Kling as a setting; transparent logo: small corner mark on every video and image, frosted end card on videos; fast-cut opening 1.5/2/1.5/1/3s");
+ok("video tiers: Kling 3.0 Standard by default, Seedance 2.5 15s/30s charged $6/$12 per video (extras 20% off), staff's Kling switch never charges, 30s briefs fit 15s on fallback; Seedance 2.5 video request (15s 720p 9:16, 1080p a setting, timed shots, no narration, measured cost) with Kling as a setting; transparent logo: small corner mark on every video and image, frosted end card on videos; fast-cut opening 1.5/2/1.5/1/3s");
 
 console.log(`\nALL ${n} UNIT GROUPS PASSED`);

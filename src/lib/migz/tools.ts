@@ -26,7 +26,9 @@ import {
   checkBudgetChange,
   checkCopy,
   checkGeneration,
-  checkRefreshTarget,
+  checkFillTarget,
+  checkOnScreen,
+  checkClaims,
   checkLaunchTarget,
   checkPromoteAd,
   checkRestructure,
@@ -330,8 +332,23 @@ function validateBrief(brief: CreativeBrief, maxSeconds = MAX_VIDEO_SECONDS) {
 export function evaluate(name: string, raw: unknown, ctx: EvalContext): Evaluated {
   const out = evaluateTool(name, raw, ctx);
   if (!out.ok || !isGeneration(out.payload)) return out;
-  const refresh = checkRefreshTarget(ctx, out.payload.launch_adset_id);
-  return refresh ? { ok: false, error: refresh } : out;
+  const err = checkFillTarget(ctx, out.payload.launch_adset_id) ?? checkWords(ctx, out.payload);
+  return err ? { ok: false, error: err } : out;
+}
+
+/** The words a creative puts on screen, and all of its words, for the age-wording and claims checks. */
+function creativeWords(p: Extract<ActionPayload, { brief: unknown }>) {
+  type Words = { hook_line?: string; headline?: string; button_text?: string | null; overlay_lines?: string[]; primary_text?: string; voiceover?: string | null; cards?: { overlay_lines?: string[]; headline?: string }[] };
+  const b = p.brief as unknown as Words;
+  const cards = b.cards ?? [];
+  const onScreen = [b.hook_line, b.headline, b.button_text, ...(b.overlay_lines ?? []), ...cards.flatMap((c) => [...(c.overlay_lines ?? []), c.headline])];
+  return { onScreen, all: [...onScreen, b.primary_text, b.voiceover] };
+}
+
+function checkWords(ctx: GuardContext, payload: ActionPayload) {
+  if (!("brief" in payload)) return null;
+  const w = creativeWords(payload);
+  return checkOnScreen(...w.onScreen) ?? checkClaims(ctx.facts, ...w.all);
 }
 
 const isGeneration = (p: ActionPayload): p is Extract<ActionPayload, { tool: "generate_video" | "new_hook_variant" | "generate_image" | "generate_carousel" }> =>
@@ -577,7 +594,8 @@ export function recheck(payload: ActionPayload, ctx: EvalContext): string | null
     case "new_hook_variant":
       return (
         checkGeneration(ctx, payload.tool === "generate_image" || payload.tool === "generate_carousel" ? "image" : "video") ??
-        checkRefreshTarget(ctx, payload.launch_adset_id) ??
+        checkFillTarget(ctx, payload.launch_adset_id) ??
+        checkWords(ctx, payload) ??
         (payload.launch_adset_id ? checkLaunchTarget(ctx, payload.launch_adset_id) : null)
       );
     case "launch_creative":
