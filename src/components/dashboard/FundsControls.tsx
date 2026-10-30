@@ -156,7 +156,7 @@ function WhyFee() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 4 }}
             transition={{ duration: 0.15 }}
-            className="absolute bottom-full left-0 z-20 mb-2 block w-full max-w-sm rounded-lg border border-line-strong bg-ink-high px-3.5 py-3 text-[12.5px] leading-relaxed text-fg-muted shadow-lg shadow-black/40"
+            className="absolute bottom-full left-0 z-20 mb-2 block w-full max-w-sm rounded-lg border border-line-strong bg-ink px-3.5 py-3 text-[12.5px] leading-relaxed text-fg-muted shadow-lg shadow-black/40"
           >
             <span className="block font-medium text-fg">What the {FEE_RATE * 100}% covers</span>
             Everything Migz does for you besides the ad spend itself: any creatives it generates for your ads (images and

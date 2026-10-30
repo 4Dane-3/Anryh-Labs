@@ -29,6 +29,9 @@ type Board = {
   notebook: { date: string; phase: Phase; headline: string; thoughts: Thought[]; sentToSlack: boolean } | null;
 };
 
+/** Long lists keep a short, fixed height and scroll inside, so the page stays easy to move through. */
+const SCROLL = "max-h-[340px] overflow-y-auto overscroll-contain";
+
 /** Room above a section when a jump tab scrolls to it (below the sticky tab bar, and the phone top bar). */
 export const JUMP = "scroll-mt-32 lg:scroll-mt-20";
 
@@ -50,6 +53,7 @@ export function BrainView({
   agentId,
   justStarted = false,
   approvals = null,
+  pageAnalytics,
 }: {
   initial: BrainLive;
   board: Board;
@@ -57,6 +61,8 @@ export function BrainView({
   justStarted?: boolean;
   /** Proposals waiting for the agent (Ask me first mode); null hides the panel. */
   approvals?: MigzAction[] | null;
+  /** The page-visits panel (a server component), shown under the live monitor. */
+  pageAnalytics?: React.ReactNode;
 }) {
   const [demo, setDemo] = useState(false);
   const live = useBrainLive(initial, demo, justStarted);
@@ -104,10 +110,19 @@ export function BrainView({
         </div>
       )}
 
+      {/* What the ads' visitors do on the page, then how each live ad is doing: right under the live monitor */}
+      {pageAnalytics && (
+        <div id="brain-page" className={JUMP}>
+          {pageAnalytics}
+        </div>
+      )}
+      <ScorecardsPanel cards={board.scorecards} />
+
+      {/* The long lists stay short and scroll inside */}
       <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
         <Panel id="brain-log" className={JUMP}>
-          <PanelHeader title="Session log" description="Every step Migz takes, with the numbers behind it." />
-          <div className="max-h-[520px] overflow-y-auto">
+          <PanelHeader title="Session log" description="Every step Migz AI takes, with the numbers behind it." />
+          <div className={SCROLL}>
             <SessionLog events={live.events} />
           </div>
         </Panel>
@@ -121,7 +136,6 @@ export function BrainView({
         <LearningsPanel learnings={board.learnings} />
       </div>
 
-      <ScorecardsPanel cards={board.scorecards} />
       <SwipePanel swipes={board.swipes} />
     </div>
   );
@@ -180,7 +194,7 @@ function AuditPanel({ findings }: { findings: Board["findings"] }) {
     <Panel id="brain-auditor" className={JUMP}>
       <PanelHeader title="Auditor" description={open.length ? `${open.length} open finding${open.length === 1 ? "" : "s"}` : "All checks passing"} />
       {findings.length ? (
-        <ul className="divide-y divide-line">
+        <ul className={cn("divide-y divide-line", SCROLL)}>
           {[...open, ...resolved.slice(0, 3)].map((f) => (
             <li key={`${f.check_name}-${f.subject}`} className="flex items-start gap-3 px-5 py-3">
               <Badge tone={f.status === "resolved" ? "good" : SEV[f.severity]}>{f.status === "resolved" ? "fixed" : f.severity}</Badge>
@@ -208,7 +222,7 @@ function ExperimentsPanel({ experiments }: { experiments: Board["experiments"] }
     <Panel id="brain-experiments" className={JUMP}>
       <PanelHeader title="Experiments" description="One lever at a time, judged only after every variant has enough data." />
       {experiments.length ? (
-        <div className="grid gap-3 p-4 sm:grid-cols-3">
+        <div className={cn("grid gap-3 p-4 sm:grid-cols-3", SCROLL)}>
           {cols.map((c) => (
             <div key={c.key} className="min-w-0">
               <p className="mb-2 font-mono text-[11px] text-fg-faint">{c.label}</p>
@@ -244,8 +258,8 @@ function LearningsPanel({ learnings }: { learnings: Board["learnings"] }) {
     <Panel id="brain-learnings" className={JUMP}>
       <PanelHeader title="Learnings" description="What this account has taught Migz. Yours only, never pooled with other agents." />
       {learnings.length ? (
-        <ul className="divide-y divide-line">
-          {learnings.slice(0, 10).map((l) => (
+        <ul className={cn("divide-y divide-line", SCROLL)}>
+          {learnings.map((l) => (
             <li key={l.id} className="px-5 py-3">
               <p className="text-[13px] text-fg">{l.insight}</p>
               <p className="mt-0.5 font-mono text-[11px] text-fg-faint">

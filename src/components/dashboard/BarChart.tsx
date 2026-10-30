@@ -149,7 +149,7 @@ export function BarChart({
             animate={{ opacity: 1, y: 0, left: tooltipLeft }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.12 }}
-            className="pointer-events-none absolute top-0 z-10 -translate-x-1/2 whitespace-nowrap rounded-md border border-line-strong bg-ink-high px-2.5 py-1.5 text-xs shadow-lg"
+            className="pointer-events-none absolute top-0 z-10 -translate-x-1/2 whitespace-nowrap rounded-md border border-line-strong bg-ink px-2.5 py-1.5 text-xs shadow-lg"
           >
             <div className="text-fg-muted">{dayLabel(hovered.date)}</div>
             <div className="font-semibold tabular-nums text-fg">{fmt(hovered.value, format)}</div>

@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { requireAgent, devAgentSlug, getViewAs, isAnryhAdmin } from "@/lib/auth";
-import { Sidebar } from "@/components/dashboard/Sidebar";
+import { TopBar } from "@/components/dashboard/TopBar";
+import { GlassBackdrop } from "@/components/glass/GlassBackdrop";
+import { migzReadyFor } from "@/lib/integrations";
 import { UpdateNotice } from "@/components/dashboard/UpdateNotice";
 
 // Server actions run here too; "Review now" runs a full Migz review (Meta sync + Claude)
@@ -15,16 +17,11 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const [agent, viewing, staff] = await Promise.all([requireAgent(), getViewAs(), isAnryhAdmin()]);
 
   return (
-    <div className="min-h-screen bg-ink text-fg antialiased [color-scheme:dark] lg:pl-60">
-      <Sidebar
-        agent={{ name: agent.full_name, slug: agent.slug, photoUrl: agent.photo_url }}
-        devLogin={!!devAgentSlug()}
-        setupDone={!!agent.onboarding_completed_at}
-        staff={staff && !viewing}
-      />
+    <div className="relative min-h-screen bg-ink text-fg antialiased [color-scheme:dark]">
+      <GlassBackdrop tone="dim" />
       <UpdateNotice version={process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.VERCEL_DEPLOYMENT_ID ?? "dev"} />
       {viewing && (
-        <div className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-2 border-b border-brand/30 bg-[#2a1d0f]/95 px-4 py-2 text-[13px] backdrop-blur sm:px-8">
+        <div className="relative z-40 flex flex-wrap items-center justify-between gap-2 border-b border-brand/30 bg-[#2a1d0f]/95 px-4 py-2 text-[13px] backdrop-blur sm:px-8">
           <p className="text-fg">
             <span className="font-semibold text-brand">Viewing as {viewing.full_name}</span>
             <span className="text-fg-muted"> · exactly what they see, live · view only, nothing you click changes their account</span>
@@ -36,7 +33,14 @@ export default async function DashboardLayout({ children }: { children: React.Re
           </a>
         </div>
       )}
-      <main className="mx-auto w-full max-w-6xl px-4 pb-16 pt-6 sm:px-8 lg:pt-10">{children}</main>
+      <TopBar
+        agent={{ name: agent.full_name, slug: agent.slug, photoUrl: agent.photo_url }}
+        devLogin={!!devAgentSlug()}
+        setupDone={!!agent.onboarding_completed_at}
+        staff={staff && !viewing}
+        connected={migzReadyFor(agent)}
+      />
+      <main className="relative mx-auto w-full max-w-7xl px-4 pb-16 pt-4 sm:px-8 lg:pt-8">{children}</main>
     </div>
   );
 }

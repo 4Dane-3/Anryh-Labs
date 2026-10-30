@@ -1,0 +1,692 @@
+/* The homepage in glass: white type and frosted panels over the moving backdrop (components/glass). The rest of
+   the marketing site keeps the white theme; this only applies inside .site--glass. */
+
+.site--glass {
+  --sb-ground: transparent;
+  --sb-s1: rgb(255 255 255 / 0.1);
+  --sb-s2: rgb(255 255 255 / 0.14);
+  --sb-s3: rgb(255 255 255 / 0.28);
+  --sb-ink: #ffffff;
+  --sb-ink2: rgb(255 255 255 / 0.84);
+  --sb-muted: rgb(255 255 255 / 0.66);
+  --sb-accent: #ff8a5c;
+  --sb-metal: rgb(255 255 255 / 0.35);
+  --sb-cord-hi: rgb(255 255 255 / 0.7);
+  --glass: rgb(255 255 255 / 0.12);
+  --glass-hi: rgb(255 255 255 / 0.2);
+  --glass-line: rgb(255 255 255 / 0.22);
+  --navy: #0b1a3e;
+  --lime: #c8f26a;
+  background: transparent;
+}
+/* everything sits above the fixed backdrop */
+.site--glass > :not(.gb) {
+  position: relative;
+  z-index: 1;
+}
+.site--glass ::selection {
+  background: #fff;
+  color: var(--navy);
+}
+.site--glass :focus-visible {
+  outline-color: #fff;
+}
+
+/* ---------- header ---------- */
+
+.gh-head {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 16px;
+  padding: 16px var(--sb-margin);
+  max-width: 1760px;
+  margin-inline: auto;
+}
+.gh-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  justify-self: start;
+  color: #fff;
+  font-weight: 700;
+  font-size: 21px;
+  letter-spacing: -0.02em;
+  text-decoration: none;
+}
+.gh-mark__glyph {
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  border: 2.5px solid #fff;
+  border-right-color: transparent;
+  transform: rotate(-45deg);
+}
+.gh-pill {
+  display: flex;
+  gap: 2px;
+  padding: 5px;
+  border-radius: 16px;
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  -webkit-backdrop-filter: blur(18px) saturate(1.3);
+  backdrop-filter: blur(18px) saturate(1.3);
+}
+.gh-pill a {
+  padding: 9px 16px;
+  border-radius: 11px;
+  color: #fff;
+  font-size: 16px;
+  text-decoration: none;
+  transition: background-color 180ms ease;
+}
+.gh-pill a:hover {
+  background: rgb(255 255 255 / 0.12);
+}
+.gh-pill a.is-on {
+  background: rgb(255 255 255 / 0.16);
+}
+.gh-pill a.is-on::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 10px;
+  border-radius: 50%;
+  background: var(--lime);
+  vertical-align: 2px;
+}
+.gh-head__cta {
+  justify-self: end;
+}
+@media (max-width: 860px) {
+  .gh-head {
+    grid-template-columns: 1fr auto;
+  }
+  .gh-pill {
+    display: none;
+  }
+}
+
+/* ---------- buttons ---------- */
+
+.gh-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 46px;
+  padding: 0 20px;
+  border-radius: 14px;
+  font-size: 16px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: transform 140ms var(--ease-out), background-color 180ms ease;
+}
+.gh-btn svg {
+  width: 16px;
+  height: 16px;
+}
+.gh-btn:active {
+  transform: scale(0.98);
+}
+.gh-btn--white {
+  background: #fff;
+  color: var(--navy);
+}
+.gh-btn--white:hover {
+  background: rgb(255 255 255 / 0.88);
+}
+.gh-btn--text {
+  color: #fff;
+  padding-inline: 8px;
+}
+.gh-btn--text:hover {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+/* ---------- hero ---------- */
+
+.gh {
+  position: relative;
+  min-height: calc(100svh - 78px);
+  max-width: 1760px;
+  margin-inline: auto;
+  padding: 8px var(--sb-margin) 28px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 360px);
+  grid-template-rows: 1fr auto auto;
+  column-gap: clamp(24px, 4vw, 64px);
+  color: #fff;
+}
+.gh-live {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: start;
+  padding: 14px 18px 16px;
+  border-radius: 26px;
+  background: rgb(120 165 220 / 0.22);
+  border: 1px solid var(--glass-line);
+  -webkit-backdrop-filter: blur(22px) saturate(1.25);
+  backdrop-filter: blur(22px) saturate(1.25);
+  animation: gh-rise 900ms var(--ease-expo) 200ms both;
+}
+.gh-live__grip {
+  display: block;
+  width: 56px;
+  height: 4px;
+  margin: 0 auto 14px;
+  border-radius: 2px;
+  background: rgb(255 255 255 / 0.85);
+}
+.gh-live__where {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 4px 14px !important;
+  font-size: 14px;
+  color: rgb(255 255 255 / 0.85);
+}
+.gh-live__where svg {
+  width: 14px;
+  height: 14px;
+}
+.gh-live__note {
+  margin: 10px 4px 0 !important;
+  font-size: 12px;
+  color: rgb(255 255 255 / 0.6);
+}
+.gh-card {
+  padding: 14px 18px 12px;
+  border-radius: 16px;
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+}
+.gh-card + .gh-card {
+  margin-top: 10px;
+}
+.gh-card__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.gh-card__top b {
+  font-weight: 500;
+  font-size: 17px;
+}
+.gh-card__top span {
+  font-size: 13px;
+  color: rgb(255 255 255 / 0.75);
+  white-space: nowrap;
+}
+.gh-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 0.6);
+  vertical-align: 2px;
+}
+.gh-dot--good {
+  background: var(--lime);
+}
+.gh-card__row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+}
+.gh-card__row small {
+  display: block;
+  font-size: 12px;
+  color: rgb(255 255 255 / 0.7);
+}
+.gh-card__row strong {
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+.gh-card__end {
+  text-align: right;
+}
+.gh-chip {
+  margin-bottom: 4px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.16);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.gh-ticks {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 18px;
+  margin-top: 12px;
+}
+.gh-ticks i {
+  flex: 1;
+  min-width: 1px;
+  background: rgb(255 255 255 / 0.4);
+  border-radius: 1px;
+  transform-origin: bottom;
+  animation: gh-tick 2.6s ease-in-out infinite alternate;
+}
+
+/* the headline sits bottom left beside the live card; the buttons sit under the card */
+.gh-main {
+  display: contents;
+}
+.gh-copy {
+  grid-column: 1;
+  grid-row: 1;
+  align-self: end;
+  padding-top: 32px;
+}
+.gh-h1 {
+  margin: 0 0 22px -0.04em;
+  font-weight: 400;
+  font-size: clamp(44px, 7.6vw, 124px);
+  line-height: 0.98;
+  letter-spacing: -0.045em;
+}
+.gh-h1 span {
+  display: block;
+  animation: gh-rise 1000ms var(--ease-expo) both;
+}
+.gh-h1 span + span {
+  animation-delay: 90ms;
+}
+.gh-lead {
+  max-width: 46ch;
+  font-size: clamp(17px, 1rem + 0.35vw, 21px);
+  line-height: 1.4;
+  color: rgb(255 255 255 / 0.88);
+  animation: gh-rise 1000ms var(--ease-expo) 180ms both;
+}
+.gh-actions {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: end;
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 6px;
+  animation: gh-rise 1000ms var(--ease-expo) 260ms both;
+}
+
+.gh-feats {
+  --seg: calc(100% / var(--n));
+  grid-column: 1 / -1;
+  grid-row: 2;
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 20px;
+  margin: 36px 0 0;
+  padding: 22px 0 0;
+  list-style: none;
+  border-top: 1px solid rgb(255 255 255 / 0.3);
+}
+/* the lit segment of the rule above the current item */
+.gh-feats::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 0;
+  width: calc(var(--seg) - 16px);
+  height: 2px;
+  background: var(--lime);
+  transform: translateX(calc(var(--on) * (100% + 20px)));
+  transition: transform 700ms var(--ease-expo);
+}
+.gh-feats li {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 16px;
+  line-height: 1.35;
+  color: rgb(255 255 255 / 0.55);
+  transition: color 500ms ease;
+}
+.gh-feats li.is-on {
+  color: #fff;
+}
+.gh-feats svg {
+  width: 18px;
+  height: 18px;
+}
+.gh-invite {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  margin-top: 22px !important;
+  font-size: 14px;
+  color: rgb(255 255 255 / 0.66);
+}
+
+@media (max-width: 1100px) {
+  .gh {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto;
+  }
+  .gh-copy {
+    grid-row: 1;
+    padding-top: 10vh;
+  }
+  .gh-actions {
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: start;
+    margin-bottom: 0;
+  }
+  .gh-live {
+    grid-column: 1;
+    grid-row: 3;
+    width: 100%;
+    max-width: 420px;
+    margin-top: 36px;
+  }
+  .gh-feats {
+    grid-row: 4;
+  }
+  .gh-invite {
+    grid-row: 5;
+  }
+}
+@media (max-width: 860px) {
+  .gh-feats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 18px;
+  }
+  .gh-feats::before {
+    display: none;
+  }
+  .gh-feats li {
+    color: rgb(255 255 255 / 0.8);
+  }
+  .gh-copy {
+    padding-top: 5vh;
+  }
+}
+
+@keyframes gh-rise {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+}
+@keyframes gh-tick {
+  from {
+    transform: scaleY(0.55);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gh-live,
+  .gh-h1 span,
+  .gh-lead,
+  .gh-actions,
+  .gh-ticks i {
+    animation: none;
+  }
+}
+
+/* ---------- the sections below ---------- */
+
+/* a darker wash behind the sections, so long text and charts read cleanly over the colour */
+.sb-deep {
+  background: linear-gradient(180deg, rgb(8 16 40 / 0) 0, rgb(8 16 40 / 0.5) 220px, rgb(8 16 40 / 0.62) 100%);
+  padding-bottom: var(--sb-section);
+}
+.site--glass .sb-sec h2,
+.site--glass .sb-close h2 {
+  font-weight: 400;
+  letter-spacing: -0.045em;
+}
+.site--glass .sb-cta {
+  background: #fff;
+  color: var(--navy);
+}
+.site--glass .sb-foot {
+  background: rgb(8 16 40 / 0.72);
+}
+
+/* Pieces that put text on an ink-coloured fill: ink is white here, so they become white with navy text */
+.site--glass .dg__lever,
+.site--glass .bd-btn--go,
+.site--glass .sb-close .sb-cta,
+.site--glass .bd-seg__b[aria-pressed="true"] {
+  color: var(--navy);
+}
+@media (hover: hover) and (pointer: fine) {
+  .site--glass .sb-cta:hover {
+    background: rgb(255 255 255 / 0.85);
+    color: var(--navy);
+  }
+}
+/* the Slack notifications stay white cards with dark text, like a real lock screen */
+.site--glass .ph__note {
+  --sb-ink: #12141a;
+  --sb-ink2: #3a404e;
+  --sb-muted: #596070;
+}
+.site--glass .sb-close {
+  background: rgb(255 255 255 / 0.12);
+  border: 1px solid var(--glass-line);
+  -webkit-backdrop-filter: blur(22px) saturate(1.2);
+  backdrop-filter: blur(22px) saturate(1.2);
+}
+
+/* Legal pages (privacy, terms): long reading, so the document sits on a frosted light sheet with dark text */
+.site--glass .sb-doc {
+  --sb-ink: #12141a;
+  --sb-ink2: #3a404e;
+  --sb-muted: #596070;
+  margin: 8px auto 72px;
+  border-radius: 28px;
+  background: rgb(255 255 255 / 0.9);
+  border: 1px solid rgb(255 255 255 / 0.6);
+  -webkit-backdrop-filter: blur(24px) saturate(1.2);
+  backdrop-filter: blur(24px) saturate(1.2);
+  box-shadow: 0 30px 80px -30px rgb(8 16 40 / 0.5);
+}
+@media (max-width: 860px) {
+  .site--glass .sb-doc {
+    margin-inline: 12px;
+    border-radius: 22px;
+  }
+}
+/* help and data-deletion read straight on the glass, over the darker wash */
+.site--glass .sb-help {
+  background: linear-gradient(180deg, rgb(8 16 40 / 0) 0, rgb(8 16 40 / 0.45) 160px);
+}
+
+/* ---------- "calls, not clicks" with the Migz AI Brain preview beside it ---------- */
+
+.calls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 520px);
+  gap: clamp(28px, 5vw, 80px);
+  align-items: start;
+}
+@media (max-width: 1000px) {
+  .calls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.bp {
+  padding: 14px 18px 18px;
+  border-radius: 26px;
+  background: rgb(120 165 220 / 0.16);
+  border: 1px solid var(--glass-line);
+  -webkit-backdrop-filter: blur(22px) saturate(1.25);
+  backdrop-filter: blur(22px) saturate(1.25);
+  color: #fff;
+}
+.bp__grip {
+  display: block;
+  width: 56px;
+  height: 4px;
+  margin: 0 auto 14px;
+  border-radius: 2px;
+  background: rgb(255 255 255 / 0.85);
+}
+.bp__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 2px 16px !important;
+  font-size: 14px;
+  color: rgb(255 255 255 / 0.75) !important;
+  max-width: none !important;
+}
+.bp__head b {
+  color: #fff;
+  font-weight: 600;
+}
+.bp__live {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 0.45);
+}
+.bp__live.is-on {
+  background: var(--lime);
+  animation: bp-pulse 1.2s ease-in-out infinite alternate;
+}
+.bp__stages {
+  display: grid;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  gap: 4px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+.bp__stages li span {
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+  background: rgb(255 255 255 / 0.18);
+  transition: background-color 400ms ease;
+}
+.bp__stages li.is-done span {
+  background: rgb(255 255 255 / 0.75);
+}
+.bp__stages li.is-now span {
+  background: var(--lime);
+  animation: bp-pulse 0.9s ease-in-out infinite alternate;
+}
+.bp__stages small {
+  display: block;
+  margin-top: 6px;
+  font-size: 10.5px;
+  color: rgb(255 255 255 / 0.55);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bp__stages li.is-now small,
+.bp__stages li.is-done small {
+  color: rgb(255 255 255 / 0.9);
+}
+.bp__feed {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-height: 312px;
+}
+.bp__feed li {
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  animation: bp-in 500ms var(--ease-expo) both;
+}
+.bp__feed li.is-now {
+  background: rgb(255 255 255 / 0.18);
+}
+.bp__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+}
+.bp__row b {
+  font-weight: 500;
+  font-size: 16px;
+}
+.bp__row span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: rgb(255 255 255 / 0.75);
+  white-space: nowrap;
+}
+.bp__row i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.sb-sec .bp__detail {
+  margin-top: 4px;
+  font-size: 14px;
+  color: rgb(255 255 255 / 0.8);
+  max-width: none;
+  /* a preview: the shape of the work, not its specifics */
+  filter: blur(3.5px);
+  user-select: none;
+}
+.sb-sec li.is-now .bp__detail {
+  filter: none;
+}
+.sb-sec .bp__note {
+  margin-top: 12px;
+  font-size: 12px;
+  color: rgb(255 255 255 / 0.6);
+  max-width: none;
+}
+@keyframes bp-pulse {
+  from {
+    opacity: 0.45;
+  }
+}
+@keyframes bp-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bp__live.is-on,
+  .bp__stages li.is-now span,
+  .bp__feed li {
+    animation: none;
+  }
+}
+
+/* forms (help, data deletion): the fields need their own glass fill now that the page ground is clear */
+.site--glass .sb-form {
+  border: 1px solid var(--glass-line);
+  -webkit-backdrop-filter: blur(22px) saturate(1.2);
+  backdrop-filter: blur(22px) saturate(1.2);
+}
+.site--glass .sb-input {
+  background: rgb(255 255 255 / 0.14);
+  box-shadow: inset 0 0 0 1px var(--glass-line);
+}
+.site--glass .sb-input::placeholder {
+  color: rgb(255 255 255 / 0.55);
+}
+.site--glass .sb-input option {
+  color: #12141a;
+}

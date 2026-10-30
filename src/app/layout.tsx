@@ -5,7 +5,7 @@ import { ErrorReporter } from "@/components/ErrorReporter";
 export const metadata: Metadata = {
   title: "anryh labs · ai ad automation for insurance agents",
   description:
-    "migz, the ai media buyer from anryh labs, runs your whole meta campaign: it reads the analytics and fixes what holds results back so more prospects book a call. invite only.",
+    "migz ai, the media buyer from anryh labs, runs your whole meta campaign: it reads the analytics and fixes what holds results back so more prospects book a call. invite only.",
 };
 
 export default function RootLayout({

@@ -1,42 +1,23 @@
 import Link from "next/link";
 import "@/components/site/site.css";
 import { SiteEffects } from "@/components/site/SiteEffects";
+import { GlassBackdrop } from "@/components/glass/GlassBackdrop";
 
-import { CONTACT_EMAIL } from "@/lib/contact";
+import { CONTACT_EMAIL, DEMO_MAILTO } from "@/lib/contact";
+import "@/components/site/glass-home.css";
 
-export { CONTACT_EMAIL };
-export const DEMO_MAILTO = `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent("invite request: migz")}`;
+export { CONTACT_EMAIL, DEMO_MAILTO };
+// Every site page uses the glass header now
+export { GlassHeader as SiteHeader } from "@/components/site/GlassHeader";
 
-export function SiteShell({ children }: { children: React.ReactNode }) {
+/** Every marketing page: frosted glass over the moving backdrop. `glass={false}` keeps the old white theme. */
+export function SiteShell({ children, glass = true }: { children: React.ReactNode; glass?: boolean }) {
   return (
-    <div className="site">
+    <div className={glass ? "site site--glass" : "site"}>
+      {glass && <GlassBackdrop />}
       <SiteEffects />
       {children}
     </div>
-  );
-}
-
-export function SiteHeader() {
-  return (
-    <header className="sb-head">
-      <div className="sb-head__in">
-        <Link href="/" className="sb-mark">
-          anryh labs
-        </Link>
-        <nav className="sb-nav" aria-label="main">
-          <Link href="/#how" className="sb-nav__opt">
-            how it works
-          </Link>
-          <Link href="/#limits" className="sb-nav__opt">
-            limits
-          </Link>
-          <Link href="/contact">help</Link>
-          <a href={DEMO_MAILTO} className="sb-cta">
-            reach out
-          </a>
-        </nav>
-      </div>
-    </header>
   );
 }
 
