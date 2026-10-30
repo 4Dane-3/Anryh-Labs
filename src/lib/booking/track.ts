@@ -1,7 +1,7 @@
 // Page analytics for agent booking pages (browser only). Events are queued and sent in small batches,
 // and flushed when the page is hidden, so tracking never slows the page down. A visit is a random id
 // kept for this tab session: no cookies, nothing that identifies the person. Preview mode (the agent's
-// own dashboard) never tracks.
+// own dashboard) never tracks. Visits from a Meta ad also pass on the ad's click id (see the events API).
 
 export const PAGE_EVENTS = [
   "view",
@@ -28,6 +28,9 @@ type Queued = { name: PageEvent; meta?: Record<string, string | number | boolean
 
 let slug: string | null = null;
 let session = "";
+// The Meta ad click this page was opened from (its link's click id), sent along so the server can tell
+// Meta about the visit's key steps; null for visits that didn't come from an ad
+let adClick: { fbclid: string; fbclid_at: string; page_url: string } | null = null;
 const queue: Queued[] = [];
 let timer: ReturnType<typeof setTimeout> | null = null;
 const once = new Set<string>();
@@ -42,7 +45,7 @@ function newId() {
 
 function flush(beacon = false) {
   if (!slug || !queue.length) return;
-  const body = JSON.stringify({ session, events: queue.splice(0, 30) });
+  const body = JSON.stringify({ session, events: queue.splice(0, 30), ...(adClick ? { ad: adClick } : {}) });
   const url = `/api/agents/${slug}/events`;
   try {
     if (beacon && navigator.sendBeacon?.(url, new Blob([body], { type: "application/json" }))) return;
@@ -64,6 +67,8 @@ export function startTracking(agentSlug: string) {
     session = newId();
   }
   const params = new URLSearchParams(window.location.search);
+  const fbclid = params.get("fbclid");
+  if (fbclid) adClick = { fbclid, fbclid_at: String(Date.now()), page_url: `${window.location.origin}${window.location.pathname}` };
   let referrer: string | null = null;
   try {
     referrer = document.referrer ? new URL(document.referrer).hostname : null;

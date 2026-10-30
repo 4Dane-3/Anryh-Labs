@@ -9,12 +9,15 @@ const sha256 = (v: string) => createHash("sha256").update(v).digest("hex");
  * request sends "Lead" only. Ad sets optimize for LEAD (both count, so Meta gets enough events to learn),
  * while Schedule keeps booked calls countable on their own. Only contact details go to Meta, hashed as
  * required; prep answers (DOB, health, coverage) never leave our database.
+ *
+ * Visits from an ad also send browsing steps, with no contact details: PageView when the page opens (Meta
+ * shows these as landing page views) and InitiateCheckout when they pick a call time.
  */
 export async function sendConversionEvents(input: {
-  events: ("Schedule" | "Lead")[];
-  eventId: string; // the booking or quote request id; Meta dedupes on event name + id
+  events: ("Schedule" | "Lead" | "PageView" | "InitiateCheckout")[];
+  eventId: string; // the booking or quote request id (or visit + step); Meta dedupes on event name + id
   email?: string | null;
-  phone: string; // E.164
+  phone?: string | null; // E.164; none for browsing steps
   pageUrl: string;
   attribution: Record<string, string>;
   ip?: string | null;
@@ -23,7 +26,8 @@ export async function sendConversionEvents(input: {
   const pixelId = process.env.META_PIXEL_ID;
   if (!pixelId || !process.env.META_SYSTEM_USER_TOKEN) return { skipped: true as const };
 
-  const userData: Record<string, unknown> = { ph: [sha256(input.phone.replace(/\D/g, ""))] };
+  const userData: Record<string, unknown> = {};
+  if (input.phone) userData.ph = [sha256(input.phone.replace(/\D/g, ""))];
   if (input.email) userData.em = [sha256(input.email.trim().toLowerCase())];
   if (input.attribution._fbp) userData.fbp = input.attribution._fbp;
   // Prefer the cookie; otherwise build fbc from the click id per Meta's format, with when the ad was
