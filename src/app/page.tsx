@@ -1,9 +1,9 @@
 import { DEMO_MAILTO, SiteFooter, SiteHeader, SiteShell } from "@/components/site/SiteChrome";
 import { Board } from "@/components/site/Board";
+import { Examples } from "@/components/site/Examples";
 import { Diagnose } from "@/components/site/Diagnose";
 import { SignalChain } from "@/components/site/SignalChain";
 import { SlipFile } from "@/components/site/SlipFile";
-import { HookSwap } from "@/components/site/HookSwap";
 import { PhoneStory } from "@/components/site/PhoneStory";
 import { Limits } from "@/components/site/Limits";
 
@@ -78,7 +78,7 @@ export default function Home() {
           <h2 className="sb-h2" id="creatives" data-reveal>
             creative is one lever. it makes the video too.
           </h2>
-          <HookSwap />
+          <Examples />
         </section>
 
         <section className="sb-sec" id="how" aria-labelledby="how-h">
@@ -86,6 +86,9 @@ export default function Home() {
             from ad to your morning slack.
           </h2>
           <PhoneStory />
+          <p className="sb-note" style={{ marginTop: 16 }}>
+            the first three screens are a live booking page. the slack notification is a sample.
+          </p>
         </section>
 
         <section className="sb-sec" id="limits" aria-labelledby="limits-h">
