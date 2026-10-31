@@ -5,7 +5,7 @@ import type { Agent } from "@/lib/booking/data";
 import { createAd, createAdCreative, setDailyBudget, setOptimizationEvent, setPlacements, setStatus, videoState } from "@/lib/meta/ads";
 import { MetaApiError } from "@/lib/meta/graph";
 import { isTestMode } from "@/lib/migz/test-mode";
-import { enqueueGeneration, enqueueLaunch } from "@/lib/migz/creative-jobs";
+import { checkCreativeEnhancements, enqueueGeneration, enqueueLaunch } from "@/lib/migz/creative-jobs";
 import { metaStep } from "@/lib/migz/events";
 import type { ActionPayload } from "@/lib/migz/tools";
 import { planTopic } from "@/lib/campaign";
@@ -206,6 +206,7 @@ async function launchCopyVariants(agent: Agent, payload: Extract<ActionPayload, 
       leadFormId,
       media,
     });
+    await checkCreativeEnhancements(agent, metaCreativeId, name);
     const held = isTestMode();
     const adId = await createAd(account, { name, adsetId: payload.adset_id, creativeId: metaCreativeId, status: held ? "PAUSED" : "ACTIVE" });
     await supabaseAdmin.from("ads").insert({
