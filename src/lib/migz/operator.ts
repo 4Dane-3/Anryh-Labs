@@ -127,6 +127,7 @@ export async function runOperator(
         mode,
         producing,
         fillAdsets: env.ctx.fillAdsets,
+        wave: env.ctx.wave ?? null,
         today: new Date().toLocaleDateString("en-US", { timeZone: agent.timezone, weekday: "short", month: "short", day: "numeric", year: "numeric" }),
         snapshotJson: JSON.stringify(snapshot.forModel, null, 1),
         contextJson: JSON.stringify(opts.teamContext, null, 1),
@@ -256,12 +257,17 @@ export async function runOperator(
       if (GENERATION_TOOLS.includes(evaluated.payload.tool)) {
         env.ctx.generationsThisRun++;
         env.ctx.openGenerations++;
+        const into = "launch_adset_id" in evaluated.payload ? evaluated.payload.launch_adset_id : null;
+        if (env.ctx.wave && into) env.ctx.wave.launched[into] = (env.ctx.wave.launched[into] ?? 0) + 1;
         if (evaluated.payload.tool === "generate_video" || evaluated.payload.tool === "new_hook_variant") env.ctx.videosThisRun = (env.ctx.videosThisRun ?? 0) + 1;
       }
       const base = { kind: evaluated.kind, title: evaluated.title, detail: evaluated.detail, tool: evaluated.payload.tool, payload: evaluated.payload, run_id: runId };
       const creative = GENERATION_TOOLS.includes(evaluated.payload.tool);
 
-      if (mode === "approve" && evaluated.payload.tool !== "hold") {
+      // A paid video in a creative wave is always asked about first, whatever the mode: it costs the agent money
+      const paidWaveVideo = !!env.ctx.wave?.videoCents && (evaluated.payload.tool === "generate_video" || evaluated.payload.tool === "new_hook_variant");
+      if (paidWaveVideo) base.detail = `${base.detail} This video costs $${(env.ctx.wave!.videoCents / 100).toFixed(2)} from your ad balance (an extra video, 20% off), so Migz asks first.`.trim();
+      if ((mode === "approve" || paidWaveVideo) && evaluated.payload.tool !== "hold") {
         await logAction(agent.id, { ...base, status: "proposed" });
         await emit({ agentId: agent.id, runId, step: creative ? "drafting" : "acting", tier: creative ? "higgsfield" : "code", summary: `Proposed: ${evaluated.title}`, evidence: { tool: evaluated.payload.tool, reason: evaluated.detail } });
         reply(use.id, { content: "Proposed. The agent will approve or reject it." });

@@ -9,7 +9,7 @@ import { ArrowRight, Loader2, RefreshCw } from "lucide-react";
 import type { MigzUpdate } from "@/lib/dashboard/status";
 import type { MigzAction } from "@/lib/dashboard/queries";
 import { runMigzNow } from "@/app/dashboard/actions";
-import { Proposal } from "@/components/dashboard/Proposals";
+import { ProposalList } from "@/components/dashboard/Proposals";
 import { MigzStatus } from "@/components/dashboard/Migz";
 import { Badge, Button, EmptyState } from "@/components/dashboard/ui";
 
@@ -132,11 +132,7 @@ export function MigzPanel({
             Waiting for your OK · {proposals.length}
           </p>
           <ul className="space-y-2">
-            <AnimatePresence initial={false}>
-              {proposals.map((p) => (
-                <Proposal key={p.id} action={p} />
-              ))}
-            </AnimatePresence>
+            <ProposalList proposals={proposals} />
           </ul>
         </div>
       )}

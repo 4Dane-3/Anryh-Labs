@@ -96,7 +96,7 @@ export const MIGZ_TOOLS: Anthropic.Beta.BetaTool[] = [
     adset_id: { type: "string" },
     daily_budget_usd: { type: "number", description: "New daily budget in dollars." },
   }),
-  tool("pause_ad", "Pause an underperforming ad. Needs enough data (1,000+ impressions or $15+ spend) and another live ad in the same ad set.", {
+  tool("pause_ad", "Pause a clear loser: an ad that spent 2.5 times its ad set's target cost per result (target_cost_per_result) with no booked call or lead in 14 days. Only after the first 7 days and not in the week after a creative wave (creative_cycle says when), though a clear loser may be paused on any day, even then; never the last live ad in an ad set. Weak click-through alone isn't a reason.", {
     ad_id: { type: "string" },
   }),
   tool("resume_ad", "Turn a paused ad back on.", {
@@ -333,7 +333,10 @@ export function evaluate(name: string, raw: unknown, ctx: EvalContext): Evaluate
   const out = evaluateTool(name, raw, ctx);
   if (!out.ok || !isGeneration(out.payload)) return out;
   const err = checkFillTarget(ctx, out.payload.launch_adset_id) ?? checkWords(ctx, out.payload);
-  return err ? { ok: false, error: err } : out;
+  if (err) return { ok: false, error: err };
+  // Wave creatives carry their wave's day: videos in a wave are charged as extras and asked about first
+  if (ctx.wave) return { ...out, payload: { ...out.payload, brief: { ...out.payload.brief, wave: ctx.wave.day } } as ActionPayload };
+  return out;
 }
 
 /** The words a creative puts on screen, and all of its words, for the age-wording and claims checks. */
@@ -540,6 +543,8 @@ function evaluateTool(name: string, raw: unknown, ctx: EvalContext): Evaluated {
       const sourceId = str(input.source_ad_id, 40);
       const sourceAdset = ctx.reusableAds?.get(sourceId);
       if (!sourceAdset) return fail("That ad's creative can't be reused (no uploaded Meta media); pick a live ad Migz launched.");
+      // New ads go out together in a wave, never one at a time: in a cycling campaign copy variants wait for it
+      if (ctx.cycle?.cycling && !ctx.wave) return fail(`Copy variants are new ads, so they go out with the next creative wave (${ctx.noCreativesWhy ?? "see creative_cycle"}). Note the idea in your summary for it.`);
       const adsetId = variantTarget(ctx, sourceAdset);
       const variants = (Array.isArray(input.variants) ? input.variants : [])
         .map((v: { primary_text?: unknown; headline?: unknown }) => ({ primary_text: str(v?.primary_text, 500), headline: str(v?.headline, 60) }))

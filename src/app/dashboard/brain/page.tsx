@@ -46,7 +46,7 @@ export default async function BrainPage({ searchParams }: { searchParams: Promis
             description={`What Migz AI planned when this campaign started on ${batch.starts_on}: ${plan.first ? "it started from typical numbers" : "what it learned from your last campaigns and what it's doing differently"}.`}
           />
           <div className="px-5 py-5">
-            <MigzPlan plan={plan} />
+            <MigzPlan plan={plan} renews={batch.renew} />
           </div>
         </Panel>
       )}

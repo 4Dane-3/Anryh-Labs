@@ -10,6 +10,7 @@ import { usd } from "@/lib/dashboard/format";
 import { cn } from "@/lib/utils";
 import { TOPIC_KEYS, TOPICS, MAX_FOCUS, type TopicKey } from "@/lib/migz/topics";
 import { VIDEO_TIERS, type IntentLevel, type VideoTier } from "@/lib/ad-options";
+import { cycleSteps, runsTheCycle, WAVE_MAX, WAVE_MIN } from "@/lib/migz/cycle";
 import {
   AGE_PRESETS,
   CALL_TIMES,
@@ -25,6 +26,8 @@ import {
   campaignMoney,
   expectedResults,
   lengthReason,
+  videoPriceFor,
+  INCLUDED_VIDEOS,
   type CallTime,
   type CampaignAnswers,
   type ContactWay,
@@ -387,7 +390,12 @@ export function CampaignFlow({
                     .map((s) => `${s.mix.total} ${s.destination === "instant_form" ? "instant-form" : ""} ads: ${s.mix.videos} videos and ${s.mix.images} images`.replace("  ", " "))
                     .join(" · ")}
                 </p>
-                <p className="mt-1 text-[12px] text-fg-faint">Each on a different angle (price, no exam, family, burial costs, age, testimonial style). Nothing new is added partway through, so Meta can learn.</p>
+                <p className="mt-1 text-[12px] text-fg-faint">
+                  Each on a different angle (price, no exam, family, burial costs, age, testimonial style).{" "}
+                  {runsTheCycle(money.days, renew)
+                    ? `Meta learns for the first week; then, from day 8 and every two weeks after, Migz adds ${WAVE_MIN}–${WAVE_MAX} new ones together, built from what's winning.`
+                    : `At ${money.days} days the campaign is too short to read new ads, so these are the ads it runs.`}
+                </p>
               </div>
             </div>
           )}
@@ -529,13 +537,14 @@ function PlanScreen({
   const p = preview.plan;
   return (
     <div className="space-y-4">
-      <MigzPlan plan={p} />
+      <MigzPlan plan={p} renews={renew} />
 
       {money.videoCents > 0 && (
         <div className="rounded-xl border border-brand/30 bg-brand/[0.05] px-4 py-3 text-[13px]">
           <p className="font-semibold text-fg">You&apos;ll be charged {whole(money.videoCents)} for {VIDEO_TIERS[tier].title} videos</p>
           <p className="mt-1 text-fg-muted">
             {money.sets.map((s) => `${s.mix.videos} videos`).join(" + ")} at the start of the campaign, from your ad funds, shown in your funds history. Refunded if one can&apos;t be made or Meta rejects its ad.
+            {runsTheCycle(money.days, renew) && ` A video in a later wave of new ads costs ${whole(videoPriceFor(tier, INCLUDED_VIDEOS))} (20% off), and Migz asks you before making one.`}
           </p>
         </div>
       )}
@@ -560,7 +569,9 @@ function PlanScreen({
 }
 
 /** Migz AI's plan for a campaign: what it learned (with the evidence), what it changes, budget and range. */
-export function MigzPlan({ plan }: { plan: NonNullable<Extract<CampaignPreview, { ok: true }>["plan"]> }) {
+export function MigzPlan({ plan, renews = false }: { plan: NonNullable<Extract<CampaignPreview, { ok: true }>["plan"]>; renews?: boolean }) {
+  // Plans saved before the creative cycle say nothing is added partway through; the cycle below replaces that
+  const changes = plan.changes.filter((c) => !/nothing new is added partway/i.test(c));
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-brand/30 bg-brand/[0.05] px-4 py-3">
@@ -588,13 +599,25 @@ export function MigzPlan({ plan }: { plan: NonNullable<Extract<CampaignPreview, 
       <div>
         <p className="mb-2 text-[13px] font-medium text-fg-muted">{plan.first ? "How Migz starts" : "What it does differently this time"}</p>
         <ul className="space-y-1.5">
-          {plan.changes.map((c, i) => (
+          {changes.map((c, i) => (
             <li key={i} className="flex gap-2 text-[13px] leading-snug text-fg">
               <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-brand" />
               {c}
             </li>
           ))}
         </ul>
+      </div>
+
+      <div>
+        <p className="mb-2 text-[13px] font-medium text-fg-muted">How the ads change over the campaign</p>
+        <ol className="divide-y divide-line rounded-xl border border-line">
+          {cycleSteps(plan.budget.days, renews).map((step) => (
+            <li key={step.when} className="flex flex-col gap-0.5 px-4 py-2.5 sm:flex-row sm:gap-4">
+              <span className="shrink-0 text-[12px] font-medium tabular-nums text-fg sm:w-28">{step.when}</span>
+              <span className="text-[13px] leading-snug text-fg-muted">{step.what}</span>
+            </li>
+          ))}
+        </ol>
       </div>
 
       <Expected lines={plan.expected.lines} notes={plan.expected.notes} own={plan.expected.lines.some((l) => l.source === "yours")} />

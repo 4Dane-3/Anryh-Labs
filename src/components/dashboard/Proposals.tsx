@@ -102,6 +102,94 @@ export function Proposal({ action }: { action: MigzAction }) {
   );
 }
 
+/** A wave's proposals (their briefs carry the wave's day) go together; everything else stays one by one. */
+export function groupProposals(proposals: MigzAction[]) {
+  const waves = new Map<number, MigzAction[]>();
+  const singles: MigzAction[] = [];
+  for (const p of proposals) {
+    const day = (p.payload as { brief?: { wave?: unknown } } | undefined)?.brief?.wave;
+    if (typeof day === "number") waves.set(day, [...(waves.get(day) ?? []), p]);
+    else singles.push(p);
+  }
+  return { waves: [...waves].map(([day, actions]) => ({ day, actions })), singles };
+}
+
+/** One wave of new ads as a single proposal: approved or declined together, with any one ad left out. */
+export function WaveProposal({ day, actions }: { day: number; actions: MigzAction[] }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [errors, setErrors] = useState<string[]>([]);
+  const decideAll = (decision: "approve" | "reject", ids = actions.map((a) => a.id)) =>
+    startTransition(async () => {
+      setErrors([]);
+      const failed: string[] = [];
+      // One at a time: each approval re-checks against the account as the previous one left it
+      for (const id of ids) {
+        const res = await decideMigzAction(id, decision);
+        if (!res.ok) failed.push(`${actions.find((a) => a.id === id)?.title ?? "An ad"}: ${res.error}`);
+      }
+      setErrors(failed);
+      router.refresh();
+    });
+  return (
+    <motion.li layout initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, height: 0, marginTop: 0 }} className="rounded-lg border border-brand/25 bg-brand/[0.05] px-4 py-3">
+      <div className="flex items-baseline justify-between gap-3">
+        <p className="text-[13px] font-medium text-fg">
+          {actions.length} new ad{actions.length === 1 ? "" : "s"} for day {day}
+        </p>
+        <span className="shrink-0 text-[11px] text-fg-faint">Wave</span>
+      </div>
+      <p className="mt-0.5 text-[13px] leading-relaxed text-fg-muted">
+        Every two weeks Migz adds a few new ads together, built from what&apos;s winning, so Meta reads them side by side. Approve them as one, or leave any out.
+      </p>
+      <ul className="mt-2 space-y-2">
+        {actions.map((a) => (
+          <li key={a.id} className="rounded-md border border-line px-3 py-2">
+            <div className="flex items-baseline justify-between gap-3">
+              <p className="text-[13px] text-fg">{a.title}</p>
+              <button type="button" onClick={() => decideAll("reject", [a.id])} disabled={pending} className="shrink-0 text-[12px] text-fg-faint underline-offset-2 hover:text-fg hover:underline disabled:opacity-60">
+                Leave out
+              </button>
+            </div>
+            {a.detail && <p className="mt-0.5 text-[12px] leading-relaxed text-fg-muted">{a.detail}</p>}
+            {a.payload !== undefined && <ProposalPreview payload={a.payload} />}
+          </li>
+        ))}
+      </ul>
+      {errors.length > 0 && (
+        <div className="mt-2 text-[12px] text-bad">
+          {errors.map((e) => (
+            <p key={e}>{e}</p>
+          ))}
+        </div>
+      )}
+      <div className="mt-3 flex gap-2">
+        <Button size="sm" variant="primary" onClick={() => decideAll("approve")} disabled={pending}>
+          {pending ? <Loader2 className="animate-spin" /> : <CheckCheck />} Approve {actions.length === 1 ? "it" : `all ${actions.length}`}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => decideAll("reject")} disabled={pending}>
+          <X /> Decline the wave
+        </Button>
+      </div>
+    </motion.li>
+  );
+}
+
+/** Proposals as the agent sees them: each wave as one group, then the rest one by one. */
+export function ProposalList({ proposals }: { proposals: MigzAction[] }) {
+  const { waves, singles } = groupProposals(proposals);
+  return (
+    <AnimatePresence initial={false}>
+      {waves.map((w) => (
+        <WaveProposal key={`wave-${w.day}`} day={w.day} actions={w.actions} />
+      ))}
+      {singles.map((p) => (
+        <Proposal key={p.id} action={p} />
+      ))}
+    </AnimatePresence>
+  );
+}
+
 /** The Brain's approvals panel (Ask me first mode): everything waiting, with Approve all. */
 export function ApprovalsPanel({ proposals }: { proposals: MigzAction[] }) {
   const router = useRouter();
@@ -136,11 +224,7 @@ export function ApprovalsPanel({ proposals }: { proposals: MigzAction[] }) {
       />
       {proposals.length ? (
         <ul className="space-y-2 px-5 py-4">
-          <AnimatePresence initial={false}>
-            {proposals.map((p) => (
-              <Proposal key={p.id} action={p} />
-            ))}
-          </AnimatePresence>
+          <ProposalList proposals={proposals} />
         </ul>
       ) : (
         <EmptyState title="Nothing waiting">When Migz proposes a new ad or a change, it shows up here.</EmptyState>

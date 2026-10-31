@@ -34,9 +34,11 @@ export type Batch = {
   renew: boolean;
   /** Why the last attempt to renew didn't happen (balance too low, ads paused...). */
   renew_blocked: string | null;
+  /** The batch this one continues (Keep going), so the creative cycle counts on from the first one. */
+  renewed_from: string | null;
 };
 
-export const BATCH_COLS = "id, status, budget_cents, option, campaigns, days, daily_cents, recommended_option, reason, starts_on, ends_on, applied_at, result, created_at, started_at, ended_at, collect_days, renew, renew_blocked";
+export const BATCH_COLS = "id, status, budget_cents, option, campaigns, days, daily_cents, recommended_option, reason, starts_on, ends_on, applied_at, result, created_at, started_at, ended_at, collect_days, renew, renew_blocked, renewed_from";
 const COLS = BATCH_COLS;
 
 /** What Migz planned for a batch when it started (campaign_batches.plan). Null before its migration. */

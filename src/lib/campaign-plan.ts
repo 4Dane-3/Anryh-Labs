@@ -134,8 +134,9 @@ export const EXTRA_STANDARD_VIDEO_CENTS = 0;
 export type CreativeMix = { total: number; videos: number; images: number; extraVideos: number };
 
 /**
- * What one ad set launches with, all at the start of the campaign (nothing is added partway: new ads
- * restart Meta's learning). About 8 under $75/day, 10–12 around $100/day, 15 from $200/day.
+ * What one ad set launches with, all at the start of the campaign, so Meta's first week learns from the whole mix
+ * (after that, new creatives come in the two-weekly wave, cycle.ts). About 8 under $75/day, 10–12 around $100/day,
+ * 15 from $200/day.
  */
 export function creativeMix(adsetDailyCents: number): CreativeMix {
   const total = adsetDailyCents < 7500 ? 8 : adsetDailyCents < 12_500 ? 10 : adsetDailyCents < 20_000 ? 12 : 15;

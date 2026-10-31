@@ -9,6 +9,7 @@ export type CreativeBrief = {
   format?: "video"; // briefs stored before image ads existed have no format: they're videos
   concept: string; // one line: the angle, e.g. "Mortgage protection for new homeowners"
   topic?: string; // which advertising topic it serves (topics.ts), when Migz made it
+  wave?: number; // the run day of the creative wave it was made for (set by the system); none at setup
   style: string; // visual direction applied to every shot
   hook_line: string; // the opening idea in words (also leads the primary text)
   hook_shot: string; // prompt for the opening shot (HOOK_SECONDS; 1.5s on videos made since fast cuts, 3s before)
@@ -28,6 +29,7 @@ export type ImageBrief = {
   format: "image";
   concept: string;
   topic?: string;
+  wave?: number;
   scene: string; // who is in the photo, where, doing what, and the light
   style: string; // photographic look
   overlay_lines: string[]; // 1-3 short lines rendered on the image, e.g. "Protect their peace."
@@ -47,6 +49,7 @@ export type CarouselBrief = {
   format: "carousel";
   concept: string;
   topic?: string;
+  wave?: number;
   style: string; // one photographic look across both cards
   cards: CarouselCard[]; // exactly CAROUSEL_CARDS, in swipe order
   primary_text: string;
