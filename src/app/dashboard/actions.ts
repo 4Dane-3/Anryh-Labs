@@ -5,6 +5,7 @@ import { after } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { isAnryhAdmin, requireAgent } from "@/lib/auth";
 import { usPhone } from "@/lib/booking/call";
+import { cleanCarriers } from "@/lib/carriers";
 import { integrations, migzReadyFor } from "@/lib/integrations";
 import { batchPacing, buildEvalContext, pauseAdSetsNow, retargetNow, runMigz, syncLeadStyle } from "@/lib/migz/agent";
 import { applyPayload } from "@/lib/migz/executor";
@@ -272,6 +273,7 @@ export async function updateProfile(input: {
   bio: string;
   license_number: string;
   licensed_states: string[];
+  partner_carriers?: string[];
 }): Promise<Result> {
   const agent = await requireAgent();
   const full_name = clean(input.full_name, 80);
@@ -289,6 +291,8 @@ export async function updateProfile(input: {
       bio: clean(input.bio, 1200) || null,
       license_number: clean(input.license_number, 40) || null,
       licensed_states: states,
+      // Only once its migration has run (the column is missing from the row until then)
+      ...(input.partner_carriers !== undefined && agent.partner_carriers !== undefined ? { partner_carriers: cleanCarriers(input.partner_carriers) } : {}),
     })
     .eq("id", agent.id);
   if (error) return fail("Couldn't save your page.");

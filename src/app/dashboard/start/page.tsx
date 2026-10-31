@@ -28,6 +28,7 @@ export default async function StartPage() {
           license_number: agent.license_number ?? "",
           licensed_states: agent.licensed_states,
           photo_url: agent.photo_url,
+          partner_carriers: agent.partner_carriers ?? [],
         }}
         slug={agent.slug}
         balanceCents={state.balanceCents}
