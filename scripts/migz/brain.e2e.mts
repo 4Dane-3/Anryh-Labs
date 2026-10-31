@@ -100,6 +100,8 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     if (path === "page_1/subscribed_apps") return json({ success: true });
     if (path === "lead_1") return json({ id: "lead_1", created_time: new Date().toISOString(), ad_id: "ad_form_1", form_id: "form_1", field_data: [{ name: "full_name", values: ["Form Lead"] }, { name: "phone_number", values: ["(555) 555-0199"] }, { name: "email", values: ["form-lead@example.com"] }, { name: "coverage", values: ["final_expense"] }] });
     if (path === "form_1/leads") return json({ data: [] });
+    // Reading a new creative back: every Advantage+ enhancement off
+    if (/^cr_\d+$/.test(path) && method === "GET") return json({ id: path, degrees_of_freedom_spec: { creative_features_spec: { image_touchups: { enroll_status: "OPT_OUT" }, text_optimizations: { enroll_status: "OPT_OUT" } } } });
     throw new Error(`Unexpected Meta call: ${method} ${path}`);
   }
 
@@ -279,7 +281,7 @@ try {
       const team = teamOf(p);
       assert.ok(team.strategy_memo, "weekly memo reaches the lead");
       assert.deepEqual(snap.ad_focus.map((f: { topic: string; priority: string }) => [f.topic, f.priority]), [["final_expense", "main focus"], ["mortgage_protection", "focus 2"]]);
-      assert.match(snap.ad_focus[0].angle_notes, /Never call out age/);
+      assert.match(snap.ad_focus[0].angle_notes, /never tell the viewer their age/);
       assert.ok(p.tools!.find((t) => t.name === "generate_image"), "generation tools offered");
       assert.ok(Array.isArray(team.open_audit_findings));
       return { content: [text("Launching creative."), toolUse("generate_video", video)] };
@@ -390,7 +392,7 @@ try {
     { ad_id: videoAd.meta_ad_id, adset_id: "adset_1", campaign_id: "cmp_1", date_start: today, spend: "25.00", impressions: "2600", clicks: "52", reach: "1300", frequency: "2.0", inline_link_clicks: "40",
       actions: [{ action_type: "video_view", value: "780" }, { action_type: "landing_page_view", value: "30" }, { action_type: "offsite_conversion.fb_pixel_schedule", value: "1" }],
       video_play_actions: vids(1100), video_thruplay_watched_actions: vids(234), video_p25_watched_actions: vids(500), video_p50_watched_actions: vids(380), video_p75_watched_actions: vids(290), video_p100_watched_actions: vids(200), video_avg_time_watched_actions: vids(6.4) },
-    { ad_id: imageAd.meta_ad_id, adset_id: "adset_1", campaign_id: "cmp_1", date_start: today, spend: "22.00", impressions: "2300", clicks: "7", reach: "1150", frequency: "2.0", inline_link_clicks: "6" },
+    { ad_id: imageAd.meta_ad_id, adset_id: "adset_1", campaign_id: "cmp_1", date_start: today, spend: "240.00", impressions: "2300", clicks: "7", reach: "1150", frequency: "2.0", inline_link_clicks: "6" },
   ];
   meta.placements = [
     { ad_id: videoAd.meta_ad_id, date_start: today, publisher_platform: "instagram", platform_position: "instagram_reels", spend: "15.00", impressions: "1600", inline_link_clicks: "30", actions: [{ action_type: "video_view", value: "560" }] },
@@ -431,7 +433,7 @@ try {
       assert.equal(d.traits.angle, "peace of mind");
       assert.ok(d.diagnosis.rung);
       return { advisor: true, content: [...advisorBlocks(),
-        toolUse("pause_ad", { ad_id: imageAd.meta_ad_id, title: "Paused the image ad", reason: "Link CTR 0.26% vs the video's 1.54%." }),
+        toolUse("pause_ad", { ad_id: imageAd.meta_ad_id, title: "Paused the image ad", reason: "$240 spent and no booked call, past 2.5× the $90 target; link CTR 0.26% vs the video's 1.54%." }),
         toolUse("write_copy_variants", { source_ad_id: videoAd.meta_ad_id, variants: [{ primary_text: "Your work policy ends when your job does. Keep your family covered.", headline: "Coverage that stays" }], title: "Testing new copy on the video", reason: "Hook and hold are strong; test the offer." }),
         toolUse("write_copy_variants", { source_ad_id: videoAd.meta_ad_id, variants: [{ primary_text: "A dad packing lunches asks what happens to this routine if he is gone", headline: "x" }], title: "Lifted copy", reason: "test" }),
       ] };
@@ -493,8 +495,8 @@ try {
       return { content: [toolUse("generate_image", story([])), toolUse("generate_image", story(["What if the paycheck stopped?"]))] };
     }
     const r = lastToolResults(p);
-    assert.ok(r[0].is_error && /Every image carries its message|only made when a batch is set up/.test(r[0].content), r[0].content);
-    assert.ok(r[1].is_error && /only made when a batch is set up/.test(r[1].content), r[1].content);
+    assert.ok(r[0].is_error && /Every image carries its message|only made when a campaign is set up/.test(r[0].content), r[0].content);
+    assert.ok(r[1].is_error && /only made when a campaign is set up/.test(r[1].content), r[1].content);
     return { content: [text("Income protection has no live ads yet; noted for the next batch.")] };
   };
   res = await run("schedule");

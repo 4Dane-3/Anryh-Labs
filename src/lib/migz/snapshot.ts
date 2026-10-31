@@ -19,7 +19,7 @@ import type { QuoteMode } from "@/lib/booking/constants";
 import type { EventRow } from "@/lib/admin/page-analytics";
 import { emptyPlatformStats, platformOf, PLATFORMS, strongerPlatform, type PlatformStats } from "@/lib/migz/platforms";
 import { DEFAULT_INTENT, DEFAULT_VIDEO_TIER, isIntentLevel, isVideoTier, MIN_SPLIT_DAILY_CENTS, VIDEO_TIERS, type IntentLevel, type VideoTier } from "@/lib/ad-options";
-import { ageCallout, CALL_TIMES, cleanAnswers, CONTACT, LANGUAGES, UNDERWRITING } from "@/lib/campaign-plan";
+import { ageCallout, CALL_TIMES, cleanAnswers, CONTACT, expectedResults, LANGUAGES, UNDERWRITING } from "@/lib/campaign-plan";
 import { outcomesByAd, OUTCOME_WINDOW_DAYS } from "@/lib/dashboard/outcomes";
 import { MIN_OUTCOMES, outcomeStats, rankingCost, showUpLine } from "@/lib/outcomes";
 
@@ -92,6 +92,20 @@ export async function buildSnapshot(agent: Agent) {
     .eq("agent_id", agent.id)
     .eq("source", "instant_form")
     .gte("created_at", DateTime.fromISO(since14, { zone: agent.timezone }).toUTC().toISO()!);
+  // Quote requests from the booking page per ad: every ad's link carries its ad id (utm_content), which the
+  // page keeps with the request, like a booking
+  const { data: quoteRows } = await supabaseAdmin
+    .from("quote_requests")
+    .select("attribution, booked_at")
+    .eq("agent_id", agent.id)
+    .eq("source", "page")
+    .gte("created_at", DateTime.fromISO(since14, { zone: agent.timezone }).toUTC().toISO()!);
+  const quotesByAd = new Map<string, number>();
+  for (const q of quoteRows ?? []) {
+    const adId = (q.attribution as Record<string, string> | null)?.utm_content;
+    // One that went on to book is counted with the booking
+    if (adId && !q.booked_at) quotesByAd.set(adId, (quotesByAd.get(adId) ?? 0) + 1);
+  }
   const formLeadsByAd = new Map<string, { leads: number; booked: number }>();
   for (const r of formLeadRows ?? []) {
     if (!r.meta_ad_id) continue;
@@ -232,8 +246,31 @@ export async function buildSnapshot(agent: Agent) {
         impressions: perAd.get(a.meta_ad_id)?.d14.impressions ?? 0,
         spend_cents: perAd.get(a.meta_ad_id)?.d14.spend_cents ?? 0,
         thruplays: perAd.get(a.meta_ad_id)?.d14.thruplays ?? 0,
+        results: (perAd.get(a.meta_ad_id)?.d14.booked_calls ?? 0) + (formLeadsByAd.get(a.meta_ad_id)?.leads ?? 0) + (quotesByAd.get(a.meta_ad_id) ?? 0),
       })),
   }));
+
+  // Each ad set's target cost per result, for the clear-loser rule: the account's own recent cost (14 days, once
+  // there are a few results), else what the agent's plan expects for their answers
+  const MIN_OWN_RESULTS = 3;
+  const expected = expectedResults({
+    answers: cleanAnswers(agent.campaign_answers),
+    states: agent.licensed_states ?? [],
+    intent: isIntentLevel(agent.intent_level) ? agent.intent_level : DEFAULT_INTENT,
+    dailyCents: agent.daily_budget_cents,
+  });
+  const targetCostCents: Record<string, number> = {};
+  const targetSource: Record<string, "yours" | "plan"> = {};
+  for (const dest of ["website", "instant_form"] as const) {
+    const sets = guardAdsets.filter((s) => s.destination === dest);
+    const spend = sets.reduce((t, s) => t + s.ads.reduce((u, a) => u + a.spend_cents, 0), 0);
+    const results = sets.reduce((t, s) => t + s.ads.reduce((u, a) => u + (a.results ?? 0), 0), 0);
+    const planned = (expected.lines.find((l) => l.destination === dest) ?? expected.lines[0]).cost.mid;
+    for (const s of sets) {
+      targetCostCents[s.meta_adset_id] = results >= MIN_OWN_RESULTS ? Math.round(spend / results) : planned;
+      targetSource[s.meta_adset_id] = results >= MIN_OWN_RESULTS ? "yours" : "plan";
+    }
+  }
 
   const totals = emptyTotals();
   for (const { d14 } of perAd.values()) {
@@ -476,6 +513,9 @@ export async function buildSnapshot(agent: Agent) {
             : "the agent's booking page to book a call",
           optimizes_for: s.destination === "instant_form" ? "LEAD (instant-form leads)" : s.optimization_event === "LEAD" ? "LEAD (quote requests and booked calls)" : "SCHEDULE (booked calls only)",
           live_ads_its_budget_can_read: adsForBudget(s.daily_budget_cents),
+          target_cost_per_result: targetCostCents[s.meta_adset_id]
+            ? `$${(targetCostCents[s.meta_adset_id] / 100).toFixed(2)} per ${s.destination === "instant_form" ? "form lead" : "booked call"} (${targetSource[s.meta_adset_id] === "yours" ? "this account's last 14 days" : "the plan's expected cost"}); a clear loser has spent 2.5× this with no result`
+            : "unknown",
           last_changed: DateTime.fromISO(s.last_edited_at).toRelative({ base: DateTime.now() }),
           placements: s.placements.length ? s.placements : "automatic (Facebook and Instagram only)",
           ad_set_average_last_14_days: adsetAverage(s.id),
@@ -517,6 +557,7 @@ export async function buildSnapshot(agent: Agent) {
                       return { form_leads_last_14_days: { leads: f.leads, later_booked_a_call: f.booked, cost_per_lead: f.leads ? `$${(spend / f.leads / 100).toFixed(2)}` : "n/a" } };
                     })()
                   : {}),
+                ...(quotesByAd.get(a.meta_ad_id) ? { quote_requests_last_14_days: quotesByAd.get(a.meta_ad_id) } : {}),
                 ...(adOutcomes.get(a.meta_ad_id)?.some(Boolean)
                   ? (() => {
                       const o = adOutcomes.get(a.meta_ad_id)!;
@@ -569,6 +610,7 @@ export async function buildSnapshot(agent: Agent) {
     adMetrics,
     adOutcomes,
     guardAdsets,
+    targetCostCents,
     openGenerations: (jobs.data ?? []).filter((j) => j.stage === "generating").length,
     hasCampaign: (campaigns.data ?? []).length > 0,
     creditsRecentlyRefused: outOfCredits > 0,

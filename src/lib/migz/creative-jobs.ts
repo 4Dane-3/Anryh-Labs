@@ -233,9 +233,12 @@ async function chargeForVideo(agentId: string, jobId: string, brief: CreativeBri
     paid,
     launchAdsetId ? supabaseAdmin.from("ad_sets").select("daily_budget_cents").eq("meta_adset_id", launchAdsetId).maybeSingle() : Promise.resolve({ data: null }),
   ]);
-  const nth = count ?? 0;
+  // A video in a two-weekly creative wave is past the setup's mix: always an extra (20% off), and the agent
+  // approved its price before it was made
+  const wave = typeof brief.wave === "number";
+  const nth = wave ? Math.max(count ?? 0, INCLUDED_VIDEOS) : count ?? 0;
   const cap = set ? creativeMix(set.daily_budget_cents).videos : INCLUDED_VIDEOS;
-  if (nth >= cap)
+  if (!wave && nth >= cap)
     return fallback(`This ad set already has its ${cap} Seedance videos for this campaign, the most its budget calls for.`);
   const price = videoPriceFor(tier, nth);
   const free = await getBalanceCents(agentId);
@@ -247,7 +250,7 @@ async function chargeForVideo(agentId: string, jobId: string, brief: CreativeBri
     kind: "adjustment",
     amount_cents: -price,
     status: "completed",
-    description: `${VIDEO_TIERS[tier].title} video for your ads${nth >= INCLUDED_VIDEOS ? " (extra, 20% off)" : ""}: ${briefLabel(brief)}`.slice(0, 200),
+    description: `${VIDEO_TIERS[tier].title} video for your ads${wave ? " (new-ads wave, extra, 20% off)" : nth >= INCLUDED_VIDEOS ? " (extra, 20% off)" : ""}: ${briefLabel(brief)}`.slice(0, 200),
     external_id: `video:${jobId}`,
   });
   if (charged && charged.code !== "23505") throw new Error(`Couldn't charge for the video: ${charged.message}`);

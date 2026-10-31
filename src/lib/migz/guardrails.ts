@@ -1,6 +1,7 @@
 import { checkPlatformFocus, type PlatformStats } from "@/lib/migz/platforms";
 import { adsForBudget, SCHEDULE_FROM_CALLS_PER_WEEK } from "@/lib/migz/playbook";
 import { QUOTE_MODES, type QuoteMode } from "@/lib/booking/constants";
+import { isCostlyLoser, LIVE_ADS_HIGH, loserCheck, pauseWindow, WAVE_MAX, waveRoom } from "@/lib/migz/cycle";
 
 // Hard limits on what Migz may do, enforced in code on every action (the model is told about them,
 // but never trusted to follow them). Pure functions so they can be unit-tested.
@@ -27,6 +28,8 @@ export type AdState = {
   spend_cents: number; // last 14 days
   thruplays?: number; // last 14 days
   creative_id?: string | null;
+  /** Booked calls (and instant-form leads) it brought in the last 14 days. */
+  results?: number;
 };
 
 export type AdSetState = {
@@ -66,6 +69,20 @@ export type GuardContext = {
   maxGenerations?: number;
   /** Start of the revision phase (campaign start + 7 days). Before it, no pauses, budget or placement edits. */
   revisionsFrom?: Date | null;
+  /** Day of the run (1 = the day it started, counting on through renewals), and whether it runs the creative cycle. */
+  cycle?: { day: number; cycling: boolean } | null;
+  /** Each ad set's target cost per result (booked call, or form lead), for the clear-loser rule. */
+  targetCostCents?: Record<string, number>;
+  /**
+   * This review adds the two-weekly creative wave: new creatives go into these ad sets (up to LIVE_ADS_HIGH live
+   * ads each), and budget, placement and optimization changes wait for another day. `launched` counts this review's;
+   * `videoCents` is what one wave video costs the agent (0 on a free tier), and a paid one is always proposed first.
+   */
+  wave?: { day: number; adsets: string[]; launched: Record<string, number>; videoCents: number } | null;
+  /** More actions than MAX_ACTIONS_PER_RUN (a wave into several ad sets). */
+  maxActions?: number;
+  /** Why no creatives are made in this review, and when the next wave is (shown when a generate tool is refused). */
+  noCreativesWhy?: string;
   /** MIGZ_TEST_MODE: ads are built paused, so launching into a paused ad set is allowed. */
   testMode?: boolean;
   openGenerations: number;
@@ -94,9 +111,8 @@ function findAd(ctx: GuardContext, adId: string) {
 }
 
 export function checkActionBudget(ctx: GuardContext) {
-  return ctx.actionsThisRun >= MAX_ACTIONS_PER_RUN
-    ? `This review already has ${MAX_ACTIONS_PER_RUN} actions, the most allowed. Stop and summarize.`
-    : null;
+  const max = ctx.maxActions ?? MAX_ACTIONS_PER_RUN;
+  return ctx.actionsThisRun >= max ? `This review already has ${max} actions, the most allowed. Stop and summarize.` : null;
 }
 
 /** Learning phase per Meta, or a recent significant edit we made (which restarts learning). */
@@ -114,8 +130,13 @@ export function revisionWait(ctx: GuardContext) {
   return `The campaign is still collecting its first results; revisions (pausing ads, moving budget, changing placements) start on ${date}. Build and launch creative now, and hold everything else until then.`;
 }
 
+/** A wave review adds creatives only: budget, targeting and optimization changes wait for another day. */
+export function waveHold(ctx: GuardContext) {
+  return ctx.wave ? "This review adds the creative wave, and new ads go out on a day nothing else changes. Hold budget, placement and optimization changes for a later review." : null;
+}
+
 export function checkBudgetChange(ctx: GuardContext, adsetId: string, newCents: number) {
-  const wait = revisionWait(ctx);
+  const wait = revisionWait(ctx) ?? waveHold(ctx);
   if (wait) return wait;
   const adset = findAdSet(ctx, adsetId);
   if (!adset) return `No ad set ${adsetId} in this account.`;
@@ -135,10 +156,16 @@ export function checkBudgetChange(ctx: GuardContext, adsetId: string, newCents: 
   return null;
 }
 
+/**
+ * Pausing: only clear losers (LOSER_SPEND_MULTIPLE times the ad set's target cost with no result), only when the
+ * cycle allows (not in the first week, not while a wave is being read), and never an ad set's last live ad.
+ */
 export function checkPauseAd(ctx: GuardContext, adId: string) {
-  const wait = revisionWait(ctx);
-  if (wait) return wait;
   const found = findAd(ctx, adId);
+  // A costly loser is losing real money, so it may go on any day: the first week and a wave's read don't hold it
+  const costly = !!found && isCostlyLoser({ spend_cents: found.ad.spend_cents, results: found.ad.results ?? 0 }, ctx.targetCostCents?.[found.adset.meta_adset_id]);
+  const wait = costly ? null : (revisionWait(ctx) ?? (ctx.cycle ? pauseWindow(ctx.cycle.day, ctx.cycle.cycling) : null));
+  if (wait) return wait;
   if (!found) return `No ad ${adId} in this account.`;
   const { adset, ad } = found;
   if (!isActive(ad.status)) return `Ad ${adId} is already ${ad.status}.`;
@@ -147,6 +174,8 @@ export function checkPauseAd(ctx: GuardContext, adId: string) {
   const othersLive = adset.ads.filter((a) => a.meta_ad_id !== adId && isActive(a.status)).length;
   if (othersLive === 0)
     return `Ad ${adId} is the only live ad in its ad set; pausing it would stop delivery. Launch a replacement first.`;
+  const loser = ctx.targetCostCents ? loserCheck({ spend_cents: ad.spend_cents, results: ad.results ?? 0 }, ctx.targetCostCents[adset.meta_adset_id]) : null;
+  if (loser) return `Ad ${adId} isn't a clear loser yet: ${loser}`;
   return null;
 }
 
@@ -159,7 +188,7 @@ export function checkResumeAd(ctx: GuardContext, adId: string) {
 }
 
 export function checkPlacements(ctx: GuardContext, adsetId: string, placements: string[] = []) {
-  const wait = revisionWait(ctx);
+  const wait = revisionWait(ctx) ?? waveHold(ctx);
   if (wait) return wait;
   const adset = findAdSet(ctx, adsetId);
   if (!adset) return `No ad set ${adsetId} in this account.`;
@@ -244,6 +273,8 @@ export function checkQuoteMode(ctx: GuardContext, mode: string) {
  */
 export function checkOptimizationEvent(ctx: GuardContext, adsetId: string, event: string) {
   if (event !== "LEAD" && event !== "SCHEDULE") return "Event must be LEAD or SCHEDULE.";
+  const hold = waveHold(ctx);
+  if (hold) return hold;
   const adset = findAdSet(ctx, adsetId);
   if (!adset) return `No ad set ${adsetId} in this account.`;
   if (!isActive(adset.status)) return `Ad set ${adsetId} is ${adset.status}.`;
@@ -289,11 +320,31 @@ export function checkPromoteAd(ctx: GuardContext, adId: string) {
 /** The main ad set a promoted ad goes into. */
 export const promotionTarget = (ctx: GuardContext) => mainAdSet(ctx)?.meta_adset_id ?? null;
 
-/** Ads under this link CTR at a campaign's end are replaced in the next campaign's setup (never partway through). */
+/**
+ * Ads under this link CTR are a hint, not a pause trigger: the next creative wave (or the next campaign's setup)
+ * builds on the angles that clear it.
+ */
 export const WEAK_CTR_BELOW = 0.025;
 
-/** While a campaign is set up, new creatives go only into the ad sets still short of their mix, launched straight in. */
+/** Live ads in an ad set, as the guardrails see it (paused ones too in test mode, where ads are built paused). */
+const liveAds = (ctx: GuardContext, adset: AdSetState) => adset.ads.filter((a) => isActive(a.status) || (ctx.testMode && a.status === "PAUSED")).length;
+
+/**
+ * While a campaign is set up, new creatives go only into the ad sets still short of their mix. In a wave, only
+ * into the wave's ad sets, up to LIVE_ADS_HIGH live ads each. Launched straight in either way.
+ */
 export function checkFillTarget(ctx: GuardContext, launchAdsetId: string | null) {
+  if (ctx.wave) {
+    const sets = ctx.wave.adsets;
+    if (!launchAdsetId || !sets.includes(launchAdsetId))
+      return `This review's creative wave goes into ad set${sets.length === 1 ? "" : "s"} ${sets.join(", ")} (see creative_wave). Launch each new creative straight into ${sets.length === 1 ? "it" : "one of them"}.`;
+    const adset = findAdSet(ctx, launchAdsetId);
+    if ((ctx.wave.launched[launchAdsetId] ?? 0) >= WAVE_MAX)
+      return `Ad set ${launchAdsetId} has its ${WAVE_MAX} new creatives for this wave. Put the next one in another wave ad set, or stop.`;
+    if (adset && waveRoom(liveAds(ctx, adset) + (ctx.wave.launched[launchAdsetId] ?? 0)) <= 0)
+      return `Ad set ${launchAdsetId} already has ${LIVE_ADS_HIGH} live ads (with this wave). Pause its clear losers first, or put the creative in another wave ad set.`;
+    return null;
+  }
   if (!ctx.fillAdsets) return null;
   if (!launchAdsetId || !ctx.fillAdsets.includes(launchAdsetId))
     return `This campaign's setup still needs creatives in ad set${ctx.fillAdsets.length === 1 ? "" : "s"} ${ctx.fillAdsets.join(", ")} (see campaign_setup). Launch new creatives straight into ${ctx.fillAdsets.length === 1 ? "it" : "one of them"}.`;
@@ -303,9 +354,10 @@ export function checkFillTarget(ctx: GuardContext, launchAdsetId: string | null)
 export function checkGeneration(ctx: GuardContext, kind: "image" | "video" = "image") {
   const setup = !!ctx.fillAdsets?.length;
   const cap = ctx.maxGenerations ?? (setup ? MAX_GENERATIONS_PER_SETUP_RUN : MAX_GENERATIONS_PER_RUN);
-  const videoCap = setup ? MAX_VIDEOS_PER_SETUP_RUN : MAX_VIDEOS_PER_RUN;
+  // A wave may make one video per ad set it fills
+  const videoCap = setup ? MAX_VIDEOS_PER_SETUP_RUN : ctx.wave ? Math.max(MAX_VIDEOS_PER_RUN, ctx.wave.adsets.length) : MAX_VIDEOS_PER_RUN;
   if (cap === 0)
-    return "New creatives are only made when a batch is set up (or when no ads are live). This review studies the live ads and records what they teach with record_learning instead.";
+    return `${ctx.noCreativesWhy ?? "New creatives are only made when a campaign is set up and in its two-weekly creative wave (or when no ads are live)."} This review studies the live ads and records what they teach with record_learning instead.`;
   if (ctx.generationsThisRun >= cap)
     return `Already started ${cap} creative${cap === 1 ? "" : "s"} this review, the most allowed${cap < MAX_GENERATIONS_PER_RUN ? " while the generator's credits are being checked" : " per review"}${setup ? "; the next review makes the rest of the setup" : ""}.`;
   if (kind === "video" && (ctx.videosThisRun ?? 0) >= videoCap)

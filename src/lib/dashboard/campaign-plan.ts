@@ -105,7 +105,7 @@ export async function buildCampaignPlan(agent: Agent, input: { answers: Campaign
       learned: [],
       changes: [
         "This is your first campaign, so Migz starts from typical numbers for US life insurance on Meta, adjusted for your answers. After it ends, Migz plans from your own results.",
-        "Every creative launches on day one, each on a different angle, and Meta finds which ones book. Nothing new is added partway through, so Meta can learn.",
+        "Every creative launches on day one, each on a different angle, and Meta finds which ones book.",
         ...(adj.notes.length ? [`Your answers move the typical numbers: ${adj.notes.map((n) => n.text.replace(/\.$/, "")).join("; ")}.`] : []),
       ],
       budget: { dailyCents: input.dailyCents, days, recommendedDailyCents, why: budgetWhy(`a typical`) },
@@ -187,7 +187,7 @@ export async function buildCampaignPlan(agent: Agent, input: { answers: Campaign
     changes.push("Avoids the wording Meta rejected.");
   }
   if (!changes.length) changes.push("Nothing stood out clearly yet, so Migz keeps what's working and tests new angles from the start.");
-  changes.push("Every creative launches on day one; nothing new is added partway through, so Meta can learn.");
+  changes.push("Every creative launches on day one, each on a different angle, then the next waves build on what wins.");
 
   const source = own.costPerCallCents || own.costPerLeadCents ? "your" : "a typical";
   return { first: false, learned, changes, budget: { dailyCents: input.dailyCents, days, recommendedDailyCents, why: budgetWhy(source) }, expected, createdAt: new Date().toISOString() };

@@ -188,7 +188,7 @@ assert.equal(checkGeneration(gc({ videosThisRun: 1, generationsThisRun: 2 }), "i
 assert.match(checkGeneration(gc({ videosThisRun: 1, generationsThisRun: 3 }), "image")!, /3 creatives/);
 assert.match(checkGeneration(gc({ generationsThisRun: 1, maxGenerations: 1 }), "image")!, /credits are being checked/);
 assert.equal(checkGeneration(gc({ generationsThisRun: 0, maxGenerations: 1 }), "image"), null);
-assert.match(checkGeneration(gc({ generationsThisRun: 0, maxGenerations: 0 }), "image")!, /only made when a batch is set up/, "no new creatives outside batch setup");
+assert.match(checkGeneration(gc({ generationsThisRun: 0, maxGenerations: 0 }), "image")!, /only made when a campaign is set up and in its two-weekly creative wave/, "no new creatives outside setup and the wave");
 ok("creative caps: 3 per review, 1 video, images fill the rest; 1 while credits are being re-checked");
 
 // topics
@@ -1404,5 +1404,123 @@ globalThis.fetch = realFetch;
 if (realToken === undefined) delete process.env.META_SYSTEM_USER_TOKEN;
 else process.env.META_SYSTEM_USER_TOKEN = realToken;
 ok("Advantage+ creative: every new creative opts out of Meta's text, image, video and music enhancements (placement crops left on); a key Meta refuses is dropped instead of failing the launch; the read-back flags anything still on");
+
+// The creative cycle: learn for a week, then every 14 days pause the clear losers and add one wave of 2–3
+const cyc = await import("@/lib/migz/cycle");
+assert.equal(cyc.cycleDay("2026-11-01", "2026-11-01"), 1, "the start date is day 1");
+assert.equal(cyc.cycleDay("2026-11-01", "2026-11-08"), 8);
+assert.equal(cyc.cycleDay("2026-10-25", "2026-11-03"), 10, "across a month end");
+const waveDays = Array.from({ length: 60 }, (_, i) => i + 1).filter(cyc.isWaveDay);
+assert.deepEqual(waveDays, [8, 22, 36, 50], "waves on days 8, 22, 36, 50, ...");
+for (let d = 1; d <= 7; d++) assert.equal(cyc.lastWaveDay(d), null, `day ${d} is in the learning week`);
+assert.equal(cyc.nextWaveDay(3), 8);
+assert.equal(cyc.nextWaveDay(8), 22);
+assert.equal(cyc.nextWaveDay(30), 36);
+const ws = (o: Partial<Parameters<typeof cyc.waveStatus>[0]>) => cyc.waveStatus({ day: 8, runDays: 21, renews: false, changingToday: false, madeSince: 0, ...o });
+assert.equal(ws({}).due, true, "day 8 of a 21-day campaign: the first wave");
+for (let d = 1; d <= 7; d++) assert.equal(ws({ day: d }).due, false, `never in the first 7 days (day ${d})`);
+assert.deepEqual(ws({ day: 5 }), { due: false, day: 5, waveDay: null, nextWaveDay: 8, why: "learning" });
+assert.equal(ws({ day: 8, runDays: 13 }).due, false, "no wave in a campaign under 14 days");
+assert.equal(ws({ day: 8, runDays: 13 }).due === false && (ws({ day: 8, runDays: 13 }) as { why: string }).why, "short");
+assert.equal(ws({ day: 8, runDays: 14 }).due, true, "exactly 14 days gets one wave");
+assert.equal(ws({ day: 8, runDays: 10, renews: true }).due, true, "a 10-day campaign that keeps going cycles too");
+assert.equal(ws({ day: 22, runDays: 10, renews: true }).due, true, "and its renewals keep the rhythm: day 22 is a wave");
+assert.equal(ws({ day: 36, runDays: 42 }).due, true, "day 36 of a long campaign");
+const changing = ws({ changingToday: true });
+assert.equal(changing.due, false, "never on a day the budget, targeting or optimization changes");
+assert.deepEqual(changing.due === false && [changing.why, changing.nextWaveDay], ["changing", 9], "it goes out the next day instead");
+assert.equal(ws({ day: 9 }).due, true, "a wave held back on day 8 goes out on day 9");
+assert.equal(ws({ day: 10 }).due, true, "or day 10");
+assert.equal(ws({ day: 11 }).due, false, "after that its window has passed: the next one is day 22");
+assert.deepEqual(ws({ day: 11 }).due === false && [ws({ day: 11 }).why, (ws({ day: 11 }) as { nextWaveDay: number }).nextWaveDay], ["reading", 22]);
+assert.equal(ws({ day: 10, changingToday: true }).due === false && (ws({ day: 10, changingToday: true }) as { nextWaveDay: number }).nextWaveDay, 22, "held back on its last day: wait for the next wave");
+assert.equal(ws({ day: 9, madeSince: 2 }).due, false, "one wave per two weeks: the second review that day makes none");
+assert.equal(ws({ day: 14 }).due, false, "days 9–21 read the wave");
+for (const d of [12, 15, 21]) assert.equal(ws({ day: d, runDays: 42 }).due, false, `day ${d} reads`);
+
+// Pausing: only clear losers, only around a wave, never the last live ad
+assert.match(cyc.pauseWindow(7, true)!, /first 7 days/, "the first week only learns");
+assert.equal(cyc.pauseWindow(8, true), null, "day 8: losers are paused, then the wave");
+assert.equal(cyc.pauseWindow(10, true), null, "while a held-back wave can still go out");
+assert.match(cyc.pauseWindow(11, true)!, /read until day 15/, "the week after a wave reads its new ads");
+assert.match(cyc.pauseWindow(14, true)!, /read until day 15/);
+for (const d of [15, 18, 21, 22, 24]) assert.equal(cyc.pauseWindow(d, true), null, `day ${d}: a week after the wave, clear losers can go`);
+assert.match(cyc.pauseWindow(25, true)!, /day-22 wave/, "and the next wave's read is closed again");
+assert.equal(cyc.COSTLY_LOSER_MULTIPLE, 2.5);
+assert.equal(cyc.isCostlyLoser({ spend_cents: 22_500, results: 0 }, 9000), true, "2.5× the $90 target ($225) with nothing: costly");
+assert.equal(cyc.isCostlyLoser({ spend_cents: 22_400, results: 0 }, 9000), false);
+assert.equal(cyc.isCostlyLoser({ spend_cents: 90_000, results: 1 }, 9000), false, "an ad with a result isn't");
+assert.equal(cyc.pauseWindow(12, false), null, "a short campaign pauses from day 8 on, as before");
+assert.equal(cyc.loserCheck({ spend_cents: 25_000, results: 0 }, 9000), null, "$250 with nothing, target $90: 2.5× → a clear loser");
+assert.match(cyc.loserCheck({ spend_cents: 22_000, results: 0 }, 9000)!, /\$225/, "$220 is under 2.5× $90");
+assert.match(cyc.loserCheck({ spend_cents: 60_000, results: 1 }, 9000)!, /isn't a clear loser/, "an ad with a result isn't a clear loser, however expensive");
+assert.equal(cyc.loserCheck({ spend_cents: 100, results: 0 }, null), null, "no target known: the other checks decide");
+const { checkPauseAd: cyclePause } = await import("@/lib/migz/guardrails");
+const lad = (id: string, spend: number, results = 0, status = "ACTIVE") => ({ meta_ad_id: id, status, impressions: 3000, spend_cents: spend, results });
+const pctx = (ads: ReturnType<typeof lad>[], day = 8, cycling = true) => ({
+  ...gc({}),
+  adsets: [{ meta_adset_id: "S", status: "ACTIVE", daily_budget_cents: 5000, learning_status: "SUCCESS", last_edited_at: "2026-10-01T00:00:00Z", ads }],
+  cycle: { day, cycling },
+  targetCostCents: { S: 9000 },
+});
+assert.equal(cyclePause(pctx([lad("L", 25_000), lad("W", 9000, 2)]), "L"), null, "a clear loser on day 8 is paused");
+assert.match(cyclePause(pctx([lad("L", 20_000), lad("W", 9000, 2)], 5), "L")!, /first 7 days/, "short of 2.5×: not in the first week");
+assert.match(cyclePause(pctx([lad("L", 20_000), lad("W", 9000, 2)], 12), "L")!, /being read/, "nor while the wave is read");
+assert.equal(cyclePause(pctx([lad("L", 25_000), lad("W", 9000, 2)], 15), "L"), null, "a week after the wave it can go");
+assert.equal(cyclePause(pctx([lad("L", 25_000), lad("W", 9000, 2)], 12), "L"), null, "a clear loser (2.5×) goes on any day, even mid-read");
+assert.equal(cyclePause(pctx([lad("L", 25_000), lad("W", 9000, 2)], 3), "L"), null, "even in the first week");
+assert.match(cyclePause(pctx([lad("L", 25_000), lad("W", 9000, 2, "PAUSED")], 12), "L")!, /only live ad/, "but never the last live ad");
+assert.match(cyclePause(pctx([lad("L", 12_000), lad("W", 9000, 2)]), "L")!, /isn't a clear loser yet/, "weak but under 2.5× isn't paused (a hint for the wave)");
+assert.match(cyclePause(pctx([lad("L", 25_000), lad("W", 9000, 2, "PAUSED")]), "L")!, /only live ad/, "never the last live ad in an ad set");
+
+// The wave in a review: where it goes, how many, and what waits
+const { checkFillTarget: waveTarget, checkBudgetChange: waveBudget, checkGeneration: waveGen } = await import("@/lib/migz/guardrails");
+const twelve = Array.from({ length: 12 }, (_, i) => lad(`a${i}`, 1000));
+const wctx = (ads = [lad("a", 1000)], launched: Record<string, number> = {}) => ({
+  ...gc({ maxGenerations: cyc.WAVE_MAX }),
+  adsets: [{ meta_adset_id: "S", status: "ACTIVE", daily_budget_cents: 5000, learning_status: "SUCCESS", last_edited_at: "2026-10-01T00:00:00Z", ads }],
+  wave: { day: 8, adsets: ["S"], launched, videoCents: 480 },
+});
+assert.equal(waveTarget(wctx(), "S"), null, "a wave creative goes into a wave ad set");
+assert.match(waveTarget(wctx(), "X")!, /creative wave goes into ad set S/);
+assert.match(waveTarget(wctx(), null)!, /straight into it/, "launched straight in, not left in the library");
+assert.match(waveTarget(wctx(twelve), "S")!, /already has 12 live ads/, "an ad set at 12 live ads takes none");
+assert.match(waveTarget(wctx(twelve.slice(0, 10), { S: 2 }), "S")!, /12 live ads/, "this review's wave counts toward the 12");
+assert.equal(waveTarget(wctx(twelve.slice(0, 10), { S: 1 }), "S"), null);
+assert.match(waveBudget(wctx(), "S", 5500)!, /creative wave/, "no budget change in a wave review");
+assert.equal(waveGen(wctx(), "image"), null);
+assert.match(waveGen({ ...wctx(), generationsThisRun: 3 }, "image")!, /3 creatives/, "at most 3 in a one-ad-set wave");
+assert.match(waveTarget(wctx([lad("a", 1000)], { S: 3 }), "S")!, /has its 3 new creatives/, "at most 3 per ad set");
+const twoSets = { ...wctx(), maxGenerations: 6, adsets: [...wctx().adsets, { ...wctx().adsets[0], meta_adset_id: "F" }], wave: { day: 8, adsets: ["S", "F"], launched: { S: 3 }, videoCents: 0 } };
+assert.equal(waveTarget(twoSets, "F"), null, "2–3 per ad set: the form ad set gets its own");
+assert.equal(waveGen({ ...twoSets, generationsThisRun: 3 }, "image"), null, "6 in a twoSets-ad-set wave");
+assert.equal(waveGen({ ...twoSets, generationsThisRun: 1, videosThisRun: 1 }, "video"), null, "one video per ad set");
+assert.match(waveGen({ ...twoSets, generationsThisRun: 2, videosThisRun: 2 }, "video")!, /2 videos/);
+const { checkActionBudget: actionCap } = await import("@/lib/migz/guardrails");
+assert.equal(actionCap({ ...twoSets, actionsThisRun: 6, maxActions: 9 }), null, "a twoSets-ad-set wave gets room for its extra creatives");
+assert.match(actionCap({ ...twoSets, actionsThisRun: 9, maxActions: 9 })!, /9 actions/);
+assert.match(waveGen({ ...gc({ maxGenerations: 0 }), noCreativesWhy: "New creatives come in the next creative wave, on day 22 of the run (today is day 15)." }, "image")!, /day 22/, "outside a wave the refusal says when the next one is");
+const wavedImage = evalTool("generate_image", { ...imgBase, overlay_lines: ["Protect their peace."], button_text: null, aspect_ratio: "4:5", launch_adset_id: "A" }, { ...gctx, maxGenerations: 3, wave: { day: 22, adsets: ["A"], launched: {}, videoCents: 0 } } as never) as { ok: boolean; payload: { brief: { wave?: number } } };
+assert.equal(wavedImage.ok, true);
+assert.equal(wavedImage.payload.brief.wave, 22, "a wave creative carries its wave's day (for the grouped proposal and the video price)");
+const notWaved = evalTool("generate_image", { ...imgBase, overlay_lines: ["Protect their peace."], button_text: null, aspect_ratio: "4:5", launch_adset_id: "A" }, gctx as never) as { ok: boolean; payload: { brief: { wave?: number } } };
+assert.equal(notWaved.payload.brief.wave, undefined, "setup creatives don't");
+const copyHeld = evalTool("write_copy_variants", { source_ad_id: "r1", variants: [{ primary_text: "Plain words", headline: "Free call" }], title: "t", reason: "r" }, { ...gctx, reusableAds: new Map([["r1", "A"]]), cycle: { day: 15, cycling: true }, noCreativesWhy: "next wave on day 22" } as never) as { ok: boolean; error: string };
+assert.match(copyHeld.error, /go out with the next creative wave/, "copy variants are new ads: they wait for the wave");
+const { reviewMessage: waveMsg } = await import("@/lib/migz/prompt");
+assert.match(waveMsg({ mode: "approve", wave: { day: 8, adsets: ["S"] }, snapshotJson: "{}" }), /day 8's creative wave: first pause the clear losers, then make 2 to 3 new creatives for each of ad set S, all together.*one group of proposals/s);
+assert.match(waveMsg({ mode: "auto", producing: false, snapshotJson: "{}" }), /regular review: no new creatives/);
+const { groupProposals } = await import("@/components/dashboard/Proposals");
+const prop = (id: string, wave?: number) => ({ id, kind: "creative", title: id, detail: null, status: "proposed" as const, created_at: "", result: null, payload: { tool: "generate_image", brief: wave ? { wave } : {} } });
+const grouped = groupProposals([prop("a", 22), prop("b"), prop("c", 22)]);
+assert.deepEqual(grouped.waves.map((w) => [w.day, w.actions.map((a) => a.id)]), [[22, ["a", "c"]]], "Ask me first: a wave is one grouped proposal");
+assert.deepEqual(grouped.singles.map((a) => a.id), ["b"]);
+// In plain words
+assert.deepEqual(cyc.cycleSteps(21, false).map((s) => s.when), ["Days 1–7", "Day 8", "Days 9–14", "Days 15–21"], "21 days: learn, one wave, read it a week, then pause losers");
+assert.deepEqual(cyc.cycleSteps(14, false).map((s) => s.when), ["Days 1–7", "Day 8", "Days 9–14"]);
+assert.deepEqual(cyc.cycleSteps(42, false).map((s) => s.when), ["Days 1–7", "Day 8", "Days 9–14", "Days 15–21", "Day 22, then every 2 weeks"]);
+assert.match(cyc.cycleSteps(10, true).at(-1)!.what, /keeps going/, "a campaign that keeps going repeats it");
+assert.deepEqual(cyc.cycleSteps(10, false).map((s) => s.when), ["Days 1–7", "Days 8–10"], "under 14 days: no wave");
+ok("creative cycle: learn days 1–7, then a wave of 2–3 per ad set on days 8, 22, 36, … (never in the first week, never on a change day, never under 14 days, one per two weeks, renewals keep the rhythm); pausing only clear losers (2.5× the target, no result), paused any day once it spends 2.5× with no result (nothing short of that in the first week or a wave's read), never the last live ad; wave creatives go straight into ad sets under 12 live ads with no budget changes that review, carry their day, group into one proposal; copy variants wait for the wave");
 
 console.log(`\nALL ${n} UNIT GROUPS PASSED`);

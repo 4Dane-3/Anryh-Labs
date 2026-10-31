@@ -12,9 +12,11 @@ import { closeEndedBatch, ensureBatchSetAside, getActiveBatch, getBatchPlan, typ
 import { campaignEnded, campaignLabels, daysLeft as daysLeftIn, pickCarryOver, planTopic, type AdResults } from "@/lib/campaign";
 import { adsForBudget } from "@/lib/migz/playbook";
 import { cleanFocus, isTopic, type TopicKey } from "@/lib/migz/topics";
-import { MIN_ADSET_BUDGET_CENTS } from "@/lib/migz/guardrails";
-import { anglesFor, ANGLES, ageCallout, cleanAnswers, creativeMix, offersNoExam, type CreativeMix } from "@/lib/campaign-plan";
-import { MIN_SPLIT_DAILY_CENTS } from "@/lib/ad-options";
+import { MAX_ACTIONS_PER_RUN, MIN_ADSET_BUDGET_CENTS, type GuardContext } from "@/lib/migz/guardrails";
+import { anglesFor, ANGLES, ageCallout, cleanAnswers, creativeMix, INCLUDED_VIDEOS, offersNoExam, videoPriceFor, type CreativeMix } from "@/lib/campaign-plan";
+import { DEFAULT_VIDEO_TIER, isVideoTier, MIN_SPLIT_DAILY_CENTS, VIDEO_TIERS } from "@/lib/ad-options";
+import { videoModel } from "@/lib/higgsfield";
+import { cycleDay, cycleSteps, lastWaveDay, LIVE_ADS_HIGH, LIVE_ADS_LOW, pauseWindow, runsTheCycle, WAVE_MAX, WAVE_MIN, waveStatus, type WaveStatus } from "@/lib/migz/cycle";
 import { ensureLeadForm, wantsInstantForms } from "@/lib/migz/leads";
 import { isTestMode } from "@/lib/migz/test-mode";
 import { gateState, materialChanges, type GateState } from "@/lib/migz/gate";
@@ -94,6 +96,8 @@ export async function buildEvalContext(agent: Agent, snapshot: Snapshot): Promis
     testMode: isTestMode(),
     facts: factsOf(agent),
     revisionsFrom: snapshot.revisionsFrom ? DateTime.fromISO(snapshot.revisionsFrom, { zone: agent.timezone }).toJSDate() : null,
+    cycle: await runCycle(agent, await getActiveBatch(agent.id)).then((c) => (c ? { day: c.day, cycling: c.cycling } : null)).catch(() => null),
+    targetCostCents: snapshot.targetCostCents,
     batchDaysLeft: agent.campaign_ends_on ? daysLeftIn(agent.campaign_ends_on, agent.timezone) : null,
     ...(snapshot.creditsRecentlyRefused ? { maxGenerations: 1 } : {}),
     openGenerations: snapshot.openGenerations,
@@ -581,8 +585,89 @@ function factsOf(agent: Agent) {
   return { noExam: offersNoExam(a), healthIssuesOk: a.healthIssuesOk === true };
 }
 
-/** A campaign's setup may keep making creatives this long after it starts; after that nothing is added. */
+/**
+ * A campaign's setup may keep making creatives this long after it starts. After that, new creatives come only in
+ * the two-weekly creative wave (cycle.ts), from day 8 of campaigns that run 14 days or more.
+ */
 export const SETUP_WINDOW_DAYS = 2;
+
+export type RunCycle = { startedOn: string; day: number; runDays: number; renews: boolean; cycling: boolean };
+
+/**
+ * Where the running batch is in the creative cycle. A renewal (Keep going) continues its batch, so the days
+ * count on from the first batch of the run. Null without a running batch.
+ */
+export async function runCycle(agent: Agent, batch: Batch | null): Promise<RunCycle | null> {
+  if (!batch?.starts_on || !batch.ends_on) return null;
+  let first: { starts_on: string | null; renewed_from: string | null } = batch;
+  if (batch.renewed_from) {
+    const { data } = await supabaseAdmin.from("campaign_batches").select("id, renewed_from, starts_on").eq("agent_id", agent.id).not("starts_on", "is", null);
+    const byId = new Map((data ?? []).map((b) => [b.id as string, b as { starts_on: string | null; renewed_from: string | null }]));
+    for (let hops = 0; first.renewed_from && byId.get(first.renewed_from)?.starts_on && hops < 100; hops++) first = byId.get(first.renewed_from)!;
+  }
+  const startedOn = first.starts_on ?? batch.starts_on;
+  const today = DateTime.now().setZone(agent.timezone).toISODate()!;
+  const runDays = cycleDay(startedOn, batch.ends_on);
+  return { startedOn, day: cycleDay(startedOn, today), runDays, renews: batch.renew, cycling: runsTheCycle(runDays, batch.renew) };
+}
+
+/** Creatives made or proposed since a date (a wave's day): one wave per two weeks, whatever the agent decided. */
+async function waveCreativesSince(agent: Agent, isoDate: string) {
+  const since = DateTime.fromISO(isoDate, { zone: agent.timezone }).startOf("day").toUTC().toISO()!;
+  const { count } = await supabaseAdmin
+    .from("ad_actions")
+    .select("id", { count: "exact", head: true })
+    .eq("agent_id", agent.id)
+    .in("tool", ["generate_video", "generate_image", "generate_carousel", "new_hook_variant", "write_copy_variants"])
+    .neq("status", "failed")
+    .gte("created_at", since);
+  return count ?? 0;
+}
+
+/**
+ * Whether this review is the creative wave, and where it goes: the exploration ad set when the batch has one,
+ * else the live ad sets, each while it has fewer than LIVE_ADS_HIGH live ads. A wave waits for a day with no
+ * budget, targeting or optimization change.
+ */
+async function waveFor(agent: Agent, cycle: RunCycle, snapshot: Snapshot): Promise<{ status: WaveStatus; wave: GuardContext["wave"] }> {
+  const today = DateTime.now().setZone(agent.timezone).toISODate()!;
+  const test = isTestMode();
+  const sets = snapshot.guardAdsets.filter((s) => s.status === "ACTIVE" || (test && s.status === "PAUSED"));
+  const changingToday = sets.some((s) => DateTime.fromISO(s.last_edited_at).setZone(agent.timezone).toISODate() === today);
+  const waveDay = lastWaveDay(cycle.day);
+  const madeSince = waveDay ? await waveCreativesSince(agent, DateTime.fromISO(cycle.startedOn).plus({ days: waveDay - 1 }).toISODate()!) : 0;
+  const status = waveStatus({ day: cycle.day, runDays: cycle.runDays, renews: cycle.renews, changingToday, madeSince });
+  if (!status.due) return { status, wave: null };
+  const explore = sets.filter((s) => s.role === "explore");
+  // Room (under LIVE_ADS_HIGH live ads) is checked per creative, so pausing a loser in this review makes room
+  const targets = explore.length ? explore : sets;
+  if (!targets.length) return { status, wave: null };
+  const tier = isVideoTier(agent.video_tier) ? agent.video_tier : DEFAULT_VIDEO_TIER;
+  const videoCents = VIDEO_TIERS[tier].priceCents && videoModel(tier) === "seedance" ? videoPriceFor(tier, INCLUDED_VIDEOS) : 0;
+  return { status, wave: { day: status.waveDay, adsets: targets.map((s) => s.meta_adset_id), launched: {}, videoCents } };
+}
+
+/** The creative cycle for the review, in plain words. */
+function cycleContext(cycle: RunCycle, status: WaveStatus | null) {
+  const pausing = pauseWindow(cycle.day, cycle.cycling);
+  return {
+    day_of_run: cycle.day,
+    run_days: cycle.renews ? `${cycle.runDays} so far, and it keeps going (Keep going is on)` : cycle.runDays,
+    steps: cycleSteps(cycle.runDays, cycle.renews),
+    pausing_clear_losers: pausing ? `closed: ${pausing}` : "open today",
+    wave: !status
+      ? null
+      : status.due
+        ? `today: the day-${status.waveDay} wave`
+        : status.why === "short"
+          ? "none: this campaign is too short to read new ads"
+          : status.why === "learning"
+            ? `first wave on day ${status.nextWaveDay}`
+            : status.why === "changing"
+              ? `held back: a budget, targeting or optimization change happened today. It goes out on day ${status.nextWaveDay}.`
+              : `${status.why === "done" ? `the day-${status.waveDay} wave is out` : `the day-${status.waveDay} wave's window has passed`}; reading it until the next wave on day ${status.nextWaveDay}`,
+  };
+}
 
 const LIVE_AD = new Set(["ACTIVE", "PENDING_REVIEW", "IN_PROCESS", "WITH_ISSUES", "PREAPPROVED"]);
 
@@ -592,10 +677,12 @@ export type SetupGap = { adsetId: string; mix: CreativeMix; videos: number; imag
  * Campaign setup: every ad set of a running batch launches with its creative mix (creativeMix, sized to its
  * daily budget), all at the start. Counts each ad set's live ads (carried-over winners included) and the
  * creatives still being made for it, and returns the ad sets still short. Empty once the batch is
- * SETUP_WINDOW_DAYS old: nothing is added partway through a campaign.
+ * SETUP_WINDOW_DAYS old (new creatives then come in the creative wave), and for a renewal.
  */
 export async function setupShortfall(agent: Agent, batch: Batch | null, snapshot: Snapshot): Promise<SetupGap[]> {
   if (!batch?.started_at || Date.now() - new Date(batch.started_at).getTime() > SETUP_WINDOW_DAYS * 86_400_000) return [];
+  // A renewal continues the run: its ads keep going and new ones come in the creative wave
+  if (batch.renewed_from) return [];
   const test = isTestMode();
   const sets = snapshot.guardAdsets.filter((s) => s.status === "ACTIVE" || (test && s.status === "PAUSED"));
   if (!sets.length) return [];
@@ -879,8 +966,9 @@ async function review(agent: Agent, trigger: "schedule" | "manual", createMessag
     }
 
     // New creatives are made while a batch is being set up (its first review, then until every ad set has
-    // its creative mix), or when nothing is live to run. Every other review studies the ads it has.
-    let producing = (!!batch && !batch.applied_at) || !snapshot.guardAdsets.some((s) => s.ads.some((a) => a.status === "ACTIVE"));
+    // its creative mix), in the two-weekly creative wave, or when nothing is live to run. A renewal continues
+    // its run, so it isn't a setup. Every other review studies the ads it has.
+    let producing = (!!batch && !batch.applied_at && !batch.renewed_from) || !snapshot.guardAdsets.some((s) => s.ads.some((a) => a.status === "ACTIVE"));
     if (await syncCampaignPlan(agent, runId, batch)) snapshot = await buildSnapshot(agent);
     if (await syncLeadStyle(agent, runId)) snapshot = await buildSnapshot(agent);
     if (await syncTargeting(agent, runId)) snapshot = await buildSnapshot(agent);
@@ -889,6 +977,11 @@ async function review(agent: Agent, trigger: "schedule" | "manual", createMessag
     // Setup: each ad set of the batch launches with its full creative mix, over the first reviews
     const fill = await setupShortfall(agent, batch, snapshot);
     if (fill.length) producing = true;
+    // The creative cycle: after the first week, one wave of new creatives every 14 days
+    const cycle = await runCycle(agent, batch);
+    const waved = cycle && !fill.length ? await waveFor(agent, cycle, snapshot) : null;
+    const wave = waved?.wave ?? null;
+    if (wave) producing = true;
 
     const budget = await monthlyBudget(agent.id, agent.migz_model_budget_cents ?? 3000, agent.timezone);
     const team = { runId, budget, createMessage };
@@ -918,7 +1011,7 @@ async function review(agent: Agent, trigger: "schedule" | "manual", createMessag
     if (fill.length) {
       const answers = cleanAnswers(agent.campaign_answers);
       teamContext.campaign_setup = {
-        why: "Every creative launches at the start of the campaign (nothing is added partway: new ads restart Meta's learning). These ad sets still need creatives to complete their mix, sized to their budget.",
+        why: "Every creative launches at the start of the campaign, so Meta's first week learns from the whole mix; after that, new creatives come only in the two-weekly creative wave. These ad sets still need creatives to complete their mix, sized to their budget.",
         ad_sets: fill.map((g) => ({
           adset_id: g.adsetId,
           mix: `${g.mix.total} creatives: ${g.mix.videos} videos and ${g.mix.images} images`,
@@ -930,6 +1023,24 @@ async function review(agent: Agent, trigger: "schedule" | "manual", createMessag
         plan: batch ? await getBatchPlan(batch.id) : null,
       };
       extraReasons.push(`campaign setup: ${fill.length} ad set${fill.length === 1 ? "" : "s"} still short of ${fill.length === 1 ? "its" : "their"} creative mix`);
+    }
+    if (cycle) teamContext.creative_cycle = cycleContext(cycle, waved?.status ?? null);
+    if (wave) {
+      const answers = cleanAnswers(agent.campaign_answers);
+      teamContext.creative_wave = {
+        day: wave.day,
+        why: `Day ${wave.day} of the run: the first week (or the last wave) has been read, so this review pauses the clear losers and adds one wave of new creatives together. Meta lists new ads as a significant edit; a few new ads in a healthy ad set often don't restart its learning, and a wave every two weeks is a reasonable cost either way.`,
+        ad_sets: wave.adsets,
+        how_many: `${WAVE_MIN} to ${WAVE_MAX} new creatives for each of these ad sets, all made together in this review (never one at a time). Keep each ad set to about ${LIVE_ADS_LOW}–${LIVE_ADS_HIGH} live ads after pausing losers; an ad set already at ${LIVE_ADS_HIGH} takes none.`,
+        build_from: "Mostly the winners' angles (hooks, formats and topics bringing booked calls in the last 14 days), plus one new angle to test. Each clearly different from the others and from the live ads: another angle, format or opening shot, never a near-copy. Weak early signals (link click-through, cost per landing page view, few people picking a time) say which angles to drop, not which ads to pause.",
+        videos: wave.videoCents
+          ? `A video in this wave costs the agent $${(wave.videoCents / 100).toFixed(2)} (an extra video at the ${VIDEO_TIERS[isVideoTier(agent.video_tier) ? agent.video_tier : DEFAULT_VIDEO_TIER].title} price, 20% off), so it's proposed for their approval first, even in auto mode. At most one per ad set, and only when a video angle is winning.`
+          : "Videos on this agent's tier cost nothing; at most one per ad set.",
+        angles: anglesFor(answers).map((k) => ANGLES[k]),
+        age_on_screen: ageCallout(answers),
+        summary_note: "Say in the summary that Meta will still put most of the budget behind two or three ads; that's normal.",
+      };
+      extraReasons.push(`creative wave: day ${wave.day} of the run`);
     }
     const extraTools: ExtraTool[] = [...READ_TOOLS];
     for (const ext of extensions) {
@@ -975,8 +1086,20 @@ async function review(agent: Agent, trigger: "schedule" | "manual", createMessag
     const ctx = await buildEvalContext(agent, snapshot);
     // Budget changes can never take the batch's campaigns above the paced cap
     if (pacing) ctx.dailyCapCents = Math.min(ctx.dailyCapCents, pacing.dailyCapCents);
-    if (!producing) ctx.maxGenerations = 0;
+    if (!producing) {
+      ctx.maxGenerations = 0;
+      const s = waved?.status;
+      if (s && !s.due && s.nextWaveDay) ctx.noCreativesWhy = `New creatives come in the next creative wave, on day ${s.nextWaveDay} of the run (today is day ${s.day}).`;
+      else if (s && !s.due && s.why === "short") ctx.noCreativesWhy = "This campaign is too short to read new ads, so it keeps the creatives it launched with.";
+    }
     if (fill.length) ctx.fillAdsets = fill.map((g) => g.adsetId);
+    if (wave) {
+      // 2–3 per ad set: room for each ad set's wave, plus the review's usual actions (pausing losers first)
+      const waveCap = WAVE_MAX * wave.adsets.length;
+      ctx.wave = wave;
+      ctx.maxGenerations = Math.min(ctx.maxGenerations ?? waveCap, waveCap);
+      ctx.maxActions = MAX_ACTIONS_PER_RUN + waveCap - WAVE_MAX;
+    }
     const result = await runOperator({ agent, snapshot, runId, budget, createMessage, ctx }, extraTools, { teamContext, reasons, producing });
     const summary = result.summary ? await writeFeed(result.summary, { agentId: agent.id, runId, budget, createMessage }) : "";
 
