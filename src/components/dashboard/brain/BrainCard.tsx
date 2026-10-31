@@ -108,7 +108,7 @@ export function BrainCard({ live, className }: { live: BrainLive; className?: st
   return (
     <div
       className={cn(
-        "rounded-[26px] border border-white/20 bg-[rgb(120_165_220/0.16)] px-4 pb-4 pt-3 text-fg shadow-[0_20px_60px_-20px_rgb(0_0_0/0.5)] backdrop-blur-2xl",
+        "rounded-[26px] border border-white/20 bg-[rgb(200_204_200/0.14)] px-4 pb-4 pt-3 text-fg shadow-[0_20px_60px_-20px_rgb(0_0_0/0.5)] backdrop-blur-2xl",
         className,
       )}
     >
@@ -158,7 +158,7 @@ export function FetchedBrainCard({ className }: { className?: string }) {
   }, []);
   if (initial) return <LiveBrainCard initial={initial} className={className} />;
   return (
-    <div className={cn("rounded-[26px] border border-white/20 bg-[rgb(120_165_220/0.16)] px-4 py-8 text-center text-[13px] text-fg-muted backdrop-blur-2xl", className)}>
+    <div className={cn("rounded-[26px] border border-white/20 bg-[rgb(200_204_200/0.14)] px-4 py-8 text-center text-[13px] text-fg-muted backdrop-blur-2xl", className)}>
       {failed ? "Couldn't reach Migz AI just now." : "Checking on Migz AI…"}
     </div>
   );
