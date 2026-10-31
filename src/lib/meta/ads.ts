@@ -1,5 +1,6 @@
 import "server-only";
-import { graph, graphAll } from "@/lib/meta/graph";
+import { graph, graphAll, MetaApiError } from "@/lib/meta/graph";
+import { ENHANCEMENTS_OFF, enhancementsOn, enhancementsOptOut, refusedFeature } from "@/lib/meta/enhancements";
 
 // The Marketing API operations Migz uses. Every campaign is created under the Financial Products &
 // Services special ad category (required in the US for insurance), which rules out age, gender and
@@ -407,14 +408,38 @@ export async function createAdCreative(
           },
         };
 
-  const res = await graph<{ id: string }>("POST", `${account}/adcreatives`, {
+  const params = {
     name: input.name,
     object_story_spec: objectStorySpec,
     // Meta fills these macros per ad; the landing page stores them, so bookings are attributed per ad and placement
     // utm_term carries where the ad was shown (e.g. Instagram_Reels), so bookings are attributed per platform too
     url_tags: "utm_source=meta&utm_medium=paid&utm_campaign={{campaign.id}}&utm_content={{ad.id}}&utm_term={{placement}}",
-  });
-  return res.id;
+  };
+  // No Advantage+ creative enhancements: Meta's rewrites and touch-ups would change Migz's words and images.
+  // A feature Meta no longer knows is dropped and the creative made without it, so a renamed key never stops a
+  // launch; checkCreativeEnhancements reads the result back.
+  let keys: string[] = [...ENHANCEMENTS_OFF];
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await graph<{ id: string }>("POST", `${account}/adcreatives`, { ...params, ...(keys.length ? { degrees_of_freedom_spec: enhancementsOptOut(keys) } : {}) });
+      return res.id;
+    } catch (e) {
+      const refused = e instanceof MetaApiError && e.code === 100 && keys.length && attempt < 5 ? refusedFeature(`${e.message} ${e.userMessage ?? ""}`, keys) : null;
+      if (!refused) throw e;
+      console.warn(`Meta refused creative feature ${refused}; making the creative without it`);
+      keys = refused === "spec" ? [] : keys.filter((k) => k !== refused);
+    }
+  }
+}
+
+/**
+ * Reads a creative back from Meta (read-only) and returns the Advantage+ enhancements still switched on, or
+ * ["(no opt-out recorded)"] when Meta shows no feature settings at all. Empty means all off.
+ */
+export async function creativeEnhancementsOn(creativeId: string) {
+  const res = await graph<{ degrees_of_freedom_spec?: Parameters<typeof enhancementsOn>[0] }>("GET", creativeId, { fields: "degrees_of_freedom_spec" });
+  if (!res.degrees_of_freedom_spec?.creative_features_spec) return ["(no opt-out recorded)"];
+  return enhancementsOn(res.degrees_of_freedom_spec);
 }
 
 export async function createAd(

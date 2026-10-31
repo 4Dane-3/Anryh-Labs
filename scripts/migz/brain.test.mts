@@ -1352,4 +1352,57 @@ assert.equal(videoCostUsd(cuts.payload.brief as never), videoCostUsd(vbrief), "t
 assert.deepEqual(shotPrompts(cuts.payload.brief as never).map((x) => x.duration), [2, 2, 2, 1, 3, 6], "Kling takes whole seconds: 1.5 rounds up");
 ok("video tiers: Kling 3.0 Standard by default, Seedance 2.5 15s/30s charged $6/$12 per video (extras 20% off), staff's Kling switch never charges, 30s briefs fit 15s on fallback; Seedance 2.5 video request (15s 720p 9:16, 1080p a setting, timed shots, no narration, measured cost) with Kling as a setting; transparent logo: small corner mark on every video and image, frosted end card on videos; fast-cut opening 1.5/2/1.5/1/3s");
 
+// Advantage+ creative enhancements: every new creative opts out, a key Meta no longer knows never stops a launch,
+// and the read-back flags anything still on. fetch is stubbed: nothing reaches Meta.
+const enh = await import("@/lib/meta/enhancements");
+const realFetch = globalThis.fetch;
+const realToken = process.env.META_SYSTEM_USER_TOKEN;
+process.env.META_SYSTEM_USER_TOKEN = "test-token";
+const posted: Record<string, string>[] = [];
+let refuse: string[] = [];
+globalThis.fetch = (async (url: string, init?: { body?: URLSearchParams }) => {
+  if (!init?.body) {
+    // A read-back GET
+    const spec = new URL(url).pathname.endsWith("/c-on")
+      ? { creative_features_spec: { text_optimizations: { enroll_status: "OPT_IN" }, adapt_to_placement: { enroll_status: "OPT_IN" }, image_touchups: { enroll_status: "OPT_OUT" } } }
+      : new URL(url).pathname.endsWith("/c-bare") ? undefined : { creative_features_spec: { image_touchups: { enroll_status: "OPT_OUT" }, standard_enhancements: { enroll_status: "OPT_OUT" } } };
+    return new Response(JSON.stringify({ id: "x", degrees_of_freedom_spec: spec }), { status: 200 });
+  }
+  posted.push(Object.fromEntries(init.body.entries()));
+  const msg = refuse.shift();
+  if (msg) return new Response(JSON.stringify({ error: { message: msg, code: 100 } }), { status: 400 });
+  return new Response(JSON.stringify({ id: "creative-1" }), { status: 200 });
+}) as typeof fetch;
+const creativeInput = { name: "Migz · test", pageId: "p1", link: "https://x/b", primaryText: "Hi", headline: "H", media: { kind: "image" as const, imageHash: "h1" } };
+const sentSpec = (i: number) => (posted[i].degrees_of_freedom_spec ? JSON.parse(posted[i].degrees_of_freedom_spec).creative_features_spec : null);
+assert.equal(await metaAds.createAdCreative("act_1", creativeInput), "creative-1");
+const spec0 = sentSpec(0);
+assert.deepEqual(Object.keys(spec0).sort(), [...enh.ENHANCEMENTS_OFF].sort(), "every feature in the list is sent");
+assert.ok(Object.values(spec0).every((v) => (v as { enroll_status: string }).enroll_status === "OPT_OUT"), "all of them OPT_OUT");
+for (const k of ["text_optimizations", "enhance_cta", "image_touchups", "image_animation", "music_generation", "add_text_overlay", "image_templates", "video_filtering", "inline_comment"]) assert.ok(k in spec0, `${k} is opted out`);
+for (const k of ["adapt_to_placement", "video_auto_crop", "standard_enhancements"]) assert.ok(!(k in spec0), `${k} is left alone`);
+assert.equal(JSON.parse(posted[0].object_story_spec).link_data.image_hash, "h1", "the ad itself is unchanged");
+posted.length = 0;
+refuse = ["(#100) Param degrees_of_freedom_spec[creative_features_spec][music_generation] is not a valid feature"];
+assert.equal(await metaAds.createAdCreative("act_1", creativeInput), "creative-1", "a refused feature doesn't stop the launch");
+assert.equal(posted.length, 2);
+assert.ok(!("music_generation" in sentSpec(1)) && "image_touchups" in sentSpec(1), "it's dropped and the rest are still opted out");
+posted.length = 0;
+refuse = ["(#100) Invalid parameter: degrees_of_freedom_spec"];
+assert.equal(await metaAds.createAdCreative("act_1", creativeInput), "creative-1");
+assert.equal(sentSpec(1), null, "a spec refused without a name: made without it (the read-back flags it)");
+posted.length = 0;
+refuse = ["(#100) The link field is required"];
+await assert.rejects(metaAds.createAdCreative("act_1", creativeInput), /link field/, "other errors still fail as before");
+assert.equal(posted.length, 1, "and aren't retried");
+assert.equal(enh.refusedFeature("text_optimizations_v2 is unknown", ["text_optimizations"]), null, "only whole key names count");
+assert.equal(enh.refusedFeature("bad image_text_translation", ["text_translation", "image_text_translation"]), "image_text_translation");
+assert.deepEqual(await metaAds.creativeEnhancementsOn("c-on"), ["text_optimizations"], "OPT_IN is flagged; the placement crop isn't");
+assert.deepEqual(await metaAds.creativeEnhancementsOn("c-off"), [], "all off (a retired standard_enhancements reading OPT_OUT is fine)");
+assert.deepEqual(await metaAds.creativeEnhancementsOn("c-bare"), ["(no opt-out recorded)"], "no feature settings at all is flagged");
+globalThis.fetch = realFetch;
+if (realToken === undefined) delete process.env.META_SYSTEM_USER_TOKEN;
+else process.env.META_SYSTEM_USER_TOKEN = realToken;
+ok("Advantage+ creative: every new creative opts out of Meta's text, image, video and music enhancements (placement crops left on); a key Meta refuses is dropped instead of failing the launch; the read-back flags anything still on");
+
 console.log(`\nALL ${n} UNIT GROUPS PASSED`);

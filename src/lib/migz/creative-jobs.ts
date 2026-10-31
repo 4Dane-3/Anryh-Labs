@@ -4,7 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import { landingUrl } from "@/lib/booking/sites";
 import type { Agent } from "@/lib/booking/data";
 import { getRequestStatus, submitImage, submitVideo, videoModel } from "@/lib/higgsfield";
-import { createAd, createAdCreative, uploadImage, uploadVideo, videoState } from "@/lib/meta/ads";
+import { createAd, createAdCreative, creativeEnhancementsOn, uploadImage, uploadVideo, videoState } from "@/lib/meta/ads";
 import { MetaApiError } from "@/lib/meta/graph";
 import { isTestMode } from "@/lib/migz/test-mode";
 import { alertAdmin, alertCreativeFailed } from "@/lib/migz/slack";
@@ -366,6 +366,22 @@ async function loadAgent(agentId: string): Promise<Agent> {
   return data as Agent;
 }
 
+/**
+ * Reads a new creative back from Meta (a GET, nothing changed) and tells staff if any Advantage+ enhancement
+ * is still on, so Meta never rewrites an ad unnoticed. Never fails the launch.
+ */
+export async function checkCreativeEnhancements(agent: Pick<Agent, "id" | "slug">, creativeId: string, name: string) {
+  try {
+    const on = await creativeEnhancementsOn(creativeId);
+    if (!on.length) return;
+    const detail = `Meta creative ${creativeId} ("${name}") still has ${on.join(", ")} switched on. Turn it off in Ads Manager or remake the creative.`;
+    await alertAdmin(`*Advantage+ enhancements on* for \`${agent.slug}\`: ${detail}`).catch(() => {});
+    await recordEventAlert({ agentId: agent.id, key: `enhancements_on:${creativeId}`, severity: "warn", title: "Meta enhancements still on", detail });
+  } catch (e) {
+    console.error("couldn't read the creative's enhancements back", e instanceof Error ? e.message : e);
+  }
+}
+
 async function createLiveAd(job: Job, agent: Agent, media: Parameters<typeof createAdCreative>[1]["media"]) {
   const account = agent.meta_ad_account_id!;
   const name = `Migz · ${briefLabel(job.brief)}`.slice(0, 100);
@@ -386,6 +402,7 @@ async function createLiveAd(job: Job, agent: Agent, media: Parameters<typeof cre
       media,
     });
     await update(job.id, { meta_creative_id: metaCreativeId });
+    await checkCreativeEnhancements(agent, metaCreativeId, name);
   }
   let metaAdId = job.meta_ad_id ?? null;
   if (!metaAdId) {
