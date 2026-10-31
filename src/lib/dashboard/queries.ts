@@ -115,6 +115,8 @@ export async function getProposedActions(agentId: string): Promise<MigzAction[]>
     .select("id, kind, title, detail, status, created_at, result, payload")
     .eq("agent_id", agentId)
     .eq("status", "proposed")
+    // Proposals lapse after 48 hours (the panel says so); an old one shouldn't keep waiting on screen
+    .gte("created_at", new Date(Date.now() - 48 * 3_600_000).toISOString())
     .order("created_at", { ascending: false });
   return (data ?? []) as MigzAction[];
 }

@@ -74,7 +74,10 @@ export type LiveStats = {
     bookedCalls: number;
   };
   hours: { hour: number; spendCents: number; impressions: number }[]; // 0-23 in the ad account's timezone, up to now
-  ads: { adId: string; name: string; spendCents: number; impressions: number; linkClicks: number }[];
+  /** Today's top spenders; `paused` marks one that has since been paused */
+  ads: { adId: string; name: string; spendCents: number; impressions: number; linkClicks: number; paused?: boolean }[];
+  /** Ads paused in the current campaign (today's numbers when they spent before being paused) */
+  pausedAds?: { adId: string; name: string; spendCents: number; impressions: number; linkClicks: number }[];
   batch: { spentCents: number; budgetCents: number; day: number; days: number } | null;
   // No dollar amounts: agents never see what Migz's AI costs (staff see it in the admin dashboard)
   migz: { callsToday: number; pace: "normal" | "saving" | "light" };

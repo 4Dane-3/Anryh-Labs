@@ -327,9 +327,9 @@ export function LivePanel({ events, agentId }: { events: BrainEvent[]; agentId: 
 
         <div className="min-w-0">
           <p className="mb-2 font-mono text-[11px] text-fg-faint">Spending now</p>
-          {stats?.ads.length ? (
+          {stats?.ads.some((a) => !a.paused) ? (
             <ul className="space-y-2.5">
-              {stats.ads.map((a) => (
+              {stats.ads.filter((a) => !a.paused).map((a) => (
                 <li key={a.adId} className="min-w-0">
                   <div className="flex items-baseline justify-between gap-3 font-mono text-[12px]">
                     <span className="truncate text-fg">{a.name}</span>
@@ -344,6 +344,24 @@ export function LivePanel({ events, agentId }: { events: BrainEvent[]; agentId: 
             </ul>
           ) : (
             <p className="rounded-md border border-dashed border-line px-3 py-4 text-[12px] text-fg-muted">{stats ? "No ad has spent yet today." : "Reading Meta…"}</p>
+          )}
+          {!!stats?.pausedAds?.length && (
+            <div className="mt-5">
+              <p className="mb-2 font-mono text-[11px] text-fg-faint">Paused</p>
+              <ul className="space-y-2">
+                {stats.pausedAds.map((a) => (
+                  <li key={a.adId} className="min-w-0">
+                    <div className="flex items-baseline justify-between gap-3 font-mono text-[12px]">
+                      <span className="truncate text-fg-muted">{a.name}</span>
+                      <span className="shrink-0 text-fg-faint">{a.spendCents ? `${usd(a.spendCents)} today` : "paused"}</span>
+                    </div>
+                    {a.impressions > 0 && (
+                      <p className="mt-0.5 font-mono text-[11px] text-fg-faint">{int(a.impressions)} impressions · {a.linkClicks} link clicks before it was paused</p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
         </div>
 
