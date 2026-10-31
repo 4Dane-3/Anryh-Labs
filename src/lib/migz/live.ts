@@ -48,7 +48,7 @@ export async function getLiveStats(agent: Agent, opts: { fresh?: boolean; date?:
       )
     : Promise.resolve({ total: null, ads: [] as AdRow[], hours: [] as HourRow[], error: null });
 
-  const [m, adsets, bookings, calls, budget, batch, synced] = await Promise.all([
+  const [m, adsets, bookings, calls, budget, batch, synced, adRows] = await Promise.all([
     meta,
     supabaseAdmin.from("ad_sets").select("daily_budget_cents, ad_campaigns!inner(retired_at)").eq("agent_id", agent.id).eq("status", "ACTIVE").is("ad_campaigns.retired_at", null),
     supabaseAdmin.from("bookings").select("attribution").eq("agent_id", agent.id).gte("created_at", dayStart.toUTC().toISO()!).lt("created_at", dayStart.plus({ days: 1 }).toUTC().toISO()!),
@@ -56,6 +56,12 @@ export async function getLiveStats(agent: Agent, opts: { fresh?: boolean; date?:
     monthlyBudget(agent.id, agent.migz_model_budget_cents ?? 3000, agent.timezone),
     getActiveBatch(agent.id),
     supabaseAdmin.from("ad_metrics_daily").select("spend_cents").eq("agent_id", agent.id).eq("date", dayStart.toISODate()!).maybeSingle(),
+    // Which ads of the current campaign are paused (the ad, its ad set or its campaign)
+    supabaseAdmin
+      .from("ads")
+      .select("meta_ad_id, name, status, ad_sets!inner(status, ad_campaigns!inner(status, retired_at))")
+      .eq("agent_id", agent.id)
+      .is("ad_sets.ad_campaigns.retired_at", null),
   ]);
 
   const spendCents = cents(m.total?.spend);
@@ -71,6 +77,14 @@ export async function getLiveStats(agent: Agent, opts: { fresh?: boolean; date?:
     const spent = Math.max(0, p.spentCents - (synced.data?.spend_cents ?? 0)) + spendCents;
     batchStats = { spentCents: spent, budgetCents: batch.budget_cents, day: Math.min(p.day, batch.days), days: batch.days };
   }
+
+  const pausedRows = (adRows.data ?? []).filter((a) => {
+    const set = Array.isArray(a.ad_sets) ? a.ad_sets[0] : a.ad_sets;
+    const campaign = set && (Array.isArray(set.ad_campaigns) ? set.ad_campaigns[0] : set.ad_campaigns);
+    return a.status === "PAUSED" || set?.status === "PAUSED" || campaign?.status === "PAUSED";
+  });
+  const pausedIds = new Set(pausedRows.map((a) => a.meta_ad_id));
+  const todayById = new Map(m.ads.map((a) => [a.ad_id, a]));
 
   const stats: LiveStats = {
     agentId: agent.id,
@@ -94,7 +108,14 @@ export async function getLiveStats(agent: Agent, opts: { fresh?: boolean; date?:
       .map((h) => ({ hour: Number(h.hourly_stats_aggregated_by_advertiser_time_zone.slice(0, 2)), spendCents: cents(h.spend), impressions: Number(h.impressions ?? 0) }))
       .sort((a, b) => a.hour - b.hour),
     ads: m.ads
-      .map((a) => ({ adId: a.ad_id, name: a.ad_name.replace(/^Migz · /, ""), spendCents: cents(a.spend), impressions: Number(a.impressions ?? 0), linkClicks: Number(a.inline_link_clicks ?? 0) }))
+      .map((a) => ({ adId: a.ad_id, name: a.ad_name.replace(/^Migz · /, ""), spendCents: cents(a.spend), impressions: Number(a.impressions ?? 0), linkClicks: Number(a.inline_link_clicks ?? 0), paused: pausedIds.has(a.ad_id) }))
+      .sort((a, b) => b.spendCents - a.spendCents || b.impressions - a.impressions)
+      .slice(0, 6),
+    pausedAds: pausedRows
+      .map((a) => {
+        const t = todayById.get(a.meta_ad_id);
+        return { adId: a.meta_ad_id, name: a.name.replace(/^Migz · /, ""), spendCents: cents(t?.spend), impressions: Number(t?.impressions ?? 0), linkClicks: Number(t?.inline_link_clicks ?? 0) };
+      })
       .sort((a, b) => b.spendCents - a.spendCents || b.impressions - a.impressions)
       .slice(0, 6),
     batch: batchStats,
