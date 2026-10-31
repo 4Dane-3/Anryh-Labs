@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import { getIntakeQuestions, type Agent } from "@/lib/booking/data";
 import { digestMessage, type DigestBooking } from "@/lib/booking/format";
 import { sendSlackMessage } from "@/lib/slack";
+import { askOutcomes } from "@/lib/dashboard/outcomes";
 
 // Called every hour by Supabase pg_cron (supabase/migrations/20261022000000_digest_cron.sql), which sends
 // `Authorization: Bearer <cron_secret from Vault>`. Each agent gets one DM per local day, at or after their digest hour.
@@ -76,6 +77,15 @@ export async function GET(req: Request) {
         .eq("id", agent.id);
       console.error("digest failed", agent.slug, e);
       results[agent.slug] = "failed";
+    }
+
+    // Right after the morning digest (once a day): how did yesterday's calls and leads go? A separate
+    // message with one-tap answers, only when there's something to ask
+    try {
+      const asked = await askOutcomes(agent, now);
+      if (asked.asked || asked.reminded) results[agent.slug] += ` · outcomes asked ${asked.asked}, reminded ${asked.reminded}`;
+    } catch (e) {
+      console.error("asking for outcomes failed", agent.slug, e);
     }
   }
 

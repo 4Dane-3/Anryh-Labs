@@ -313,7 +313,10 @@ function ScorecardsPanel({ cards }: { cards: Scorecard[] }) {
                   <td className="px-5">{pct(c.hold_rate)}</td>
                   <td className="px-5"><Retention r={c.retention} /></td>
                   <td className="px-5">{pct(c.link_ctr, 2)}</td>
-                  <td className="px-5">{c.booked_calls}{c.cost_per_booked_call !== null ? <span className="text-fg-faint"> · ${c.cost_per_booked_call.toFixed(0)}</span> : null}</td>
+                  <td className="px-5">
+                    {c.booked_calls}{c.cost_per_booked_call !== null ? <span className="text-fg-faint"> · ${c.cost_per_booked_call.toFixed(0)}</span> : null}
+                    {c.after_the_call && <p className="max-w-[200px] whitespace-normal text-[11px] text-fg-faint">{c.after_the_call}</p>}
+                  </td>
                   <td className="px-5" title={c.verdict.read}>
                     <Badge tone={c.verdict.rung === "healthy" ? "good" : c.verdict.rung === "too_early" ? "neutral" : "accent"}>{RUNG[c.verdict.rung] ?? c.verdict.rung}</Badge>
                   </td>

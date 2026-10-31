@@ -11,7 +11,7 @@ export const TOPICS = {
   final_expense: {
     label: "Final expense",
     pitch: "Cover funeral costs so the family isn't left with the bill.",
-    angle: "Peace of mind and not burdening the kids. Warm, dignified family moments across generations. Never call out age or health; speak to the situation (\"so your family isn't left with the bill\").",
+    angle: "Peace of mind and not burdening the kids. Warm, dignified family moments across generations. Say who it's for as a range (\"for people 50–85\") or a condition (\"if you're between 50 and 85\"), never tell the viewer their age or health; speak to the situation (\"so your family isn't left with the bill\").",
   },
   income_protection: {
     label: "Income protection",

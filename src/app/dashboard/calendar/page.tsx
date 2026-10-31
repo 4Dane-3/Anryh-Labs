@@ -6,6 +6,8 @@ import { getBookingsBetween } from "@/lib/dashboard/queries";
 import { PageHeader, Tabs } from "@/components/dashboard/ui";
 import { WeekCalendar } from "@/components/dashboard/WeekCalendar";
 import { HoursEditor } from "@/components/dashboard/HoursEditor";
+import { getOutcomeItems } from "@/lib/dashboard/outcomes";
+import { OutcomeList } from "@/components/dashboard/OutcomeAsk";
 
 export default async function CalendarPage({
   searchParams,
@@ -18,7 +20,7 @@ export default async function CalendarPage({
   const picked = week ? DateTime.fromISO(week, { zone: agent.timezone }) : null;
   const weekStart = (picked?.isValid ? picked : DateTime.now().setZone(agent.timezone)).startOf("week");
 
-  const [bookings, { data: rules }, questions] = await Promise.all([
+  const [bookings, { data: rules }, questions, callsDue] = await Promise.all([
     getBookingsBetween(agent.id, weekStart.toUTC().toISO()!, weekStart.plus({ weeks: 1 }).toUTC().toISO()!),
     supabaseAdmin
       .from("availability_rules")
@@ -27,6 +29,7 @@ export default async function CalendarPage({
       .order("weekday")
       .order("start_time"),
     getIntakeQuestions(agent.id),
+    getOutcomeItems(agent, { due: true }).then((rows) => rows.filter((r) => r.kind === "call")),
   ]);
 
   const hhmm = (t: string) => t.slice(0, 5);
@@ -61,6 +64,12 @@ export default async function CalendarPage({
           }}
         />
       ) : (
+        <>
+        {callsDue.length > 0 && (
+          <div className="mb-4">
+            <OutcomeList rows={callsDue} timezone={agent.timezone} title="How did your calls go?" />
+          </div>
+        )}
         <WeekCalendar
           weekStart={weekStart.toISODate()!}
           timezone={agent.timezone}
@@ -68,6 +77,7 @@ export default async function CalendarPage({
           rules={cleanRules}
           questionOrder={questions.map((q) => q.key)}
         />
+        </>
       )}
     </>
   );

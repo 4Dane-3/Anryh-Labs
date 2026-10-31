@@ -19,6 +19,9 @@ import type { QuoteMode } from "@/lib/booking/constants";
 import type { EventRow } from "@/lib/admin/page-analytics";
 import { emptyPlatformStats, platformOf, PLATFORMS, strongerPlatform, type PlatformStats } from "@/lib/migz/platforms";
 import { DEFAULT_INTENT, DEFAULT_VIDEO_TIER, isIntentLevel, isVideoTier, MIN_SPLIT_DAILY_CENTS, VIDEO_TIERS, type IntentLevel, type VideoTier } from "@/lib/ad-options";
+import { ageCallout, CALL_TIMES, cleanAnswers, CONTACT, LANGUAGES, UNDERWRITING } from "@/lib/campaign-plan";
+import { outcomesByAd, OUTCOME_WINDOW_DAYS } from "@/lib/dashboard/outcomes";
+import { MIN_OUTCOMES, outcomeStats, rankingCost, showUpLine } from "@/lib/outcomes";
 
 /**
  * Everything Migz needs for one review: the campaign tree with 14-day and 3-day results per ad,
@@ -75,6 +78,13 @@ export async function buildSnapshot(agent: Agent) {
     // Each step of the booking page, to tell an ads problem from a page problem
     fetchPageEvents(agent.id, DateTime.fromISO(since14, { zone: agent.timezone }).toUTC().toISO()!),
   ]);
+  // Ads Meta rejected, with its reasons (newest first). Before its migration the query errors and there are none.
+  const { data: rejectionRows } = await supabaseAdmin
+    .from("ad_rejections")
+    .select("reasons, headline, hook_line, created_at")
+    .eq("agent_id", agent.id)
+    .order("created_at", { ascending: false })
+    .limit(8);
   // Instant-form leads per ad (low–medium intent). Before its migration the query errors and there are none.
   const { data: formLeadRows } = await supabaseAdmin
     .from("quote_requests")
@@ -90,6 +100,11 @@ export async function buildSnapshot(agent: Agent) {
     if (r.booked_at) e.booked++;
     formLeadsByAd.set(r.meta_ad_id, e);
   }
+
+  // What happened on each ad's calls (showed up, quoted, sold), from the agent's answers
+  const adOutcomes = await outcomesByAd(agent.id);
+  const allOutcomes = [...adOutcomes.values()].flat();
+  const accountOutcomes = outcomeStats(allOutcomes);
 
   // Booked calls per ad come from our bookings: Meta fills utm_content with the ad id
   const bookingsByAd = new Map<string, { d14: number; d3: number }>();
@@ -397,14 +412,25 @@ export async function buildSnapshot(agent: Agent) {
           : today.toISODate()! < revisionsFrom
             ? `collecting results: the first ${collectDays} days are for data on the creative the batch launched with. Don't pause ads, move budget or change placements yet (the system refuses). Compare the ads from ${revisionsFrom}.`
             : "revising: compare the ads (and the campaigns, if there are several), revise what's losing (hooks, copy, budget between ad sets when there's more than one), then judge whether each change helped before the campaign ends",
-        note: agent.campaign_ends_on ? "The agent chose this length. Pace tests so winners are found with time left to benefit; don't start long tests near the end." : undefined,
+        note: agent.campaign_ends_on ? "Migz set this length from the daily budget. Pace tests so winners are found with time left to benefit; don't start long tests near the end." : undefined,
       },
+      call_outcomes: accountOutcomes.answered
+        ? {
+            [`booked_calls_last_${OUTCOME_WINDOW_DAYS}_days`]: accountOutcomes.total,
+            answered_by_the_agent: accountOutcomes.answered,
+            showed_up: accountOutcomes.good,
+            sold: accountOutcomes.sold,
+            show_up_rate: accountOutcomes.goodRate === null ? `not enough answers yet (needs ${MIN_OUTCOMES})` : `${Math.round(accountOutcomes.goodRate * 100)}%`,
+          }
+        : "the agent hasn't said how any calls went yet: rank ads on booked calls",
       lead_style: intent === "low_medium"
         ? `low–medium intent: the agent chose more, cheaper leads. The main campaign runs a booking-page ad set and an instant-form ad set side by side (the system builds both when the daily budget is at least $${MIN_SPLIT_DAILY_CENTS / 100}). Launch creatives into both; compare cost per form lead with cost per booked call, and remember a form lead is an early call-back, worth less than a booked call.${agent.lead_form_blocked ? ` The instant form couldn't be made yet (${agent.lead_form_blocked}), so only the booking page runs for now.` : ""}`
         : "medium–high intent: every ad sends people to the booking page to book a call (no instant forms).",
       video_quality: videoTierNow === "standard"
         ? `Standard (Kling 3.0, 720p, included): videos up to ${VIDEO_TIERS.standard.seconds} seconds.`
-        : `${VIDEO_TIERS[videoTierNow].title} at 720p, chosen by the agent: each new video costs them $${(VIDEO_TIERS[videoTierNow].priceCents / 100).toFixed(0)} from their ad funds, so make each one count. Write videos up to ${videoSeconds} seconds.${videoSeconds < VIDEO_TIERS[videoTierNow].seconds ? " (Their free balance can't cover a Seedance video right now, so it would be made on Standard: keep it to 15 seconds.)" : ""}`,
+        : `${VIDEO_TIERS[videoTierNow].title} at 720p, chosen by the agent: each ad set's first 2 videos cost them $${(VIDEO_TIERS[videoTierNow].priceCents / 100).toFixed(0)} each from their ad funds and extras 20% less, so make each one count. Write videos up to ${videoSeconds} seconds.${videoSeconds < VIDEO_TIERS[videoTierNow].seconds ? " (Their free balance can't cover a Seedance video right now, so it would be made on Standard: keep it to 15 seconds.)" : ""}`,
+      campaign_answers: agent.campaign_answers ? describeAnswers(agent.campaign_answers) : "not given yet (the agent hasn't used the new start flow): write for adults in their states, no age range, and no 'no exam' or health-issue claims",
+      past_rejections: (rejectionRows ?? []).map((r) => ({ when: r.created_at.slice(0, 10), what_it_said: r.hook_line ?? r.headline, meta_said: r.reasons })),
       creative_generation: outOfCredits > 0
         ? `uncertain: the generator refused the last attempt (${DateTime.fromISO(refusedAt!).toRelative({ base: DateTime.now() })}) for lack of credits, but credits may have been added since. Try ONE creative now (an image first: they cost the least). If it fails again, stop starting creatives this review and say so; if it works, carry on as normal next review.`
         : "available",
@@ -491,6 +517,23 @@ export async function buildSnapshot(agent: Agent) {
                       return { form_leads_last_14_days: { leads: f.leads, later_booked_a_call: f.booked, cost_per_lead: f.leads ? `$${(spend / f.leads / 100).toFixed(2)}` : "n/a" } };
                     })()
                   : {}),
+                ...(adOutcomes.get(a.meta_ad_id)?.some(Boolean)
+                  ? (() => {
+                      const o = adOutcomes.get(a.meta_ad_id)!;
+                      const st = outcomeStats(o);
+                      const rank = rankingCost(results.t.d14.spend_cents, results.t.d14.booked_calls, o);
+                      return {
+                        after_the_call: {
+                          [`booked_calls_last_${OUTCOME_WINDOW_DAYS}_days`]: st.total,
+                          answered: st.answered,
+                          showed_up: st.good,
+                          sold: st.sold,
+                          read: showUpLine(o) ?? `only ${st.answered} answered so far; rank it on booked calls until ${MIN_OUTCOMES}`,
+                          rank_on: rank.cents === null ? "n/a" : `$${(rank.cents / 100).toFixed(2)} per ${rank.basis.replace(/_/g, " ")}`,
+                        },
+                      };
+                    })()
+                  : {}),
                 last_3_days: present(results.d3),
                 fatigue: results.fatigue.signals.length ? results.fatigue.signals.join("; ") : "none",
               };
@@ -524,6 +567,7 @@ export async function buildSnapshot(agent: Agent) {
   return {
     forModel,
     adMetrics,
+    adOutcomes,
     guardAdsets,
     openGenerations: (jobs.data ?? []).filter((j) => j.stage === "generating").length,
     hasCampaign: (campaigns.data ?? []).length > 0,
@@ -540,3 +584,17 @@ export async function buildSnapshot(agent: Agent) {
 }
 
 export type Snapshot = Awaited<ReturnType<typeof buildSnapshot>>;
+
+/** The agent's start-flow answers in plain words for the review. */
+function describeAnswers(raw: unknown) {
+  const a = cleanAnswers(raw);
+  return {
+    ages: a.ageMin !== null || a.ageMax !== null ? `${a.ageMin ?? 18}–${a.ageMax ?? "any"} (on screen: "${ageCallout(a)}")` : "any adult",
+    lowest_monthly_premium: a.minPremium ? `$${a.minPremium}` : "not given",
+    underwriting: a.underwriting ? UNDERWRITING[a.underwriting].title : "not given (don't claim no exam)",
+    takes_health_issues: a.healthIssuesOk === null ? "not given (don't claim it)" : a.healthIssuesOk ? "yes (guaranteed issue available)" : "no",
+    languages: a.languages.map((l) => LANGUAGES[l]),
+    meets_clients: a.contact ? CONTACT[a.contact] : "not given",
+    takes_calls: a.callTimes.length ? a.callTimes.map((t) => CALL_TIMES[t]) : "not given",
+  };
+}

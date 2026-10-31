@@ -72,14 +72,17 @@ export async function syncAgent(agent: Agent) {
   }
 
   // 3. Ad statuses (also catches ads paused or rejected outside Migz)
-  const ads = await graphAll<{ id: string; status: string; effective_status: string }>(`${account}/ads`, {
-    fields: "id,status,effective_status",
+  const ads = await graphAll<{ id: string; status: string; effective_status: string; ad_review_feedback?: ReviewFeedback }>(`${account}/ads`, {
+    fields: "id,status,effective_status,ad_review_feedback",
     limit: 500,
   });
   for (const ad of ads) {
     const status = ad.effective_status === "DISAPPROVED" ? "DISAPPROVED" : ad.status;
     // A rejected ad's paid video is refunded (idempotent, so every sync can check)
-    if (status === "DISAPPROVED") await refundRejectedVideo(agent.id, ad.id).catch((e) => console.error("refunding a rejected video failed", e));
+    if (status === "DISAPPROVED") {
+      await refundRejectedVideo(agent.id, ad.id).catch((e) => console.error("refunding a rejected video failed", e));
+      await logRejection(agent, ad.id, ad.ad_review_feedback).catch((e) => console.error("logging a rejection failed", e));
+    }
     await supabaseAdmin
       .from("ads")
       .update({ status, updated_at: new Date().toISOString() })
@@ -94,6 +97,35 @@ export async function syncAgent(agent: Agent) {
   // 4. Instant-form leads the webhook missed (low–medium intent). Never fails the sync.
   if (agent.meta_lead_form_id)
     await pullFormLeads(agent).catch((e) => console.error("pulling form leads failed", e instanceof Error ? e.message : e));
+}
+
+type ReviewFeedback = { global?: Record<string, string>; placement_specific?: Record<string, Record<string, string>> };
+
+/** Meta's reasons for rejecting an ad, as plain lines ("Personal attributes: …"). */
+export function rejectionReasons(feedback: ReviewFeedback | undefined) {
+  const lines = new Set<string>();
+  for (const [k, v] of Object.entries(feedback?.global ?? {})) lines.add(`${k}: ${v}`.slice(0, 500));
+  for (const per of Object.values(feedback?.placement_specific ?? {})) for (const [k, v] of Object.entries(per)) lines.add(`${k}: ${v}`.slice(0, 500));
+  return [...lines];
+}
+
+/**
+ * Keeps every rejected ad with Meta's reasons and the words on it (once per ad), so Migz learns which
+ * phrasings fail on agent accounts. A no-op before the ad_rejections migration.
+ */
+async function logRejection(agent: Agent, metaAdId: string, feedback: ReviewFeedback | undefined) {
+  const { data: seen, error } = await supabaseAdmin.from("ad_rejections").select("id").eq("meta_ad_id", metaAdId).maybeSingle();
+  if (error || seen) return;
+  const { data: ad } = await supabaseAdmin.from("ads").select("primary_text, headline, creatives(script)").eq("meta_ad_id", metaAdId).eq("agent_id", agent.id).maybeSingle();
+  const script = (ad?.creatives as { script?: { hook_line?: string; overlay_lines?: string[] } | null } | null)?.script;
+  await supabaseAdmin.from("ad_rejections").insert({
+    agent_id: agent.id,
+    meta_ad_id: metaAdId,
+    reasons: rejectionReasons(feedback),
+    primary_text: ad?.primary_text ?? null,
+    headline: ad?.headline ?? null,
+    hook_line: script?.hook_line ?? script?.overlay_lines?.join(" / ") ?? null,
+  });
 }
 
 /**

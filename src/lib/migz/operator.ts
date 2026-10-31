@@ -126,7 +126,7 @@ export async function runOperator(
       content: reviewMessage({
         mode,
         producing,
-        refreshAdsets: env.ctx.refreshAdsets,
+        fillAdsets: env.ctx.fillAdsets,
         today: new Date().toLocaleDateString("en-US", { timeZone: agent.timezone, weekday: "short", month: "short", day: "numeric", year: "numeric" }),
         snapshotJson: JSON.stringify(snapshot.forModel, null, 1),
         contextJson: JSON.stringify(opts.teamContext, null, 1),

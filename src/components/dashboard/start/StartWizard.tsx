@@ -6,16 +6,15 @@ import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowUpRight, Check, Loader2 } from "lucide-react";
 import { launchCampaign, saveBatchPlan, setCreativeMode } from "@/app/dashboard/actions";
-import { BatchPlanner } from "@/components/dashboard/batch/BatchPlanner";
+import { CampaignFlow, type CampaignStart } from "@/components/dashboard/start/CampaignFlow";
 import { listCampaignTopics, type CampaignSlot } from "@/lib/batch";
 import { AddFunds } from "@/components/dashboard/FundsControls";
 import { ProfileForm, type Profile } from "@/components/dashboard/LandingEditor";
-import { Button, Label, Panel } from "@/components/dashboard/ui";
-import { MIN_DEPOSIT_CENTS, MIN_TOP_UP_CENTS } from "@/lib/campaign";
+import { Button, Panel } from "@/components/dashboard/ui";
+import { FUNDS_STEP_CENTS, type OwnNumbers } from "@/lib/campaign-plan";
 import { usd } from "@/lib/dashboard/format";
-import { cleanFocus, MAX_FOCUS, TOPIC_KEYS, TOPICS, type TopicKey } from "@/lib/migz/topics";
+import { cleanFocus, TOPICS } from "@/lib/migz/topics";
 import { cn } from "@/lib/utils";
-import type { IntentLevel, VideoTier } from "@/lib/ad-options";
 
 type StepState = { key: string; done: boolean; missing: string | null };
 
@@ -29,9 +28,9 @@ type Props = {
   plan: {
     topics: string[];
     batch: { budget_cents: number; option: string; campaigns: string[]; days: number; daily_cents: number } | null;
-    autoRun: boolean;
-    intentLevel: IntentLevel;
-    videoTier: VideoTier;
+    start: CampaignStart;
+    own: OwnNumbers | null;
+    fundsNeeded: { cents: number; recommendedCents: number } | null;
   };
   creativeMode: "upload" | "ai" | "both" | null;
   creativeCount: number;
@@ -42,8 +41,8 @@ type Props = {
 const TITLES: Record<string, { title: string; blurb: string }> = {
   profile: { title: "Your profile", blurb: "Your name, photo and a short bio. People see this before they book." },
   page: { title: "Your booking page", blurb: "The hours you take calls, and a look at the page your ads send people to." },
-  funds: { title: "Add funds", blurb: `Money for your Meta ads. Add ${usd(MIN_TOP_UP_CENTS)} or more at a time; your first batch needs ${usd(MIN_DEPOSIT_CENTS)} in total ($20 a day of ads for 2 weeks).` },
-  plan: { title: "Plan your first batch", blurb: "What to promote and how much to put in. Migz plans the campaigns and how long they run." },
+  plan: { title: "Plan your first campaign", blurb: "A few quick questions and a daily budget. Migz sets how long it runs and makes the ads." },
+  funds: { title: "Add funds", blurb: `Money for your Meta ads, in ${usd(FUNDS_STEP_CENTS)} steps. Your plan shows what your campaign needs.` },
   creatives: { title: "Videos and images", blurb: "Let Migz make your ads' videos and photos, or bring your own." },
 };
 
@@ -100,71 +99,22 @@ function StepShell({
 
 function PlanStep({ plan, balanceCents, onSaved }: { plan: Props["plan"]; balanceCents: number; onSaved: () => void }) {
   const router = useRouter();
-  const [topics, setTopics] = useState<TopicKey[]>(cleanFocus(plan.topics));
-
-  const toggle = (k: TopicKey) =>
-    setTopics((cur) => (cur.includes(k) ? cur.filter((x) => x !== k) : cur.length >= MAX_FOCUS ? cur : [...cur, k]));
-
   return (
-    <div className="space-y-6">
-      <div>
-        <Label>What do you want to promote?</Label>
-        <p className="mb-2 text-[12px] text-fg-faint">
-          Pick up to {MAX_FOCUS}, in order. Migz runs ads on each one inside a single campaign, with the most new ads on your main focus.
-        </p>
-        <div className="grid gap-2 sm:grid-cols-2">
-          {TOPIC_KEYS.map((k) => {
-            const rank = topics.indexOf(k);
-            const on = rank >= 0;
-            return (
-              <button
-                key={k}
-                type="button"
-                aria-pressed={on}
-                disabled={!on && topics.length >= MAX_FOCUS}
-                onClick={() => toggle(k)}
-                className={cn(
-                  "flex items-start gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors disabled:opacity-40",
-                  on ? "border-brand/50 bg-brand/[0.07]" : "border-line hover:border-line-strong hover:bg-white/[0.03]",
-                )}
-              >
-                <span className={cn("mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full font-mono text-[11px]", on ? "bg-brand text-brand-fg" : "border border-line-strong text-transparent")}>
-                  {on ? rank + 1 : "·"}
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-[13px] font-medium text-fg">{TOPICS[k].label}</span>
-                  <span className="block text-[12px] text-fg-muted">{TOPICS[k].pitch}</span>
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {topics.length > 0 ? (
-        <BatchPlanner
-          key={topics.join()}
-          topics={topics}
-          balanceCents={balanceCents}
-          initialBudgetCents={plan.batch?.budget_cents}
-          initialAutoRun={plan.autoRun}
-          initialIntent={plan.intentLevel}
-          initialVideoTier={plan.videoTier}
-          confirmLabel="Save plan"
-          needsBalance={false}
-          onConfirm={async (choice) => {
-            const res = await saveBatchPlan({ ...choice, topics });
-            if (res.ok) {
-              router.refresh();
-              onSaved();
-            }
-            return res;
-          }}
-        />
-      ) : (
-        <p className="text-[13px] text-fg-faint">Pick at least one topic, then Migz plans your first batch.</p>
-      )}
-    </div>
+    <CampaignFlow
+      initial={plan.start}
+      balanceCents={balanceCents}
+      own={plan.own}
+      confirmLabel="Save plan"
+      needsBalance={false}
+      onConfirm={async (choice) => {
+        const res = await saveBatchPlan(choice);
+        if (res.ok) {
+          router.refresh();
+          onSaved();
+        }
+        return res;
+      }}
+    />
   );
 }
 
@@ -255,7 +205,7 @@ export function StartWizard(props: Props) {
     page: `Live at /${props.slug}`,
     funds: `${usd(props.balanceCents, { cents: true })} available`,
     plan: props.plan.batch
-      ? `${usd(props.plan.batch.budget_cents, { cents: false })} batch · ${listCampaignTopics(props.plan.batch.campaigns.map((t) => (t || null) as CampaignSlot))} · ${props.plan.batch.days} days`
+      ? `${usd(props.plan.batch.daily_cents, { cents: false })}/day for ${props.plan.batch.days} days · ${listCampaignTopics(props.plan.batch.campaigns.map((t) => (t || null) as CampaignSlot))}`
       : cleanFocus(props.plan.topics).map((t) => TOPICS[t].label).join(", "),
     creatives: props.creativeMode === "ai" ? "Migz creates them" : props.creativeMode === "upload" ? `${props.creativeCount} of your own` : "Yours plus Migz's",
   };
@@ -297,11 +247,20 @@ export function StartWizard(props: Props) {
         </div>
       </StepShell>
 
-      <StepShell index={3} stepKey="funds" done={stateOf("funds").done} summary={summaries.funds} open={open === "funds"} onToggle={() => setOpen(open === "funds" ? null : "funds")}>
+      <StepShell index={3} stepKey="plan" done={stateOf("plan").done} summary={summaries.plan} open={open === "plan"} onToggle={() => setOpen(open === "plan" ? null : "plan")}>
+        <PlanStep plan={props.plan} balanceCents={props.balanceCents} onSaved={() => advance("plan")} />
+      </StepShell>
+
+      <StepShell index={4} stepKey="funds" done={stateOf("funds").done} summary={summaries.funds} open={open === "funds"} onToggle={() => setOpen(open === "funds" ? null : "funds")}>
         <div className="-mx-5 -my-5">
           <div className="border-b border-line px-5 py-4">
             <p className="text-[13px] text-fg-muted">Available balance</p>
             <p className="mt-1 text-3xl font-semibold tracking-tight">{usd(props.balanceCents, { cents: true })}</p>
+            {props.plan.fundsNeeded && (
+              <p className="mt-1 text-[13px] text-fg-muted">
+                Your campaign needs {usd(props.plan.fundsNeeded.cents, { cents: false })} of ad funds. We recommend {usd(props.plan.fundsNeeded.recommendedCents, { cents: false })} (the next {usd(FUNDS_STEP_CENTS, { cents: false })} step): treat it as the minimum.
+              </p>
+            )}
           </div>
           <AddFunds />
           {!props.stripeConnected && (
@@ -316,10 +275,6 @@ export function StartWizard(props: Props) {
         </div>
       </StepShell>
 
-      <StepShell index={4} stepKey="plan" done={stateOf("plan").done} summary={summaries.plan} open={open === "plan"} onToggle={() => setOpen(open === "plan" ? null : "plan")}>
-        <PlanStep plan={props.plan} balanceCents={props.balanceCents} onSaved={() => advance("plan")} />
-      </StepShell>
-
       <StepShell index={5} stepKey="creatives" done={stateOf("creatives").done} summary={summaries.creatives} open={open === "creatives"} onToggle={() => setOpen(open === "creatives" ? null : "creatives")}>
         <CreativesStep mode={props.creativeMode} count={props.creativeCount} onSaved={() => advance("creatives")} />
       </StepShell>
@@ -328,13 +283,13 @@ export function StartWizard(props: Props) {
         <h2 className="text-sm font-semibold text-fg">{props.completed ? "Your campaign" : "Start your campaign"}</h2>
         {props.completed ? (
           <p className="mt-1 text-[13px] text-fg-muted">
-            You&apos;re set up. Start new campaign batches from the <Link href="/dashboard" className="text-fg underline-offset-4 hover:underline">Overview</Link>, or <Link href="/dashboard/brain" className="text-fg underline-offset-4 hover:underline">watch Migz work</Link>.
+            You&apos;re set up. Start new campaigns from the <Link href="/dashboard" className="text-fg underline-offset-4 hover:underline">Overview</Link>, or <Link href="/dashboard/brain" className="text-fg underline-offset-4 hover:underline">watch Migz work</Link>.
           </p>
         ) : (
           <>
             <p className="mt-1 text-[13px] text-fg-muted">
               {ready
-                ? "This starts your first batch. Migz sets up the campaigns, then proposes your first ads. In Ask me first mode, nothing goes live until you approve it."
+                ? "This starts your first campaign. Migz sets it up and makes every ad for it on day one. In Ask me first mode, nothing goes live until you approve it."
                 : `Finish ${props.steps.length - doneCount} more step${props.steps.length - doneCount === 1 ? "" : "s"} to start.`}
             </p>
             {!props.connected && ready && (

@@ -55,18 +55,7 @@ export const VIDEO_TIERS: Record<VideoTier, { title: string; model: "kling" | "s
   },
 };
 
-/**
- * The most Seedance videos one ad set is charged for in a week. Migz makes new creatives at batch setup and in
- * a weekly refresh of ad sets whose ads are under 2.5% CTR, at most one video per review, so this is usually
- * one; the cap stops a bad week (rejected ads, nothing live) from making video after video. Past it, videos
- * are made on Standard.
- */
-export const MAX_PAID_VIDEOS_PER_ADSET_PER_WEEK = 2;
-
 export const videoPrice = (tier: VideoTier) => VIDEO_TIERS[tier].priceCents;
-
-/** What a batch needs free on top of its budget: the video Migz makes when it sets the batch up. */
-export const setupVideoCents = (tier: VideoTier) => videoPrice(tier);
 
 const usd = (cents: number) => `$${(cents / 100).toFixed(cents % 100 ? 2 : 0)}`;
 
@@ -74,5 +63,6 @@ const usd = (cents: number) => `$${(cents / 100).toFixed(cents % 100 ? 2 : 0)}`;
 export function videoChargeLine(tier: VideoTier) {
   const t = VIDEO_TIERS[tier];
   if (!t.priceCents) return "Videos are included. Nothing extra is taken from your ad funds.";
-  return `Each Seedance video costs ${usd(t.priceCents)}, taken from your ad funds when Migz starts making it (refunded if it can't be made), and shown in your funds history. That includes the videos Migz makes later: for each new batch, and in its weekly refresh of ads that get under 2.5% of viewers to click. At most ${MAX_PAID_VIDEOS_PER_ADSET_PER_WEEK} a week per ad set; past that, or if your free balance can't cover one, Migz makes it on Standard instead. Refunded if Meta rejects the ad.`;
+  const extra = Math.round(t.priceCents * 0.8);
+  return `Every campaign gets at least 2 videos per ad set at ${usd(t.priceCents)} each; bigger budgets get more, at ${usd(extra)} each (20% off). They're taken from your ad funds when Migz starts making them, all at the start of the campaign, and shown in your funds history. If your free balance can't cover one, Migz makes it on Standard instead. Refunded if it can't be made or Meta rejects the ad.`;
 }

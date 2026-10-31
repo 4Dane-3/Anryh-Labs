@@ -5,6 +5,7 @@ import type { Agent } from "@/lib/booking/data";
 import { buildSnapshot } from "@/lib/migz/snapshot";
 import { latestNotebook } from "@/lib/migz/notebook";
 import { ladder } from "@/lib/migz/vision";
+import { showUpLine } from "@/lib/outcomes";
 import { PULSE_KEEP, PULSE_KIND, RESEARCH_KIND, type BrainEvent, type BrainLive, type Scorecard } from "@/lib/migz/brain-types";
 
 export type { BrainEvent, BrainLive } from "@/lib/migz/brain-types";
@@ -102,6 +103,7 @@ export async function getBrainBoard(agent: Agent) {
       link_ctr: d?.link_ctr ?? d?.ctr ?? null,
       booked_calls: d?.booked_calls ?? 0,
       cost_per_booked_call: d?.cost_per_booked_call_usd ?? null,
+      after_the_call: showUpLine(snapshot.adOutcomes.get(ad.meta_ad_id) ?? []),
       verdict: d && set
         ? ladder({ hook_rate: d.hook_rate, hold_rate: d.hold_rate, link_ctr: d.link_ctr, visit_to_booking: d.visit_to_booking, frequency: d.frequency, impressions: d.impressions, visits: d.visits }, setAvg.get(set.meta_adset_id)!, m!.fatigue.signals)
         : { rung: "too_early", read: "No results yet." },

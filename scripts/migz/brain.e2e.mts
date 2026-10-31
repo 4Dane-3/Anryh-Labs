@@ -990,46 +990,46 @@ try {
     await db.from("quote_requests").delete().eq("agent_id", AGENT_ID);
     ok("form + leadgen subscription made with the Page token; LEAD_GENERATION/ON_AD ad set at $10 of $20; signed webhook saved the lead once (Call backs + Slack); booking sent Schedule on lead_1 as a CRM event; switching back paused the form ad set and returned its $10");
 
-    step("8m. Weekly refresh: an ad set under 2.5% link CTR this week gets new creative (only there); paid videos are capped at 2 a week per ad set and refunded when Meta rejects the ad");
-    const { creativeRefreshDue, buildEvalContext: evalCtx } = await import("@/lib/migz/agent");
+    step("8m. Campaign setup: every ad set launches with its full creative mix (sized to its budget), only into ad sets still short and only in the campaign's first 2 days; paid videos: 2 per ad set at list, extras 20% off, capped at the mix; a disapproved ad's video refunded once");
+    const { setupShortfall, buildEvalContext: evalCtx } = await import("@/lib/migz/agent");
     const { refundRejectedVideo } = await import("@/lib/migz/creative-jobs");
     const { reviewMessage } = await import("@/lib/migz/prompt");
     const { evaluate: evalT } = await import("@/lib/migz/tools");
     const today8m = DTB.now().setZone("America/Chicago");
-    // One live ad in the booking-page ad set; earlier steps' creatives are moved back past this week
+    // A $20/day booking-page ad set with one live ad; earlier steps' creatives are moved back out of this campaign
     const { data: liveAd } = await db.from("ads").select("id, meta_ad_id").eq("adset_id", mainSet!.id).limit(1).single();
     await db.from("ads").update({ status: "ACTIVE" }).eq("id", liveAd!.id);
-    await db.from("ad_sets").update({ status: "ACTIVE" }).eq("id", mainSet!.id);
+    await db.from("ad_sets").update({ status: "ACTIVE", daily_budget_cents: 2000 }).eq("id", mainSet!.id);
     await db.from("creative_jobs").update({ created_at: today8m.minus({ days: 9 }).toISO() }).eq("agent_id", AGENT_ID);
-    await db.from("ad_insights_daily").delete().eq("agent_id", AGENT_ID).gte("date", today8m.minus({ days: 6 }).toISODate()!);
-    await db.from("ad_insights_daily").insert({ agent_id: AGENT_ID, meta_ad_id: liveAd!.meta_ad_id, date: today8m.minus({ days: 1 }).toISODate(), spend_cents: 3000, impressions: 2000, clicks: 30, link_clicks: 20 });
-    let snap8m = await buildSnapshot((await getAgent()) as never);
-    const due = await creativeRefreshDue((await getAgent()) as never, snap8m);
-    assert.deepEqual(due.map((d) => [d.adsetId, d.ctr]), [[mainSet!.meta_adset_id, 0.01]], "1% link CTR on 2,000 impressions is due");
-    await db.from("ad_insights_daily").update({ link_clicks: 60 }).eq("meta_ad_id", liveAd!.meta_ad_id).eq("date", today8m.minus({ days: 1 }).toISODate()!);
-    snap8m = await buildSnapshot((await getAgent()) as never);
-    assert.equal((await creativeRefreshDue((await getAgent()) as never, snap8m)).length, 0, "3% isn't");
-    await db.from("ad_insights_daily").update({ link_clicks: 20, impressions: 600 }).eq("meta_ad_id", liveAd!.meta_ad_id).eq("date", today8m.minus({ days: 1 }).toISODate()!);
-    snap8m = await buildSnapshot((await getAgent()) as never);
-    assert.equal((await creativeRefreshDue((await getAgent()) as never, snap8m)).length, 0, "600 impressions is too few to judge");
-    // In a refresh review, new creatives may only launch into the due ad set
+    const snap8m = await buildSnapshot((await getAgent()) as never);
+    const justStarted = { started_at: new Date().toISOString() } as never;
+    const gap = (await setupShortfall((await getAgent()) as never, justStarted, snap8m)).find((g) => g.adsetId === mainSet!.meta_adset_id);
+    assert.ok(gap, "a new campaign's ad set is short of its mix");
+    assert.deepEqual([gap!.mix.total, gap!.mix.videos], [8, 2], "$20/day: 8 creatives, 2 of them videos");
+    assert.equal(gap!.needVideos + gap!.needImages + gap!.videos + gap!.images, 8);
+    const old = { started_at: today8m.minus({ days: 3 }).toISO() } as never;
+    assert.equal((await setupShortfall((await getAgent()) as never, old, snap8m)).length, 0, "after 2 days nothing is added");
+    // While setting up, new creatives may only launch into ad sets still short of their mix, more per review
     const ctx8m = await evalCtx((await getAgent()) as never, snap8m);
-    ctx8m.refreshAdsets = [mainSet!.meta_adset_id];
-    const img = { concept: "Refresh", topic: "final_expense", scene: "A grandmother at a window", style: "warm", overlay_lines: ["Plan it once."], button_text: null, aspect_ratio: "4:5", primary_text: "Plan it once, and they never have to guess. A free call walks you through it.", headline: "Plan it once", title: "Refresh image", reason: "CTR 1%" };
-    assert.match((evalT("generate_image", { ...img, launch_adset_id: null }, ctx8m) as { error: string }).error, /only refreshes creative in ad sets/);
+    ctx8m.fillAdsets = [mainSet!.meta_adset_id];
+    const img = { concept: "Setup", topic: "final_expense", scene: "A grandmother at a window", style: "warm", overlay_lines: ["For people 50–85"], button_text: null, aspect_ratio: "4:5", primary_text: "Plan it once, and they never have to guess. A free call walks you through it.", headline: "Plan it once", title: "Setup image", reason: "campaign setup" };
+    assert.match((evalT("generate_image", { ...img, launch_adset_id: null }, ctx8m) as { error: string }).error, /setup still needs creatives/);
     assert.equal(evalT("generate_image", { ...img, launch_adset_id: mainSet!.meta_adset_id }, ctx8m).ok, true);
-    assert.match(reviewMessage({ mode: "auto", producing: true, refreshAdsets: [mainSet!.meta_adset_id], snapshotJson: "{}" }), /weekly creative refresh/);
-    // Paid videos: 2 a week per ad set, then Standard
+    assert.match((evalT("generate_image", { ...img, overlay_lines: ["Are you over 60?"], launch_adset_id: mainSet!.meta_adset_id }, ctx8m) as { error: string }).error, /on-screen|age/);
+    assert.match(reviewMessage({ mode: "auto", producing: true, fillAdsets: [mainSet!.meta_adset_id], snapshotJson: "{}" }), /sets up the campaign/);
+    // Paid videos: at $200/day the mix has 5 videos: 2 at list ($6), the rest 20% off ($4.80); past the mix, Standard
     await db.from("agents").update({ video_tier: "seedance_15" }).eq("id", AGENT_ID);
-    await db.from("wallet_transactions").insert({ agent_id: AGENT_ID, kind: "deposit", amount_cents: 3_000, status: "completed", description: "e2e funds for the video cap" });
-    const vb8 = { concept: "Cap test", style: "warm", cast: "a dad", setting: "a porch", mood: "hopeful", hook_line: "Who keeps the house?", hook_shot: "A dad on the porch", body_shots: [{ prompt: "Dinner", duration: 4 }, { prompt: "Hug", duration: 4 }], primary_text: "Who keeps the house? A free call helps.", headline: "Book a free call" };
+    await db.from("ad_sets").update({ daily_budget_cents: 20_000 }).eq("id", mainSet!.id);
+    await db.from("wallet_transactions").insert({ agent_id: AGENT_ID, kind: "deposit", amount_cents: 5_000, status: "completed", description: "e2e funds for the video prices" });
+    const vb8 = { concept: "Price test", style: "warm", cast: "a dad", setting: "a porch", mood: "hopeful", hook_line: "Who keeps the house?", hook_shot: "A dad on the porch", body_shots: [{ prompt: "Dinner", duration: 4 }, { prompt: "Hug", duration: 4 }], primary_text: "Who keeps the house? A free call helps.", headline: "Book a free call" };
     const capJobs: string[] = [];
-    for (let i = 0; i < 3; i++) capJobs.push(await enqueueGeneration({ agentId: AGENT_ID, brief: vb8 as never, launchAdsetId: mainSet!.meta_adset_id }));
+    for (let i = 0; i < 6; i++) capJobs.push(await enqueueGeneration({ agentId: AGENT_ID, brief: vb8 as never, launchAdsetId: mainSet!.meta_adset_id }));
     const { data: capRows } = await db.from("creative_jobs").select("id, video_model, video_charge_cents").in("id", capJobs);
     const byId = new Map(capRows!.map((r) => [r.id, r]));
-    assert.deepEqual(capJobs.map((id) => byId.get(id)!.video_charge_cents), [600, 600, 0], "the third this week is made on Standard");
+    assert.deepEqual(capJobs.map((id) => byId.get(id)!.video_charge_cents), [600, 600, 480, 480, 480, 0], "2 at list, 3 extras 20% off, the 6th past the mix on Standard");
     const { data: capNote } = await db.from("ad_actions").select("detail").eq("agent_id", AGENT_ID).eq("tool", "system_video_tier").order("created_at", { ascending: false }).limit(1).single();
-    assert.match(capNote!.detail, /already had 2 Seedance videos this week/);
+    assert.match(capNote!.detail, /already has its 5 Seedance videos for this campaign/);
+    await db.from("ad_sets").update({ daily_budget_cents: 2000 }).eq("id", mainSet!.id);
     // The first paid video goes live, then Meta disapproves its ad: refunded once
     for (const rid of hf.status.keys()) hf.status.set(rid, "completed");
     meta.videoReady = true;
@@ -1040,7 +1040,7 @@ try {
     const { data: rej } = await db.from("wallet_transactions").select("amount_cents, description").eq("external_id", `video:${capJobs[0]}:refund`).single();
     assert.deepEqual([rej!.amount_cents, rej!.description], [600, "Refund: Meta rejected the ad for your Seedance video"]);
     await db.from("agents").update({ video_tier: "standard" }).eq("id", AGENT_ID);
-    ok("1% CTR on 2,000 impressions → refresh due (3% or 600 impressions → not); refresh creatives only into that ad set; 3rd paid video in a week made on Standard with a note; a disapproved ad's $6 refunded once");
+    ok("$20/day ad set short of its 8-creative mix during setup (nothing after 2 days); setup creatives only into it, \"Are you over 60?\" refused on screen; $200/day: videos $6, $6, $4.80 ×3, then Standard; a disapproved ad's $6 refunded once");
   }
 
   // ===== 9 =====

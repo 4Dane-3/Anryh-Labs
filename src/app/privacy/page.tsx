@@ -109,6 +109,7 @@ export default function PrivacyPage() {
             <ul className="list-disc space-y-2 pl-5">
               <Item label="booking details">name, email, phone number, the appointment time and a record of your consent to be contacted.</Item>
               <Item label="optional prep answers">answers you choose to give, which may include date of birth, gender, marital status, nicotine use, existing coverage, budget, coverage needs and notes for the agent. every question is optional.</Item>
+              <Item label="what happened after">the agent may record how your call or request went (whether you showed up, were reached, got a quote or bought a policy, and optionally the monthly premium).</Item>
               <Item label="ad attribution">if you arrived from an ad: campaign tags in the link (such as utm parameters and meta&apos;s click id), meta&apos;s browser cookies if present (_fbp, _fbc), and your ip address and browser type when the page opens, when you pick a time and when you book.</Item>
             </ul>
             <p>from visitors: the details you include if you email us.</p>
@@ -118,7 +119,7 @@ export default function PrivacyPage() {
               <li>to run and improve agents&apos; ad campaigns: migz ai analyzes performance data, adjusts budgets, placements and ads, and generates new creatives.</li>
               <li>to let prospects book calls with an agent, confirm appointments and give the agent the prep answers before the call.</li>
               <li>to notify agents about new bookings and send a daily summary, including through slack.</li>
-              <li>to measure which ads lead to booked calls, including by reporting a booking to meta as a conversion (see below).</li>
+              <li>to measure which ads lead to booked calls and to clients, including by reporting a booking, and later whether the call happened or a policy was bought, to meta as a conversion (see below).</li>
               <li>to manage agents&apos; ad funds and billing, provide support, keep the service secure and meet legal obligations.</li>
             </ul>
             <p>
@@ -129,7 +130,7 @@ export default function PrivacyPage() {
             <H2 id="sharing">5. who we share it with</H2>
             <ul className="list-disc space-y-2 pl-5">
               <Item label="the agent you booked with">receives your booking details and any prep answers you provided.</Item>
-              <Item label="meta">receives the agent&apos;s ads and settings, and, when you book, a conversion event containing your email and phone number in hashed (scrambled) form plus the attribution details above. if you arrived from one of our ads, meta is also told when the booking page opens and when you pick a time, with the ad&apos;s click id, your ip address and browser type, and no name or contact details. visits that didn&apos;t come from an ad aren&apos;t reported. prep answers are never sent to meta.</Item>
+              <Item label="meta">receives the agent&apos;s ads and settings, and, when you book, a conversion event containing your email and phone number in hashed (scrambled) form plus the attribution details above. if you arrived from one of our ads, meta is also told when the booking page opens and when you pick a time, with the ad&apos;s click id, your ip address and browser type, and no name or contact details. visits that didn&apos;t come from an ad aren&apos;t reported. after the call, if the agent records that you showed up, were reached or bought a policy, meta is told that too, matched with the same hashed contact details (and, for a purchase, a year of the premium as its value if the agent entered it), so the agent&apos;s ads reach people like their clients. prep answers and call notes are never sent to meta.</Item>
               <Item label="supabase">stores our database, files and logins.</Item>
               <Item label="vercel">hosts our website and app.</Item>
               <Item label="slack">delivers booking notifications and summaries to the agent.</Item>

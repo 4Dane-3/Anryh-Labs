@@ -46,6 +46,8 @@ export type Scorecard = {
   link_ctr: number | null;
   booked_calls: number;
   cost_per_booked_call: number | null;
+  /** "70% of its bookings showed up (7 of 10 answered), 2 sold", once enough calls are answered. */
+  after_the_call: string | null;
   verdict: { rung: string; read: string };
   traits: { angle?: string; hook_type?: string } | null;
   topic: string | null;

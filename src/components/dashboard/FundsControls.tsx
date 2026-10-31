@@ -5,29 +5,23 @@ import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { setAdsPaused, startDeposit } from "@/app/dashboard/actions";
 import { usd } from "@/lib/dashboard/format";
-import {
-  adSpendCents,
-  BUDGETS,
-  depositFor,
-  FEE_RATE,
-  MIN_DEPOSIT_CENTS,
-  MIN_TOP_UP_CENTS,
-  TEST_DAYS,
-} from "@/lib/campaign";
+import { adSpendCents, FEE_RATE, TEST_DAYS } from "@/lib/campaign";
+import { FUNDS_STEP_CENTS, roundUpToFundsStep } from "@/lib/campaign-plan";
 import { Button, Switch, inputClass } from "@/components/dashboard/ui";
 import { cn } from "@/lib/utils";
 
-// Deposits that fund $20, $30, $40 and $60 a day of ads for two weeks, after the fee
-const PRESETS = BUDGETS.map((perDay) => ({ perDay, cents: depositFor(perDay * 100 * TEST_DAYS) }));
+// Funds come in $500 steps, so the amount reads as what a campaign really needs
+const PRESETS = [1, 2, 3, 4].map((n) => ({ cents: n * FUNDS_STEP_CENTS, perDay: Math.floor(adSpendCents(n * FUNDS_STEP_CENTS) / TEST_DAYS / 100) }));
 
 export function AddFunds() {
-  const [amount, setAmount] = useState<number>(MIN_DEPOSIT_CENTS);
+  const [amount, setAmount] = useState<number>(FUNDS_STEP_CENTS);
   const [custom, setCustom] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
-  const cents = custom ? Math.round(Number(custom.replace(/[^0-9.]/g, "")) * 100) : amount;
-  const tooSmall = cents > 0 && cents < MIN_TOP_UP_CENTS;
+  const typed = Math.round(Number(custom.replace(/[^0-9.]/g, "")) * 100);
+  // A typed amount rounds up to the next $500 step
+  const cents = custom ? (typed > 0 ? roundUpToFundsStep(typed) : 0) : amount;
   const forAds = adSpendCents(cents);
   // The daily spend this deposit pays for over two weeks
   const perDay = Math.floor(forAds / TEST_DAYS / 100) * 100;
@@ -70,21 +64,20 @@ export function AddFunds() {
           <input
             inputMode="decimal"
             aria-label="Custom amount"
-            placeholder={`Other amount (min ${usd(MIN_TOP_UP_CENTS)})`}
+            placeholder={`Other amount (in ${usd(FUNDS_STEP_CENTS)} steps)`}
             className={`${inputClass} pl-7`}
             value={custom}
             onChange={(e) => setCustom(e.target.value)}
           />
         </div>
-        <Button variant="primary" onClick={go} disabled={pending || !cents || cents < 0 || tooSmall}>
+        <Button variant="primary" onClick={go} disabled={pending || !cents || cents < 0}>
           {pending ? "Starting…" : `Add ${cents > 0 ? usd(cents) : "funds"}`}
         </Button>
       </div>
-      <p className={cn("relative mt-3 text-[13px]", tooSmall ? "text-bad" : "text-fg-muted")}>
-        {tooSmall ? (
-          `The minimum is ${usd(MIN_TOP_UP_CENTS)}. Funds add up, so you can top up a little at a time.`
-        ) : cents > 0 ? (
+      <p className="relative mt-3 text-[13px] text-fg-muted">
+        {cents > 0 ? (
           <>
+            {custom && typed > 0 && typed !== cents ? `Rounded up to ${usd(cents)}: funds come in ${usd(FUNDS_STEP_CENTS)} steps. ` : ""}
             {`${usd(forAds)} goes to your ads, ${usd(cents - forAds, { cents: (cents - forAds) % 100 !== 0 })} is the Anryh Labs fee (${FEE_RATE * 100}%). That runs your ads at about ${usd(perDay, { cents: false })}/day for 2 weeks. `}
             <WhyFee />
           </>

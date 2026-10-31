@@ -8,11 +8,12 @@ import { isCarouselBrief, isVideoBrief, type AnyBrief, type CreativeBrief } from
 import { buildSnapshot, type Snapshot } from "@/lib/migz/snapshot";
 import { syncAgent } from "@/lib/migz/sync";
 import { begin, emit, metaStep } from "@/lib/migz/events";
-import { closeEndedBatch, ensureBatchSetAside, getActiveBatch, type Batch } from "@/lib/dashboard/batches";
+import { closeEndedBatch, ensureBatchSetAside, getActiveBatch, getBatchPlan, type Batch } from "@/lib/dashboard/batches";
 import { campaignEnded, campaignLabels, daysLeft as daysLeftIn, pickCarryOver, planTopic, type AdResults } from "@/lib/campaign";
 import { adsForBudget } from "@/lib/migz/playbook";
 import { cleanFocus, isTopic, type TopicKey } from "@/lib/migz/topics";
-import { MIN_ADSET_BUDGET_CENTS, MIN_IMPRESSIONS_TO_JUDGE, REFRESH_CTR_BELOW, REFRESH_EVERY_DAYS } from "@/lib/migz/guardrails";
+import { MIN_ADSET_BUDGET_CENTS } from "@/lib/migz/guardrails";
+import { anglesFor, ANGLES, ageCallout, cleanAnswers, creativeMix, offersNoExam, type CreativeMix } from "@/lib/campaign-plan";
 import { MIN_SPLIT_DAILY_CENTS } from "@/lib/ad-options";
 import { ensureLeadForm, wantsInstantForms } from "@/lib/migz/leads";
 import { isTestMode } from "@/lib/migz/test-mode";
@@ -91,6 +92,7 @@ export async function buildEvalContext(agent: Agent, snapshot: Snapshot): Promis
     generationsThisRun: 0,
     videosThisRun: 0,
     testMode: isTestMode(),
+    facts: factsOf(agent),
     revisionsFrom: snapshot.revisionsFrom ? DateTime.fromISO(snapshot.revisionsFrom, { zone: agent.timezone }).toJSDate() : null,
     batchDaysLeft: agent.campaign_ends_on ? daysLeftIn(agent.campaign_ends_on, agent.timezone) : null,
     ...(snapshot.creditsRecentlyRefused ? { maxGenerations: 1 } : {}),
@@ -572,36 +574,62 @@ async function carryOverAds(agent: Agent, target: { campaignId: string; topic: T
   return picks.length;
 }
 
+/** What the agent's start-flow answers let the copy claim. Null before they answered (no claim checks then). */
+function factsOf(agent: Agent) {
+  if (!agent.campaign_answers) return null;
+  const a = cleanAnswers(agent.campaign_answers);
+  return { noExam: offersNoExam(a), healthIssuesOk: a.healthIssuesOk === true };
+}
+
+/** A campaign's setup may keep making creatives this long after it starts; after that nothing is added. */
+export const SETUP_WINDOW_DAYS = 2;
+
+const LIVE_AD = new Set(["ACTIVE", "PENDING_REVIEW", "IN_PROCESS", "WITH_ISSUES", "PREAPPROVED"]);
+
+export type SetupGap = { adsetId: string; mix: CreativeMix; videos: number; images: number; needVideos: number; needImages: number };
+
 /**
- * Ad sets due a weekly creative refresh: live, with live ads under REFRESH_CTR_BELOW link CTR over the last
- * REFRESH_EVERY_DAYS days (on at least MIN_IMPRESSIONS_TO_JUDGE impressions, so it's a fair read), and no
- * creative started for them in that time. Paused or test-mode accounts never get here.
+ * Campaign setup: every ad set of a running batch launches with its creative mix (creativeMix, sized to its
+ * daily budget), all at the start. Counts each ad set's live ads (carried-over winners included) and the
+ * creatives still being made for it, and returns the ad sets still short. Empty once the batch is
+ * SETUP_WINDOW_DAYS old: nothing is added partway through a campaign.
  */
-export async function creativeRefreshDue(agent: Agent, snapshot: Snapshot) {
-  const live = snapshot.guardAdsets.filter((s) => s.status === "ACTIVE" && s.ads.some((a) => a.status === "ACTIVE"));
-  if (!live.length) return [];
-  const since = DateTime.now().setZone(agent.timezone).minus({ days: REFRESH_EVERY_DAYS - 1 }).toISODate()!;
-  const startedSince = new Date(Date.now() - REFRESH_EVERY_DAYS * 86_400_000).toISOString();
-  const [{ data: rows }, { data: recent }] = await Promise.all([
-    supabaseAdmin.from("ad_insights_daily").select("meta_ad_id, impressions, link_clicks").eq("agent_id", agent.id).gte("date", since),
-    supabaseAdmin.from("creative_jobs").select("launch_adset_id").eq("agent_id", agent.id).neq("stage", "failed").gte("created_at", startedSince),
+export async function setupShortfall(agent: Agent, batch: Batch | null, snapshot: Snapshot): Promise<SetupGap[]> {
+  if (!batch?.started_at || Date.now() - new Date(batch.started_at).getTime() > SETUP_WINDOW_DAYS * 86_400_000) return [];
+  const test = isTestMode();
+  const sets = snapshot.guardAdsets.filter((s) => s.status === "ACTIVE" || (test && s.status === "PAUSED"));
+  if (!sets.length) return [];
+  const [{ data: rows }, { data: jobs }] = await Promise.all([
+    supabaseAdmin.from("ad_sets").select("meta_adset_id, ads(status, creatives(kind))").eq("agent_id", agent.id).in("meta_adset_id", sets.map((s) => s.meta_adset_id)),
+    supabaseAdmin
+      .from("creative_jobs")
+      .select("launch_adset_id, brief")
+      .eq("agent_id", agent.id)
+      .not("stage", "in", "(failed,launched)")
+      .gte("created_at", batch.started_at),
   ]);
-  const freshly = new Set((recent ?? []).map((j) => j.launch_adset_id).filter(Boolean));
-  const due: { adsetId: string; ctr: number; impressions: number }[] = [];
-  for (const set of live) {
-    if (freshly.has(set.meta_adset_id)) continue;
-    const ids = new Set(set.ads.filter((a) => a.status === "ACTIVE").map((a) => a.meta_ad_id));
-    let impressions = 0;
-    let clicks = 0;
-    for (const r of rows ?? []) if (ids.has(r.meta_ad_id)) {
-      impressions += r.impressions;
-      clicks += r.link_clicks ?? 0;
+  const gaps: SetupGap[] = [];
+  for (const set of sets) {
+    let videos = 0;
+    let images = 0;
+    const ads = ((rows ?? []).find((r) => r.meta_adset_id === set.meta_adset_id)?.ads ?? []) as unknown as { status: string; creatives: { kind?: string } | null }[];
+    for (const a of ads) {
+      if (!LIVE_AD.has(a.status) && !(test && a.status === "PAUSED")) continue;
+      if (a.creatives?.kind === "video") videos++;
+      else images++;
     }
-    if (impressions < MIN_IMPRESSIONS_TO_JUDGE) continue;
-    const ctr = clicks / impressions;
-    if (ctr < REFRESH_CTR_BELOW) due.push({ adsetId: set.meta_adset_id, ctr, impressions });
+    for (const j of jobs ?? []) {
+      if (j.launch_adset_id !== set.meta_adset_id) continue;
+      const format = (j.brief as { format?: string } | null)?.format;
+      if (format === "image" || format === "carousel") images++;
+      else videos++;
+    }
+    const mix = creativeMix(set.daily_budget_cents);
+    const needVideos = Math.max(0, mix.videos - videos);
+    const needImages = Math.max(0, mix.total - videos - images - needVideos);
+    if (needVideos + needImages > 0) gaps.push({ adsetId: set.meta_adset_id, mix, videos, images, needVideos, needImages });
   }
-  return due;
+  return gaps;
 }
 
 type Pacing = { budgetCents: number; spentCents: number; daysLeft: number; dailyCapCents: number; budgetUsed: boolean };
@@ -850,17 +878,17 @@ async function review(agent: Agent, trigger: "schedule" | "manual", createMessag
       return { runId, status: "paused" as const };
     }
 
-    // New creatives are made while a batch is being set up (its first review), or when nothing is live
-    // to run. Every other review studies the ads it has and records what they teach.
+    // New creatives are made while a batch is being set up (its first review, then until every ad set has
+    // its creative mix), or when nothing is live to run. Every other review studies the ads it has.
     let producing = (!!batch && !batch.applied_at) || !snapshot.guardAdsets.some((s) => s.ads.some((a) => a.status === "ACTIVE"));
     if (await syncCampaignPlan(agent, runId, batch)) snapshot = await buildSnapshot(agent);
     if (await syncLeadStyle(agent, runId)) snapshot = await buildSnapshot(agent);
     if (await syncTargeting(agent, runId)) snapshot = await buildSnapshot(agent);
     if (pacing && (await paceBudgets(agent, runId, pacing))) snapshot = await buildSnapshot(agent);
 
-    // Weekly refresh: an ad set whose live ads are under 2.5% link CTR this week gets new creative
-    const refresh = producing ? [] : await creativeRefreshDue(agent, snapshot);
-    if (refresh.length) producing = true;
+    // Setup: each ad set of the batch launches with its full creative mix, over the first reviews
+    const fill = await setupShortfall(agent, batch, snapshot);
+    if (fill.length) producing = true;
 
     const budget = await monthlyBudget(agent.id, agent.migz_model_budget_cents ?? 3000, agent.timezone);
     const team = { runId, budget, createMessage };
@@ -887,12 +915,21 @@ async function review(agent: Agent, trigger: "schedule" | "manual", createMessag
     };
     Object.assign(teamContext, routines.context);
     const extraReasons: string[] = [...routines.reasons];
-    if (refresh.length) {
-      teamContext.creative_refresh = {
-        why: `These ad sets' live ads are under ${REFRESH_CTR_BELOW * 100}% link CTR over the last ${REFRESH_EVERY_DAYS} days and got no new creative this week. Make new creative for them (new angles and hooks, not small edits of what's failing), launched straight in; the weak ads can be paused once the new ones have a fair read.`,
-        ad_sets: refresh.map((r) => ({ adset_id: r.adsetId, link_ctr_last_7_days: `${(r.ctr * 100).toFixed(2)}%`, impressions: r.impressions })),
+    if (fill.length) {
+      const answers = cleanAnswers(agent.campaign_answers);
+      teamContext.campaign_setup = {
+        why: "Every creative launches at the start of the campaign (nothing is added partway: new ads restart Meta's learning). These ad sets still need creatives to complete their mix, sized to their budget.",
+        ad_sets: fill.map((g) => ({
+          adset_id: g.adsetId,
+          mix: `${g.mix.total} creatives: ${g.mix.videos} videos and ${g.mix.images} images`,
+          have: `${g.videos} videos, ${g.images} images (live or being made)`,
+          still_to_make: { videos: g.needVideos, images: g.needImages },
+        })),
+        angles: anglesFor(answers).map((k) => ANGLES[k]),
+        age_on_screen: ageCallout(answers),
+        plan: batch ? await getBatchPlan(batch.id) : null,
       };
-      extraReasons.push(`weekly creative refresh: ${refresh.length} ad set${refresh.length === 1 ? "" : "s"} under ${REFRESH_CTR_BELOW * 100}% link CTR`);
+      extraReasons.push(`campaign setup: ${fill.length} ad set${fill.length === 1 ? "" : "s"} still short of ${fill.length === 1 ? "its" : "their"} creative mix`);
     }
     const extraTools: ExtraTool[] = [...READ_TOOLS];
     for (const ext of extensions) {
@@ -939,7 +976,7 @@ async function review(agent: Agent, trigger: "schedule" | "manual", createMessag
     // Budget changes can never take the batch's campaigns above the paced cap
     if (pacing) ctx.dailyCapCents = Math.min(ctx.dailyCapCents, pacing.dailyCapCents);
     if (!producing) ctx.maxGenerations = 0;
-    if (refresh.length) ctx.refreshAdsets = refresh.map((r) => r.adsetId);
+    if (fill.length) ctx.fillAdsets = fill.map((g) => g.adsetId);
     const result = await runOperator({ agent, snapshot, runId, budget, createMessage, ctx }, extraTools, { teamContext, reasons, producing });
     const summary = result.summary ? await writeFeed(result.summary, { agentId: agent.id, runId, budget, createMessage }) : "";
 
