@@ -31,6 +31,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ slug: s
       questions: preBookingQuestions(questions, requiredSteps),
       requiredSteps,
       quoteMode: agent.quote_mode ?? "folded",
+      // null until the agent sets it (the host site then shows its own list); [] when they chose to show none
+      partnerCarriers: agent.partner_carriers ?? null,
       call,
     },
     // The call button follows the agent's hours, so this stays fresh

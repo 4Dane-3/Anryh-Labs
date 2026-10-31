@@ -14,6 +14,7 @@ import {
   updateProfile,
 } from "@/app/dashboard/actions";
 import { PAGE_FONTS } from "@/lib/booking/page-fonts";
+import { CARRIER_SUGGESTIONS, MAX_CARRIERS, MAX_CARRIER_LENGTH, cleanCarriers } from "@/lib/carriers";
 import { uploadToSignedUrl } from "@/lib/dashboard/upload";
 import { safely } from "@/lib/dashboard/action-errors";
 import { clearDraft, readDraft, writeDraft } from "@/lib/dashboard/drafts";
@@ -30,6 +31,7 @@ export type Profile = {
   license_number: string;
   licensed_states: string[];
   photo_url: string | null;
+  partner_carriers: string[];
 };
 
 type Testimonial = {
@@ -74,14 +76,25 @@ export function ProfileForm({ profile, onSaved }: { profile: Profile; onSaved: (
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [carrierDraft, setCarrierDraft] = useState("");
+
+  const addCarrier = () => {
+    const next = cleanCarriers([...form.partner_carriers, carrierDraft]);
+    if (next.length !== form.partner_carriers.length) setForm((f) => ({ ...f, partner_carriers: next }));
+    setCarrierDraft("");
+  };
 
   const set = <K extends keyof Profile>(key: K, value: Profile[K]) => setForm((f) => ({ ...f, [key]: value }));
 
   const save = () =>
     startTransition(async () => {
       setError(null);
-      const res = await updateProfile(form);
+      // A company typed but not yet added with the button still counts
+      const partner_carriers = carrierDraft.trim() ? cleanCarriers([...form.partner_carriers, carrierDraft]) : form.partner_carriers;
+      const res = await updateProfile({ ...form, partner_carriers });
       if (!res.ok) return setError(res.error);
+      setForm((f) => ({ ...f, partner_carriers }));
+      setCarrierDraft("");
       setSaved(true);
       setTimeout(() => setSaved(false), 1500);
       router.refresh();
@@ -267,6 +280,65 @@ export function ProfileForm({ profile, onSaved }: { profile: Profile; onSaved: (
               ))}
             </select>
           </div>
+        </div>
+
+        <div>
+          <Label htmlFor="carrier">Partnered insurance companies</Label>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <AnimatePresence initial={false}>
+              {form.partner_carriers.map((c) => (
+                <motion.span
+                  key={c}
+                  layout
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.9 }}
+                  className="inline-flex items-center gap-1 rounded-md bg-white/[0.07] py-1 pl-2 pr-1 text-[13px]"
+                >
+                  {c}
+                  <button
+                    type="button"
+                    aria-label={`Remove ${c}`}
+                    onClick={() => set("partner_carriers", form.partner_carriers.filter((x) => x !== c))}
+                    className="rounded p-0.5 text-fg-faint hover:text-fg"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </motion.span>
+              ))}
+            </AnimatePresence>
+          </div>
+          {form.partner_carriers.length < MAX_CARRIERS && (
+            <div className="mt-2 flex gap-2">
+              <input
+                id="carrier"
+                list="carrier-suggestions"
+                className={inputClass}
+                maxLength={MAX_CARRIER_LENGTH}
+                placeholder="Add a company, like Mutual of Omaha"
+                value={carrierDraft}
+                onChange={(e) => setCarrierDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addCarrier();
+                  }
+                }}
+              />
+              <Button variant="ghost" onClick={addCarrier} disabled={!carrierDraft.trim()}>
+                Add
+              </Button>
+              <datalist id="carrier-suggestions">
+                {CARRIER_SUGGESTIONS.filter((c) => !form.partner_carriers.some((x) => x.toLowerCase() === c.toLowerCase())).map((c) => (
+                  <option key={c} value={c} />
+                ))}
+              </datalist>
+            </div>
+          )}
+          <p className="mt-1 text-[12px] text-fg-faint">
+            The insurance companies you can sell policies from, shown on your page. List only companies you are appointed with: you are responsible
+            for what it says, and the names belong to their owners.
+          </p>
         </div>
 
         {error && <p className="text-[13px] text-bad">{error}</p>}
