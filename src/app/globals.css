@@ -4,16 +4,16 @@
 
 @theme inline {
   --color-background: var(--background);
-  /* Agent dashboard: frosted glass over the moving navy backdrop (components/glass). Raised surfaces are
+  /* Agent dashboard: frosted glass over the moving agate gray backdrop (components/glass). Raised surfaces are
      translucent; overlays (drawers, menus, tooltips) use solid ink so nothing reads through them. */
-  --color-ink: #0c1634;
-  --color-ink-raised: rgb(13 24 56 / 0.55);
+  --color-ink: #26282a;
+  --color-ink-raised: rgb(46 48 50 / 0.55);
   --color-ink-high: rgb(255 255 255 / 0.1);
   --color-line: rgb(255 255 255 / 0.12);
   --color-line-strong: rgb(255 255 255 / 0.22);
-  --color-fg: #f4f7ff;
-  --color-fg-muted: #b6c1da;
-  --color-fg-faint: #7f8bab;
+  --color-fg: #f5f6f4;
+  --color-fg-muted: #c2c5c2;
+  --color-fg-faint: #8d918e;
   --color-brand: #c8f26a;
   --color-brand-fg: #15210a;
   --color-good: #8fe0aa;

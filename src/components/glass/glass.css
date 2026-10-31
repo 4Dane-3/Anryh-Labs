@@ -10,7 +10,8 @@
   background: linear-gradient(180deg, #3b7fd4 0%, #4a8edb 45%, #79b4ea 100%);
 }
 .gb--dim {
-  background: linear-gradient(180deg, #0a1430 0%, #0e1b40 55%, #13234d 100%);
+  /* agate gray */
+  background: linear-gradient(180deg, #232526 0%, #2c2e30 55%, #36393a 100%);
 }
 
 .gb__field {
@@ -77,6 +78,7 @@
 }
 .gb--dim .gb__figure {
   opacity: 0.55;
+  filter: blur(26px) grayscale(1);
 }
 
 /* fluted glass: narrow vertical ribs, each with a lit edge and a shaded edge */

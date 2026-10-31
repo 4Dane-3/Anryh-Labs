@@ -1,4 +1,4 @@
-import { getCurrentAgent } from "@/lib/auth";
+import { getCurrentAgent, getViewAs } from "@/lib/auth";
 import { reportIssue } from "@/lib/admin/errors";
 import type { IssueKind } from "@/lib/admin/error-core";
 
@@ -52,6 +52,9 @@ export async function POST(req: Request) {
   const message = str(body.message, 400);
   if (!KINDS.has(kind) || !path?.startsWith("/") || !message) return done;
 
+  // Staff viewing an agent's dashboard: the proxy refuses every change (view only), so whatever breaks is
+  // staff's own doing, not the agent's problem. Not reported.
+  if (await getViewAs().catch(() => null)) return done;
   const agent = await getCurrentAgent().catch(() => null);
   await reportIssue({
     kind,

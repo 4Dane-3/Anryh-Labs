@@ -81,7 +81,7 @@ function BrainButton({ connected }: { connected: boolean }) {
         aria-expanded={onOverview ? undefined : open}
         aria-label="Migz AI Brain: see Migz AI working"
         title="See Migz AI working"
-        className="relative flex size-11 items-center justify-center rounded-2xl bg-white text-[#0b1a3e] shadow-[0_8px_24px_-8px_rgb(0_0_0/0.4)] transition-transform active:scale-95"
+        className="relative flex size-11 items-center justify-center rounded-2xl bg-white text-[#26282a] shadow-[0_8px_24px_-8px_rgb(0_0_0/0.4)] transition-transform active:scale-95"
       >
         <BrainCircuit className="size-5" />
         {connected && <span className="absolute right-2 top-2 size-1.5 animate-pulse rounded-full bg-[#5aa83a]" aria-hidden="true" />}
@@ -96,9 +96,9 @@ function BrainButton({ connected }: { connected: boolean }) {
             className="absolute right-0 top-full z-50 mt-3 w-[min(380px,calc(100vw-32px))] origin-top-right"
           >
             {connected ? (
-              <FetchedBrainCard className="bg-[rgb(40_70_130/0.55)]" />
+              <FetchedBrainCard className="bg-[rgb(70_73_75/0.55)]" />
             ) : (
-              <div className="rounded-[26px] border border-white/20 bg-[rgb(40_70_130/0.55)] px-5 py-6 text-[13px] text-fg-muted backdrop-blur-2xl">
+              <div className="rounded-[26px] border border-white/20 bg-[rgb(70_73_75/0.55)] px-5 py-6 text-[13px] text-fg-muted backdrop-blur-2xl">
                 Migz AI starts working once your ad account is linked.
               </div>
             )}
@@ -136,9 +136,9 @@ function MenuSheet({ agent, devLogin, setupDone, staff, onClose }: { agent: Agen
 
   return (
     <>
-      <motion.div className="fixed inset-0 z-40 bg-[#050b1f]/50" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} />
+      <motion.div className="fixed inset-0 z-40 bg-[#111213]/50" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} />
       <motion.aside
-        className="fixed inset-y-3 right-3 z-50 flex w-[min(320px,calc(100vw-24px))] flex-col rounded-[26px] border border-white/20 bg-[rgb(18_34_78/0.85)] p-3 backdrop-blur-2xl"
+        className="fixed inset-y-3 right-3 z-50 flex w-[min(320px,calc(100vw-24px))] flex-col rounded-[26px] border border-white/20 bg-[rgb(38_40_42/0.85)] p-3 backdrop-blur-2xl"
         initial={{ x: "110%" }}
         animate={{ x: 0 }}
         exit={{ x: "110%" }}
@@ -221,7 +221,7 @@ export function TopBar({
     <header
       className={cn(
         "sticky top-0 z-30 border-b transition-[background-color,border-color] duration-300",
-        scrolled ? "border-white/10 bg-[rgb(10_19_46/0.55)] backdrop-blur-xl" : "border-transparent",
+        scrolled ? "border-white/10 bg-[rgb(30_32_34/0.55)] backdrop-blur-xl" : "border-transparent",
       )}
     >
       <div className="mx-auto grid max-w-7xl grid-cols-[1fr_auto] items-center gap-3 px-4 py-3 sm:px-8 lg:grid-cols-[1fr_auto_1fr]">

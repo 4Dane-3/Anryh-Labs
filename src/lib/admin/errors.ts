@@ -96,9 +96,12 @@ export async function reportIssue(input: IssueReport): Promise<Reported> {
 /** For Next's onRequestError: an error thrown while the server handled a request. */
 export async function reportServerError(
   err: unknown,
-  request: { path: string; method: string },
+  request: { path: string; method: string; headers?: Record<string, string | string[] | undefined> },
   context: { routeType: string },
 ) {
+  // Staff viewing an agent's dashboard (the view-as cookie): their requests aren't the agent's problems
+  const cookie = request.headers?.cookie;
+  if ((Array.isArray(cookie) ? cookie.join(";") : cookie ?? "").includes("anryh_view_as=")) return;
   const e = err instanceof Error ? err : new Error(String(err));
   await reportIssue({
     kind: "server",
