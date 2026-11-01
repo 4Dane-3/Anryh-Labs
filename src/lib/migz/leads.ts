@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
 import { usPhone } from "@/lib/booking/call";
 import { QUOTE_CONSENT_TEXT } from "@/lib/booking/constants";
+import { sendFormLeadEmail } from "@/lib/booking/email";
 import { newFormLeadMessage } from "@/lib/booking/format";
 import { landingUrl } from "@/lib/booking/sites";
 import { sendSlackMessage } from "@/lib/slack";
@@ -18,7 +19,8 @@ import { DEFAULT_INTENT, isIntentLevel } from "@/lib/ad-options";
 // the form. Each lead joins the agent's call-backs (quote_requests, source instant_form) and pings their
 // Slack; if the lead later books a call, Meta is told on the lead (a CRM conversion).
 
-export const FORM_CONSENT_TEXT = `${QUOTE_CONSENT_TEXT} By submitting, you ask to be called back about life insurance.`;
+// Form leads also get an email with the booking link, so their consent names email too
+export const FORM_CONSENT_TEXT = `${QUOTE_CONSENT_TEXT.replace("by phone and text", "by phone, text and email")} By submitting, you ask to be called back about life insurance.`;
 
 export const wantsInstantForms = (agent: Pick<Agent, "intent_level">) => (isIntentLevel(agent.intent_level) ? agent.intent_level : DEFAULT_INTENT) === "low_medium";
 
@@ -89,6 +91,10 @@ export async function saveFormLead(agent: Agent, lead: MetaLead) {
   if (error || !data) throw new Error(`Couldn't save the form lead: ${error?.message}`);
   if (agent.slack_user_id) {
     await sendSlackMessage(agent.slack_user_id, newFormLeadMessage({ name, phone, email, coverage })).catch((e) => console.error("slack notify failed", e));
+  }
+  // Right away, while they're still thinking about it: thanks, and the link to book the call themselves
+  if (email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    await sendFormLeadEmail({ agent, leadId: lead.id, prospect: { name, email } }).catch((e) => console.error("form lead email failed", e));
   }
   return true;
 }

@@ -37,6 +37,20 @@ export function prepareUrl(slug: string, token: string, appUrl = process.env.APP
 
 export const partnerPhoto = (slug: string): string | null => AGENT_PHOTOS[slug] ?? null;
 
+// Who their emails to leads come from: an address on their agency's domain (verified in Resend), the agency's
+// name, and the env var holding its postal address (CAN-SPAM needs one in every email; none, no email)
+const AGENT_EMAIL_SENDER: Record<string, { from: string; business: string; postalEnv: string }> = {
+  "miguel-cruz": { from: "noreply@foreignfinancial.org", business: "Foreign Financial", postalEnv: "FOREIGN_FINANCIAL_POSTAL_ADDRESS" },
+};
+
+/** The agent's lead-email sender: their agency's, else Anryh Labs' (BOOKING_EMAIL_FROM). Null when it can't be sent compliantly. */
+export function leadEmailSender(slug: string) {
+  const partner = AGENT_EMAIL_SENDER[slug];
+  const from = partner?.from ?? process.env.BOOKING_EMAIL_FROM;
+  const postalAddress = process.env[partner?.postalEnv ?? "LEAD_EMAIL_POSTAL_ADDRESS"]?.trim();
+  return from && postalAddress ? { from, business: partner?.business ?? "Anryh Labs", postalAddress } : null;
+}
+
 /**
  * Where the agent's ads send people: their partner-site page, else their page on this app. A partner page
  * opens at its booking card (#book), so the calendar is the first thing a visitor sees instead of the intro
