@@ -77,11 +77,12 @@ export async function sendFormLeadEmail(input: { agent: Agent; leadId: string; p
   const page = landingUrl(agent.slug, appUrl());
   const [base, hash] = page.split("#");
   const bookUrl = `${base}?utm_source=email&utm_medium=lead_followup${hash ? `#${hash}` : ""}`;
+  const { hostname, pathname } = new URL(base);
   const email = leadEmail({
     agent: { fullName: agent.full_name, title: agent.title ?? null, licenseNumber: agent.license_number, email: agent.email },
     prospect: { name: prospect.name },
     bookUrl,
-    site: new URL(base).hostname.replace(/^www\./, ""),
+    bookPage: `${hostname.replace(/^www\./, "")}${pathname.replace(/\/$/, "")}`, // the link reads as the page it opens, e.g. foreignfinancial.org/miguel-cruz
     business: { name: sender.business, postalAddress: sender.postalAddress },
   });
 
@@ -100,8 +101,8 @@ export async function sendFormLeadEmail(input: { agent: Agent; leadId: string; p
       subject: email.subject,
       html: email.html,
       text: email.text,
-      // The mail app's own unsubscribe button: an email to the agent, who stops emailing them
-      headers: { "List-Unsubscribe": `<mailto:${agent.email}?subject=Unsubscribe>` },
+      // No List-Unsubscribe header: it marks mail as bulk, and Gmail files bulk mail under Promotions. The
+      // footer's reply-to-unsubscribe is the opt-out (replies go to the agent).
     }),
     signal: AbortSignal.timeout(15_000),
   });
