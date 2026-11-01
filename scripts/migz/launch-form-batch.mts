@@ -34,6 +34,8 @@ const flags = args.filter((a) => a.startsWith("--"));
 const [slug, dailyArg, specFile] = args.filter((a) => !a.startsWith("--"));
 const go = flags.includes("--go") ? "--go" : undefined;
 const cover = flags.includes("--cover");
+// After a run that stopped partway (e.g. Meta refused the form): keeps the batch it made and builds the rest
+const resume = flags.includes("--resume");
 const daysFlag = Number(flags.find((f) => f.startsWith("--days="))?.split("=")[1]) || null;
 if (!slug || !dailyArg || !specFile) throw new Error("Usage: launch-form-batch.mts <slug> <dailyCents> <creatives.json> [--days=N] [--cover] [--go]");
 const daily = Number(dailyArg);
@@ -69,7 +71,8 @@ console.log(JSON.stringify({
 if (go !== "--go") process.exit(0);
 
 // ---------- 1. End the running batch (spend synced first; unspent back in the balance) ----------
-if (running) {
+if (resume && (!running || running.starts_on !== today || running.budget_cents !== daily * plan.days)) throw new Error("--resume needs the batch this script started today");
+if (running && !resume) {
   await syncAgent(agent);
   const since = running.starts_on!;
   const { data: spendRows } = await supabaseAdmin.from("ad_insights_daily").select("spend_cents").eq("agent_id", agent.id).gte("date", since).lte("date", today);
@@ -83,6 +86,7 @@ if (running) {
   console.log(`✓ Ended batch ${running.id}: spent $${(spent / 100).toFixed(2)}, ${booked ?? 0} booked, $${(Math.max(0, back) / 100).toFixed(2)} back`);
 }
 
+if (!resume) {
 // The balance has to cover the batch before its money is set aside
 const short = daily * plan.days - (await getBalanceCents(agent.id));
 if (short > 0) {
@@ -118,9 +122,10 @@ await supabaseAdmin
   .from("agents")
   .update({ daily_budget_cents: daily, campaign_days: plan.days, campaign_started_on: today, campaign_ends_on: ends, intent_level: "low_medium", migz_mode: "auto", migz_last_run_at: null, migz_last_operator_at: null })
   .eq("id", agent.id);
-const fresh = (await supabaseAdmin.from("agents").select("*").eq("id", agent.id).single()).data as Agent;
-await ensureBatchSetAside(fresh);
+await ensureBatchSetAside((await supabaseAdmin.from("agents").select("*").eq("id", agent.id).single()).data as Agent);
 console.log(`✓ Batch ${batch.id}: $${(daily * plan.days) / 100} over ${plan.days} days (${today} to ${ends}), set aside`);
+}
+const fresh = (await supabaseAdmin.from("agents").select("*").eq("id", agent.id).single()).data as Agent;
 
 // ---------- 3. The instant form and its ad set (all of the daily budget) ----------
 const formId = await ensureLeadForm(fresh);
