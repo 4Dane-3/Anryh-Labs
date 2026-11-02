@@ -170,6 +170,22 @@ export async function outcomesByAd(agentId: string) {
   return map;
 }
 
+/**
+ * Each instant-form ad's leads with what the agent marked on them (reached, couldn't reach, booked, sold, not
+ * interested) over the last OUTCOME_WINDOW_DAYS, unmarked as null. Migz ranks form ads on these.
+ */
+export async function formOutcomesByAd(agentId: string) {
+  const since = new Date(Date.now() - OUTCOME_WINDOW_DAYS * 86_400_000).toISOString();
+  const { data, error } = await supabaseAdmin.from("quote_requests").select("meta_ad_id, outcome").eq("agent_id", agentId).eq("source", "instant_form").gte("created_at", since);
+  const map = new Map<string, (string | null)[]>();
+  if (error) return map;
+  for (const l of data ?? []) {
+    if (!l.meta_ad_id) continue;
+    map.set(l.meta_ad_id, [...(map.get(l.meta_ad_id) ?? []), (l.outcome as string | null) ?? null]);
+  }
+  return map;
+}
+
 // ---------- The morning ask ----------
 
 const when = (iso: string, tz: string, kind: OutcomeKind) => {
