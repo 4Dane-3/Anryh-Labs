@@ -46,6 +46,9 @@ export type Scorecard = {
   link_ctr: number | null;
   booked_calls: number;
   cost_per_booked_call: number | null;
+  /** Instant-form leads from this ad (an instant-form ad has no booked calls of its own) */
+  form_leads: number;
+  cost_per_form_lead: number | null;
   /** "70% of its bookings showed up (7 of 10 answered), 2 sold", once enough calls are answered. */
   after_the_call: string | null;
   verdict: { rung: string; read: string };
@@ -72,6 +75,7 @@ export type LiveStats = {
     cpmCents: number | null;
     cpcCents: number | null; // per link click
     bookedCalls: number;
+    formLeads: number; // instant-form leads
   };
   hours: { hour: number; spendCents: number; impressions: number }[]; // 0-23 in the ad account's timezone, up to now
   /** Today's top spenders; `paused` marks one that has since been paused */

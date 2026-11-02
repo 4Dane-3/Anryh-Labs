@@ -48,10 +48,11 @@ export async function getLiveStats(agent: Agent, opts: { fresh?: boolean; date?:
       )
     : Promise.resolve({ total: null, ads: [] as AdRow[], hours: [] as HourRow[], error: null });
 
-  const [m, adsets, bookings, calls, budget, batch, synced, adRows] = await Promise.all([
+  const [m, adsets, bookings, formLeads, calls, budget, batch, synced, adRows] = await Promise.all([
     meta,
     supabaseAdmin.from("ad_sets").select("daily_budget_cents, ad_campaigns!inner(retired_at)").eq("agent_id", agent.id).eq("status", "ACTIVE").is("ad_campaigns.retired_at", null),
     supabaseAdmin.from("bookings").select("attribution").eq("agent_id", agent.id).gte("created_at", dayStart.toUTC().toISO()!).lt("created_at", dayStart.plus({ days: 1 }).toUTC().toISO()!),
+    supabaseAdmin.from("quote_requests").select("id", { count: "exact", head: true }).eq("agent_id", agent.id).eq("source", "instant_form").gte("created_at", dayStart.toUTC().toISO()!).lt("created_at", dayStart.plus({ days: 1 }).toUTC().toISO()!),
     supabaseAdmin.from("model_calls").select("created_at").eq("agent_id", agent.id).gte("created_at", monthStart),
     monthlyBudget(agent.id, agent.migz_model_budget_cents ?? 3000, agent.timezone),
     getActiveBatch(agent.id),
@@ -103,6 +104,7 @@ export async function getLiveStats(agent: Agent, opts: { fresh?: boolean; date?:
       cpmCents: impressions ? Math.round((spendCents / impressions) * 1000) : null,
       cpcCents: linkClicks ? Math.round(spendCents / linkClicks) : null,
       bookedCalls: (bookings.data ?? []).filter((b) => (b.attribution as Record<string, string> | null)?.utm_source === "meta").length,
+      formLeads: formLeads.count ?? 0,
     },
     hours: m.hours
       .map((h) => ({ hour: Number(h.hourly_stats_aggregated_by_advertiser_time_zone.slice(0, 2)), spendCents: cents(h.spend), impressions: Number(h.impressions ?? 0) }))
@@ -193,8 +195,8 @@ async function pulse(agent: Agent, createMessage: CreateMessage) {
   await reading({
     summary: stats.error
       ? `Meta didn't answer this time: ${stats.error.slice(0, 120)}`
-      : `Today so far: $${(t.spendCents / 100).toFixed(2)} spent, ${t.impressions.toLocaleString("en-US")} impressions, ${t.linkClicks} link clicks`,
-    evidence: { kind: PULSE_KIND, spend: `$${(t.spendCents / 100).toFixed(2)}`, booked_calls: t.bookedCalls },
+      : `Today so far: $${(t.spendCents / 100).toFixed(2)} spent, ${t.impressions.toLocaleString("en-US")} impressions, ${t.linkClicks} link clicks${t.formLeads ? `, ${t.formLeads} form lead${t.formLeads === 1 ? "" : "s"}` : ""}`,
+    evidence: { kind: PULSE_KIND, spend: `$${(t.spendCents / 100).toFixed(2)}`, booked_calls: t.bookedCalls, form_leads: t.formLeads },
   });
   if (stats.error) return "failed";
 
