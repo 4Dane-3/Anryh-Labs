@@ -68,7 +68,7 @@ type LeadNote = ReturnType<typeof leadEmail>;
 
 /**
  * Sends one of the agent's plain notes to a lead (lead-email.ts), from the agent's partner domain when they
- * have one (Miguel: noreply@foreignfinancial.org), else BOOKING_EMAIL_FROM. Replies go to the agent. Skipped
+ * have one (Miguel: miguel@foreignfinancial.org), else BOOKING_EMAIL_FROM. Replies go to the agent. Skipped
  * (not sent) without the sender's postal address, which CAN-SPAM requires. Throws when Resend refuses it.
  */
 async function sendLeadNote(
