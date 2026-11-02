@@ -15,7 +15,7 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
     <>
       <PageHeader
         title="Clients"
-        description="Everyone who reached you: instant-form leads, quote requests and booked calls. Open someone to log your calls, add notes, and mark them sold or not interested. Migz and Meta learn from what you mark."
+        description="Everyone who reached you: leads from Migz (instant forms, quote requests, booked calls) and personal clients you add yourself. Open someone to log your calls, add notes, and mark them sold or not interested. Migz and Meta learn from what you mark on Migz leads."
       />
       <ClientsTable clients={clients} timezone={agent.timezone} initialKey={initialKey} questionOrder={questions.map((q) => q.key)} />
     </>

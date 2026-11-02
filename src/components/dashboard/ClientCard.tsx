@@ -37,7 +37,12 @@ import { cn } from "@/lib/utils";
 // adds their own entries (a call attempt, a voicemail, a text, a note) and can edit or delete those; the
 // system's entries (emails, answers, what Meta was told) are the record.
 
-export const SOURCE_LABEL: Record<Client["source"], string> = { instant_form: "Instant form", page: "Quote request", booking: "Booked call" };
+export const SOURCE_LABEL: Record<Client["source"], string> = { instant_form: "Instant form", page: "Quote request", booking: "Booked call", manual: "Added by you" };
+
+/** Who brought them in: Migz (its ads, page and forms) or the agent themself. */
+export function originBadge(origin: Client["origin"]) {
+  return origin === "migz" ? <Badge tone="accent">Migz</Badge> : <Badge>Personal</Badge>;
+}
 
 export function statusBadge(status: ClientStatus) {
   if (status === "current") return <Badge tone="good">Current plan</Badge>;
@@ -261,7 +266,7 @@ function CardBody({ client, timezone, questionOrder, onClose }: { client: Client
   // The timeline: logged entries plus "came in" and "booked", which the card already knows
   const entries: Entry[] = [
     ...(activities ?? []),
-    { id: null, kind: "came_in" as const, byAgent: false as const, body: client.source === "booking" ? "Booked from your page" : `Came in from ${SOURCE_LABEL[client.source].toLowerCase()}${client.cameFrom.includes("·") ? ` (${client.cameFrom.split("·").slice(1).join("·").trim()})` : ""}`, at: client.cameInAt },
+    { id: null, kind: "came_in" as const, byAgent: false as const, body: client.source === "booking" ? "Booked from your page" : client.source === "manual" ? `Added by you${client.cameFrom.includes("·") ? ` (${client.cameFrom.split("·").slice(1).join("·").trim().toLowerCase()})` : ""}` : `Came in from ${SOURCE_LABEL[client.source].toLowerCase()}${client.cameFrom.includes("·") ? ` (${client.cameFrom.split("·").slice(1).join("·").trim()})` : ""}`, at: client.cameInAt },
     ...(call && client.source !== "booking" ? [{ id: null, kind: "booked" as const, body: `Booked a call for ${callStart!.toFormat("ccc, LLL d 'at' h:mm a")}`, at: call.bookedAt, byAgent: false as const }] : []),
   ].sort((a, b) => b.at.localeCompare(a.at));
   const byDay = new Map<string, Entry[]>();
@@ -276,8 +281,11 @@ function CardBody({ client, timezone, questionOrder, onClose }: { client: Client
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <h2 className="truncate text-lg font-semibold">{client.name}</h2>
-            <p className="mt-0.5 text-[13px] text-fg-muted">
-              {SOURCE_LABEL[client.source]} · came in {fmt(client.cameInAt)}
+            <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[13px] text-fg-muted">
+              {originBadge(client.origin)}
+              <span>
+                {client.source === "manual" ? client.cameFrom : SOURCE_LABEL[client.source]} · {client.source === "manual" ? "added" : "came in"} {fmt(client.cameInAt)}
+              </span>
             </p>
           </div>
           <button onClick={onClose} aria-label="Close" className="rounded-md p-1.5 text-fg-muted transition-colors hover:bg-white/[0.06] hover:text-fg">
@@ -339,7 +347,9 @@ function CardBody({ client, timezone, questionOrder, onClose }: { client: Client
             <Chips kind={client.kind} value={outcome} onPick={(o) => tap(o)} disabled={pending} />
             {outcome === "sold" && <Premium initialCents={client.premiumCents} onSave={(d) => tap("sold", d)} />}
             <p className="min-h-4 text-[12px] text-fg-faint">
-              {pending ? <Loader2 className="inline size-3 animate-spin" /> : flash ? <span className="text-good">{flash}</span> : "Reached, sold and not interested go to Meta, so your ads find more people like the ones who buy."}
+              {pending ? <Loader2 className="inline size-3 animate-spin" /> : flash ? <span className="text-good">{flash}</span> : client.origin === "personal"
+                  ? "For your own records: personal clients never go to Meta or Migz."
+                  : "Reached, sold and not interested go to Meta, so your ads find more people like the ones who buy."}
             </p>
           </div>
         </section>

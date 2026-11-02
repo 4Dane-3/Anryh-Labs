@@ -48,7 +48,7 @@ export async function ownNumbers(agent: Agent, ended: Batch[]): Promise<OwnNumbe
   // Show-up and reach rates from the agent's answers (all their calls and leads; none before the outcomes migration)
   const [{ data: calls, error: callsError }, { data: formLeads, error: leadsError }] = await Promise.all([
     supabaseAdmin.from("bookings").select("outcome").eq("agent_id", agent.id).eq("status", "confirmed").not("outcome", "is", null),
-    supabaseAdmin.from("quote_requests").select("outcome").eq("agent_id", agent.id).not("outcome", "is", null),
+    supabaseAdmin.from("quote_requests").select("outcome").eq("agent_id", agent.id).neq("source", "manual").not("outcome", "is", null),
   ]);
   const showRate = callsError ? null : outcomeStats((calls ?? []).map((c) => c.outcome as string)).goodRate;
   const reachRate = leadsError ? null : outcomeStats((formLeads ?? []).map((c) => c.outcome as string), "lead").goodRate;

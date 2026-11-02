@@ -96,7 +96,7 @@ export default function PrivacyPage() {
             <p>from agents:</p>
             <ul className="list-disc space-y-2 pl-5">
               <Item label="account and profile">name, email, login credentials, photo, bio, license number, licensed states, timezone, availability and slack member id.</Item>
-              <Item label="content">testimonials, photos and videos agents upload, and the questions they choose to ask prospects.</Item>
+              <Item label="content">testimonials, photos and videos agents upload, the questions they choose to ask prospects, and clients they add themselves (name, phone, email and notes), which are never sent to meta or emailed by us.</Item>
               <Item label="billing">ad budget, balance and transaction history. card payments are handled by stripe; we do not store card numbers.</Item>
             </ul>
             <p>from meta&apos;s platform, through the meta marketing api, for agents who authorize it:</p>
