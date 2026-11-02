@@ -297,7 +297,7 @@ function ScorecardsPanel({ cards }: { cards: Scorecard[] }) {
           <table className="w-full min-w-[760px] text-left font-mono text-[12px]">
             <thead className="text-fg-faint">
               <tr className="border-b border-line">
-                {["Ad", "Hook rate", "Hold rate", "Retention", "Link CTR", "Booked", "Verdict"].map((h) => (
+                {["Ad", "Hook rate", "Hold rate", "Retention", "Link CTR", "Leads", "Verdict"].map((h) => (
                   <th key={h} className="px-5 py-2 font-normal">{h}</th>
                 ))}
               </tr>
@@ -314,7 +314,16 @@ function ScorecardsPanel({ cards }: { cards: Scorecard[] }) {
                   <td className="px-5"><Retention r={c.retention} /></td>
                   <td className="px-5">{pct(c.link_ctr, 2)}</td>
                   <td className="px-5">
-                    {c.booked_calls}{c.cost_per_booked_call !== null ? <span className="text-fg-faint"> · ${c.cost_per_booked_call.toFixed(0)}</span> : null}
+                    {c.form_leads ? (
+                      <>
+                        {c.form_leads} form{c.cost_per_form_lead !== null ? <span className="text-fg-faint"> · ${c.cost_per_form_lead.toFixed(2)}</span> : null}
+                        {c.booked_calls > 0 && <p className="text-[11px] text-fg-faint">{c.booked_calls} booked</p>}
+                      </>
+                    ) : (
+                      <>
+                        {c.booked_calls} booked{c.cost_per_booked_call !== null ? <span className="text-fg-faint"> · ${c.cost_per_booked_call.toFixed(0)}</span> : null}
+                      </>
+                    )}
                     {c.after_the_call && <p className="max-w-[200px] whitespace-normal text-[11px] text-fg-faint">{c.after_the_call}</p>}
                   </td>
                   <td className="px-5" title={c.verdict.read}>

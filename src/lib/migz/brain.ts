@@ -91,6 +91,7 @@ export async function getBrainBoard(agent: Agent) {
     const set = snapshot.guardAdsets.find((s) => s.ads.some((a) => a.meta_ad_id === ad.meta_ad_id));
     const c = ad.creatives as { kind?: string; hook?: string; traits?: { angle?: string; hook_type?: string }; script?: { topic?: string } } | null;
     const d = m?.d14;
+    const formLeads = snapshot.formLeadsByAd.get(ad.meta_ad_id)?.leads ?? 0;
     scorecards.push({
       ad_id: ad.meta_ad_id,
       name: ad.name,
@@ -103,6 +104,8 @@ export async function getBrainBoard(agent: Agent) {
       link_ctr: d?.link_ctr ?? d?.ctr ?? null,
       booked_calls: d?.booked_calls ?? 0,
       cost_per_booked_call: d?.cost_per_booked_call_usd ?? null,
+      form_leads: formLeads,
+      cost_per_form_lead: formLeads && d ? d.spend_usd / formLeads : null,
       after_the_call: showUpLine(snapshot.adOutcomes.get(ad.meta_ad_id) ?? []) ?? reachLine(snapshot.formOutcomes.get(ad.meta_ad_id) ?? []),
       verdict: d && set
         ? ladder({ hook_rate: d.hook_rate, hold_rate: d.hold_rate, link_ctr: d.link_ctr, visit_to_booking: d.visit_to_booking, frequency: d.frequency, impressions: d.impressions, visits: d.visits }, setAvg.get(set.meta_adset_id)!, m!.fatigue.signals)

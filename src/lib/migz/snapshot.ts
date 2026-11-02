@@ -645,6 +645,7 @@ export async function buildSnapshot(agent: Agent) {
     adMetrics,
     adOutcomes,
     formOutcomes,
+    formLeadsByAd,
     guardAdsets,
     targetCostCents,
     openGenerations: (jobs.data ?? []).filter((j) => j.stage === "generating").length,

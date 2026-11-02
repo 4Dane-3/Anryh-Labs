@@ -292,8 +292,8 @@ export function LivePanel({ events, agentId }: { events: BrainEvent[]; agentId: 
         <Tile label="Per 1,000 impressions" sub={t?.cpcCents !== null && t ? `${usd(t.cpcCents)} per link click` : "–"}>
           {t?.cpmCents != null ? <Ticker value={t.cpmCents} format={usd} /> : "–"}
         </Tile>
-        <Tile label="Booked calls today" sub="from your ads">
-          {t ? <Flash value={t.bookedCalls}>{t.bookedCalls}</Flash> : "–"}
+        <Tile label="Leads today" sub={t?.formLeads ? `${int(t.formLeads)} form · ${int(t.bookedCalls)} booked` : "booked calls from your ads"}>
+          {t ? <Flash value={t.bookedCalls + (t.formLeads ?? 0)}>{t.bookedCalls + (t.formLeads ?? 0)}</Flash> : "–"}
         </Tile>
         <Tile
           label="Migz thinking today"
