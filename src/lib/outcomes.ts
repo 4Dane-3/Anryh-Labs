@@ -1,17 +1,19 @@
-// What happened after each lead. A booked call: showed up, no show, quoted, sold. A form lead or quote
-// request: reached, not reached, booked, sold. The agent answers with one tap; Migz scores ads on it and
-// Meta hears about the good ones. Pure (client-safe): the dashboard, the Slack ask, the review and the
-// tests all use these words and rules.
+// What happened after each lead. A booked call: showed up, no show, quoted, sold, not interested. A form lead
+// or quote request: reached, not reached, booked, sold, not interested. The agent answers with one tap; Migz
+// scores ads on it and Meta hears about it. Pure (client-safe): the dashboard, the Slack ask, the review and
+// the tests all use these words and rules.
 
-export type CallOutcome = "showed_up" | "no_show" | "quoted" | "sold";
-export type LeadOutcome = "reached" | "not_reached" | "booked" | "sold";
+export type CallOutcome = "showed_up" | "no_show" | "quoted" | "sold" | "not_interested";
+export type LeadOutcome = "reached" | "not_reached" | "booked" | "sold" | "not_interested";
 export type OutcomeKind = "call" | "lead";
+export type MetaOutcomeEvent = "ShowedUp" | "Contact" | "Purchase" | "NotInterested";
 
 export const CALL_OUTCOMES: { key: CallOutcome; label: string }[] = [
   { key: "showed_up", label: "Showed up" },
   { key: "no_show", label: "No show" },
   { key: "quoted", label: "Quoted" },
   { key: "sold", label: "Sold" },
+  { key: "not_interested", label: "Not interested" },
 ];
 
 export const LEAD_OUTCOMES: { key: LeadOutcome; label: string }[] = [
@@ -19,25 +21,47 @@ export const LEAD_OUTCOMES: { key: LeadOutcome; label: string }[] = [
   { key: "not_reached", label: "Couldn't reach" },
   { key: "booked", label: "Booked" },
   { key: "sold", label: "Sold" },
+  { key: "not_interested", label: "Not interested" },
 ];
+
+/** Answers that mean it went nowhere (shown in red). */
+export const badOutcome = (o: string | null | undefined) => o === "no_show" || o === "not_reached" || o === "not_interested";
+
+// ---------- Client status ----------
+
+/** Where someone stands with the agent: every lead starts as a prospect; "current" has a plan with them. */
+export type ClientStatus = "prospect" | "current" | "not_interested";
+export const CLIENT_STATUSES: { key: ClientStatus; label: string }[] = [
+  { key: "prospect", label: "Prospect" },
+  { key: "current", label: "Current plan" },
+  { key: "not_interested", label: "Not interested" },
+];
+export const isClientStatus = (v: unknown): v is ClientStatus => CLIENT_STATUSES.some((s) => s.key === v);
+
+/** The status an outcome moves a client to: a sale makes them current, a no makes them not interested. */
+export const statusForOutcome = (o: string): ClientStatus | null => (o === "sold" ? "current" : o === "not_interested" ? "not_interested" : null);
 
 export const isCallOutcome = (v: unknown): v is CallOutcome => CALL_OUTCOMES.some((o) => o.key === v);
 export const isLeadOutcome = (v: unknown): v is LeadOutcome => LEAD_OUTCOMES.some((o) => o.key === v);
 export const outcomeLabel = (kind: OutcomeKind, o: string) => (kind === "call" ? CALL_OUTCOMES : LEAD_OUTCOMES).find((x) => x.key === o)?.label ?? o;
 
-/** Quoted and sold calls showed up too. */
-export const showedUp = (o: string | null | undefined) => o === "showed_up" || o === "quoted" || o === "sold";
-/** Booked and sold leads were reached too. */
-export const reached = (o: string | null | undefined) => o === "reached" || o === "booked" || o === "sold";
+/** Quoted and sold calls showed up too, and so did one who said no on the call. */
+export const showedUp = (o: string | null | undefined) => o === "showed_up" || o === "quoted" || o === "sold" || o === "not_interested";
+/** Booked and sold leads were reached too, and so was one who said no. */
+export const reached = (o: string | null | undefined) => o === "reached" || o === "booked" || o === "sold" || o === "not_interested";
 
 /**
  * The follow-up events Meta gets for an outcome, in order, so a sale also counts as a show. Bookings send
  * them as website events matched on the same hashed contact details as the booking; form leads as CRM
- * events on the lead id. A no-show or an unreached lead sends nothing.
+ * events on the lead id. "Not interested" means the agent talked to them and they said no, so it counts as
+ * a show (or a contact) followed by NotInterested, which fills in Meta's lead quality reports. A no-show or
+ * an unreached lead sends nothing.
  */
-export function metaEventsFor(kind: OutcomeKind, o: string): ("ShowedUp" | "Contact" | "Purchase")[] {
-  if (kind === "call") return o === "sold" ? ["ShowedUp", "Purchase"] : showedUp(o) ? ["ShowedUp"] : [];
-  return o === "sold" ? ["Contact", "Purchase"] : reached(o) ? ["Contact"] : [];
+export function metaEventsFor(kind: OutcomeKind, o: string): MetaOutcomeEvent[] {
+  const first = kind === "call" ? "ShowedUp" : "Contact";
+  if (o === "sold") return [first, "Purchase"];
+  if (o === "not_interested") return [first, "NotInterested"];
+  return (kind === "call" ? showedUp(o) : reached(o)) ? [first] : [];
 }
 
 /** The events still to send, given what was already sent (outcome_sent): each is sent once, ever. */

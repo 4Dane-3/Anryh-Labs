@@ -38,9 +38,11 @@ export function prepareUrl(slug: string, token: string, appUrl = process.env.APP
 export const partnerPhoto = (slug: string): string | null => AGENT_PHOTOS[slug] ?? null;
 
 // Who their emails to leads come from: an address on their agency's domain (verified in Resend), the agency's
-// name, and the env var holding its postal address (CAN-SPAM needs one in every email; none, no email)
+// name, and the env var holding its postal address (CAN-SPAM needs one in every email; none, no email). The
+// address is the agent's own name, not noreply@: Gmail reads noreply as automated mail and files it under
+// Promotions. It needn't receive mail; replies go to the agent's real email (reply_to).
 const AGENT_EMAIL_SENDER: Record<string, { from: string; business: string; postalEnv: string }> = {
-  "miguel-cruz": { from: "noreply@foreignfinancial.org", business: "Foreign Financial", postalEnv: "FOREIGN_FINANCIAL_POSTAL_ADDRESS" },
+  "miguel-cruz": { from: "miguel@foreignfinancial.org", business: "Foreign Financial", postalEnv: "FOREIGN_FINANCIAL_POSTAL_ADDRESS" },
 };
 
 /** The agent's lead-email sender: their agency's, else Anryh Labs' (BOOKING_EMAIL_FROM). Null when it can't be sent compliantly. */

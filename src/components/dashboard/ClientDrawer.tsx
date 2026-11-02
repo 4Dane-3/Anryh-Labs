@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { DateTime } from "luxon";
@@ -95,6 +96,10 @@ function DrawerBody({
             {start.toFormat("cccc, LLL d 'at' h:mm a ZZZZ")}
             <span className="text-fg-faint"> · {start.toRelative()}</span>
           </p>
+          {/* The full card: status, activity and one-tap answers */}
+          <Link href={`/dashboard/clients?id=call:${booking.id}`} className="mt-1 inline-block text-[13px] text-brand hover:underline">
+            Open client card →
+          </Link>
         </div>
         <button
           onClick={onClose}

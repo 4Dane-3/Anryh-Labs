@@ -5,11 +5,27 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
 import { sendSlackMessage } from "@/lib/slack";
 import { sendLeadStageEvent, sendOutcomeEvents } from "@/lib/meta/capi";
-import { CALL_OUTCOMES, LEAD_OUTCOMES, isCallOutcome, isLeadOutcome, unsentEvents, type OutcomeKind } from "@/lib/outcomes";
+import { logActivity } from "@/lib/dashboard/activity";
+import {
+  CALL_OUTCOMES,
+  CLIENT_STATUSES,
+  LEAD_OUTCOMES,
+  isCallOutcome,
+  isLeadOutcome,
+  outcomeLabel,
+  statusForOutcome,
+  unsentEvents,
+  type ClientStatus,
+  type MetaOutcomeEvent,
+  type OutcomeKind,
+} from "@/lib/outcomes";
 
-// Asking the agent what happened after each lead, recording the answer, and telling Meta about the good
-// ones. The ask is one Slack message the morning after (with one-tap links) plus the same list on the
-// dashboard; one reminder two days later at most, then it's left unanswered.
+// Asking the agent what happened after each lead, recording the answer, and telling Meta about it. The ask
+// is one Slack message the morning after (with one-tap links) plus the same list on the dashboard; one
+// reminder two days later at most, then it's left unanswered.
+
+/** How a Meta event reads on the client's timeline. */
+const metaEventLabel = (e: MetaOutcomeEvent) => ({ ShowedUp: "showed up", Contact: "reached", Purchase: "sold", NotInterested: "not interested" })[e];
 
 const TABLE = { call: "bookings", lead: "quote_requests" } as const;
 /** How far back the dashboard and Slack ask about. */
@@ -47,33 +63,57 @@ export const outcomeUrl = (kind: OutcomeKind, id: string, outcome: string) =>
 
 // ---------- Recording ----------
 
-type Row = { id: string; agent_id: string; outcome: string | null; outcome_sent: string | null; email?: string | null; phone: string; attribution: Record<string, string> | null; meta_lead_id?: string | null };
+type Row = {
+  id: string;
+  agent_id: string;
+  outcome: string | null;
+  outcome_sent: string | null;
+  client_status: ClientStatus;
+  premium_cents: number | null;
+  email?: string | null;
+  phone: string;
+  attribution: Record<string, string> | null;
+  meta_lead_id?: string | null;
+};
 
 /**
- * Saves an outcome for one of the agent's leads (the agent can change it; the latest answer wins) and sends
- * Meta the follow-up events it hasn't had yet. Returns false when the lead isn't theirs, the outcome isn't
- * valid, or the outcomes migration hasn't run.
+ * Saves an outcome for one of the agent's leads (the agent can change it; the latest answer wins), moves
+ * their status (a sale makes them a current client, a no makes them not interested), adds both to their
+ * timeline, and sends Meta the follow-up events it hasn't had yet. Returns false when the lead isn't theirs,
+ * the outcome isn't valid, or the client-cards migration hasn't run.
  */
 export async function recordOutcome(agentId: string, kind: OutcomeKind, id: string, outcome: string, premiumCents?: number | null) {
   if (kind === "call" ? !isCallOutcome(outcome) : !isLeadOutcome(outcome)) return false;
-  const cols = kind === "call" ? "id, agent_id, outcome, outcome_sent, email, phone, attribution" : "id, agent_id, outcome, outcome_sent, email, phone, attribution, meta_lead_id";
+  const cols = `id, agent_id, outcome, outcome_sent, client_status, premium_cents, email, phone, attribution${kind === "lead" ? ", meta_lead_id" : ""}`;
   const { data, error } = await supabaseAdmin.from(TABLE[kind]).select(cols).eq("id", id).eq("agent_id", agentId).maybeSingle();
-  const row = data as Row | null;
+  const row = data as unknown as Row | null;
   if (error || !row) return false;
   const premium = outcome === "sold" && Number.isInteger(premiumCents) && premiumCents! > 0 && premiumCents! < 10_000_00 ? premiumCents! : null;
+  // Taking back a "not interested" makes them a prospect again; any other change of answer keeps the status
+  const status = statusForOutcome(outcome) ?? (row.outcome === "not_interested" && row.client_status === "not_interested" ? "prospect" : row.client_status);
   const { error: saveError } = await supabaseAdmin
     .from(TABLE[kind])
-    .update({ outcome, outcome_at: new Date().toISOString(), ...(outcome === "sold" ? (premium ? { premium_cents: premium } : {}) : { premium_cents: null }) })
+    .update({ outcome, outcome_at: new Date().toISOString(), client_status: status, ...(outcome === "sold" ? (premium ? { premium_cents: premium } : {}) : { premium_cents: null }) })
     .eq("id", id);
   if (saveError) return false;
+
+  const subject = { kind, id };
+  // Adding the premium to a sale isn't a new answer
+  if (outcome !== row.outcome) await logActivity(agentId, subject, "outcome", outcomeLabel(kind, outcome));
+  else if (premium && premium !== row.premium_cents) await logActivity(agentId, subject, "outcome", `${outcomeLabel(kind, outcome)}, $${(premium / 100).toFixed(2)}/month`);
+  if (status !== row.client_status) await logActivity(agentId, subject, "status", CLIENT_STATUSES.find((s) => s.key === status)!.label);
 
   const events = unsentEvents(kind, outcome, row.outcome_sent);
   if (events.length) {
     try {
-      if (row.meta_lead_id) for (const e of events) await sendLeadStageEvent({ leadId: row.meta_lead_id, eventName: e === "ShowedUp" ? "Contact" : e, eventId: `${e}:${id}`, valueCents: premium });
-      else await sendOutcomeEvents({ events, eventId: id, email: row.email, phone: row.phone, attribution: row.attribution ?? {}, valueCents: premium });
+      let skipped = false;
+      if (row.meta_lead_id)
+        for (const e of events) skipped = (await sendLeadStageEvent({ leadId: row.meta_lead_id, eventName: e === "ShowedUp" ? "Contact" : e, eventId: `${e}:${id}`, valueCents: premium })).skipped;
+      else skipped = (await sendOutcomeEvents({ events, eventId: id, email: row.email, phone: row.phone, attribution: row.attribution ?? {}, valueCents: premium })).skipped;
       const sent = [...new Set([...(row.outcome_sent ?? "").split(",").filter(Boolean), ...events])].join(",");
       await supabaseAdmin.from(TABLE[kind]).update({ outcome_sent: sent }).eq("id", id);
+      // The timeline only says what Meta actually got (nothing when the Conversions API isn't set up)
+      if (!skipped) await logActivity(agentId, subject, "meta", events.map(metaEventLabel).join(", "));
     } catch (e) {
       // The answer is saved either way; the next answer for this lead retries what wasn't sent
       console.error("sending the outcome to Meta failed", e instanceof Error ? e.message : e);
@@ -137,15 +177,57 @@ const when = (iso: string, tz: string, kind: OutcomeKind) => {
   return kind === "call" ? `call ${d.toFormat("ccc h:mm a")}` : `came in ${d.toFormat("ccc")}`;
 };
 
-/** The Slack message: each lead with its one-tap answers (links, so nothing needs setting up in Slack). */
+// Sold and not interested lead with ✅ and ❌, so the two answers that matter most are easy to spot
+const SLACK_LABEL: Record<string, string> = { sold: "✅ Sold", not_interested: "❌ Not interested", tried_call: "📞 Tried to call" };
+
+/**
+ * One lead's one-tap buttons for Slack: links (so nothing needs setting up in Slack) to a signed page that
+ * saves the answer, updates their card and tells Meta. "Tried to call" logs the attempt (and sends the
+ * "sorry I missed you" email when the agent has it on).
+ */
+export function outcomeButtons(kind: OutcomeKind, id: string, keys?: string[]) {
+  const all = [...(kind === "call" ? CALL_OUTCOMES : LEAD_OUTCOMES).map((o) => o.key as string), "tried_call"];
+  return {
+    type: "actions",
+    elements: (keys ?? all).map((key) => ({
+      type: "button",
+      text: { type: "plain_text", text: SLACK_LABEL[key] ?? outcomeLabel(kind, key), emoji: true },
+      url: outcomeUrl(kind, id, key),
+      action_id: `outcome_${kind}_${key}_${id}`.slice(0, 255),
+    })),
+  };
+}
+
+/** Their card in the dashboard (Clients), where everything about them can be updated. */
+export const clientCardUrl = (kind: OutcomeKind, id: string) => `${appUrl()}/dashboard/clients?id=${kind}:${id}`;
+
+/** A new lead's Slack ping: the message, how to use the buttons, then the buttons the agent taps after calling them. */
+export const leadPingBlocks = (text: string, kind: OutcomeKind, id: string) => [
+  { type: "section", text: { type: "mrkdwn", text } },
+  {
+    type: "section",
+    text: {
+      type: "mrkdwn",
+      text: `*After you call, tap what happened:* 📞 Tried to call · Reached · ✅ Sold · ❌ Not interested. Their card updates and Meta learns which ads bring buyers. Or <${clientCardUrl(kind, id)}|open their card> to add notes and update them.`,
+    },
+  },
+  outcomeButtons(kind, id, ["tried_call", "reached", "sold", "not_interested"]),
+];
+
+/** The Slack message: each lead with its one-tap answers. */
 export function outcomeAskMessage(agent: Pick<Agent, "timezone">, items: OutcomeItem[], reminder: boolean) {
   const text = reminder ? "A quick reminder: how did these go?" : `How did ${items.length === 1 ? "this one" : "these"} go? One tap each, and Migz learns which ads bring people who buy.`;
-  const blocks: unknown[] = [{ type: "section", text: { type: "mrkdwn", text } }];
+  const blocks: unknown[] = [
+    { type: "section", text: { type: "mrkdwn", text } },
+    {
+      type: "context",
+      elements: [{ type: "mrkdwn", text: `✅ Sold and ❌ Not interested update their card and tell Meta. 📞 Tried to call logs the attempt. Or update them in <${appUrl()}/dashboard/clients|Clients>.` }],
+    },
+  ];
   for (const it of items) {
-    const options = it.kind === "call" ? CALL_OUTCOMES : LEAD_OUTCOMES;
     blocks.push(
-      { type: "section", text: { type: "mrkdwn", text: `*${it.name}* · ${when(it.at, agent.timezone, it.kind)}${it.source === "instant_form" ? " · instant form" : it.source === "page" ? " · quote request" : ""}` } },
-      { type: "actions", elements: options.map((o) => ({ type: "button", text: { type: "plain_text", text: o.label }, url: outcomeUrl(it.kind, it.id, o.key), action_id: `outcome_${it.kind}_${o.key}_${it.id}`.slice(0, 255) })) },
+      { type: "section", text: { type: "mrkdwn", text: `*<${clientCardUrl(it.kind, it.id)}|${it.name.replace(/[<>|]/g, "")}>* · ${when(it.at, agent.timezone, it.kind)}${it.source === "instant_form" ? " · instant form" : it.source === "page" ? " · quote request" : ""}` } },
+      outcomeButtons(it.kind, it.id),
     );
   }
   return { text, blocks };

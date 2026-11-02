@@ -59,8 +59,9 @@ export async function sendConversionEvents(input: {
 /**
  * Tells Meta an instant-form lead went on to book a call: a CRM event on the lead itself (Conversions API for
  * CRM), so Meta learns which form leads turn into real conversations, not just which ones fill in the form.
+ * Later stages go the same way: reached (Contact), sold (Purchase), or said no (NotInterested).
  */
-export async function sendLeadStageEvent(input: { leadId: string; eventName: "Schedule" | "Contact" | "Purchase"; eventId: string; valueCents?: number | null }) {
+export async function sendLeadStageEvent(input: { leadId: string; eventName: "Schedule" | "Contact" | "Purchase" | "NotInterested"; eventId: string; valueCents?: number | null }) {
   const pixelId = process.env.META_PIXEL_ID;
   if (!pixelId || !process.env.META_SYSTEM_USER_TOKEN) return { skipped: true as const };
   await graph("POST", `${pixelId}/events`, {
@@ -86,10 +87,11 @@ const purchaseValue = (monthlyCents: number | null | undefined) => ({ currency: 
  * What happened after a booking or quote request, as follow-up events matched on the same hashed contact
  * details and Meta cookies/click id as the original Lead/Schedule: "ShowedUp" (a custom event) when the call
  * happened, "Contact" when a quote request was reached, "Purchase" when it sold, with a year of premium as the
- * value when the agent gave it. No names, prep answers or call notes; each event is sent once (event_id).
+ * value when the agent gave it, "NotInterested" (custom) when they said no. No names, prep answers or call
+ * notes; each event is sent once (event_id).
  */
 export async function sendOutcomeEvents(input: {
-  events: ("ShowedUp" | "Contact" | "Purchase")[];
+  events: ("ShowedUp" | "Contact" | "Purchase" | "NotInterested")[];
   eventId: string; // the booking or quote request id
   email?: string | null;
   phone?: string | null;

@@ -8,6 +8,8 @@ import { sendFormLeadEmail } from "@/lib/booking/email";
 import { newFormLeadMessage } from "@/lib/booking/format";
 import { landingUrl } from "@/lib/booking/sites";
 import { sendSlackMessage } from "@/lib/slack";
+import { logActivity } from "@/lib/dashboard/activity";
+import { leadPingBlocks } from "@/lib/dashboard/outcomes";
 import { createLeadForm, getFormLeads, getLead, leadFormBlocker, type MetaLead } from "@/lib/meta/ads";
 import { sendLeadStageEvent } from "@/lib/meta/capi";
 import { recordEventAlert } from "@/lib/admin/alerts";
@@ -90,11 +92,17 @@ export async function saveFormLead(agent: Agent, lead: MetaLead) {
   if (error?.code === "23505") return false;
   if (error || !data) throw new Error(`Couldn't save the form lead: ${error?.message}`);
   if (agent.slack_user_id) {
-    await sendSlackMessage(agent.slack_user_id, newFormLeadMessage({ name, phone, email, coverage })).catch((e) => console.error("slack notify failed", e));
+    const text = newFormLeadMessage({ name, phone, email, coverage });
+    await sendSlackMessage(agent.slack_user_id, text, leadPingBlocks(text, "lead", data.id)).catch((e) => console.error("slack notify failed", e));
   }
   // Right away, while they're still thinking about it: thanks, and the link to book the call themselves
   if (email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    await sendFormLeadEmail({ agent, leadId: lead.id, prospect: { name, email } }).catch((e) => console.error("form lead email failed", e));
+    const sent = await sendFormLeadEmail({ agent, leadId: lead.id, prospect: { name, email } }).catch((e) => console.error("form lead email failed", e));
+    if (sent && !sent.skipped) {
+      // The 48-hour follow-ups count from this email
+      await supabaseAdmin.from("quote_requests").update({ last_emailed_at: new Date().toISOString() }).eq("id", data.id);
+      await logActivity(agent.id, { kind: "lead", id: data.id }, "email", "Thanks for your quote request (with your booking link)");
+    }
   }
   return true;
 }
