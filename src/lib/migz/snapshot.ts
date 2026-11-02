@@ -20,8 +20,8 @@ import type { EventRow } from "@/lib/admin/page-analytics";
 import { emptyPlatformStats, platformOf, PLATFORMS, strongerPlatform, type PlatformStats } from "@/lib/migz/platforms";
 import { DEFAULT_INTENT, DEFAULT_VIDEO_TIER, isIntentLevel, isVideoTier, MIN_SPLIT_DAILY_CENTS, VIDEO_TIERS, type IntentLevel, type VideoTier } from "@/lib/ad-options";
 import { ageCallout, CALL_TIMES, cleanAnswers, CONTACT, expectedResults, LANGUAGES, UNDERWRITING } from "@/lib/campaign-plan";
-import { outcomesByAd, OUTCOME_WINDOW_DAYS } from "@/lib/dashboard/outcomes";
-import { MIN_OUTCOMES, outcomeStats, rankingCost, showUpLine } from "@/lib/outcomes";
+import { formOutcomesByAd, outcomesByAd, OUTCOME_WINDOW_DAYS } from "@/lib/dashboard/outcomes";
+import { leadRankingCost, MIN_OUTCOMES, outcomeStats, rankingCost, reachLine, showUpLine } from "@/lib/outcomes";
 
 /**
  * Everything Migz needs for one review: the campaign tree with 14-day and 3-day results per ad,
@@ -119,6 +119,9 @@ export async function buildSnapshot(agent: Agent) {
   const adOutcomes = await outcomesByAd(agent.id);
   const allOutcomes = [...adOutcomes.values()].flat();
   const accountOutcomes = outcomeStats(allOutcomes);
+  // And on each instant-form ad's leads (reached, sold, not interested), from what the agent marked
+  const formOutcomes = await formOutcomesByAd(agent.id);
+  const formAccount = outcomeStats([...formOutcomes.values()].flat(), "lead");
 
   // Booked calls per ad come from our bookings: Meta fills utm_content with the ad id
   const bookingsByAd = new Map<string, { d14: number; d3: number }>();
@@ -460,6 +463,20 @@ export async function buildSnapshot(agent: Agent) {
             show_up_rate: accountOutcomes.goodRate === null ? `not enough answers yet (needs ${MIN_OUTCOMES})` : `${Math.round(accountOutcomes.goodRate * 100)}%`,
           }
         : "the agent hasn't said how any calls went yet: rank ads on booked calls",
+      ...(formAccount.total
+        ? {
+            form_lead_outcomes: formAccount.answered
+              ? {
+                  [`form_leads_last_${OUTCOME_WINDOW_DAYS}_days`]: formAccount.total,
+                  marked_by_the_agent: formAccount.answered,
+                  reached: formAccount.good,
+                  sold: formAccount.sold,
+                  not_interested: formAccount.notInterested,
+                  reach_rate: formAccount.goodRate === null ? `not enough marked yet (needs ${MIN_OUTCOMES})` : `${Math.round(formAccount.goodRate * 100)}%`,
+                }
+              : "the agent hasn't marked any form leads yet: rank form ads on cost per form lead",
+          }
+        : {}),
       lead_style: intent === "low_medium"
         ? `low–medium intent: the agent chose more, cheaper leads. The main campaign runs a booking-page ad set and an instant-form ad set side by side (the system builds both when the daily budget is at least $${MIN_SPLIT_DAILY_CENTS / 100}). Launch creatives into both; compare cost per form lead with cost per booked call, and remember a form lead is an early call-back, worth less than a booked call.${agent.lead_form_blocked ? ` The instant form couldn't be made yet (${agent.lead_form_blocked}), so only the booking page runs for now.` : ""}`
         : "medium–high intent: every ad sends people to the booking page to book a call (no instant forms).",
@@ -554,7 +571,25 @@ export async function buildSnapshot(agent: Agent) {
                   ? (() => {
                       const f = formLeadsByAd.get(a.meta_ad_id) ?? { leads: 0, booked: 0 };
                       const spend = results.t.d14.spend_cents;
-                      return { form_leads_last_14_days: { leads: f.leads, later_booked_a_call: f.booked, cost_per_lead: f.leads ? `$${(spend / f.leads / 100).toFixed(2)}` : "n/a" } };
+                      const o = formOutcomes.get(a.meta_ad_id) ?? [];
+                      const st = outcomeStats(o, "lead");
+                      const rank = leadRankingCost(spend, f.leads, o);
+                      return {
+                        form_leads_last_14_days: { leads: f.leads, later_booked_a_call: f.booked, cost_per_lead: f.leads ? `$${(spend / f.leads / 100).toFixed(2)}` : "n/a" },
+                        ...(st.answered
+                          ? {
+                              after_the_form: {
+                                [`form_leads_last_${OUTCOME_WINDOW_DAYS}_days`]: st.total,
+                                marked: st.answered,
+                                reached: st.good,
+                                sold: st.sold,
+                                not_interested: st.notInterested,
+                                read: reachLine(o) ?? `only ${st.answered} marked so far; rank it on cost per form lead until ${MIN_OUTCOMES}`,
+                                rank_on: rank.cents === null ? "n/a" : `$${(rank.cents / 100).toFixed(2)} per ${rank.basis.replace(/_/g, " ")}`,
+                              },
+                            }
+                          : {}),
+                      };
                     })()
                   : {}),
                 ...(quotesByAd.get(a.meta_ad_id) ? { quote_requests_last_14_days: quotesByAd.get(a.meta_ad_id) } : {}),
@@ -609,6 +644,7 @@ export async function buildSnapshot(agent: Agent) {
     forModel,
     adMetrics,
     adOutcomes,
+    formOutcomes,
     guardAdsets,
     targetCostCents,
     openGenerations: (jobs.data ?? []).filter((j) => j.stage === "generating").length,

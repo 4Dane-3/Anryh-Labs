@@ -220,8 +220,8 @@ export function GhostBookingsForm({ on }: { on: boolean }) {
 
 /**
  * Follow-up emails: "sorry I missed you" when the agent logs a call that didn't get through (Clients, or the
- * Slack button), and up to 3 short follow-ups 48 hours apart to leads they haven't reached. Plain notes from
- * the agent with their booking link.
+ * Slack button), then up to 3 short follow-ups 48 hours apart while they stay unreached. Nothing goes out
+ * until the agent taps Tried to call. Plain notes from the agent with their booking link.
  */
 export function FollowUpEmailsForm({ initial, ready }: { initial: { on: boolean; message: string }; ready: boolean }) {
   const router = useRouter();
@@ -259,10 +259,10 @@ export function FollowUpEmailsForm({ initial, ready }: { initial: { on: boolean;
               <span className="text-fg">Missed call:</span> when you log &quot;Tried to call&quot; (in Clients, or the Slack button), they get &quot;Sorry I missed you&quot;. Once per person.
             </li>
             <li>
-              <span className="text-fg">Every 48 hours:</span> leads you haven&apos;t reached get up to 3 follow-ups, each at least 48 hours after their last email, during your daytime. The last one says it&apos;s the last.
+              <span className="text-fg">Then every 48 hours:</span> if you still haven&apos;t reached them, up to 3 follow-ups, each at least 48 hours after their last email, during your daytime. The last one says it&apos;s the last.
             </li>
           </ul>
-          <p className="mt-1.5 text-[13px] text-fg-muted">They stop as soon as someone books, you mark them reached, sold or not interested, or they reply to unsubscribe and you mark them not interested.</p>
+          <p className="mt-1.5 text-[13px] text-fg-muted">Nothing is sent until you tap &quot;Tried to call&quot;, so leads you haven&apos;t called (or talked to but didn&apos;t mark) get no follow-ups. They stop as soon as someone books, you mark them reached, sold or not interested, or they reply to unsubscribe and you mark them not interested.</p>
           {!ready && <p className="mt-1 text-[13px] text-fg-faint">Emails to leads aren&apos;t set up for your account yet (they need a sending address and a postal address). Ask Anryh Labs to turn them on.</p>}
           {error && <p className="mt-1 text-[13px] text-bad">{error}</p>}
         </div>

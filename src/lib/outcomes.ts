@@ -80,6 +80,7 @@ export function outcomeStats(outcomes: (string | null | undefined)[], kind: Outc
   const answered = outcomes.filter((o) => !!o) as string[];
   const good = answered.filter((o) => (kind === "call" ? showedUp(o) : reached(o))).length;
   const sold = answered.filter((o) => o === "sold").length;
+  const notInterested = answered.filter((o) => o === "not_interested").length;
   const enough = answered.length >= MIN_OUTCOMES;
   return {
     total: outcomes.length,
@@ -87,6 +88,7 @@ export function outcomeStats(outcomes: (string | null | undefined)[], kind: Outc
     /** Calls that showed up (or leads reached). */
     good,
     sold,
+    notInterested,
     goodRate: enough ? good / answered.length : null,
     saleRate: enough ? sold / answered.length : null,
   };
@@ -109,4 +111,25 @@ export function showUpLine(outcomes: (string | null | undefined)[]) {
   const s = outcomeStats(outcomes);
   if (s.goodRate === null) return null;
   return `${Math.round(s.goodRate * 100)}% of its bookings showed up (${s.good} of ${s.answered} answered)${s.sold ? `, ${s.sold} sold` : ""}`;
+}
+
+/**
+ * The cost an instant-form ad is ranked on, like rankingCost for bookings: per sale once it has sales on
+ * enough answers, then per interested lead (reached and didn't say no), then per form lead. Projected from
+ * the answered share onto every lead, so leads the agent hasn't marked don't make an ad look worse.
+ */
+export function leadRankingCost(spendCents: number, leads: number, outcomes: (string | null | undefined)[]) {
+  const s = outcomeStats(outcomes, "lead");
+  if (s.saleRate !== null && s.sold >= 2) return { basis: "sale" as const, cents: Math.round(spendCents / (leads * s.saleRate)) };
+  const interested = s.good - s.notInterested;
+  if (s.goodRate !== null && interested > 0) return { basis: "interested_lead" as const, cents: Math.round(spendCents / ((leads * interested) / s.answered)) };
+  return { basis: "form_lead" as const, cents: leads ? Math.round(spendCents / leads) : null };
+}
+
+/** "60% of its form leads were reached (6 of 10 answered), 2 sold, 3 not interested". */
+export function reachLine(outcomes: (string | null | undefined)[]) {
+  const s = outcomeStats(outcomes, "lead");
+  if (s.goodRate === null) return null;
+  const extra = [s.sold && `${s.sold} sold`, s.notInterested && `${s.notInterested} not interested`].filter(Boolean).join(", ");
+  return `${Math.round(s.goodRate * 100)}% of its form leads were reached (${s.good} of ${s.answered} answered)${extra ? `, ${extra}` : ""}`;
 }

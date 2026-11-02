@@ -1293,6 +1293,13 @@ assert.deepEqual(oc.rankingCost(40_000, 10, ten), { basis: "sale", cents: 16_000
 assert.deepEqual(oc.rankingCost(40_000, 10, ["showed_up", "showed_up", "no_show", "no_show", "showed_up"]), { basis: "showed_up_call", cents: 6667 }, "no sales yet: per showed-up call");
 assert.deepEqual(oc.rankingCost(40_000, 10, four), { basis: "booked_call", cents: 4000 }, "too few answers: per booked call");
 assert.match(oc.showUpLine(ten)!, /^63% of its bookings showed up \(5 of 8 answered\), 2 sold$/);
+const marked = ["reached", "reached", "not_interested", "not_reached", "sold", null, null];
+assert.deepEqual(oc.leadRankingCost(10_000, 10, marked), { basis: "interested_lead", cents: 1667 }, "$100 for 10 form leads, 3 of 5 marked reached and not a no: per interested lead, unmarked leads don't count against it");
+assert.deepEqual(oc.leadRankingCost(10_000, 10, ["sold", "sold", "reached", "not_reached", "not_interested"]), { basis: "sale", cents: 2500 }, "two sales on 5 marked: per sale");
+assert.deepEqual(oc.leadRankingCost(10_000, 10, ["sold", "reached", null]), { basis: "form_lead", cents: 1000 }, "under 5 marked: per form lead");
+assert.deepEqual(oc.leadRankingCost(10_000, 10, ["not_interested", "not_interested", "not_reached", "not_reached", "not_interested"]), { basis: "form_lead", cents: 1000 }, "all no or unreached: no interested lead to rank on");
+assert.equal(oc.reachLine(marked), "80% of its form leads were reached (4 of 5 answered), 1 sold, 1 not interested");
+assert.equal(oc.reachLine(["reached"]), null);
 process.env.CRON_SECRET = "test-secret";
 process.env.APP_URL = "https://app.example";
 const od = await import("@/lib/dashboard/outcomes");
@@ -1314,18 +1321,19 @@ assert.match(JSON.stringify(askMsg.blocks), /update them in <https:\/\/app\.exam
 const fu = await import("@/lib/dashboard/followups");
 const { DateTime: Dt } = await import("luxon");
 const fuNow = Dt.fromISO("2026-11-05T15:00:00Z");
-const fuLead = (o: { sent?: number; last?: string | null; created?: string }) => ({ followups_sent: o.sent ?? 0, last_emailed_at: o.last === undefined ? "2026-11-03T14:00:00Z" : o.last, created_at: o.created ?? "2026-11-01T10:00:00Z" });
-assert.ok(fu.followUpDue(fuLead({}), fuNow), "49 hours after the last email: due");
+const fuLead = (o: { sent?: number; last?: string | null; tried?: string | null }) => ({ followups_sent: o.sent ?? 0, last_emailed_at: o.last === undefined ? "2026-11-03T14:00:00Z" : o.last, tried_email_sent_at: o.tried === undefined ? "2026-11-03T14:00:00Z" : o.tried });
+assert.ok(fu.followUpDue(fuLead({}), fuNow), "49 hours after the sorry-I-missed-you: due");
+assert.ok(!fu.followUpDue(fuLead({ tried: null, last: "2026-11-01T10:00:00Z" }), fuNow), "no Tried to call yet: never, however long since the thank-you");
 assert.ok(!fu.followUpDue(fuLead({ last: "2026-11-04T15:00:00Z" }), fuNow), "24 hours after the last email: not yet");
 assert.ok(!fu.followUpDue(fuLead({ sent: 3 }), fuNow), "never more than 3 follow-ups");
-assert.ok(!fu.followUpDue(fuLead({ created: "2026-10-20T10:00:00Z" }), fuNow), "leads over 14 days old are left alone");
-assert.ok(fu.followUpDue(fuLead({ last: null }), fuNow), "never emailed: counts from when they came in");
+assert.ok(!fu.followUpDue(fuLead({ tried: "2026-10-20T10:00:00Z", last: "2026-10-28T10:00:00Z" }), fuNow), "nothing over 14 days after the missed call");
+assert.ok(fu.followUpDue(fuLead({ last: null }), fuNow), "counts from the missed call when no email was recorded since");
 assert.deepEqual([1, 2, 3].map((n) => le.followUpEmail(noteInput, n).subject), ["Following up, Linda", "Still thinking it over, Linda?", "One last note, Linda"], "three different follow-ups, the last says it's the last");
 assert.match(le.followUpEmail(noteInput, 3).text, /my last follow-up[\s\S]*example\.com\/m\?utm_source=email#book[\s\S]*To stop emails, reply "unsubscribe"[\s\S]*1 Main St/);
 assert.match(od.outcomeAskMessage({ timezone: "America/Chicago" }, [], true).text, /reminder/);
 const oExp = cp.expectedResults({ answers: plain, states: ["TX", "FL", "GA"], intent: "low_medium", dailyCents: 20_000, own: { campaigns: 0, costPerCallCents: null, costPerLeadCents: null, showRate: 0.62, reachRate: 0.4 } });
 assert.deepEqual(oExp.lines.map((l) => [l.follow, l.source]), [["62% of your booked calls show up (from your answers)", "typical"], ["you reach 40% of your form leads (from your answers)", "typical"]], "their own show-up and reach rates as soon as they're known, typical costs until 2 campaigns");
-ok("call outcomes: Meta events once each (a sale is a show too), rates from 5 answers, ads ranked per sale / showed-up call / booking, signed one-tap Slack links, own show-up rate in the estimate");
+ok("call outcomes: Meta events once each (a sale is a show too), rates from 5 answers, ads ranked per sale / showed-up call / booking, form ads per sale / interested lead / form lead, signed one-tap Slack links, own show-up rate in the estimate");
 
 const { overlayFilter, imageOverlayFilter, cornerPosition, opaqueBounds, markFilter, addLogoToVideo, addLogoToImage, END_CARD_SECONDS, isLogoCorner } = await import("@/lib/migz/endcard");
 const ecf = overlayFilter(15, 1080, 1920, { corner: "top_right", endCard: true });
