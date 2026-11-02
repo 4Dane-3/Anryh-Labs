@@ -24,6 +24,7 @@ import { isClientStatus, type OutcomeKind } from "@/lib/outcomes";
 import { isAgentActivityKind, type Subject } from "@/lib/dashboard/activity";
 import {
   addClientActivity,
+  addPersonalClient,
   clientTap,
   deleteClientActivity,
   getClientActivity,
@@ -925,6 +926,22 @@ export async function editActivity(activityId: string, entry: { kind: string; bo
   if (!(await updateClientActivity(agent.id, clean(activityId, 40), { kind: entry.kind, body: clean(entry.body, 2000), at: entryTime(entry.at) }))) return fail("Couldn't save that entry.");
   revalidatePath("/dashboard", "layout");
   return { ok: true };
+}
+
+/** Adds a personal client: someone who reached the agent outside Migz (called them directly, a referral). */
+export async function addClient(input: { name: string; phone: string; email: string; foundVia: string; coverage: string; status: string; notes: string }): Promise<{ ok: true; key: string } | { ok: false; error: string }> {
+  const agent = await requireAgent();
+  const res = await addPersonalClient(agent.id, {
+    name: clean(input?.name, 120),
+    phone: clean(input?.phone, 40),
+    email: clean(input?.email, 200),
+    foundVia: clean(input?.foundVia, 120),
+    coverage: clean(input?.coverage, 80),
+    status: input?.status === "current" ? "current" : "prospect",
+    notes: clean(input?.notes, 5000),
+  });
+  if (res.ok) revalidatePath("/dashboard", "layout");
+  return res;
 }
 
 export async function removeActivity(activityId: string): Promise<Result> {

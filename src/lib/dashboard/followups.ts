@@ -43,6 +43,8 @@ export async function sendDueFollowUps(agent: Agent, now: DateTime = DateTime.no
     .select("id, name, email, source, followups_sent, last_emailed_at, tried_email_sent_at")
     .eq("agent_id", agent.id)
     .eq("client_status", "prospect")
+    // Never the agent's personal clients: they didn't ask to be contacted through Migz
+    .in("source", ["instant_form", "page"])
     .not("email", "is", null)
     .is("booked_at", null)
     // The agent tapped "Tried to call" and hasn't reached them since; any other outcome means they talked

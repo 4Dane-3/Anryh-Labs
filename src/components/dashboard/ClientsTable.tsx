@@ -4,10 +4,11 @@ import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { DateTime } from "luxon";
-import { Search } from "lucide-react";
+import { Plus, Search } from "lucide-react";
 import type { Client } from "@/lib/dashboard/clients";
-import { ClientCard, SOURCE_LABEL, statusBadge } from "@/components/dashboard/ClientCard";
-import { Badge, EmptyState, Panel, inputClass } from "@/components/dashboard/ui";
+import { ClientCard, SOURCE_LABEL, originBadge, statusBadge } from "@/components/dashboard/ClientCard";
+import { AddClient } from "@/components/dashboard/AddClient";
+import { Badge, Button, EmptyState, Panel, inputClass } from "@/components/dashboard/ui";
 import { badOutcome, outcomeLabel } from "@/lib/outcomes";
 import { cn } from "@/lib/utils";
 
@@ -19,6 +20,14 @@ const FILTERS = [
 ] as const;
 
 type Filter = (typeof FILTERS)[number]["key"];
+
+const ORIGINS = [
+  { key: "all", label: "Everyone" },
+  { key: "migz", label: "From Migz" },
+  { key: "personal", label: "Personal" },
+] as const;
+
+type Origin = (typeof ORIGINS)[number]["key"];
 
 /** What to show under "Next": an upcoming call, else when they last heard from the agent (or came in). */
 function nextLine(c: Client, timezone: string, now: number) {
@@ -32,6 +41,8 @@ function nextLine(c: Client, timezone: string, now: number) {
 export function ClientsTable({ clients, timezone, initialKey, questionOrder }: { clients: Client[]; timezone: string; initialKey: string | null; questionOrder: string[] }) {
   const router = useRouter();
   const [filter, setFilter] = useState<Filter>("prospect");
+  const [origin, setOrigin] = useState<Origin>("all");
+  const [adding, setAdding] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedKey, setSelectedKey] = useState<string | null>(initialKey);
   const selected = clients.find((c) => c.key === selectedKey) ?? null;
@@ -43,23 +54,25 @@ export function ClientsTable({ clients, timezone, initialKey, questionOrder }: {
     if (initialKey) router.replace("/dashboard/clients", { scroll: false });
   }, [initialKey, router]);
 
+  const closeAdd = useCallback(() => setAdding(false), []);
+  const ofOrigin = useMemo(() => clients.filter((c) => origin === "all" || c.origin === origin), [clients, origin]);
   const counts = useMemo(
     () => ({
-      prospect: clients.filter((c) => c.status === "prospect").length,
-      current: clients.filter((c) => c.status === "current").length,
-      not_interested: clients.filter((c) => c.status === "not_interested").length,
-      all: clients.length,
+      prospect: ofOrigin.filter((c) => c.status === "prospect").length,
+      current: ofOrigin.filter((c) => c.status === "current").length,
+      not_interested: ofOrigin.filter((c) => c.status === "not_interested").length,
+      all: ofOrigin.length,
     }),
-    [clients],
+    [ofOrigin],
   );
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
     const digits = q.replace(/\D/g, "");
-    return clients
+    return ofOrigin
       .filter((c) => filter === "all" || c.status === filter)
       .filter((c) => !q || c.name.toLowerCase().includes(q) || (c.email ?? "").toLowerCase().includes(q) || (digits.length >= 3 && c.phone.includes(digits)));
-  }, [clients, filter, query]);
+  }, [ofOrigin, filter, query]);
 
   return (
     <>
@@ -78,9 +91,22 @@ export function ClientsTable({ clients, timezone, initialKey, questionOrder }: {
             </button>
           ))}
         </div>
-        <div className="relative sm:w-72">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-fg-faint" />
-          <input type="search" placeholder="Search name, email or phone" className={`${inputClass} pl-9`} value={query} onChange={(e) => setQuery(e.target.value)} />
+        <div className="flex flex-wrap gap-2 sm:flex-nowrap">
+          <select aria-label="Came from" className={`${inputClass} min-w-0 flex-1 sm:w-36 sm:flex-none`} value={origin} onChange={(e) => setOrigin(e.target.value as Origin)}>
+            {ORIGINS.map((o) => (
+              <option key={o.key} value={o.key}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          <div className="relative order-last w-full sm:order-none sm:w-64">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-fg-faint" />
+            <input type="search" placeholder="Search name, email or phone" className={`${inputClass} pl-9`} value={query} onChange={(e) => setQuery(e.target.value)} />
+          </div>
+          <Button variant="primary" onClick={() => setAdding(true)}>
+            <Plus />
+            Add client
+          </Button>
         </div>
       </div>
 
@@ -107,10 +133,16 @@ export function ClientsTable({ clients, timezone, initialKey, questionOrder }: {
                         <p className="truncate text-sm font-medium">{c.name}</p>
                         <p className="truncate text-[13px] text-fg-muted">{c.email ?? c.phone}</p>
                       </div>
-                      <div className="text-right md:hidden">{statusBadge(c.status)}</div>
+                      <div className="flex items-center gap-1.5 md:hidden">
+                        {originBadge(c.origin)}
+                        {statusBadge(c.status)}
+                      </div>
                       <div className="hidden min-w-0 md:block">
-                        <p className="truncate text-[13px] text-fg">{SOURCE_LABEL[c.source]}</p>
-                        <p className="truncate text-[12px] text-fg-faint">{c.coverage ?? c.cameFrom}</p>
+                        <p className="flex items-center gap-1.5 truncate text-[13px] text-fg">
+                          {originBadge(c.origin)}
+                          <span className="truncate">{c.source === "manual" ? (c.cameFrom.split("·")[1]?.trim() ?? SOURCE_LABEL.manual) : SOURCE_LABEL[c.source]}</span>
+                        </p>
+                        <p className="truncate text-[12px] text-fg-faint">{c.coverage ?? (c.source === "manual" ? SOURCE_LABEL.manual : c.cameFrom)}</p>
                       </div>
                       <p className={cn("col-span-2 truncate text-[13px] md:col-span-1", next.strong ? "text-fg" : "text-fg-muted")}>{next.text}</p>
                       <div className="hidden flex-wrap items-center gap-1.5 md:flex">
@@ -128,7 +160,7 @@ export function ClientsTable({ clients, timezone, initialKey, questionOrder }: {
             {query
               ? "Try a different name, email or phone number."
               : filter === "prospect"
-                ? "New leads from your instant forms, quote requests and booked calls show up here."
+                ? "New leads from your instant forms, quote requests and booked calls show up here. Use Add client for anyone who reached you directly."
                 : filter === "current"
                   ? "Mark someone as Current plan (or Sold) on their card and they'll move here."
                   : "Nothing in this list."}
@@ -137,6 +169,16 @@ export function ClientsTable({ clients, timezone, initialKey, questionOrder }: {
       </Panel>
 
       <ClientCard client={selected} timezone={timezone} questionOrder={questionOrder} onClose={close} />
+      <AddClient
+        open={adding}
+        onClose={closeAdd}
+        onAdded={(key) => {
+          setAdding(false);
+          setOrigin("all");
+          setFilter("all");
+          setSelectedKey(key);
+        }}
+      />
     </>
   );
 }

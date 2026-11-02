@@ -66,6 +66,7 @@ export const outcomeUrl = (kind: OutcomeKind, id: string, outcome: string) =>
 type Row = {
   id: string;
   agent_id: string;
+  source?: string | null;
   outcome: string | null;
   outcome_sent: string | null;
   client_status: ClientStatus;
@@ -84,7 +85,7 @@ type Row = {
  */
 export async function recordOutcome(agentId: string, kind: OutcomeKind, id: string, outcome: string, premiumCents?: number | null) {
   if (kind === "call" ? !isCallOutcome(outcome) : !isLeadOutcome(outcome)) return false;
-  const cols = `id, agent_id, outcome, outcome_sent, client_status, premium_cents, email, phone, attribution${kind === "lead" ? ", meta_lead_id" : ""}`;
+  const cols = `id, agent_id, outcome, outcome_sent, client_status, premium_cents, email, phone, attribution${kind === "lead" ? ", meta_lead_id, source" : ""}`;
   const { data, error } = await supabaseAdmin.from(TABLE[kind]).select(cols).eq("id", id).eq("agent_id", agentId).maybeSingle();
   const row = data as unknown as Row | null;
   if (error || !row) return false;
@@ -103,7 +104,8 @@ export async function recordOutcome(agentId: string, kind: OutcomeKind, id: stri
   else if (premium && premium !== row.premium_cents) await logActivity(agentId, subject, "outcome", `${outcomeLabel(kind, outcome)}, $${(premium / 100).toFixed(2)}/month`);
   if (status !== row.client_status) await logActivity(agentId, subject, "status", CLIENT_STATUSES.find((s) => s.key === status)!.label);
 
-  const events = unsentEvents(kind, outcome, row.outcome_sent);
+  // A personal client (added by the agent) didn't come from an ad: Meta never hears about them
+  const events = row.source === "manual" ? [] : unsentEvents(kind, outcome, row.outcome_sent);
   if (events.length) {
     try {
       let skipped = false;
@@ -133,7 +135,8 @@ export async function getOutcomeItems(agent: Pick<Agent, "id">, opts: { due?: bo
   const since = new Date(Date.now() - ASK_WINDOW_DAYS * 86_400_000).toISOString();
   const now = new Date().toISOString();
   let calls = supabaseAdmin.from("bookings").select("id, name, starts_at, outcome, premium_cents").eq("agent_id", agent.id).eq("status", "confirmed").lt("starts_at", now).gte("starts_at", since);
-  let leads = supabaseAdmin.from("quote_requests").select("id, name, created_at, outcome, premium_cents, source, booked_at").eq("agent_id", agent.id).gte("created_at", since).lt("created_at", now);
+  // Leads from Migz only: the agent's personal clients are theirs to track
+  let leads = supabaseAdmin.from("quote_requests").select("id, name, created_at, outcome, premium_cents, source, booked_at").eq("agent_id", agent.id).neq("source", "manual").gte("created_at", since).lt("created_at", now);
   if (opts.due) {
     calls = calls.is("outcome", null);
     leads = leads.is("outcome", null).is("booked_at", null);

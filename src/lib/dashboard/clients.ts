@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
 import type { IntakeAnswers } from "@/lib/booking/questions";
 import { sendTriedCallEmail } from "@/lib/booking/email";
+import { usPhone } from "@/lib/booking/call";
 import { logActivity, type ActivityKind, type AgentActivityKind, type Subject } from "@/lib/dashboard/activity";
 import { recordOutcome } from "@/lib/dashboard/outcomes";
 import { CLIENT_STATUSES, type ClientStatus, type OutcomeKind } from "@/lib/outcomes";
@@ -10,7 +11,9 @@ import { CLIENT_STATUSES, type ClientStatus, type OutcomeKind } from "@/lib/outc
 // The Clients tab: everyone who reached the agent, in one list. A booked call, an instant-form lead and a
 // page quote request each become a client; a lead who went on to book is one client (the call leads, with
 // the form's details on it). Each has a status (prospect → current plan, or not interested), notes, and a
-// timeline. Before the client-cards migration the list is empty.
+// timeline. The agent can also add someone by hand (they called the agent directly, a referral): those are
+// "personal" clients, kept apart from Migz's (never sent to Meta, emailed by us or counted in ad results).
+// Before the client-cards migration the list is empty.
 
 export type Client = {
   /** "call:<booking id>" or "lead:<quote request id>": the record the card answers for. */
@@ -22,7 +25,9 @@ export type Client = {
   name: string;
   phone: string;
   email: string | null;
-  source: "instant_form" | "page" | "booking";
+  source: "instant_form" | "page" | "booking" | "manual";
+  /** Who brought them in: Migz (an ad, the booking page, an instant form) or the agent themself. */
+  origin: "migz" | "personal";
   status: ClientStatus;
   outcome: string | null;
   premiumCents: number | null;
@@ -58,6 +63,7 @@ type LeadRow = {
   meta_ad_id: string | null;
   attribution: Record<string, string> | null;
   tried_email_sent_at: string | null;
+  personal_source: string | null;
 };
 
 type BookingRow = {
@@ -79,12 +85,20 @@ type BookingRow = {
 };
 
 const LEAD_FIELDS =
-  "id, name, phone, email, coverage, best_time, source, booked_at, created_at, outcome, premium_cents, client_status, agent_notes, meta_ad_id, attribution, tried_email_sent_at";
+  "id, name, phone, email, coverage, best_time, source, booked_at, created_at, outcome, premium_cents, client_status, agent_notes, meta_ad_id, attribution, tried_email_sent_at, personal_source";
 const BOOKING_FIELDS =
   "id, name, email, phone, starts_at, ends_at, status, created_at, agent_notes, attribution, outcome, premium_cents, client_status, tried_email_sent_at, intake_responses(answers, completed_at)";
 
 const phoneKey = (p: string | null | undefined) => (p ?? "").replace(/\D/g, "").slice(-10) || null;
 const emailKey = (e: string | null | undefined) => e?.trim().toLowerCase() || null;
+
+const leadSource = (l: LeadRow): Client["source"] => (l.source === "instant_form" ? "instant_form" : l.source === "manual" ? "manual" : "page");
+
+/** Where a lead came from, in words: who added them, or the ad by name when we know it. */
+const leadCameFrom = (l: LeadRow, adNames: Map<string, string>) =>
+  l.source === "manual"
+    ? ["Added by you", l.personal_source].filter(Boolean).join(" · ")
+    : cameFrom(l.meta_ad_id ? { ...l.attribution, utm_content: l.meta_ad_id } : l.attribution, adNames, l.source === "instant_form");
 
 /** Where someone came from, in words: an ad by name when we know it. */
 function cameFrom(attribution: Record<string, string> | null, adNames: Map<string, string>, formLead: boolean) {
@@ -143,14 +157,15 @@ export async function getClients(agentId: string): Promise<Client[]> {
       name: b.name,
       phone: b.phone,
       email: b.email,
-      source: lead ? (lead.source === "instant_form" ? "instant_form" : "page") : "booking",
+      source: lead ? leadSource(lead) : "booking",
+      origin: lead?.source === "manual" ? "personal" : "migz",
       status: b.client_status ?? "prospect",
       outcome: b.outcome,
       premiumCents: b.premium_cents,
       coverage: lead?.coverage ?? null,
       bestTime: lead?.best_time ?? null,
       cameInAt: lead?.created_at ?? b.created_at,
-      cameFrom: lead ? cameFrom(lead.meta_ad_id ? { ...lead.attribution, utm_content: lead.meta_ad_id } : lead.attribution, adNames, lead.source === "instant_form") : cameFrom(b.attribution, adNames, false),
+      cameFrom: lead ? leadCameFrom(lead, adNames) : cameFrom(b.attribution, adNames, false),
       notes: b.agent_notes ?? lead?.agent_notes ?? null,
       call: {
         startsAt: b.starts_at,
@@ -166,7 +181,6 @@ export async function getClients(agentId: string): Promise<Client[]> {
   }
   for (const l of leads) {
     if (merged.has(l.id)) continue;
-    const formLead = l.source === "instant_form";
     clients.push({
       key: `lead:${l.id}`,
       kind: "lead",
@@ -175,14 +189,15 @@ export async function getClients(agentId: string): Promise<Client[]> {
       name: l.name,
       phone: l.phone,
       email: l.email,
-      source: formLead ? "instant_form" : "page",
+      source: leadSource(l),
+      origin: l.source === "manual" ? "personal" : "migz",
       status: l.client_status ?? "prospect",
       outcome: l.outcome,
       premiumCents: l.premium_cents,
       coverage: l.coverage,
       bestTime: l.best_time,
       cameInAt: l.created_at,
-      cameFrom: cameFrom(l.meta_ad_id ? { ...l.attribution, utm_content: l.meta_ad_id } : l.attribution, adNames, formLead),
+      cameFrom: leadCameFrom(l, adNames),
       notes: l.agent_notes,
       call: null,
       triedEmailSentAt: l.tried_email_sent_at,
@@ -208,6 +223,53 @@ export async function getClientActivity(agentId: string, subjects: Subject[]): P
 }
 
 const TABLE = { call: "bookings", lead: "quote_requests" } as const;
+
+export type NewClient = { name: string; phone: string; email: string; foundVia: string; coverage: string; status: ClientStatus; notes: string };
+
+/**
+ * Adds someone the agent found themself (they called directly, a referral) to their Clients, as a personal
+ * client. Refuses a number or email that's already on their list, and says who has it.
+ */
+export async function addPersonalClient(agentId: string, input: NewClient): Promise<{ ok: true; key: string } | { ok: false; error: string }> {
+  const name = input.name.trim().slice(0, 120);
+  const phone = usPhone(input.phone);
+  const email = input.email.trim().toLowerCase().slice(0, 200) || null;
+  if (!name) return { ok: false, error: "Add their name." };
+  if (!phone) return { ok: false, error: "Add a US phone number (10 digits)." };
+  if (email && !validEmail(email)) return { ok: false, error: "That email doesn't look right." };
+
+  const digits = phone.slice(-10);
+  // Same number in any format, or the same email (quoted, so a comma in it can't break the filter)
+  const contact = [`phone.like.*${digits}`, ...(email ? [`email.ilike."${email.replace(/["\\]/g, "")}"`] : [])].join(",");
+  const [leads, bookings] = await Promise.all([
+    supabaseAdmin.from("quote_requests").select("name").eq("agent_id", agentId).or(contact).limit(1),
+    supabaseAdmin.from("bookings").select("name").eq("agent_id", agentId).or(contact).limit(1),
+  ]);
+  const existing = leads.data?.[0] ?? bookings.data?.[0];
+  if (existing) return { ok: false, error: `${existing.name} already has that number or email in your clients.` };
+
+  const status = input.status === "current" ? "current" : "prospect";
+  const { data, error } = await supabaseAdmin
+    .from("quote_requests")
+    .insert({
+      agent_id: agentId,
+      source: "manual",
+      name,
+      phone,
+      email,
+      coverage: input.coverage.trim().slice(0, 80) || null,
+      personal_source: input.foundVia.trim().slice(0, 120) || null,
+      client_status: status,
+      agent_notes: input.notes.trim().slice(0, 5000) || null,
+      // Not a consent record: the agent added them; nothing is sent to them or to Meta
+      consent_text: "Added by the agent (a personal client, not from Migz).",
+    })
+    .select("id")
+    .single();
+  if (error || !data) return { ok: false, error: "Couldn't add them. If this keeps happening, the latest migration may not have run yet." };
+  if (status === "current") await logActivity(agentId, { kind: "lead", id: data.id }, "status", "Current plan");
+  return { ok: true, key: `lead:${data.id}` };
+}
 const validEmail = (e: string | null | undefined): e is string => !!e && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 
 /**
@@ -237,7 +299,8 @@ export async function triedToCall(agent: Agent, subject: Subject) {
   }
 
   let emailed = false;
-  if (agent.followup_emails && validEmail(row.email) && row.client_status !== "not_interested" && !row.tried_email_sent_at && !row.booked_at) {
+  // Personal clients never get our emails: they didn't ask the agent's page or form to contact them
+  if (agent.followup_emails && row.source !== "manual" && validEmail(row.email) && row.client_status !== "not_interested" && !row.tried_email_sent_at && !row.booked_at) {
     try {
       const via = subject.kind === "call" ? "booking" : row.source === "instant_form" ? "instant_form" : "page";
       const res = await sendTriedCallEmail({ agent, subjectId: subject.id, via, prospect: { name: row.name, email: row.email } });
