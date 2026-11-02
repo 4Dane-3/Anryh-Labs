@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { Check, Loader2 } from "lucide-react";
 import { setOutcome } from "@/app/dashboard/actions";
 import { Panel, PanelHeader, inputClass } from "@/components/dashboard/ui";
-import { CALL_OUTCOMES, LEAD_OUTCOMES, outcomeLabel, type OutcomeKind } from "@/lib/outcomes";
+import { CALL_OUTCOMES, LEAD_OUTCOMES, badOutcome, outcomeLabel, type OutcomeKind } from "@/lib/outcomes";
 import { cn } from "@/lib/utils";
 
 // "How did it go?": one tap per lead. The dashboard list (Overview, Clients, Calendar) and the page the
@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 
 export type OutcomeRow = { kind: OutcomeKind; id: string; name: string; at: string; outcome: string | null; premiumCents: number | null; source: "booking" | "page" | "instant_form" };
 
-function Chips({ kind, value, onPick, disabled }: { kind: OutcomeKind; value: string | null; onPick: (o: string) => void; disabled?: boolean }) {
+export function Chips({ kind, value, onPick, disabled }: { kind: OutcomeKind; value: string | null; onPick: (o: string) => void; disabled?: boolean }) {
   return (
     <div role="radiogroup" aria-label="What happened" className="flex flex-wrap gap-1.5">
       {(kind === "call" ? CALL_OUTCOMES : LEAD_OUTCOMES).map((o) => (
@@ -26,7 +26,7 @@ function Chips({ kind, value, onPick, disabled }: { kind: OutcomeKind; value: st
           className={cn(
             "inline-flex h-8 items-center gap-1 rounded-full border px-3 text-[13px] transition-colors disabled:opacity-60",
             value === o.key
-              ? o.key === "no_show" || o.key === "not_reached"
+              ? badOutcome(o.key)
                 ? "border-bad/50 bg-bad/10 text-fg"
                 : "border-brand/60 bg-brand/[0.12] text-fg"
               : "border-line text-fg-muted hover:border-line-strong hover:text-fg",
@@ -41,7 +41,7 @@ function Chips({ kind, value, onPick, disabled }: { kind: OutcomeKind; value: st
 }
 
 /** The monthly premium for a sale (optional): saved when they leave the field. */
-function Premium({ initialCents, onSave }: { initialCents: number | null; onSave: (dollars: number) => void }) {
+export function Premium({ initialCents, onSave }: { initialCents: number | null; onSave: (dollars: number) => void }) {
   const [v, setV] = useState(initialCents ? String(initialCents / 100) : "");
   return (
     <label className="mt-2 flex items-center gap-2 text-[12px] text-fg-muted">
@@ -117,16 +117,25 @@ export function OutcomeList({ rows, timezone, title = "How did these go?", descr
   );
 }
 
-/** The page a Slack button opens: saves the tapped answer once, then lets the agent change it. */
+/**
+ * The page a Slack button opens: saves the tapped answer once, then lets the agent change it. "Tried to call"
+ * logs the attempt (the answer becomes couldn't reach / no show unless they'd already answered).
+ */
 export function OneTapOutcome({ kind, id, sig, name, when, tapped, current }: { kind: OutcomeKind; id: string; sig: string; name: string; when: string; tapped: string | null; current: string | null }) {
   const [value, setValue] = useState<string | null>(current);
   const [state, setState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [logged, setLogged] = useState(false);
   const sent = useRef(false);
   const post = async (outcome: string, premium?: number) => {
     setState("saving");
-    setValue(outcome);
+    const tried = outcome === "tried_call";
+    if (!tried) setValue(outcome);
     const res = await fetch("/api/outcomes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind, id, s: sig, outcome, premium }) }).catch(() => null);
     setState(res?.ok ? "saved" : "error");
+    if (tried && res?.ok) {
+      setLogged(true);
+      if (kind === "lead") setValue((v) => v ?? "not_reached");
+    }
   };
   useEffect(() => {
     // Saved from the browser, so link previews (which don't run scripts) never record an answer
@@ -149,9 +158,11 @@ export function OneTapOutcome({ kind, id, sig, name, when, tapped, current }: { 
           ? "Saving…"
           : state === "error"
             ? "Couldn't save that. Try again, or answer from your dashboard."
-            : value
-              ? `Saved: ${outcomeLabel(kind, value)}. Thanks, Migz learns from this. Tap another answer to change it.`
-              : "Tap what happened."}
+            : logged
+              ? "Logged your call attempt on their card. Tap an answer once you reach them."
+              : value
+                ? `Saved: ${outcomeLabel(kind, value)}. Thanks, Migz learns from this. Tap another answer to change it.`
+                : "Tap what happened."}
       </p>
     </div>
   );

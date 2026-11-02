@@ -3,7 +3,7 @@ import { IANAZone } from "luxon";
 import type { Agent } from "@/lib/booking/data";
 import { confirmationEmail } from "@/lib/booking/confirmation-email";
 import { bookingIcs } from "@/lib/booking/ics";
-import { leadEmail } from "@/lib/booking/lead-email";
+import { followUpEmail, leadEmail, triedCallEmail, type LeadEmailInput } from "@/lib/booking/lead-email";
 import { landingUrl, leadEmailSender, partnerPageUrl, partnerPhoto, prepareUrl } from "@/lib/booking/sites";
 
 // Booking emails, sent with Resend. Needs RESEND_API_KEY and BOOKING_EMAIL_FROM (an address on a domain
@@ -64,23 +64,27 @@ export async function sendBookingConfirmation(input: {
   return { skipped: false as const };
 }
 
+type LeadNote = ReturnType<typeof leadEmail>;
+
 /**
- * Thanks an instant-form lead and offers the booking link, from the agent's partner domain when they have one
- * (Miguel: noreply@foreignfinancial.org), else BOOKING_EMAIL_FROM. Replies go to the agent. Skipped (not sent)
- * without the sender's postal address, which CAN-SPAM requires. Throws when Resend refuses it.
+ * Sends one of the agent's plain notes to a lead (lead-email.ts), from the agent's partner domain when they
+ * have one (Miguel: noreply@foreignfinancial.org), else BOOKING_EMAIL_FROM. Replies go to the agent. Skipped
+ * (not sent) without the sender's postal address, which CAN-SPAM requires. Throws when Resend refuses it.
  */
-export async function sendFormLeadEmail(input: { agent: Agent; leadId: string; prospect: { name: string; email: string } }) {
+async function sendLeadNote(
+  input: { agent: Agent; idempotencyKey: string; to: string; utmMedium: string },
+  build: (parts: Pick<LeadEmailInput, "agent" | "bookUrl" | "bookPage" | "business">) => LeadNote,
+) {
   const sender = leadEmailSender(input.agent.slug);
   if (!process.env.RESEND_API_KEY || !sender) return { skipped: true as const };
-  const { agent, prospect } = input;
+  const { agent } = input;
   // Tagged, so a booking from the email shows up as the follow-up email rather than a direct visit
   const page = landingUrl(agent.slug, appUrl());
   const [base, hash] = page.split("#");
-  const bookUrl = `${base}?utm_source=email&utm_medium=lead_followup${hash ? `#${hash}` : ""}`;
+  const bookUrl = `${base}?utm_source=email&utm_medium=${input.utmMedium}${hash ? `#${hash}` : ""}`;
   const { hostname, pathname } = new URL(base);
-  const email = leadEmail({
+  const email = build({
     agent: { fullName: agent.full_name, title: agent.title ?? null, licenseNumber: agent.license_number, email: agent.email },
-    prospect: { name: prospect.name },
     bookUrl,
     bookPage: `${hostname.replace(/^www\./, "")}${pathname.replace(/\/$/, "")}`, // the link reads as the page it opens, e.g. foreignfinancial.org/miguel-cruz
     business: { name: sender.business, postalAddress: sender.postalAddress },
@@ -91,12 +95,12 @@ export async function sendFormLeadEmail(input: { agent: Agent; leadId: string; p
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-      // The webhook and the backstop poll can both see a lead; it's emailed once
-      "Idempotency-Key": `form-lead/${input.leadId}`,
+      // A retried request (or a lead seen twice) never sends the same note twice
+      "Idempotency-Key": input.idempotencyKey,
     },
     body: JSON.stringify({
       from: `${agent.full_name.replace(/[<>"]/g, "")} <${sender.from}>`,
-      to: [prospect.email],
+      to: [input.to],
       reply_to: agent.email,
       subject: email.subject,
       html: email.html,
@@ -108,4 +112,26 @@ export async function sendFormLeadEmail(input: { agent: Agent; leadId: string; p
   });
   if (!res.ok) throw new Error(`Resend ${res.status}: ${(await res.text()).slice(0, 300)}`);
   return { skipped: false as const };
+}
+
+/** Thanks an instant-form lead and offers the booking link, the moment they arrive. */
+export function sendFormLeadEmail(input: { agent: Agent; leadId: string; prospect: { name: string; email: string } }) {
+  // The webhook and the backstop poll can both see a lead; it's emailed once
+  return sendLeadNote({ agent: input.agent, idempotencyKey: `form-lead/${input.leadId}`, to: input.prospect.email, utmMedium: "lead_followup" }, (parts) =>
+    leadEmail({ ...parts, prospect: { name: input.prospect.name } }),
+  );
+}
+
+/** "Sorry I missed you": after the agent logs a call that didn't get through, once per lead or booking. */
+export function sendTriedCallEmail(input: { agent: Agent; subjectId: string; via: "instant_form" | "page" | "booking"; prospect: { name: string; email: string } }) {
+  return sendLeadNote({ agent: input.agent, idempotencyKey: `tried-call/${input.subjectId}`, to: input.prospect.email, utmMedium: "tried_call" }, (parts) =>
+    triedCallEmail({ ...parts, prospect: { name: input.prospect.name }, via: input.via, message: input.agent.followup_message }),
+  );
+}
+
+/** The nth 48-hour follow-up to a lead the agent hasn't reached (followups.ts decides when). */
+export function sendFollowUpEmail(input: { agent: Agent; leadId: string; n: number; via: "instant_form" | "page"; prospect: { name: string; email: string } }) {
+  return sendLeadNote({ agent: input.agent, idempotencyKey: `follow-up/${input.leadId}/${input.n}`, to: input.prospect.email, utmMedium: `follow_up_${input.n}` }, (parts) =>
+    followUpEmail({ ...parts, prospect: { name: input.prospect.name }, via: input.via }, input.n),
+  );
 }

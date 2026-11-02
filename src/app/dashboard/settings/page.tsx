@@ -1,8 +1,9 @@
 import { requireAgent } from "@/lib/auth";
 import { PageHeader } from "@/components/dashboard/ui";
-import { CallButtonForm, GhostBookingsForm, MigzModeForm, NotificationSettings } from "@/components/dashboard/SettingsForms";
+import { CallButtonForm, GhostBookingsForm, MigzModeForm, NotificationSettings, FollowUpEmailsForm } from "@/components/dashboard/SettingsForms";
 import { IntentLevelForm, VideoTierForm } from "@/components/dashboard/AdChoices";
 import { DEFAULT_INTENT, DEFAULT_VIDEO_TIER, isIntentLevel, isVideoTier } from "@/lib/ad-options";
+import { leadEmailSender } from "@/lib/booking/sites";
 
 export default async function SettingsPage() {
   const agent = await requireAgent();
@@ -15,6 +16,7 @@ export default async function SettingsPage() {
         <IntentLevelForm level={isIntentLevel(agent.intent_level) ? agent.intent_level : DEFAULT_INTENT} blocked={agent.lead_form_blocked ?? null} />
         <VideoTierForm tier={isVideoTier(agent.video_tier) ? agent.video_tier : DEFAULT_VIDEO_TIER} />
         <CallButtonForm initial={{ on: !!agent.call_button, phone: agent.call_phone ?? null, hoursOnly: agent.call_hours_only !== false }} />
+        <FollowUpEmailsForm initial={{ on: !!agent.followup_emails, message: agent.followup_message ?? "" }} ready={!!process.env.RESEND_API_KEY && !!leadEmailSender(agent.slug)} />
         <GhostBookingsForm on={!!agent.ghost_bookings} />
         <NotificationSettings
           initial={{

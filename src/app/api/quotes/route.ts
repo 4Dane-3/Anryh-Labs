@@ -5,6 +5,7 @@ import { parseQuote } from "@/lib/booking/validate";
 import { QUOTE_CONSENT_TEXT } from "@/lib/booking/constants";
 import { newQuoteMessage } from "@/lib/booking/format";
 import { sendSlackMessage } from "@/lib/slack";
+import { leadPingBlocks } from "@/lib/dashboard/outcomes";
 import { sendConversionEvents } from "@/lib/meta/capi";
 import { partnerPageUrl } from "@/lib/booking/sites";
 
@@ -46,7 +47,8 @@ export async function POST(req: Request) {
   if (agent.slack_user_id) {
     after(async () => {
       try {
-        await sendSlackMessage(agent.slack_user_id!, newQuoteMessage(input));
+        const text = newQuoteMessage(input);
+        await sendSlackMessage(agent.slack_user_id!, text, leadPingBlocks(text, "lead", quote.id));
       } catch (e) {
         console.error("slack notify failed", e);
       }

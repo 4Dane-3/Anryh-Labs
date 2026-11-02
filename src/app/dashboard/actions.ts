@@ -20,7 +20,18 @@ import { dailyBatch } from "@/lib/batch";
 import { closeEndedBatch, getActiveBatch, getBatchHistory, getOpenBatch } from "@/lib/dashboard/batches";
 import { buildCampaignPlan } from "@/lib/dashboard/campaign-plan";
 import { recordOutcome } from "@/lib/dashboard/outcomes";
-import type { OutcomeKind } from "@/lib/outcomes";
+import { isClientStatus, type OutcomeKind } from "@/lib/outcomes";
+import { isAgentActivityKind, type Subject } from "@/lib/dashboard/activity";
+import {
+  addClientActivity,
+  clientTap,
+  deleteClientActivity,
+  getClientActivity,
+  saveClientNotes,
+  setClientStatus,
+  updateClientActivity,
+  type ClientActivity,
+} from "@/lib/dashboard/clients";
 import { campaignMoney, cleanAnswers, MAX_CAMPAIGN_DAILY_CENTS, MIN_CAMPAIGN_DAILY_CENTS, type CampaignAnswers, type CampaignPlan } from "@/lib/campaign-plan";
 import { activateBatch } from "@/lib/dashboard/start-batch";
 import { getBalanceCents } from "@/lib/dashboard/queries";
@@ -848,6 +859,90 @@ export async function setOutcome(kind: OutcomeKind, id: string, outcome: string,
   const ok = await recordOutcome(agent.id, kind, clean(id, 40), outcome, premium);
   if (!ok) return fail("Couldn't save that. If this keeps happening, the latest migration may not have run yet.");
   revalidatePath("/dashboard", "layout");
+  return { ok: true };
+}
+
+// ---------- Client cards ----------
+
+const subjectOf = (kind: unknown, id: unknown): Subject | null => (kind === "call" || kind === "lead") && typeof id === "string" && id ? { kind, id: clean(id, 40) } : null;
+const MIGRATION_HINT = "Couldn't save that. If this keeps happening, the latest migration may not have run yet.";
+// An entry's time: what the agent picked, never in the future
+const entryTime = (at: unknown) => {
+  const t = typeof at === "string" ? Date.parse(at) : NaN;
+  return new Date(Number.isFinite(t) ? Math.min(t, Date.now()) : Date.now()).toISOString();
+};
+
+/** A card's timeline (the logged entries; the card adds "came in" and "booked" from what it already has). */
+export async function loadClientActivity(subjects: { kind: OutcomeKind; id: string }[]): Promise<{ ok: true; activities: ClientActivity[] } | { ok: false; error: string }> {
+  const agent = await requireAgent();
+  const list = (subjects ?? []).slice(0, 4).map((s) => subjectOf(s?.kind, s?.id)).filter((s): s is Subject => !!s);
+  return { ok: true, activities: await getClientActivity(agent.id, list) };
+}
+
+/** One tap on a card: an outcome, or "tried_call" (logged, and the "sorry I missed you" email when it's on). */
+export async function tapClient(kind: OutcomeKind, id: string, action: string, premiumDollars?: number): Promise<Result> {
+  const agent = await requireAgent();
+  const subject = subjectOf(kind, id);
+  if (!subject) return fail("Unknown client.");
+  const premium = typeof premiumDollars === "number" && premiumDollars > 0 ? Math.round(premiumDollars * 100) : null;
+  if (!(await clientTap(agent, subject, clean(action, 40), premium))) return fail(MIGRATION_HINT);
+  revalidatePath("/dashboard", "layout");
+  return { ok: true };
+}
+
+export async function changeClientStatus(kind: OutcomeKind, id: string, status: string): Promise<Result> {
+  const agent = await requireAgent();
+  const subject = subjectOf(kind, id);
+  if (!subject || !isClientStatus(status)) return fail("Unknown status.");
+  if (!(await setClientStatus(agent.id, subject, status))) return fail(MIGRATION_HINT);
+  revalidatePath("/dashboard", "layout");
+  return { ok: true };
+}
+
+export async function saveNotesFor(kind: OutcomeKind, id: string, notes: string): Promise<Result> {
+  const agent = await requireAgent();
+  const subject = subjectOf(kind, id);
+  if (!subject) return fail("Unknown client.");
+  if (!(await saveClientNotes(agent.id, subject, String(notes ?? "")))) return fail("Couldn't save your notes.");
+  revalidatePath("/dashboard", "layout");
+  return { ok: true };
+}
+
+export async function addActivity(kind: OutcomeKind, id: string, entry: { kind: string; body: string; at: string }): Promise<Result> {
+  const agent = await requireAgent();
+  const subject = subjectOf(kind, id);
+  if (!subject || !isAgentActivityKind(entry?.kind)) return fail("Pick what happened.");
+  const body = clean(entry.body, 2000);
+  if (entry.kind === "note" && !body) return fail("Write the note first.");
+  if (!(await addClientActivity(agent, subject, entry.kind, body, entryTime(entry.at)))) return fail(MIGRATION_HINT);
+  revalidatePath("/dashboard", "layout");
+  return { ok: true };
+}
+
+export async function editActivity(activityId: string, entry: { kind: string; body: string; at: string }): Promise<Result> {
+  const agent = await requireAgent();
+  if (!isAgentActivityKind(entry?.kind)) return fail("Pick what happened.");
+  if (!(await updateClientActivity(agent.id, clean(activityId, 40), { kind: entry.kind, body: clean(entry.body, 2000), at: entryTime(entry.at) }))) return fail("Couldn't save that entry.");
+  revalidatePath("/dashboard", "layout");
+  return { ok: true };
+}
+
+export async function removeActivity(activityId: string): Promise<Result> {
+  const agent = await requireAgent();
+  if (!(await deleteClientActivity(agent.id, clean(activityId, 40)))) return fail("Couldn't delete that entry.");
+  revalidatePath("/dashboard", "layout");
+  return { ok: true };
+}
+
+/** Follow-up emails (missed call, and every 48 hours to unreached leads): on/off, and the agent's own line in the missed-call one. */
+export async function setFollowUpEmails(on: boolean, message: string): Promise<Result> {
+  const agent = await requireAgent();
+  const { error } = await supabaseAdmin
+    .from("agents")
+    .update({ followup_emails: !!on, followup_message: clean(message, 300) || null })
+    .eq("id", agent.id);
+  if (error) return fail(error.code === "42703" ? "Follow-up emails aren't set up yet." : "Couldn't save that.");
+  revalidatePath("/dashboard/settings");
   return { ok: true };
 }
 
