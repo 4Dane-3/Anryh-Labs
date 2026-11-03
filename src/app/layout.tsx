@@ -1,8 +1,11 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { ErrorReporter } from "@/components/ErrorReporter";
+import { SITE_NAME, SITE_URL } from "@/lib/site";
 
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
+  openGraph: { siteName: SITE_NAME, type: "website", locale: "en_US" },
   title: "anryh labs · ai ad automation for insurance agents",
   description:
     "migz ai, the media buyer from anryh labs, runs your whole meta campaign: it reads the analytics and fixes what holds results back so more prospects book a call. invite only.",

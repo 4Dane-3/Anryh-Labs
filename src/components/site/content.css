@@ -1,0 +1,401 @@
+/* Pricing, FAQ, coverage-type and blog pieces. They sit on the glass home page (white on colour) and on the
+   light reading sheet (.sb-doc: dark on white), so colours come from these two variables. */
+
+.cx-tiers,
+.cx-covers,
+.cx-calc,
+.cx-faq,
+.cx-types,
+.cx-posts,
+.cx-answer {
+  --cx-card: rgb(255 255 255 / 0.1);
+  --cx-line: rgb(255 255 255 / 0.28);
+  --cx-ink: var(--sb-ink, #fff);
+  --cx-soft: var(--sb-ink2, rgb(255 255 255 / 0.84));
+  --cx-mute: var(--sb-muted, rgb(255 255 255 / 0.66));
+}
+.sb-doc .cx-tiers,
+.sb-doc .cx-covers,
+.sb-doc .cx-calc,
+.sb-doc .cx-faq,
+.sb-doc .cx-types,
+.sb-doc .cx-posts,
+.sb-doc .cx-answer {
+  --cx-card: rgb(18 20 26 / 0.04);
+  --cx-line: rgb(18 20 26 / 0.14);
+}
+
+/* ---------- rate tiers ---------- */
+
+.cx-tiers {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  max-width: 760px;
+}
+.cx-tiers li {
+  background: var(--cx-card);
+  border: 1px solid var(--cx-line);
+  border-radius: 20px;
+  padding: 22px 20px 20px;
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+}
+.cx-tiers li p {
+  max-width: none;
+}
+.cx-tiers li p.cx-tier__rate {
+  margin: 0;
+  font-size: clamp(44px, 5vw, 76px);
+  font-weight: 400;
+  letter-spacing: -0.05em;
+  line-height: 1;
+  color: var(--cx-ink);
+}
+.cx-tiers li p.cx-tier__band {
+  margin: 10px 0 0;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--cx-ink);
+}
+.cx-tiers li p.cx-tier__eg {
+  margin: 12px 0 0;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--cx-mute);
+}
+@media (max-width: 520px) {
+  .cx-tiers {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---------- a worked example ---------- */
+
+.cx-example {
+  --cx-card: rgb(255 255 255 / 0.1);
+  --cx-line: rgb(255 255 255 / 0.28);
+  --cx-ink: var(--sb-ink, #fff);
+  --cx-soft: var(--sb-ink2, rgb(255 255 255 / 0.84));
+  margin-top: 20px;
+  background: var(--cx-card);
+  border: 1px solid var(--cx-line);
+  border-radius: 20px;
+  padding: 22px 22px 14px;
+  max-width: 760px;
+  overflow-x: auto;
+}
+.sb-doc .cx-example {
+  --cx-card: rgb(18 20 26 / 0.04);
+  --cx-line: rgb(18 20 26 / 0.14);
+}
+.cx-example p.cx-example__lead {
+  margin: 0 0 14px;
+  max-width: 64ch;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--cx-soft);
+}
+.cx-example table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 15px;
+  color: var(--cx-soft);
+}
+.cx-example caption {
+  text-align: left;
+  font-size: 13px;
+  padding-bottom: 6px;
+  opacity: 0.75;
+}
+.cx-example th,
+.cx-example td {
+  text-align: right;
+  padding: 8px 6px;
+  border-top: 1px solid var(--cx-line);
+  font-weight: 400;
+}
+.cx-example th:first-child {
+  text-align: left;
+  color: var(--cx-ink);
+}
+.cx-example thead th {
+  border-top: 0;
+  font-size: 13px;
+  opacity: 0.75;
+}
+.cx-example tfoot th,
+.cx-example tfoot td {
+  color: var(--cx-ink);
+  font-weight: 600;
+}
+
+/* ---------- what it covers ---------- */
+
+.cx-covers {
+  display: grid;
+  grid-template-columns: minmax(0, 340px) minmax(0, 1fr);
+  gap: clamp(24px, 4vw, 64px);
+  margin-top: 28px;
+  align-items: start;
+}
+@media (max-width: 860px) {
+  .cx-covers {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.cx-setup {
+  background: var(--cx-card);
+  border: 1px solid var(--cx-line);
+  border-radius: 20px;
+  padding: 24px 22px;
+}
+.cx-setup p.cx-setup__fee {
+  margin: 0 0 8px;
+  font-size: clamp(40px, 4.4vw, 64px);
+  letter-spacing: -0.05em;
+  line-height: 1;
+  color: var(--cx-ink);
+}
+.sb-sec .cx-setup p:not(.cx-setup__fee) {
+  font-size: 16px;
+  max-width: none;
+}
+.sb-sec .cx-calc p {
+  max-width: none;
+  font-size: 14px;
+}
+.cx-covers h3 {
+  margin: 0 0 10px;
+}
+.cx-covers h3:not(:first-child) {
+  margin-top: 22px;
+}
+.cx-list {
+  margin: 0;
+  padding-left: 1.1em;
+  display: grid;
+  gap: 8px;
+  color: var(--cx-soft);
+  font-size: clamp(15px, 1.15vw, 17px);
+  line-height: 1.45;
+}
+.cx-list b {
+  color: var(--cx-ink);
+  font-weight: 600;
+}
+
+/* ---------- calculator ---------- */
+
+.cx-calc {
+  margin-top: 28px;
+  background: var(--cx-card);
+  border: 1px solid var(--cx-line);
+  border-radius: 20px;
+  padding: 24px 22px;
+  display: grid;
+  gap: 18px;
+  max-width: 640px;
+}
+.cx-calc__in {
+  display: grid;
+  gap: 8px;
+  color: var(--cx-soft);
+  font-size: 15px;
+}
+.cx-calc__field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 28px;
+  color: var(--cx-ink);
+  border-bottom: 1px solid var(--cx-line);
+}
+.cx-calc__field input {
+  width: 100%;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  font: inherit;
+  color: inherit;
+  padding: 6px 0;
+}
+.cx-calc__field:focus-within {
+  border-bottom-color: var(--cx-ink);
+}
+.cx-calc__range {
+  width: 100%;
+  accent-color: var(--cx-ink);
+}
+.cx-calc__slices {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+  font-size: 15px;
+  color: var(--cx-soft);
+}
+.cx-calc__slices li {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 6px;
+  border-top: 1px solid var(--cx-line);
+}
+.cx-calc__slices b {
+  color: var(--cx-ink);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.cx-calc__out {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.cx-calc__out dt {
+  font-size: 13px;
+  color: var(--cx-mute);
+}
+.cx-calc__out dd {
+  margin: 2px 0 0;
+  font-size: clamp(22px, 3vw, 34px);
+  letter-spacing: -0.03em;
+  color: var(--cx-ink);
+}
+.cx-calc__min,
+.cx-calc__note {
+  margin: 0;
+  font-size: 14px;
+  color: var(--cx-mute);
+}
+
+/* ---------- questions and answers ---------- */
+
+.cx-faq {
+  margin: 0;
+  display: grid;
+  gap: 0;
+  max-width: 880px;
+}
+.cx-faq > div {
+  padding: 20px 0;
+  border-top: 1px solid var(--cx-line);
+}
+.cx-faq > div:last-child {
+  border-bottom: 1px solid var(--cx-line);
+}
+.cx-faq dt {
+  font-size: clamp(18px, 1.7vw, 24px);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--cx-ink);
+}
+.cx-faq dd {
+  margin: 8px 0 0;
+  color: var(--cx-soft);
+  font-size: clamp(15px, 1.15vw, 17px);
+  line-height: 1.5;
+  max-width: 70ch;
+}
+
+/* ---------- coverage types and posts ---------- */
+
+.cx-types,
+.cx-posts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.cx-posts {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.cx-types a,
+.cx-posts a {
+  display: block;
+  height: 100%;
+  background: var(--cx-card);
+  border: 1px solid var(--cx-line);
+  border-radius: 18px;
+  padding: 18px 18px 16px;
+  color: var(--cx-ink);
+  text-decoration: none;
+  transition: transform 0.2s ease, border-color 0.2s ease;
+}
+.cx-types a:hover,
+.cx-posts a:hover {
+  transform: translateY(-2px);
+  border-color: var(--cx-ink);
+}
+.cx-types b,
+.cx-posts b {
+  display: block;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+.cx-types span,
+.cx-posts span {
+  display: block;
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--cx-mute);
+}
+@media (max-width: 1000px) {
+  .cx-types {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 640px) {
+  .cx-types,
+  .cx-posts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---------- the short answer at the top of a page ---------- */
+
+.cx-answer {
+  margin: 0;
+  padding: 18px 20px;
+  border-radius: 16px;
+  background: var(--cx-card);
+  border: 1px solid var(--cx-line);
+  color: var(--cx-soft);
+  font-size: clamp(16px, 1.3vw, 19px);
+  line-height: 1.5;
+  max-width: 70ch;
+}
+.cx-answer b {
+  color: var(--cx-ink);
+}
+/* inside a home section, `.sb-sec p` would otherwise set these */
+.sb-sec p.cx-answer {
+  max-width: 70ch;
+  font-size: clamp(16px, 1.3vw, 19px);
+  color: var(--cx-soft);
+}
+.sb-sec p.cx-links {
+  max-width: none;
+}
+
+.cx-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin-top: 22px;
+}
+.cx-links a {
+  color: var(--cx-ink, inherit);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}

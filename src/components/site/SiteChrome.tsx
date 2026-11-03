@@ -31,6 +31,15 @@ export function SiteFooter() {
         <div className="sb-foot__row">
           <p>© {new Date().getFullYear()} anryh labs. ai ad automation for insurance agents.</p>
           <nav aria-label="footer">
+            <Link href="/pricing" className="sb-link">
+              pricing
+            </Link>
+            <Link href="/life-insurance-ads" className="sb-link">
+              coverage types
+            </Link>
+            <Link href="/blog" className="sb-link">
+              blog
+            </Link>
             <Link href="/contact" className="sb-link">
               help
             </Link>
