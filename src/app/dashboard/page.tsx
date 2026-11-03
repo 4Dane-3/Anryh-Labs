@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { DateTime } from "luxon";
 import { ArrowRight, ArrowUpRight } from "lucide-react";
-import { isAnryhAdmin, requireAgent } from "@/lib/auth";
+import { isAnryhAdmin, requireSetUpAgent } from "@/lib/auth";
 import { getMigzUpdate } from "@/lib/dashboard/status";
 import { integrations, migzReadyFor } from "@/lib/integrations";
 import {
@@ -27,7 +27,7 @@ import { getOutcomeItems } from "@/lib/dashboard/outcomes";
 import { OutcomeList } from "@/components/dashboard/OutcomeAsk";
 
 export default async function OverviewPage() {
-  const agent = await requireAgent();
+  const agent = await requireSetUpAgent();
   // A batch past its last day is closed (with its results) before the page reads it
   await closeEndedBatch(agent).catch(() => null);
   await ensureBatchSetAside(agent).catch(() => null);

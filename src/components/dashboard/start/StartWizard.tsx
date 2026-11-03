@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowUpRight, Check, Loader2 } from "lucide-react";
-import { launchCampaign, saveBatchPlan, setCreativeMode } from "@/app/dashboard/actions";
+import { launchCampaign, saveBatchPlan, setCreativeMode, startSetupFee } from "@/app/dashboard/actions";
+import { SETUP_FEE_CENTS } from "@/lib/campaign";
 import { CampaignFlow, type CampaignStart } from "@/components/dashboard/start/CampaignFlow";
 import { listCampaignTopics, type CampaignSlot } from "@/lib/batch";
 import { AddFunds } from "@/components/dashboard/FundsControls";
@@ -23,6 +24,8 @@ type Props = {
   profile: Profile;
   slug: string;
   balanceCents: number;
+  fundsAddedCents: number; // everything added so far: sets the fee (20%, then 12% after $20,000)
+  setupFeePaidAt: string | null;
   stripeConnected: boolean;
   connected: boolean; // Meta ad account linked and Migz configured
   plan: {
@@ -39,6 +42,7 @@ type Props = {
 };
 
 const TITLES: Record<string, { title: string; blurb: string }> = {
+  setup_fee: { title: `Setup fee: ${usd(SETUP_FEE_CENTS, { cents: false })}`, blurb: "One time, before anything else. It covers setting up your ad account, your first campaign and your pages." },
   profile: { title: "Your profile", blurb: "Your name, photo and a short bio. People see this before they book." },
   page: { title: "Your booking page", blurb: "The hours you take calls, and a look at the page your ads send people to." },
   plan: { title: "Plan your first campaign", blurb: "A few quick questions and a daily budget. Migz sets how long it runs and makes the ads." },
@@ -94,6 +98,46 @@ function StepShell({
         )}
       </AnimatePresence>
     </Panel>
+  );
+}
+
+/** Step 1: the one-time setup fee, paid on Stripe's page. The step turns done when Stripe confirms it. */
+function SetupFeeStep({ stripeConnected, contactEmail }: { stripeConnected: boolean; contactEmail: string }) {
+  const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const pay = () =>
+    start(async () => {
+      setError(null);
+      const res = await startSetupFee();
+      if (res.ok) window.location.href = res.url;
+      else setError(res.error);
+    });
+  return (
+    <div className="space-y-4">
+      <ul className="space-y-1.5 text-[13px] text-fg-muted">
+        <li>· Your Meta ad account, page and lead form connected and checked</li>
+        <li>· Your first campaign planned and built, with its ads made for you</li>
+        <li>· Your booking page and calendar ready for calls</li>
+      </ul>
+      <p className="text-[13px] text-fg-muted">
+        Paid once. After this, the only cost is the fee on the ad funds you add (20%, then 12% once you&apos;ve added $20,000 in all).
+      </p>
+      {stripeConnected ? (
+        <Button className="bg-[#ff7a1a] text-white hover:bg-[#ff7a1a]/90" disabled={pending} onClick={pay}>
+          {pending ? <Loader2 className="animate-spin" /> : null}
+          Pay {usd(SETUP_FEE_CENTS, { cents: false })} setup fee
+        </Button>
+      ) : (
+        <p className="text-[13px] text-fg-muted">
+          Card payments aren&apos;t switched on yet. Email{" "}
+          <a className="text-fg underline-offset-4 hover:underline" href={`mailto:${contactEmail}?subject=${encodeURIComponent("My setup fee")}`}>
+            {contactEmail}
+          </a>{" "}
+          and we&apos;ll take it another way.
+        </p>
+      )}
+      {error && <p className="text-[13px] text-bad">{error}</p>}
+    </div>
   );
 }
 
@@ -201,6 +245,7 @@ export function StartWizard(props: Props) {
     });
 
   const summaries: Record<string, string> = {
+    setup_fee: props.setupFeePaidAt ? `Paid ${new Date(props.setupFeePaidAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : "",
     profile: props.profile.full_name,
     page: `Live at /${props.slug}`,
     funds: `${usd(props.balanceCents, { cents: true })} available`,
@@ -222,11 +267,15 @@ export function StartWizard(props: Props) {
         </div>
       </div>
 
-      <StepShell index={1} stepKey="profile" done={stateOf("profile").done} summary={summaries.profile} open={open === "profile"} onToggle={() => setOpen(open === "profile" ? null : "profile")}>
+      <StepShell index={1} stepKey="setup_fee" done={stateOf("setup_fee").done} summary={summaries.setup_fee} open={open === "setup_fee"} onToggle={() => setOpen(open === "setup_fee" ? null : "setup_fee")}>
+        <SetupFeeStep stripeConnected={props.stripeConnected} contactEmail={props.contactEmail} />
+      </StepShell>
+
+      <StepShell index={2} stepKey="profile" done={stateOf("profile").done} summary={summaries.profile} open={open === "profile"} onToggle={() => setOpen(open === "profile" ? null : "profile")}>
         <ProfileForm profile={props.profile} onSaved={() => advance("profile")} />
       </StepShell>
 
-      <StepShell index={2} stepKey="page" done={stateOf("page").done} summary={summaries.page} open={open === "page"} onToggle={() => setOpen(open === "page" ? null : "page")}>
+      <StepShell index={3} stepKey="page" done={stateOf("page").done} summary={summaries.page} open={open === "page"} onToggle={() => setOpen(open === "page" ? null : "page")}>
         <div className="space-y-4">
           {stateOf("page").missing && <p className="text-[13px] text-brand">{stateOf("page").missing}</p>}
           <div className="grid gap-2 sm:grid-cols-3">
@@ -247,11 +296,11 @@ export function StartWizard(props: Props) {
         </div>
       </StepShell>
 
-      <StepShell index={3} stepKey="plan" done={stateOf("plan").done} summary={summaries.plan} open={open === "plan"} onToggle={() => setOpen(open === "plan" ? null : "plan")}>
+      <StepShell index={4} stepKey="plan" done={stateOf("plan").done} summary={summaries.plan} open={open === "plan"} onToggle={() => setOpen(open === "plan" ? null : "plan")}>
         <PlanStep plan={props.plan} balanceCents={props.balanceCents} onSaved={() => advance("plan")} />
       </StepShell>
 
-      <StepShell index={4} stepKey="funds" done={stateOf("funds").done} summary={summaries.funds} open={open === "funds"} onToggle={() => setOpen(open === "funds" ? null : "funds")}>
+      <StepShell index={5} stepKey="funds" done={stateOf("funds").done} summary={summaries.funds} open={open === "funds"} onToggle={() => setOpen(open === "funds" ? null : "funds")}>
         <div className="-mx-5 -my-5">
           <div className="border-b border-line px-5 py-4">
             <p className="text-[13px] text-fg-muted">Available balance</p>
@@ -262,7 +311,7 @@ export function StartWizard(props: Props) {
               </p>
             )}
           </div>
-          <AddFunds />
+          <AddFunds addedBeforeCents={props.fundsAddedCents} />
           {!props.stripeConnected && (
             <p className="border-t border-line px-6 py-4 text-[13px] text-fg-muted">
               Card payments aren&apos;t switched on yet. To add funds now, email{" "}
@@ -275,7 +324,7 @@ export function StartWizard(props: Props) {
         </div>
       </StepShell>
 
-      <StepShell index={5} stepKey="creatives" done={stateOf("creatives").done} summary={summaries.creatives} open={open === "creatives"} onToggle={() => setOpen(open === "creatives" ? null : "creatives")}>
+      <StepShell index={6} stepKey="creatives" done={stateOf("creatives").done} summary={summaries.creatives} open={open === "creatives"} onToggle={() => setOpen(open === "creatives" ? null : "creatives")}>
         <CreativesStep mode={props.creativeMode} count={props.creativeCount} onSaved={() => advance("creatives")} />
       </StepShell>
 

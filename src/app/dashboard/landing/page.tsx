@@ -1,4 +1,4 @@
-import { requireAgent } from "@/lib/auth";
+import { requireSetUpAgent } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { PageHeader } from "@/components/dashboard/ui";
 import { LandingEditor } from "@/components/dashboard/LandingEditor";
@@ -9,7 +9,7 @@ export default async function LandingPage({
 }: {
   searchParams: Promise<{ tab?: string }>;
 }) {
-  const agent = await requireAgent();
+  const agent = await requireSetUpAgent();
   const { tab } = await searchParams;
   // Agents whose page lives on their agency's site (Foreign Financial) see and preview that one
   const pageUrl = partnerPage(agent.slug) ?? `/${agent.slug}`;

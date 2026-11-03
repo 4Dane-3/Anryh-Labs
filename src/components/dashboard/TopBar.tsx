@@ -12,6 +12,7 @@ import {
   Gauge,
   Gift,
   ListChecks,
+  Lock,
   LogOut,
   Menu,
   PanelsTopLeft,
@@ -31,17 +32,20 @@ import { cn } from "@/lib/utils";
 const MAIN = [
   { href: "/dashboard", label: "Overview", icon: Gauge },
   { href: "/dashboard/brain", label: "Migz AI Brain", icon: BrainCircuit },
-  { href: "/dashboard/calendar", label: "Calendar", icon: CalendarDays },
-  { href: "/dashboard/clients", label: "Clients", icon: Users },
-  { href: "/dashboard/creatives", label: "Creatives", icon: Film },
   { href: "/dashboard/funds", label: "Ad funds", icon: Wallet },
 ];
 const MORE = [
+  { href: "/dashboard/calendar", label: "Calendar", icon: CalendarDays },
+  { href: "/dashboard/clients", label: "Clients", icon: Users },
+  { href: "/dashboard/creatives", label: "Creatives", icon: Film },
   { href: "/dashboard/landing", label: "My page", icon: PanelsTopLeft },
   { href: "/dashboard/questions", label: "Questions", icon: ListChecks },
   { href: "/dashboard/settings", label: "Settings", icon: Settings },
   { href: "/dashboard/affiliates", label: "Affiliates", icon: Gift },
 ];
+// Before the first campaign starts, only Start here and the pages its steps send the agent to are open
+// (the pages themselves enforce it: requireSetUpAgent)
+const OPEN_DURING_SETUP = new Set(["/dashboard/start", "/dashboard/calendar", "/dashboard/questions", "/dashboard/creatives"]);
 
 type AgentSummary = { name: string; slug: string; photoUrl: string | null };
 
@@ -93,7 +97,7 @@ function BrainButton({ connected }: { connected: boolean }) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -6, scale: 0.98 }}
             transition={{ duration: 0.18, ease: [0.25, 0.8, 0.25, 1] }}
-            className="absolute right-0 top-full z-50 mt-3 w-[min(380px,calc(100vw-32px))] origin-top-right"
+            className="absolute left-0 top-full z-50 mt-3 w-[min(380px,calc(100vw-32px))] origin-top-left"
           >
             {connected ? (
               <FetchedBrainCard className="bg-[rgb(70_73_75/0.55)]" />
@@ -119,29 +123,39 @@ function MenuSheet({ agent, devLogin, setupDone, staff, onClose }: { agent: Agen
     router.refresh();
   }
 
-  const item = (href: string, label: string, Icon: typeof Gauge) => (
-    <Link
-      key={href}
-      href={href}
-      onClick={onClose}
-      className={cn(
-        "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors",
-        isActive(pathname, href) ? "bg-white/15 text-fg" : "text-fg-muted hover:bg-white/10 hover:text-fg",
-      )}
-    >
-      <Icon className={cn("size-4", isActive(pathname, href) && "text-brand")} />
-      {label}
-    </Link>
-  );
+  const item = (href: string, label: string, Icon: typeof Gauge) => {
+    if (!setupDone && !OPEN_DURING_SETUP.has(href))
+      return (
+        <span key={href} aria-disabled="true" title="Opens once your first campaign starts" className="flex cursor-not-allowed items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-fg-faint">
+          <Icon className="size-4" />
+          {label}
+          <Lock className="ml-auto size-3.5" />
+        </span>
+      );
+    return (
+      <Link
+        key={href}
+        href={href}
+        onClick={onClose}
+        className={cn(
+          "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors",
+          isActive(pathname, href) ? "bg-white/15 text-fg" : "text-fg-muted hover:bg-white/10 hover:text-fg",
+        )}
+      >
+        <Icon className={cn("size-4", isActive(pathname, href) && "text-brand")} />
+        {label}
+      </Link>
+    );
+  };
 
   return (
     <>
       <motion.div className="fixed inset-0 z-40 bg-[#111213]/50" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} />
       <motion.aside
-        className="fixed inset-y-3 right-3 z-50 flex w-[min(320px,calc(100vw-24px))] flex-col rounded-[26px] border border-white/20 bg-[rgb(38_40_42/0.85)] p-3 backdrop-blur-2xl"
-        initial={{ x: "110%" }}
+        className="fixed inset-y-3 left-3 z-50 flex w-[min(320px,calc(100vw-24px))] flex-col rounded-[26px] border border-white/20 bg-[rgb(38_40_42/0.85)] p-3 backdrop-blur-2xl"
+        initial={{ x: "-110%" }}
         animate={{ x: 0 }}
-        exit={{ x: "110%" }}
+        exit={{ x: "-110%" }}
         transition={{ type: "spring", stiffness: 420, damping: 40 }}
         aria-label="Menu"
       >
@@ -156,6 +170,7 @@ function MenuSheet({ agent, devLogin, setupDone, staff, onClose }: { agent: Agen
           {/* the pill holds these on wide screens; on phones they're only here */}
           <div className="lg:hidden">{MAIN.map((n) => item(n.href, n.label, n.icon))}</div>
           {MORE.map((n) => item(n.href, n.label, n.icon))}
+          {!setupDone && <p className="px-3 pt-3 text-[12px] text-fg-faint">Locked pages open once your first campaign starts.</p>}
         </nav>
         <div className="space-y-2 border-t border-white/15 pt-3">
           {staff && (
@@ -192,17 +207,39 @@ function MenuSheet({ agent, devLogin, setupDone, staff, onClose }: { agent: Agen
   );
 }
 
-/** The dashboard's top bar: name left, the main places in a glass pill, Migz AI Brain and the menu on the right. */
+/** The first step, for a new agent: orange and pulsing under the tabs until setup is done. */
+function SetupCallout({ feePaid, feeLabel }: { feePaid: boolean; feeLabel: string }) {
+  const pathname = usePathname();
+  return (
+    <div className="flex justify-center px-4 pb-3">
+      <Link
+        href="/dashboard/start"
+        aria-current={pathname === "/dashboard/start" ? "page" : undefined}
+        className="relative isolate inline-flex items-center gap-2 rounded-2xl bg-[#ff7a1a] px-5 py-2.5 text-center text-sm font-semibold text-white shadow-[0_10px_30px_-8px_rgb(255_122_26/0.7)] transition-transform active:scale-95"
+      >
+        <span className="absolute inset-0 -z-10 animate-ping rounded-2xl bg-[#ff7a1a]/50 motion-reduce:hidden" aria-hidden="true" />
+        <Rocket className="size-4 shrink-0" />
+        {feePaid ? "Next: finish setup and start your first campaign" : `Step 1: pay your ${feeLabel} setup fee`}
+      </Link>
+    </div>
+  );
+}
+
+/** The dashboard's top bar: Migz AI Brain and the menu on the left, the main places in a glass pill, the name on the right. */
 export function TopBar({
   agent,
   devLogin,
   setupDone,
+  setupFeePaid,
+  setupFeeLabel,
   staff = false,
   connected,
 }: {
   agent: AgentSummary;
   devLogin: boolean;
   setupDone: boolean;
+  setupFeePaid: boolean;
+  setupFeeLabel: string; // "$750"
   staff?: boolean;
   connected: boolean;
 }) {
@@ -224,22 +261,27 @@ export function TopBar({
         scrolled ? "border-white/10 bg-[rgb(30_32_34/0.55)] backdrop-blur-xl" : "border-transparent",
       )}
     >
-      <div className="mx-auto grid max-w-7xl grid-cols-[1fr_auto] items-center gap-3 px-4 py-3 sm:px-8 lg:grid-cols-[1fr_auto_1fr]">
-        <Link href="/dashboard" className="flex items-center gap-2.5 justify-self-start text-[17px] font-semibold tracking-tight text-fg">
-          <span className="size-5 -rotate-45 rounded-md border-[2.5px] border-white border-r-transparent" aria-hidden="true" />
-          anryh labs
-        </Link>
+      <div className="mx-auto grid max-w-7xl grid-cols-[auto_1fr] items-center gap-3 px-4 py-3 sm:px-8 lg:grid-cols-[1fr_auto_1fr]">
+        <div className="flex items-center gap-2 justify-self-start">
+          <BrainButton connected={connected} />
+          <button
+            type="button"
+            onClick={() => setMenu(true)}
+            aria-label="Open menu"
+            className="flex size-11 items-center justify-center rounded-2xl border border-white/20 bg-white/10 text-fg backdrop-blur-xl transition-colors hover:bg-white/15"
+          >
+            <Menu className="size-5" />
+          </button>
+        </div>
 
-        <nav
-          aria-label="Dashboard"
-          className="hidden items-center gap-0.5 rounded-2xl border border-white/20 bg-white/10 p-1 backdrop-blur-xl lg:flex"
-        >
-          {!setupDone && (
-            <Link href="/dashboard/start" className="mr-1 inline-flex items-center gap-1.5 rounded-xl bg-brand px-3.5 py-2 text-sm font-semibold text-brand-fg">
-              <Rocket className="size-3.5" /> Start here
-            </Link>
-          )}
+        <nav aria-label="Dashboard" className="hidden items-center gap-0.5 rounded-2xl border border-white/20 bg-white/10 p-1 backdrop-blur-xl lg:flex">
           {MAIN.map(({ href, label }) => {
+            if (!setupDone)
+              return (
+                <span key={href} aria-disabled="true" title="Opens once your first campaign starts" className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-xl px-3.5 py-2 text-sm text-fg-faint">
+                  <Lock className="size-3" /> {label}
+                </span>
+              );
             const active = isActive(pathname, href);
             return (
               <Link key={href} href={href} className={cn("relative rounded-xl px-3.5 py-2 text-sm transition-colors", active ? "text-fg" : "text-fg-muted hover:text-fg")}>
@@ -253,18 +295,12 @@ export function TopBar({
           })}
         </nav>
 
-        <div className="flex items-center gap-2 justify-self-end">
-          <BrainButton connected={connected} />
-          <button
-            type="button"
-            onClick={() => setMenu(true)}
-            aria-label="Open menu"
-            className="flex size-11 items-center justify-center rounded-2xl border border-white/20 bg-white/10 text-fg backdrop-blur-xl transition-colors hover:bg-white/15"
-          >
-            <Menu className="size-5" />
-          </button>
-        </div>
+        <Link href={setupDone ? "/dashboard" : "/dashboard/start"} className="flex items-center gap-2.5 justify-self-end text-[17px] font-semibold tracking-tight text-fg">
+          <span className="size-5 -rotate-45 rounded-md border-[2.5px] border-white border-r-transparent" aria-hidden="true" />
+          anryh labs
+        </Link>
       </div>
+      {!setupDone && <SetupCallout feePaid={setupFeePaid} feeLabel={setupFeeLabel} />}
       <AnimatePresence>{menu && <MenuSheet agent={agent} devLogin={devLogin} setupDone={setupDone} staff={staff} onClose={() => setMenu(false)} />}</AnimatePresence>
     </header>
   );

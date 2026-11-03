@@ -5,24 +5,30 @@ import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { setAdsPaused, startDeposit } from "@/app/dashboard/actions";
 import { usd } from "@/lib/dashboard/format";
-import { adSpendCents, FEE_RATE, TEST_DAYS } from "@/lib/campaign";
+import { adSpendCents, feeLabel, FEE_RATE, LOW_FEE_AFTER_CENTS, LOW_FEE_RATE, TEST_DAYS } from "@/lib/campaign";
 import { FUNDS_STEP_CENTS, roundUpToFundsStep } from "@/lib/campaign-plan";
 import { Button, Switch, inputClass } from "@/components/dashboard/ui";
 import { cn } from "@/lib/utils";
 
 // Funds come in $500 steps, so the amount reads as what a campaign really needs
-const PRESETS = [1, 2, 3, 4].map((n) => ({ cents: n * FUNDS_STEP_CENTS, perDay: Math.floor(adSpendCents(n * FUNDS_STEP_CENTS) / TEST_DAYS / 100) }));
+const PRESET_CENTS = [1, 2, 3, 4].map((n) => n * FUNDS_STEP_CENTS);
 
-export function AddFunds() {
+/**
+ * Add funds. `addedBeforeCents` is everything the agent has added so far: the fee is 20% until they've added
+ * $20,000 in all, then 12% on everything after that.
+ */
+export function AddFunds({ addedBeforeCents = 0 }: { addedBeforeCents?: number }) {
   const [amount, setAmount] = useState<number>(FUNDS_STEP_CENTS);
   const [custom, setCustom] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const PRESETS = PRESET_CENTS.map((c) => ({ cents: c, perDay: Math.floor(adSpendCents(c, addedBeforeCents) / TEST_DAYS / 100) }));
 
   const typed = Math.round(Number(custom.replace(/[^0-9.]/g, "")) * 100);
   // A typed amount rounds up to the next $500 step
   const cents = custom ? (typed > 0 ? roundUpToFundsStep(typed) : 0) : amount;
-  const forAds = adSpendCents(cents);
+  const forAds = adSpendCents(cents, addedBeforeCents);
+  const rate = addedBeforeCents >= LOW_FEE_AFTER_CENTS ? LOW_FEE_RATE : FEE_RATE;
   // The daily spend this deposit pays for over two weeks
   const perDay = Math.floor(forAds / TEST_DAYS / 100) * 100;
 
@@ -78,11 +84,12 @@ export function AddFunds() {
         {cents > 0 ? (
           <>
             {custom && typed > 0 && typed !== cents ? `Rounded up to ${usd(cents)}: funds come in ${usd(FUNDS_STEP_CENTS)} steps. ` : ""}
-            {`${usd(forAds)} goes to your ads, ${usd(cents - forAds, { cents: (cents - forAds) % 100 !== 0 })} is the Anryh Labs fee (${FEE_RATE * 100}%). That runs your ads at about ${usd(perDay, { cents: false })}/day for 2 weeks. `}
-            <WhyFee />
+            {`${usd(forAds)} goes to your ads, ${usd(cents - forAds, { cents: (cents - forAds) % 100 !== 0 })} is the Anryh Labs fee (${feeLabel(cents, addedBeforeCents)}). That runs your ads at about ${usd(perDay, { cents: false })}/day for 2 weeks. `}
+            <WhyFee rate={rate} />
           </>
         ) : null}
       </p>
+      <FeeRateNote addedBeforeCents={addedBeforeCents} />
       <AnimatePresence>
         {message && (
           <motion.p
@@ -100,11 +107,35 @@ export function AddFunds() {
   );
 }
 
+/** Where the agent is on the fee: 20% until they've added $20,000 in all, then 12% on everything after that. */
+function FeeRateNote({ addedBeforeCents }: { addedBeforeCents: number }) {
+  const line = LOW_FEE_AFTER_CENTS;
+  const past = addedBeforeCents >= line;
+  return (
+    <div className="mt-4 rounded-lg border border-line px-4 py-3" data-testid="fee-rate-note">
+      <div className="flex items-baseline justify-between gap-3">
+        <p className="text-[13px] font-medium">{past ? `Your fee is ${LOW_FEE_RATE * 100}%` : `Your fee is ${FEE_RATE * 100}%`}</p>
+        <p className="text-[12px] tabular-nums text-fg-faint">
+          {usd(Math.min(addedBeforeCents, line), { cents: false })} of {usd(line, { cents: false })} added
+        </p>
+      </div>
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/[0.08]">
+        <div className="h-full rounded-full bg-brand" style={{ width: `${Math.min(100, (addedBeforeCents / line) * 100)}%` }} />
+      </div>
+      <p className="mt-2 text-[12px] text-fg-muted">
+        {past
+          ? `You've added more than ${usd(line, { cents: false })} in all, so everything you add from here costs ${LOW_FEE_RATE * 100}%.`
+          : `Add ${usd(line - addedBeforeCents, { cents: false })} more and the fee drops to ${LOW_FEE_RATE * 100}% on everything after that. The first ${usd(line, { cents: false })} you add stays at ${FEE_RATE * 100}%.`}
+      </p>
+    </div>
+  );
+}
+
 /**
  * "Why 20%?": what the fee pays for. Opens on hover or keyboard focus, and on tap for phones. The note
  * spans the line above the text (positioned on the paragraph), so it never runs off a narrow screen.
  */
-function WhyFee() {
+function WhyFee({ rate }: { rate: number }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLButtonElement>(null);
   const id = useId();
@@ -138,7 +169,7 @@ function WhyFee() {
         onClick={() => setOpen(true)}
         className="whitespace-nowrap text-brand underline decoration-brand/50 decoration-dotted underline-offset-2 hover:decoration-solid focus-visible:outline-none focus-visible:decoration-solid"
       >
-        Why {FEE_RATE * 100}%?
+        Why {rate * 100}%?
       </button>
       <AnimatePresence>
         {open && (
@@ -151,7 +182,7 @@ function WhyFee() {
             transition={{ duration: 0.15 }}
             className="absolute bottom-full left-0 z-20 mb-2 block w-full max-w-sm rounded-lg border border-line-strong bg-ink px-3.5 py-3 text-[12.5px] leading-relaxed text-fg-muted shadow-lg shadow-black/40"
           >
-            <span className="block font-medium text-fg">What the {FEE_RATE * 100}% covers</span>
+            <span className="block font-medium text-fg">What the {rate * 100}% covers</span>
             Everything Migz does for you besides the ad spend itself: any creatives it generates for your ads (images and
             videos), and the AI cost of managing your ads every day: reviewing results, adjusting budgets and launching new tests.
           </motion.span>

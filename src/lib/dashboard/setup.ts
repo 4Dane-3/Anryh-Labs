@@ -3,15 +3,16 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
 import { cleanFocus } from "@/lib/migz/topics";
 import { getBalanceCents } from "@/lib/dashboard/queries";
-import { depositFor, MIN_AD_BALANCE_CENTS, MIN_DEPOSIT_CENTS, MIN_TOP_UP_CENTS } from "@/lib/campaign";
+import { depositFor, MIN_AD_BALANCE_CENTS, MIN_DEPOSIT_CENTS, SETUP_FEE_CENTS } from "@/lib/campaign";
 import { campaignMoney, roundUpToFundsStep } from "@/lib/campaign-plan";
 import { DEFAULT_INTENT, DEFAULT_VIDEO_TIER, isIntentLevel, isVideoTier } from "@/lib/ad-options";
 import { getOpenBatch, getRecentBatches, type Batch } from "@/lib/dashboard/batches";
 
 // What "Start here" checks. Each step is done or not, with the reason it isn't, so the page and the
-// launch action agree. Only what's needed to run a first campaign.
+// launch action agree. Only what's needed to run a first campaign: the setup fee first, then the rest. Until
+// the first campaign starts, the rest of the dashboard stays locked (requireSetUpAgent).
 
-export type StepKey = "profile" | "page" | "funds" | "plan" | "creatives";
+export type StepKey = "setup_fee" | "profile" | "page" | "funds" | "plan" | "creatives";
 
 export type Step = {
   key: StepKey;
@@ -69,8 +70,10 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
       ? `Your campaign needs ${money(fundsNeeded.cents)} in ad funds (we recommend ${money(fundsNeeded.recommendedCents)}). Add about ${money(roundUpToFundsStep(depositFor(fundsNeeded.recommendedCents - balanceCents)))} with the 20% fee.`
       : null
     : balanceCents < MIN_AD_BALANCE_CENTS
-      ? `Add at least $${MIN_DEPOSIT_CENTS / 100} in total (you can add $${MIN_TOP_UP_CENTS / 100} or more at a time). Plan your campaign first to see what it needs.`
+      ? `Add at least $${MIN_DEPOSIT_CENTS / 100}. Plan your campaign first to see what it needs.`
       : null;
+  // Agents who finished setup before the setup fee existed count as paid
+  const setupFeeMissing = agent.setup_fee_paid_at || agent.onboarding_completed_at ? null : `Pay the one-time $${(SETUP_FEE_CENTS / 100).toLocaleString("en-US")} setup fee.`;
   const planMissing = !cleanFocus(agent.ad_focus).length || !batch ? "Answer a few quick questions and pick a daily budget." : null;
   const mode = agent.creative_mode ?? null;
   const creativesMissing = !mode
@@ -80,6 +83,7 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
       : null;
 
   const steps: Step[] = [
+    { key: "setup_fee", required: true, missing: setupFeeMissing, done: !setupFeeMissing },
     { key: "profile", required: true, missing: profileMissing, done: !profileMissing },
     { key: "page", required: true, missing: pageMissing, done: !pageMissing },
     { key: "plan", required: true, missing: planMissing, done: !planMissing },

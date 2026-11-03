@@ -5,19 +5,36 @@ import { getSetupState } from "@/lib/dashboard/setup";
 import { StartWizard } from "@/components/dashboard/start/StartWizard";
 import { PageHeader } from "@/components/dashboard/ui";
 import { getCampaignStart } from "@/lib/dashboard/campaign-plan";
+import { getFundsAddedCents } from "@/lib/dashboard/queries";
 
 export const dynamic = "force-dynamic";
 
-export default async function StartPage() {
-  const agent = await requireAgent();
-  const [state, start] = await Promise.all([getSetupState(agent), getCampaignStart(agent)]);
+// What Stripe's return links say, shown above the steps
+const RETURNS: Record<string, { text: string; good: boolean }> = {
+  "setup_fee:paid": { text: "Setup fee paid, thank you. Step 1 ticks off as soon as Stripe confirms it, usually within a few seconds; refresh if it hasn't yet.", good: true },
+  "setup_fee:canceled": { text: "No payment was made. Pay the setup fee whenever you're ready: it's step 1.", good: false },
+  "deposit:success": { text: "Payment received. Your balance updates as soon as Stripe confirms it, usually within a few seconds; refresh if it hasn't yet.", good: true },
+  "deposit:canceled": { text: "No payment was made. You can add funds whenever you're ready.", good: false },
+};
+
+export default async function StartPage({ searchParams }: { searchParams: Promise<{ setup_fee?: string; deposit?: string }> }) {
+  const [agent, query] = await Promise.all([requireAgent(), searchParams]);
+  const [state, start, fundsAdded] = await Promise.all([getSetupState(agent), getCampaignStart(agent), getFundsAddedCents(agent.id)]);
+  const back = RETURNS[query.setup_fee ? `setup_fee:${query.setup_fee}` : `deposit:${query.deposit}`];
 
   return (
     <>
       <PageHeader
         title={state.completed ? "Setup" : "Start here"}
-        description="Everything you need to run your first campaign, in order. Migz handles the rest."
+        description={
+          state.completed
+            ? "Everything you need to run your first campaign, in order. Migz handles the rest."
+            : "Finish these steps to start your first campaign. The rest of your dashboard opens once it starts."
+        }
       />
+      {back && (
+        <p className={`mb-6 max-w-3xl rounded-lg border px-4 py-3 text-[13px] ${back.good ? "border-good/30 bg-good/10 text-fg" : "border-line bg-ink-raised text-fg-muted"}`}>{back.text}</p>
+      )}
       <StartWizard
         steps={state.steps.map(({ key, done, missing }) => ({ key, done, missing }))}
         profile={{
@@ -32,6 +49,8 @@ export default async function StartPage() {
         }}
         slug={agent.slug}
         balanceCents={state.balanceCents}
+        fundsAddedCents={fundsAdded}
+        setupFeePaidAt={agent.setup_fee_paid_at ?? null}
         stripeConnected={integrations.stripe}
         connected={migzReadyFor(agent)}
         plan={{

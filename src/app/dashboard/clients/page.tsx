@@ -1,11 +1,11 @@
-import { requireAgent } from "@/lib/auth";
+import { requireSetUpAgent } from "@/lib/auth";
 import { getIntakeQuestions } from "@/lib/booking/data";
 import { PageHeader } from "@/components/dashboard/ui";
 import { ClientsTable } from "@/components/dashboard/ClientsTable";
 import { getClients } from "@/lib/dashboard/clients";
 
 export default async function ClientsPage({ searchParams }: { searchParams: Promise<{ id?: string }> }) {
-  const agent = await requireAgent();
+  const agent = await requireSetUpAgent();
   const [{ id }, clients, questions] = await Promise.all([searchParams, getClients(agent.id), getIntakeQuestions(agent.id)]);
   // ?id= opens a card: "call:<id>" or "lead:<id>" (older links carry a bare booking id); a lead who booked opens the call's card
   const [kind, recordId] = id?.includes(":") ? id.split(":") : ["call", id];

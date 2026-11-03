@@ -75,6 +75,7 @@ export function validateJoin(input: Partial<JoinInput>): { ok: true; value: Join
 const RESERVED_SLUGS = new Set([
   "api", "admin", "dashboard", "login", "signup", "about", "contact", "careers", "pairo", "privacy", "status", "write",
   "terms", "join", "auth", "companies", "our-story", "open-source-apps", "data-deletion",
+  "pricing", "blog", "life-insurance-ads", "sitemap.xml", "robots.txt", "llms.txt", "llms-full.txt",
 ]);
 
 /** A booking page address from a name ("José O'Neil" → "jose-oneil"), made unique against `taken`. */

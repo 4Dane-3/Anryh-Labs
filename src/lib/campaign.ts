@@ -15,10 +15,10 @@ export const DURATIONS = [
   { days: 0, label: "Ongoing" }, // 0 = no end date
 ] as const;
 
-// Migz runs one campaign with one ad set, and the agent's topics are compared ad by ad inside it. $20/day
-// is the least that gives Meta enough to learn from; two weeks gives 7 days of results to revise on and
-// 7 more to see if the changes worked.
-export const MIN_DAILY_CENTS = 2000;
+// Migz runs one campaign with one ad set, and the agent's topics are compared ad by ad inside it. $50/day
+// is the least a campaign runs at; two weeks gives 7 days of results to revise on and 7 more to see if the
+// changes worked.
+export const MIN_DAILY_CENTS = 5000;
 export const TEST_DAYS = 14;
 export const REVISE_AFTER_DAYS = 7;
 /** A one-week sprint reads its first 3 days (about $50 an ad at $100/day), then revises for the last 4. */
@@ -28,22 +28,44 @@ export const SPRINT_COLLECT_DAYS = 3;
 export const BUDGETS = [20, 30, 40, 60] as const; // dollars per day
 export const MAX_DAILY_CENTS = 100_000;
 
-// Anryh Labs keeps 20% of each deposit; the rest is ad spend. The minimum deposit funds the minimum plan:
-// $350 -> $280 of ads = $20/day x 14 days.
+// Anryh Labs keeps 20% of each deposit; the rest is ad spend. Once an agent has added $20,000 in all, the fee on
+// everything they add after that is 12% (the part of a deposit that crosses the line is split). Funds are
+// added $500 at a time at least, since campaigns run at $50/day or more.
 export const FEE_RATE = 0.2;
-export const MIN_DEPOSIT_CENTS = 35_000; // what a first batch needs in total: the smallest plan after the fee
+export const LOW_FEE_RATE = 0.12;
+export const LOW_FEE_AFTER_CENTS = 2_000_000;
+export const MIN_DEPOSIT_CENTS = 50_000;
 export const MAX_DEPOSIT_CENTS = 1_000_000;
-/** The least one top-up can be: funds add up, so a deposit needn't cover a whole batch on its own. */
-export const MIN_TOP_UP_CENTS = 100; // $1 (Stripe's own minimum charge is $0.50)
+/** The least one deposit can be. */
+export const MIN_TOP_UP_CENTS = MIN_DEPOSIT_CENTS;
+/** The one-time setup fee a new agent pays in Start here before anything else (not ad funds: it never touches the balance). */
+export const SETUP_FEE_CENTS = 75_000;
 
-/** What a deposit adds to the ad balance after the fee. */
-export function adSpendCents(depositCents: number) {
-  return Math.round(depositCents * (1 - FEE_RATE));
+/** The fee on a deposit, given what the agent had added before it (every earlier deposit, in cents). */
+export function feeCents(depositCents: number, addedBeforeCents = 0) {
+  const atFullRate = Math.max(0, Math.min(depositCents, LOW_FEE_AFTER_CENTS - addedBeforeCents));
+  return Math.round(atFullRate * FEE_RATE + (depositCents - atFullRate) * LOW_FEE_RATE);
 }
 
-/** The deposit needed for a given amount of ad spend. */
-export function depositFor(adCents: number) {
-  return Math.ceil(adCents / (1 - FEE_RATE) / 100) * 100;
+/** What a deposit adds to the ad balance after the fee. */
+export function adSpendCents(depositCents: number, addedBeforeCents = 0) {
+  return depositCents - feeCents(depositCents, addedBeforeCents);
+}
+
+/** The deposit needed for a given amount of ad spend (in whole dollars, rounded up). */
+export function depositFor(adCents: number, addedBeforeCents = 0) {
+  const roomAtFullRate = Math.max(0, LOW_FEE_AFTER_CENTS - addedBeforeCents);
+  const adAtFullRate = roomAtFullRate * (1 - FEE_RATE);
+  const deposit = adCents <= adAtFullRate ? adCents / (1 - FEE_RATE) : roomAtFullRate + (adCents - adAtFullRate) / (1 - LOW_FEE_RATE);
+  return Math.ceil(deposit / 100) * 100;
+}
+
+/** "20%", "12%", or both when the deposit crosses the line: how the fee on a deposit is described to the agent. */
+export function feeLabel(depositCents: number, addedBeforeCents = 0) {
+  const room = LOW_FEE_AFTER_CENTS - addedBeforeCents;
+  if (depositCents <= room) return `${FEE_RATE * 100}%`;
+  if (room <= 0) return `${LOW_FEE_RATE * 100}%`;
+  return `${FEE_RATE * 100}% up to $${(LOW_FEE_AFTER_CENTS / 100).toLocaleString("en-US")} added, ${LOW_FEE_RATE * 100}% after`;
 }
 
 /** The least an ad balance needs to start: what the minimum deposit leaves after the fee. */

@@ -22,7 +22,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 const points = [
   { icon: Sparkles, title: "Migz runs your Meta ads", body: "It writes and tests the ads, reads the results every day and moves your budget to what books calls." },
   { icon: CalendarCheck, title: "Consultations land in your calendar", body: "People who tap your ads book straight onto your own page, at the times you choose." },
-  { icon: BadgeCheck, title: "No subscription, no contract", body: "Add funds when you want: 80% goes straight to your ads, and 20% covers Migz." },
+  { icon: BadgeCheck, title: "No subscription, no contract", body: "Add funds when you want: 80% goes straight to your ads, and 20% covers Migz (12% on everything you add after your first $20,000)." },
 ];
 
 // The page an agent's invite link opens: who invited you, what Migz is, and a short request form.

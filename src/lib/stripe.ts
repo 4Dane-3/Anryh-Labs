@@ -1,13 +1,16 @@
 import "server-only";
 import Stripe from "stripe";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { adSpendCents } from "@/lib/campaign";
+import { feeCents, feeLabel, SETUP_FEE_CENTS } from "@/lib/campaign";
+import { getFundsAddedCents } from "@/lib/dashboard/queries";
 import { referralRowFor, type WalletRow } from "@/lib/referrals";
 import { reversalShares } from "@/lib/referrals-core";
 import { alertAdmin } from "@/lib/migz/slack";
 
 // Stripe Checkout for "Add funds". A paid session becomes two wallet rows: the deposit and the
-// Anryh Labs fee (20%), so the balance shows only what's left for ads. Stripe's own processing fee
+// Anryh Labs fee (20%, or 12% on what an agent adds after their first $20,000 in all), so the balance shows
+// only what's left for ads. The fee is worked out when Checkout opens and stored in the session, so what the
+// agent was shown is what's recorded. Stripe's own processing fee
 // comes out of Anryh Labs' share, never the agent's ad money. When the agent was referred, a third
 // row credits their referrer 1% (also out of Anryh Labs' share). A refund or chargeback reverses its
 // share of all three.
@@ -50,17 +53,50 @@ export function checkoutReturnBase() {
   return "http://localhost:3000";
 }
 
-/** A Checkout page for a deposit. Returns the URL to send the agent to. */
-export async function createDepositCheckout(input: {
+type CheckoutFor = {
   agentId: string;
   email: string;
-  cents: number;
   appUrl: string;
-  customerId?: string | null; // the agent's Stripe customer from an earlier deposit
+  customerId?: string | null; // the agent's Stripe customer from an earlier payment
+};
+
+/** A Checkout page for a deposit. Returns the URL to send the agent to. */
+export async function createDepositCheckout(input: CheckoutFor & {
+  cents: number;
+  addedBeforeCents: number; // everything the agent has added so far: sets the fee rate
+  returnTo: "funds" | "start"; // where Stripe sends them back (Start here while they're setting up)
 }) {
-  const forAds = adSpendCents(input.cents);
-  // One Stripe customer per agent: the first deposit creates it, later ones reuse it, so each paid
-  // deposit builds the history Stripe's fraud checks look at
+  const fee = feeCents(input.cents, input.addedBeforeCents);
+  const forAds = input.cents - fee;
+  const back = `${input.appUrl}/dashboard/${input.returnTo}`;
+  return openCheckout(input, {
+    cents: input.cents,
+    name: "Ad funds",
+    description: `$${(forAds / 100).toFixed(2)} for your Meta ads, $${(fee / 100).toFixed(2)} Anryh Labs fee (${feeLabel(input.cents, input.addedBeforeCents)}).`,
+    metadata: { deposit_cents: String(input.cents), fee_cents: String(fee), added_before_cents: String(input.addedBeforeCents), kind: "ad_funds" },
+    success: `${back}?deposit=success`,
+    cancel: `${back}?deposit=canceled`,
+  });
+}
+
+/** A Checkout page for the one-time setup fee. Returns the URL to send the agent to. */
+export async function createSetupFeeCheckout(input: CheckoutFor) {
+  return openCheckout(input, {
+    cents: SETUP_FEE_CENTS,
+    name: "Anryh Labs setup fee",
+    description: "One time: your Meta ad account, your first campaign, your lead form and booking page, set up and ready to launch.",
+    metadata: { kind: "setup_fee" },
+    success: `${input.appUrl}/dashboard/start?setup_fee=paid`,
+    cancel: `${input.appUrl}/dashboard/start?setup_fee=canceled`,
+  });
+}
+
+async function openCheckout(
+  input: CheckoutFor,
+  item: { cents: number; name: string; description: string; metadata: Record<string, string>; success: string; cancel: string },
+) {
+  // One Stripe customer per agent: the first payment creates it, later ones reuse it, so each paid
+  // one builds the history Stripe's fraud checks look at
   const reuse = input.customerId
     ? { customer: input.customerId, customer_update: { address: "auto" as const, name: "auto" as const } }
     : null;
@@ -72,24 +108,12 @@ export async function createDepositCheckout(input: {
     billing_address_collection: "required",
     phone_number_collection: { enabled: true },
     client_reference_id: input.agentId,
-    line_items: [
-      {
-        quantity: 1,
-        price_data: {
-          currency: "usd",
-          unit_amount: input.cents,
-          product_data: {
-            name: "Ad funds",
-            description: `$${(forAds / 100).toFixed(2)} for your Meta ads, $${((input.cents - forAds) / 100).toFixed(2)} Anryh Labs fee (20%).`,
-          },
-        },
-      },
-    ],
+    line_items: [{ quantity: 1, price_data: { currency: "usd", unit_amount: item.cents, product_data: { name: item.name, description: item.description } } }],
     // The webhook trusts these (signed by Stripe), never the browser
-    metadata: { agent_id: input.agentId, deposit_cents: String(input.cents), kind: "ad_funds" },
-    payment_intent_data: { metadata: { agent_id: input.agentId, kind: "ad_funds" } },
-    success_url: `${input.appUrl}/dashboard/funds?deposit=success`,
-    cancel_url: `${input.appUrl}/dashboard/funds?deposit=canceled`,
+    metadata: { agent_id: input.agentId, ...item.metadata },
+    payment_intent_data: { metadata: { agent_id: input.agentId, kind: item.metadata.kind } },
+    success_url: item.success,
+    cancel_url: item.cancel,
   });
   let session;
   try {
@@ -114,11 +138,15 @@ export async function recordDeposit(session: Stripe.Checkout.Session) {
   const agentId = session.metadata?.agent_id ?? session.client_reference_id;
   const cents = session.amount_total ?? Number(session.metadata?.deposit_cents);
   if (!agentId || !Number.isInteger(cents) || cents <= 0) throw new Error(`Checkout session ${session.id} has no agent or amount`);
-  const fee = cents - adSpendCents(cents);
+  // The fee Checkout showed (stored in the session when it opened); older sessions don't have it, so work it out
+  const count = (v: string | undefined) => (v !== undefined && /^\d+$/.test(v) ? Number(v) : null);
+  const storedFee = count(session.metadata?.fee_cents);
+  const addedBefore = count(session.metadata?.added_before_cents) ?? (await getFundsAddedCents(agentId, session.id));
+  const fee = storedFee !== null && storedFee <= cents ? storedFee : feeCents(cents, addedBefore);
   const customer = typeof session.customer === "string" ? session.customer : session.customer?.id;
   const rows: WalletRow[] = [
     { agent_id: agentId, kind: "deposit", amount_cents: cents, status: "completed", description: "Deposit (card)", external_id: session.id },
-    { agent_id: agentId, kind: "fee", amount_cents: -fee, status: "completed", description: "Anryh Labs fee (20%)", external_id: `${session.id}:fee` },
+    { agent_id: agentId, kind: "fee", amount_cents: -fee, status: "completed", description: `Anryh Labs fee (${feeLabel(cents, addedBefore)})`, external_id: `${session.id}:fee` },
   ];
   const referral = await referralRowFor({ agentId, depositCents: cents, sessionId: session.id, customerId: customer ?? null });
   let { error } = await supabaseAdmin.from("wallet_transactions").insert(referral ? [...rows, referral] : rows);
@@ -134,6 +162,27 @@ export async function recordDeposit(session: Stripe.Checkout.Session) {
   if (customer) {
     await supabaseAdmin.from("agents").update({ stripe_customer_id: customer }).eq("id", agentId).is("stripe_customer_id", null);
   }
+  return true;
+}
+
+/**
+ * Records a paid setup fee on the agent (it never touches their ad balance). Only the first payment counts,
+ * so a webhook Stripe sends twice is a no-op. Returns false when it was already recorded.
+ */
+export async function recordSetupFee(session: Stripe.Checkout.Session) {
+  const agentId = session.metadata?.agent_id ?? session.client_reference_id;
+  if (!agentId) throw new Error(`Checkout session ${session.id} has no agent`);
+  const customer = typeof session.customer === "string" ? session.customer : session.customer?.id;
+  const { data, error } = await supabaseAdmin
+    .from("agents")
+    .update({ setup_fee_paid_at: new Date().toISOString(), setup_fee_session_id: session.id })
+    .eq("id", agentId)
+    .is("setup_fee_paid_at", null)
+    .select("id, full_name");
+  if (error) throw new Error(`Couldn't record the setup fee: ${error.message}`);
+  if (customer) await supabaseAdmin.from("agents").update({ stripe_customer_id: customer }).eq("id", agentId).is("stripe_customer_id", null);
+  if (!data?.length) return false;
+  await alertAdmin(`${data[0].full_name} paid the ${usd(session.amount_total ?? SETUP_FEE_CENTS)} setup fee. Their setup is next: link their Meta ad account if it isn't yet.`);
   return true;
 }
 
@@ -177,7 +226,7 @@ export async function recordReversal(input: { sessionId: string; key: string; am
       kind: "fee",
       amount_cents: back * share.feeBackCents,
       status: "completed",
-      description: input.reason === "chargeback_won" ? "Anryh Labs fee (20%) on the restored deposit" : `Anryh Labs fee (20%) returned with the ${what.toLowerCase()}`,
+      description: input.reason === "chargeback_won" ? "Anryh Labs fee on the restored deposit" : `Anryh Labs fee returned with the ${what.toLowerCase()}`,
       external_id: `${input.key}:fee`,
     });
   if (credit && share.creditBackCents)

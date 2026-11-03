@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { DateTime } from "luxon";
-import { requireAgent } from "@/lib/auth";
+import { requireSetUpAgent } from "@/lib/auth";
 import { integrations } from "@/lib/integrations";
-import { getBalanceCents, getTransactions } from "@/lib/dashboard/queries";
+import { getBalanceCents, getFundsAddedCents, getTransactions } from "@/lib/dashboard/queries";
 import { getActiveBatch } from "@/lib/dashboard/batches";
 import { stripeTestMode } from "@/lib/stripe";
 import { usd } from "@/lib/dashboard/format";
@@ -20,11 +20,12 @@ const KIND_LABEL: Record<string, string> = {
 };
 
 export default async function FundsPage({ searchParams }: { searchParams: Promise<{ deposit?: string }> }) {
-  const [agent, { deposit }] = await Promise.all([requireAgent(), searchParams]);
-  const [balance, transactions, batch] = await Promise.all([
+  const [agent, { deposit }] = await Promise.all([requireSetUpAgent(), searchParams]);
+  const [balance, transactions, batch, fundsAdded] = await Promise.all([
     getBalanceCents(agent.id),
     getTransactions(agent.id),
     getActiveBatch(agent.id),
+    getFundsAddedCents(agent.id),
   ]);
   const daysLeft = agent.daily_budget_cents > 0 ? Math.floor(balance / agent.daily_budget_cents) : null;
 
@@ -76,7 +77,7 @@ export default async function FundsPage({ searchParams }: { searchParams: Promis
                     : null}
             </p>
           </div>
-          <AddFunds />
+          <AddFunds addedBeforeCents={fundsAdded} />
         </Panel>
 
         <Panel className="lg:col-span-2">

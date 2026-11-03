@@ -1,4 +1,4 @@
-import { requireAgent } from "@/lib/auth";
+import { requireSetUpAgent } from "@/lib/auth";
 import { PageHeader } from "@/components/dashboard/ui";
 import { CallButtonForm, GhostBookingsForm, MigzModeForm, NotificationSettings, FollowUpEmailsForm } from "@/components/dashboard/SettingsForms";
 import { IntentLevelForm, VideoTierForm } from "@/components/dashboard/AdChoices";
@@ -6,7 +6,7 @@ import { DEFAULT_INTENT, DEFAULT_VIDEO_TIER, isIntentLevel, isVideoTier } from "
 import { leadEmailSender } from "@/lib/booking/sites";
 
 export default async function SettingsPage() {
-  const agent = await requireAgent();
+  const agent = await requireSetUpAgent();
 
   return (
     <>

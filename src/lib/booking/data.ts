@@ -52,6 +52,7 @@ export type Agent = {
   campaign_ends_on?: string | null;
   creative_mode?: "upload" | "ai" | "both" | null;
   onboarding_completed_at?: string | null;
+  setup_fee_paid_at?: string | null; // the one-time setup fee (missing before its migration)
   required_intake_steps?: number[]; // steps whose questions must be answered before booking
   stripe_customer_id?: string | null; // saved from the first paid deposit
   page_font?: string; // booking page font key (see lib/booking/page-fonts.ts); missing before its migration

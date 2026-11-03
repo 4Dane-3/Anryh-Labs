@@ -45,6 +45,17 @@ export async function getBalanceCents(agentId: string) {
   return (data ?? []).reduce((sum, t) => sum + t.amount_cents, 0);
 }
 
+/** Everything the agent has added in all (completed deposits, in cents): the fee drops after $20,000. */
+export async function getFundsAddedCents(agentId: string, exceptSessionId?: string) {
+  const { data } = await supabaseAdmin
+    .from("wallet_transactions")
+    .select("amount_cents, external_id")
+    .eq("agent_id", agentId)
+    .eq("kind", "deposit")
+    .eq("status", "completed");
+  return (data ?? []).filter((t) => t.external_id !== exceptSessionId).reduce((sum, t) => sum + t.amount_cents, 0);
+}
+
 export async function getTransactions(agentId: string): Promise<WalletTransaction[]> {
   const { data } = await supabaseAdmin
     .from("wallet_transactions")
