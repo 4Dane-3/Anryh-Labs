@@ -68,6 +68,17 @@ function useOutside<T extends HTMLElement>(open: boolean, close: () => void) {
   return ref;
 }
 
+/** On Overview the Brain card is already on the page: scroll to it and glow its border for a second, so it's clear the button means that card. */
+function pointToBrainCard() {
+  const wrap = document.getElementById("migz-brain");
+  if (!wrap) return;
+  wrap.scrollIntoView({ behavior: "smooth", block: "center" });
+  const card = (wrap.firstElementChild as HTMLElement | null) ?? wrap;
+  const off = "0 0 0 1px rgb(255 255 255 / 0), 0 0 0 0 rgb(255 255 255 / 0)";
+  const on = "0 0 0 1.5px rgb(255 255 255 / 0.7), 0 0 28px 2px rgb(255 255 255 / 0.22)";
+  card.animate([{ boxShadow: off }, { boxShadow: on, offset: 0.25 }, { boxShadow: on, offset: 0.6 }, { boxShadow: off }], { duration: 1000, easing: "ease-out" });
+}
+
 function BrainButton({ connected }: { connected: boolean }) {
   const pathname = usePathname();
   // Open on the page it was opened on, so moving to another page closes it
@@ -81,7 +92,7 @@ function BrainButton({ connected }: { connected: boolean }) {
     <div ref={ref} className="relative">
       <button
         type="button"
-        onClick={() => (onOverview ? document.getElementById("migz-brain")?.scrollIntoView({ behavior: "smooth", block: "center" }) : setOpenOn(open ? null : pathname))}
+        onClick={() => (onOverview ? pointToBrainCard() : setOpenOn(open ? null : pathname))}
         aria-expanded={onOverview ? undefined : open}
         aria-label="Migz AI Brain: see Migz AI working"
         title="See Migz AI working"
@@ -97,7 +108,7 @@ function BrainButton({ connected }: { connected: boolean }) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -6, scale: 0.98 }}
             transition={{ duration: 0.18, ease: [0.25, 0.8, 0.25, 1] }}
-            className="absolute left-0 top-full z-50 mt-3 w-[min(380px,calc(100vw-32px))] origin-top-left"
+            className="absolute right-0 top-full z-50 mt-3 w-[min(380px,calc(100vw-32px))] origin-top-right"
           >
             {connected ? (
               <FetchedBrainCard className="bg-[rgb(70_73_75/0.55)]" />
@@ -152,10 +163,10 @@ function MenuSheet({ agent, devLogin, setupDone, staff, onClose }: { agent: Agen
     <>
       <motion.div className="fixed inset-0 z-40 bg-[#111213]/50" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} />
       <motion.aside
-        className="fixed inset-y-3 left-3 z-50 flex w-[min(320px,calc(100vw-24px))] flex-col rounded-[26px] border border-white/20 bg-[rgb(38_40_42/0.85)] p-3 backdrop-blur-2xl"
-        initial={{ x: "-110%" }}
+        className="fixed inset-y-3 right-3 z-50 flex w-[min(320px,calc(100vw-24px))] flex-col rounded-[26px] border border-white/20 bg-[rgb(38_40_42/0.85)] p-3 backdrop-blur-2xl"
+        initial={{ x: "110%" }}
         animate={{ x: 0 }}
-        exit={{ x: "-110%" }}
+        exit={{ x: "110%" }}
         transition={{ type: "spring", stiffness: 420, damping: 40 }}
         aria-label="Menu"
       >
@@ -225,7 +236,7 @@ function SetupCallout({ feePaid, feeLabel }: { feePaid: boolean; feeLabel: strin
   );
 }
 
-/** The dashboard's top bar: Migz AI Brain and the menu on the left, the main places in a glass pill, the name on the right. */
+/** The dashboard's top bar: name left, the main places in a glass pill, Migz AI Brain and the menu on the right. */
 export function TopBar({
   agent,
   devLogin,
@@ -261,18 +272,11 @@ export function TopBar({
         scrolled ? "border-white/10 bg-[rgb(30_32_34/0.55)] backdrop-blur-xl" : "border-transparent",
       )}
     >
-      <div className="mx-auto grid max-w-7xl grid-cols-[auto_1fr] items-center gap-3 px-4 py-3 sm:px-8 lg:grid-cols-[1fr_auto_1fr]">
-        <div className="flex items-center gap-2 justify-self-start">
-          <BrainButton connected={connected} />
-          <button
-            type="button"
-            onClick={() => setMenu(true)}
-            aria-label="Open menu"
-            className="flex size-11 items-center justify-center rounded-2xl border border-white/20 bg-white/10 text-fg backdrop-blur-xl transition-colors hover:bg-white/15"
-          >
-            <Menu className="size-5" />
-          </button>
-        </div>
+      <div className="mx-auto grid max-w-7xl grid-cols-[1fr_auto] items-center gap-3 px-4 py-3 sm:px-8 lg:grid-cols-[1fr_auto_1fr]">
+        <Link href={setupDone ? "/dashboard" : "/dashboard/start"} className="flex items-center gap-2.5 justify-self-start text-[17px] font-semibold tracking-tight text-fg">
+          <span className="size-5 -rotate-45 rounded-md border-[2.5px] border-white border-r-transparent" aria-hidden="true" />
+          anryh labs
+        </Link>
 
         <nav aria-label="Dashboard" className="hidden items-center gap-0.5 rounded-2xl border border-white/20 bg-white/10 p-1 backdrop-blur-xl lg:flex">
           {MAIN.map(({ href, label }) => {
@@ -295,10 +299,17 @@ export function TopBar({
           })}
         </nav>
 
-        <Link href={setupDone ? "/dashboard" : "/dashboard/start"} className="flex items-center gap-2.5 justify-self-end text-[17px] font-semibold tracking-tight text-fg">
-          <span className="size-5 -rotate-45 rounded-md border-[2.5px] border-white border-r-transparent" aria-hidden="true" />
-          anryh labs
-        </Link>
+        <div className="flex items-center gap-2 justify-self-end">
+          <BrainButton connected={connected} />
+          <button
+            type="button"
+            onClick={() => setMenu(true)}
+            aria-label="Open menu"
+            className="flex size-11 items-center justify-center rounded-2xl border border-white/20 bg-white/10 text-fg backdrop-blur-xl transition-colors hover:bg-white/15"
+          >
+            <Menu className="size-5" />
+          </button>
+        </div>
       </div>
       {!setupDone && <SetupCallout feePaid={setupFeePaid} feeLabel={setupFeeLabel} />}
       <AnimatePresence>{menu && <MenuSheet agent={agent} devLogin={devLogin} setupDone={setupDone} staff={staff} onClose={() => setMenu(false)} />}</AnimatePresence>
