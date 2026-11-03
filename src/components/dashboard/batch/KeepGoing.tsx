@@ -34,13 +34,13 @@ export function KeepGoing({ on, note, warn }: { on: boolean; note: string; warn?
     <div className="border-t border-line pt-3">
       <div className="flex items-center justify-between gap-3">
         <p className="flex items-center gap-1.5 text-[13px] font-medium text-fg">
-          <Repeat className="size-3.5 text-brand" /> Keep going
+          <Repeat className="size-3.5 text-brand" /> Rolling
         </p>
         <button
           type="button"
           role="switch"
           aria-checked={value}
-          aria-label="Keep going: start the same batch again when this one ends"
+          aria-label="Rolling: start the next 2-week cycle when this one ends"
           disabled={pending}
           onClick={toggle}
           className={cn("relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:opacity-60", value ? "bg-brand" : "bg-white/[0.12]")}

@@ -5,28 +5,28 @@ import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { setAdsPaused, startDeposit } from "@/app/dashboard/actions";
 import { usd } from "@/lib/dashboard/format";
-import { adSpendCents, feeLabel, FEE_RATE, LOW_FEE_AFTER_CENTS, LOW_FEE_RATE, TEST_DAYS } from "@/lib/campaign";
+import { adSpendCents, feeLabel, FEE_RATE, LOW_FEE_AFTER_CENTS, LOW_FEE_RATE, MIN_TOP_UP_CENTS, TEST_DAYS } from "@/lib/campaign";
 import { FUNDS_STEP_CENTS, roundUpToFundsStep } from "@/lib/campaign-plan";
 import { Button, Switch, inputClass } from "@/components/dashboard/ui";
 import { cn } from "@/lib/utils";
 
-// Funds come in $500 steps, so the amount reads as what a campaign really needs
-const PRESET_CENTS = [1, 2, 3, 4].map((n) => n * FUNDS_STEP_CENTS);
+// Funds come in $500 steps from the $1,000 minimum, so the amount reads as what a 2-week cycle really needs
+const PRESET_CENTS = [2, 3, 4, 6].map((n) => n * FUNDS_STEP_CENTS);
 
 /**
  * Add funds. `addedBeforeCents` is everything the agent has added so far: the fee is 20% until they've added
  * $20,000 in all, then 12% on everything after that.
  */
 export function AddFunds({ addedBeforeCents = 0 }: { addedBeforeCents?: number }) {
-  const [amount, setAmount] = useState<number>(FUNDS_STEP_CENTS);
+  const [amount, setAmount] = useState<number>(PRESET_CENTS[0]);
   const [custom, setCustom] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const PRESETS = PRESET_CENTS.map((c) => ({ cents: c, perDay: Math.floor(adSpendCents(c, addedBeforeCents) / TEST_DAYS / 100) }));
 
   const typed = Math.round(Number(custom.replace(/[^0-9.]/g, "")) * 100);
-  // A typed amount rounds up to the next $500 step
-  const cents = custom ? (typed > 0 ? roundUpToFundsStep(typed) : 0) : amount;
+  // A typed amount rounds up to the next $500 step, and never below the minimum
+  const cents = custom ? (typed > 0 ? Math.max(MIN_TOP_UP_CENTS, roundUpToFundsStep(typed)) : 0) : amount;
   const forAds = adSpendCents(cents, addedBeforeCents);
   const rate = addedBeforeCents >= LOW_FEE_AFTER_CENTS ? LOW_FEE_RATE : FEE_RATE;
   // The daily spend this deposit pays for over two weeks

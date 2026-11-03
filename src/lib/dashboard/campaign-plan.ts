@@ -89,14 +89,14 @@ export async function buildCampaignPlan(agent: Agent, input: { answers: Campaign
   const { data } = await supabaseAdmin.from("campaign_batches").select(BATCH_COLS).eq("agent_id", agent.id).eq("status", "ended").order("ended_at", { ascending: false }).limit(6);
   const ended = (data ?? []) as Batch[];
   const own = await ownNumbers(agent, ended);
-  const days = recommendedDays(input.dailyCents);
+  const days = recommendedDays();
   const expected = expectedResults({ ...input, days, own });
   const main = expected.lines.find((l) => l.destination === "website") ?? expected.lines[0];
   const recommendedDailyCents = recommendedDaily(main.cost.mid);
   const budgetWhy = (source: string) =>
     `About ${LEARNING_RESULTS_PER_WEEK} ${main.unit}s a week gives Meta enough to learn from. At ${source} ${usd(main.cost.mid)} per ${main.unit}, that's about ${usd(recommendedDailyCents)}/day.${
-      input.dailyCents < recommendedDailyCents * 0.6 ? ` At ${usd(input.dailyCents)}/day it still works, it just learns slower, so Migz runs it longer.` : ""
-    } ${lengthReason(input.dailyCents, days)}`;
+      input.dailyCents < recommendedDailyCents * 0.6 ? ` At ${usd(input.dailyCents)}/day it still works, it just learns slower, so keeping it running matters even more.` : ""
+    } ${lengthReason(input.dailyCents)}`;
 
   if (!ended.length) {
     const adj = costAdjustments(input.answers, input.states);
@@ -211,7 +211,7 @@ export async function getCampaignStart(agent: Agent): Promise<{ initial: Campaig
       tier: isVideoTier(agent.video_tier) ? agent.video_tier : DEFAULT_VIDEO_TIER,
       dailyCents: Math.min(MAX_CAMPAIGN_DAILY_CENTS, Math.max(MIN_CAMPAIGN_DAILY_CENTS, daily)),
       autoRun: agent.migz_mode === "auto",
-      renew: last?.renew ?? false,
+      renew: true, // campaigns are rolling
     },
     own: own.campaigns >= 2 || own.showRate != null || own.reachRate != null ? own : null,
   };

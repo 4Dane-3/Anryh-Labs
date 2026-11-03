@@ -89,6 +89,7 @@ export default async function StartPage({ searchParams }: { searchParams: Promis
           hoursMissing: !state.hasHours,
         }}
         slack={{ current: agent.slack_user_id ?? "", inviteUrl: process.env.SLACK_INVITE_URL || null }}
+        migzMode={agent.migz_mode_chosen_at ? (agent.migz_mode === "auto" ? "auto" : "approve") : null}
       />
     </>
   );

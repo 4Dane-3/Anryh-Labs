@@ -99,22 +99,25 @@ export const MAX_CAMPAIGN_DAILY_CENTS = 100_000;
 export const DAILY_CHOICES = [5000, 7500, 10_000, 15_000, 20_000, 30_000] as const;
 
 /**
- * How long Migz runs a campaign at this daily budget. Smaller budgets run longer so Meta sees enough
- * results to learn from: under $75/day 21 days, under $150/day 14 days, 10 days above that. Never under 7.
+ * Campaigns are rolling: no end date. They run in 2-week cycles, and the next cycle starts on its own from
+ * the ad balance (Keep going is always on), with Migz reviewing what the last one learned. Each cycle is
+ * 2 weeks whatever the daily budget: a week for Meta to learn, a week to improve.
  */
-export function recommendedDays(dailyCents: number) {
-  const days = dailyCents < 7500 ? 21 : dailyCents < 15_000 ? 14 : 10;
-  return Math.max(MIN_CAMPAIGN_DAYS, days);
+export const CYCLE_DAYS = 14;
+
+export function recommendedDays() {
+  return Math.max(MIN_CAMPAIGN_DAYS, CYCLE_DAYS);
 }
 
-export function lengthReason(dailyCents: number, days = recommendedDays(dailyCents)) {
-  const base = `Meta needs time and results to learn who books, and longer campaigns do better: the first week is mostly learning, the weeks after are where the cost per result comes down.`;
-  if (days >= 21) return `${base} At ${usd(dailyCents)}/day it takes about 3 weeks to collect enough results, so Migz runs it ${days} days.`;
-  if (days >= 14) return `${base} At ${usd(dailyCents)}/day, 2 weeks gives Meta a week to learn and a week to improve.`;
-  return `${base} At ${usd(dailyCents)}/day results come in faster, so ${days} days is enough for a fair read. Running longer still helps.`;
+/** Why campaigns roll, and what the agent should do about it: keep funds in the account. */
+export const KEEP_FUNDED =
+  "We recommend running as long as you can: keep funds in your account so Meta always has budget to pull from. The longer a campaign runs, the more Meta learns about who books, and the lower your cost per lead gets.";
+
+export function lengthReason(dailyCents: number) {
+  return `No end date. It runs in 2-week cycles at ${usd(dailyCents)}/day, and the next cycle starts on its own while your balance covers it. ${KEEP_FUNDED}`;
 }
 
-/** Ad funds come in $500 steps, so the amount the agent sees is the real minimum for the campaign. */
+/** Ad funds come in $500 steps, so the amount the agent sees is the real minimum for a 2-week cycle. */
 export const FUNDS_STEP_CENTS = 50_000;
 export const roundUpToFundsStep = (cents: number) => Math.max(FUNDS_STEP_CENTS, Math.ceil(cents / FUNDS_STEP_CENTS) * FUNDS_STEP_CENTS);
 
@@ -234,7 +237,7 @@ export type ExpectedLine = {
 };
 
 export function expectedResults(input: { answers: CampaignAnswers; states: string[]; intent: IntentLevel; dailyCents: number; days?: number; own?: OwnNumbers | null }) {
-  const days = input.days ?? recommendedDays(input.dailyCents);
+  const days = input.days ?? recommendedDays();
   const adj = costAdjustments(input.answers, input.states);
   // Costs: their own after 2 finished campaigns. Show-up and reach rates: their own as soon as they're known
   const own = input.own && input.own.campaigns >= 2 ? input.own : null;
@@ -273,7 +276,7 @@ const scale = (r: Range, f: number): Range => ({ low: Math.round(r.low * f), mid
 // ---------- The whole plan for a daily budget ----------
 
 export function campaignMoney(input: { dailyCents: number; intent: IntentLevel; tier: VideoTier }) {
-  const days = recommendedDays(input.dailyCents);
+  const days = recommendedDays();
   const adSpendCents = input.dailyCents * days;
   const sets = adsetShares(input.intent, input.dailyCents).map((s) => ({ ...s, mix: creativeMix(s.dailyCents) }));
   const videoCents = sets.reduce((sum, s) => sum + mixVideoCents(input.tier, s.mix), 0);

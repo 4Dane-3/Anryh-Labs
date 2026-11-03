@@ -218,39 +218,17 @@ function MenuSheet({ agent, devLogin, setupDone, staff, onClose }: { agent: Agen
   );
 }
 
-/** The first step, for a new agent: orange and pulsing under the tabs until setup is done. */
-function SetupCallout({ feePaid, feeLabel }: { feePaid: boolean; feeLabel: string }) {
-  const pathname = usePathname();
-  return (
-    <div className="flex justify-center px-4 pb-3">
-      <Link
-        href="/dashboard/start"
-        aria-current={pathname === "/dashboard/start" ? "page" : undefined}
-        className="relative isolate inline-flex items-center gap-2 rounded-2xl bg-[#ff7a1a] px-5 py-2.5 text-center text-sm font-semibold text-white shadow-[0_10px_30px_-8px_rgb(255_122_26/0.7)] transition-transform active:scale-95"
-      >
-        <span className="absolute inset-0 -z-10 animate-ping rounded-2xl bg-[#ff7a1a]/50 motion-reduce:hidden" aria-hidden="true" />
-        <Rocket className="size-4 shrink-0" />
-        {feePaid ? "Next: finish setup and start your first campaign" : `Pay your ${feeLabel} setup fee`}
-      </Link>
-    </div>
-  );
-}
-
 /** The dashboard's top bar: name left, the main places in a glass pill, Migz AI Brain and the menu on the right. */
 export function TopBar({
   agent,
   devLogin,
   setupDone,
-  setupFeePaid,
-  setupFeeLabel,
   staff = false,
   connected,
 }: {
   agent: AgentSummary;
   devLogin: boolean;
   setupDone: boolean;
-  setupFeePaid: boolean;
-  setupFeeLabel: string; // "$750"
   staff?: boolean;
   connected: boolean;
 }) {
@@ -266,12 +244,16 @@ export function TopBar({
   }, []);
 
   return (
-    <header
-      className={cn(
-        "sticky top-0 z-30 border-b transition-[background-color,border-color] duration-300",
-        scrolled ? "border-white/10 bg-[rgb(30_32_34/0.55)] backdrop-blur-xl" : "border-transparent",
-      )}
-    >
+    <header className="sticky top-0 z-30">
+      {/* The frosted bar is its own layer: a backdrop-filter on the header itself would make it the box the
+          menu sheet (position: fixed) and the Brain pop-out are laid out in, cutting them off once scrolled */}
+      <div
+        aria-hidden="true"
+        className={cn(
+          "absolute inset-0 -z-10 border-b transition-[background-color,border-color] duration-300",
+          scrolled ? "border-white/10 bg-[rgb(30_32_34/0.55)] backdrop-blur-xl" : "border-transparent",
+        )}
+      />
       <div className="mx-auto grid max-w-7xl grid-cols-[1fr_auto] items-center gap-3 px-4 py-3 sm:px-8 lg:grid-cols-[1fr_auto_1fr]">
         <Link href={setupDone ? "/dashboard" : "/dashboard/start"} className="flex items-center gap-2.5 justify-self-start text-[17px] font-semibold tracking-tight text-fg">
           <span className="size-5 -rotate-45 rounded-md border-[2.5px] border-white border-r-transparent" aria-hidden="true" />
@@ -311,7 +293,6 @@ export function TopBar({
           </button>
         </div>
       </div>
-      {!setupDone && <SetupCallout feePaid={setupFeePaid} feeLabel={setupFeeLabel} />}
       <AnimatePresence>{menu && <MenuSheet agent={agent} devLogin={devLogin} setupDone={setupDone} staff={staff} onClose={() => setMenu(false)} />}</AnimatePresence>
     </header>
   );
