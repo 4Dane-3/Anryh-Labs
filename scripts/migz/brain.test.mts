@@ -1562,4 +1562,33 @@ assert.match(cyc.cycleSteps(10, true).at(-1)!.what, /keeps going/, "a campaign t
 assert.deepEqual(cyc.cycleSteps(10, false).map((s) => s.when), ["Days 1–7", "Days 8–10"], "under 14 days: no wave");
 ok("creative cycle: learn days 1–7, then a wave of 2–3 per ad set on days 8, 22, 36, … (never in the first week, never on a change day, never under 14 days, one per two weeks, renewals keep the rhythm); pausing only clear losers (2.5× the target, no result), paused any day once it spends 2.5× with no result (nothing short of that in the first week or a wave's read), never the last live ad; wave creatives go straight into ad sets under 12 live ads with no budget changes that review, carry their day, group into one proposal; copy variants wait for the wave");
 
+// The Anryh Labs fee: 20% until an agent has added $20,000 in all, 12% on everything after that
+const fee = await import("@/lib/campaign");
+const price = await import("@/lib/pricing");
+assert.equal(fee.feeCents(50_000), 10_000, "a first $500 deposit pays 20%");
+assert.equal(fee.adSpendCents(50_000), 40_000);
+assert.equal(fee.feeCents(1_000_000, 1_000_000), 200_000, "$10,000 on top of $10,000 added is still all at 20%: the line is $20,000 added in all");
+assert.equal(fee.feeCents(1_000_000, 1_500_000), 160_000, "a deposit that crosses the line is split: $5,000 at 20% ($1,000), $5,000 at 12% ($600)");
+assert.equal(fee.feeCents(50_000, 2_000_000), 6_000, "past $20,000 added: 12%");
+assert.equal(fee.feeCents(50_000, 1_990_000), 6_800, "$100 left at 20% ($20), the other $400 at 12% ($48)");
+assert.equal(fee.feeLabel(50_000, 0), "20%");
+assert.equal(fee.feeLabel(50_000, 2_500_000), "12%");
+assert.match(fee.feeLabel(500_000, 1_900_000), /20%.*12%/, "a deposit that crosses the line says both rates");
+for (const before of [0, 700_000, 1_999_900, 2_000_000, 5_000_000])
+  for (const ad of [28_000, 400_000, 1_000_000]) {
+    const dep = fee.depositFor(ad, before);
+    assert.ok(fee.adSpendCents(dep, before) >= ad, `depositFor(${ad}, ${before}) covers the ad spend`);
+    assert.ok(fee.adSpendCents(dep - 100, before) < ad || dep === 100, "and is the smallest whole-dollar deposit that does");
+  }
+assert.equal(fee.depositFor(28_000), 35_000, "the first $350 deposit still funds the $280 minimum plan");
+// The site quotes the same numbers
+const siteFee = price.feeFor(25_000)!;
+assert.equal(siteFee.fee, 4_600, "$25,000 added in all: 20% of $20,000 + 12% of $5,000");
+assert.equal(siteFee.adBudget, 20_400);
+assert.equal(price.feeFor(499), null, "below the minimum");
+assert.equal(price.feeFor(20_000)!.fee, 4_000);
+assert.equal(price.feeFor(20_100)!.fee, 4_012, "$100 past $20,000 costs 12% of that $100");
+assert.equal(fee.feeCents(2_500_000) / 100, siteFee.fee, "the dashboard and the site agree");
+ok("Anryh Labs fee: 20% until $20,000 is added in all, then 12% on everything after (a deposit that crosses the line is split); depositFor is the smallest whole-dollar deposit that covers an ad spend at either rate; the site's numbers match the dashboard's");
+
 console.log(`\nALL ${n} UNIT GROUPS PASSED`);

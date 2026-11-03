@@ -35,7 +35,7 @@ import {
 } from "@/lib/dashboard/clients";
 import { campaignMoney, cleanAnswers, MAX_CAMPAIGN_DAILY_CENTS, MIN_CAMPAIGN_DAILY_CENTS, type CampaignAnswers, type CampaignPlan } from "@/lib/campaign-plan";
 import { activateBatch } from "@/lib/dashboard/start-batch";
-import { getBalanceCents } from "@/lib/dashboard/queries";
+import { getBalanceCents, getFundsAddedCents } from "@/lib/dashboard/queries";
 import { checkoutReturnBase, createDepositCheckout } from "@/lib/stripe";
 import { setupBlockers } from "@/lib/dashboard/setup";
 import type { Agent } from "@/lib/booking/data";
@@ -176,7 +176,8 @@ export async function startDeposit(cents: number): Promise<{ ok: true; url: stri
   if (!integrations.stripe)
     return { ok: false, error: "Payments aren't connected yet, so funds can't be added. This will work once Stripe is set up." };
   try {
-    const url = await createDepositCheckout({ agentId: agent.id, email: agent.email, cents, appUrl: checkoutReturnBase(), customerId: agent.stripe_customer_id ?? null });
+    const addedBeforeCents = await getFundsAddedCents(agent.id);
+    const url = await createDepositCheckout({ agentId: agent.id, email: agent.email, cents, addedBeforeCents, appUrl: checkoutReturnBase(), customerId: agent.stripe_customer_id ?? null });
     return { ok: true, url };
   } catch (e) {
     console.error("stripe checkout failed", e);

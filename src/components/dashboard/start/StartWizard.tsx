@@ -23,6 +23,7 @@ type Props = {
   profile: Profile;
   slug: string;
   balanceCents: number;
+  fundsAddedCents: number; // everything added so far: sets the fee (20%, then 12% after $20,000)
   stripeConnected: boolean;
   connected: boolean; // Meta ad account linked and Migz configured
   plan: {
@@ -262,7 +263,7 @@ export function StartWizard(props: Props) {
               </p>
             )}
           </div>
-          <AddFunds />
+          <AddFunds addedBeforeCents={props.fundsAddedCents} />
           {!props.stripeConnected && (
             <p className="border-t border-line px-6 py-4 text-[13px] text-fg-muted">
               Card payments aren&apos;t switched on yet. To add funds now, email{" "}

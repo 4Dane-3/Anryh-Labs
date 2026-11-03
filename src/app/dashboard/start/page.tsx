@@ -5,12 +5,13 @@ import { getSetupState } from "@/lib/dashboard/setup";
 import { StartWizard } from "@/components/dashboard/start/StartWizard";
 import { PageHeader } from "@/components/dashboard/ui";
 import { getCampaignStart } from "@/lib/dashboard/campaign-plan";
+import { getFundsAddedCents } from "@/lib/dashboard/queries";
 
 export const dynamic = "force-dynamic";
 
 export default async function StartPage() {
   const agent = await requireAgent();
-  const [state, start] = await Promise.all([getSetupState(agent), getCampaignStart(agent)]);
+  const [state, start, fundsAdded] = await Promise.all([getSetupState(agent), getCampaignStart(agent), getFundsAddedCents(agent.id)]);
 
   return (
     <>
@@ -32,6 +33,7 @@ export default async function StartPage() {
         }}
         slug={agent.slug}
         balanceCents={state.balanceCents}
+        fundsAddedCents={fundsAdded}
         stripeConnected={integrations.stripe}
         connected={migzReadyFor(agent)}
         plan={{
