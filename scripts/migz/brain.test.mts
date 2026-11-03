@@ -1592,4 +1592,21 @@ assert.equal(price.feeFor(20_100)!.fee, 4_012, "$100 past $20,000 costs 12% of t
 assert.equal(fee.feeCents(2_500_000) / 100, siteFee.fee, "the dashboard and the site agree");
 ok("Anryh Labs fee: 20% until $20,000 is added in all, then 12% on everything after (a deposit that crosses the line is split); depositFor is the smallest whole-dollar deposit that covers an ad spend at either rate; the site's numbers match the dashboard's");
 
+// Start here: the ad account and Page an agent says they shared, however they paste them; where their ads link
+const access = await import("@/lib/meta/access");
+assert.equal(access.adAccountFrom("1149874500942025"), "act_1149874500942025");
+assert.equal(access.adAccountFrom(" act_1149874500942025 "), "act_1149874500942025");
+assert.equal(access.adAccountFrom("https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=1149874500942025&nav_entry_point=bm"), "act_1149874500942025", "an Ads Manager link");
+assert.equal(access.adAccountFrom("Miguel's account"), null);
+assert.equal(access.pageRefFrom("https://www.facebook.com/smithlifeinsurance"), "smithlifeinsurance");
+assert.equal(access.pageRefFrom("facebook.com/smithlifeinsurance/about"), "smithlifeinsurance", "no https, a sub-page");
+assert.equal(access.pageRefFrom("https://www.facebook.com/profile.php?id=61550000000000"), "61550000000000");
+assert.equal(access.pageRefFrom("https://www.facebook.com/people/Smith-Life/61550000000000/"), "61550000000000");
+assert.equal(access.pageRefFrom("61550000000000"), "61550000000000");
+assert.equal(access.pageRefFrom("https://instagram.com/smith"), null, "not a Facebook link");
+assert.equal(sites.adLinkFor({ slug: "jane-doe", booking_choice: "own", own_booking_url: "https://calendly.com/jane/call" }), "https://calendly.com/jane/call");
+assert.equal(sites.adLinkFor({ slug: "jane-doe", booking_choice: "ours", own_booking_url: "https://calendly.com/jane/call" }, "https://anryhlabs.com"), "https://anryhlabs.com/jane-doe");
+assert.equal(sites.adLinkFor({ slug: "jane-doe", booking_choice: null }, "https://anryhlabs.com"), "https://anryhlabs.com/jane-doe", "no choice yet: their page here");
+ok("Start here: ad account IDs and Page links read however they're pasted (IDs, act_, Ads Manager links, Page links and IDs); ads link to the agent's own booking page only when they chose it");
+
 console.log(`\nALL ${n} UNIT GROUPS PASSED`);

@@ -1,6 +1,6 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { landingUrl } from "@/lib/booking/sites";
+import { adLinkFor } from "@/lib/booking/sites";
 import type { Agent } from "@/lib/booking/data";
 import { createAd, createAdCreative, setDailyBudget, setOptimizationEvent, setPlacements, setStatus, videoState } from "@/lib/meta/ads";
 import { MetaApiError } from "@/lib/meta/graph";
@@ -200,7 +200,7 @@ async function launchCopyVariants(agent: Agent, payload: Extract<ActionPayload, 
       name,
       pageId: agent.meta_page_id!,
       instagramId: agent.meta_instagram_id,
-      link: landingUrl(agent.slug, appUrl()),
+      link: adLinkFor(agent, appUrl()),
       primaryText: v.primary_text,
       headline: v.headline,
       leadFormId,

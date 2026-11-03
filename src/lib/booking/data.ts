@@ -72,6 +72,15 @@ export type Agent = {
   campaign_answers?: unknown; // the start flow's answers (campaign-plan cleanAnswers); missing before its migration
   meta_lead_form_id?: string | null; // the instant form Migz made on the agent's Page
   lead_form_blocked?: string | null; // why making that form last failed
+  // Start here's first questions (all missing before the setup-requirements migration)
+  agency_name?: string | null; // the agency or IMO they write through
+  npn?: string | null; // National Producer Number, optional
+  business_email?: string | null; // where leads' replies go (null = email)
+  booking_choice?: "ours" | "own" | null; // where their ads send people; null until they choose
+  own_booking_url?: string | null; // their own booking page when booking_choice is "own"
+  meta_ad_account_requested?: string | null; // the ad account they shared with us, until it's linked
+  meta_page_requested?: string | null; // the Page they shared with us, until it's linked
+  meta_access_requested_at?: string | null;
 };
 
 export type Booking = {

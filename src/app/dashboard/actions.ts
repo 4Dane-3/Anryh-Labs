@@ -39,6 +39,9 @@ import { activateBatch } from "@/lib/dashboard/start-batch";
 import { getBalanceCents, getFundsAddedCents } from "@/lib/dashboard/queries";
 import { checkoutReturnBase, createDepositCheckout, createSetupFeeCheckout } from "@/lib/stripe";
 import { setupBlockers } from "@/lib/dashboard/setup";
+import { adAccountFrom, checkMetaAccess, pageRefFrom } from "@/lib/meta/access";
+import { alertAdmin } from "@/lib/migz/slack";
+import { sendSlackMessage } from "@/lib/slack";
 import type { Agent } from "@/lib/booking/data";
 import { recheck, type ActionPayload } from "@/lib/migz/tools";
 import { STEP_TITLES, type IntakeQuestion, type QuestionKind } from "@/lib/booking/questions";
@@ -209,6 +212,108 @@ export async function startSetupFee(): Promise<{ ok: true; url: string } | { ok:
     console.error("stripe setup fee checkout failed", e);
     return { ok: false, error: "Couldn't open the payment page. Please try again." };
   }
+}
+
+// ---------- Start here: business details, Meta access, booking page, Slack ----------
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const missingColumn = (code?: string) => code === "42703" || code === "PGRST204";
+
+export async function saveBusinessInfo(input: { agency_name: string; npn: string; business_email: string; phone: string }): Promise<Result> {
+  const agent = await requireAgent();
+  const agency = clean(input.agency_name, 120);
+  if (agency.length < 2) return fail("Add the agency or IMO you write through.");
+  const npn = clean(input.npn, 20).replace(/\D/g, "");
+  if (input.npn.trim() && (npn.length < 4 || npn.length > 10)) return fail("NPNs are 4 to 10 digits. Leave it blank if you'd rather not add it.");
+  const email = clean(input.business_email, 200).toLowerCase();
+  if (!EMAIL_RE.test(email)) return fail("Enter the email leads' replies should go to.");
+  const phone = usPhone(input.phone);
+  if (!phone) return fail("Enter a 10-digit US phone number.");
+  const { error } = await supabaseAdmin
+    .from("agents")
+    .update({ agency_name: agency, npn: npn || null, business_email: email === agent.email.toLowerCase() ? null : email, call_phone: phone })
+    .eq("id", agent.id);
+  if (error) return fail(missingColumn(error.code) ? "This step isn't switched on yet. Please try again shortly." : "Couldn't save that.");
+  revalidatePath("/dashboard", "layout");
+  return { ok: true };
+}
+
+/**
+ * Saves the ad account and Page the agent shared, then links them if Anryh Labs can already reach both.
+ * Until then staff hear about it once, to accept the partner request.
+ */
+export async function saveMetaAccess(input: { adAccount: string; page: string }): Promise<{ ok: true; linked: boolean; message: string } | { ok: false; error: string }> {
+  const agent = await requireAgent();
+  if (agent.onboarding_completed_at && agent.meta_ad_account_id)
+    return { ok: false, error: `Your ad account is already linked. To change it, email ${CONTACT_EMAIL}.` };
+  const account = adAccountFrom(input.adAccount);
+  if (!account) return { ok: false, error: "Ad account IDs are numbers, like 1234567890 (Ads Manager shows it next to the account name)." };
+  const pageRef = pageRefFrom(input.page);
+  if (!pageRef) return { ok: false, error: "Paste your Page's link (facebook.com/yourpage) or its Page ID." };
+
+  const first = !agent.meta_access_requested_at || agent.meta_ad_account_requested !== account || agent.meta_page_requested !== pageRef;
+  const { error } = await supabaseAdmin
+    .from("agents")
+    .update({ meta_ad_account_requested: account, meta_page_requested: pageRef, ...(first ? { meta_access_requested_at: new Date().toISOString() } : {}) })
+    .eq("id", agent.id);
+  if (error) return { ok: false, error: missingColumn(error.code) ? "This step isn't switched on yet. Please try again shortly." : "Couldn't save that." };
+
+  const access = integrations.meta ? await checkMetaAccess(account, pageRef) : { adAccount: null, page: null };
+  if (access.adAccount && access.page) {
+    const { error: linkError } = await supabaseAdmin
+      .from("agents")
+      .update({ meta_ad_account_id: access.adAccount.id, meta_page_id: access.page.id, meta_instagram_id: access.page.instagramId ?? agent.meta_instagram_id })
+      .eq("id", agent.id);
+    if (linkError) return { ok: false, error: "Couldn't link your ad account. Please try again." };
+    revalidatePath("/dashboard", "layout");
+    return { ok: true, linked: true, message: `Linked: ${access.adAccount.name} and ${access.page.name}.` };
+  }
+
+  if (first)
+    after(() =>
+      alertAdmin(
+        `${agent.full_name} (${agent.slug}) shared Meta access for setup. Accept the partner request in Business Settings and assign both to the Migz system user: ad account ${account}${access.adAccount ? " (already reachable)" : ""}, Page ${pageRef}${access.page ? " (already reachable)" : ""}.`,
+      ),
+    );
+  revalidatePath("/dashboard", "layout");
+  const waiting = [!access.adAccount && "ad account", !access.page && "Page"].filter(Boolean).join(" and ");
+  return { ok: true, linked: false, message: `Saved. We can't reach your ${waiting} yet: once we accept your partner request (usually within a business day), press Check again.` };
+}
+
+export async function setBookingChoice(input: { choice: "ours" | "own"; url: string }): Promise<Result> {
+  const agent = await requireAgent();
+  if (input.choice !== "ours" && input.choice !== "own") return fail("Pick one.");
+  let url: string | null = null;
+  if (input.choice === "own") {
+    try {
+      const u = new URL(clean(input.url, 500));
+      if (u.protocol !== "https:") throw new Error();
+      url = u.toString();
+    } catch {
+      return fail("Paste the full link to your booking page, starting with https://");
+    }
+  }
+  const { error } = await supabaseAdmin.from("agents").update({ booking_choice: input.choice, own_booking_url: url }).eq("id", agent.id);
+  if (error) return fail(missingColumn(error.code) ? "This step isn't switched on yet. Please try again shortly." : "Couldn't save that.");
+  revalidatePath("/dashboard", "layout");
+  return { ok: true };
+}
+
+/** Saves their Slack member ID only once a test message reaches them, so a wrong ID never sticks. */
+export async function connectSlack(memberId: string): Promise<Result> {
+  const agent = await requireAgent();
+  const id = clean(memberId, 20).toUpperCase();
+  if (!/^[UW][A-Z0-9]{6,}$/.test(id)) return fail("Slack member IDs start with U and look like U04ABCD123.");
+  if (!integrations.slack) return fail(`Slack isn't connected on our side yet. Email ${CONTACT_EMAIL} and we'll sort it out.`);
+  try {
+    await sendSlackMessage(id, `:wave: Hi ${agent.full_name.split(" ")[0]}, this is Migz. You're connected: new leads, bookings and your morning summary will show up here.`);
+  } catch {
+    return fail("We couldn't message that ID. Make sure you've joined the Anryh Labs Slack and copied your own member ID.");
+  }
+  const { error } = await supabaseAdmin.from("agents").update({ slack_user_id: id }).eq("id", agent.id);
+  if (error) return fail("Couldn't save that.");
+  revalidatePath("/dashboard", "layout");
+  return { ok: true };
 }
 
 // ---------- Uploads (creatives + profile photo) ----------
@@ -1008,7 +1113,7 @@ export async function launchCampaign(): Promise<Result> {
   const blockers = await setupBlockers(agent);
   if (blockers.length) return fail(blockers[0]);
   const planned = await getOpenBatch(agent.id);
-  if (!planned || planned.status !== "planned") return fail("Plan your first campaign in step 4.");
+  if (!planned || planned.status !== "planned") return fail("Plan your first campaign in Start here first.");
   const balance = await getBalanceCents(agent.id);
   const money = campaignMoney({
     dailyCents: planned.daily_cents,

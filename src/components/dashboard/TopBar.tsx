@@ -230,7 +230,7 @@ function SetupCallout({ feePaid, feeLabel }: { feePaid: boolean; feeLabel: strin
       >
         <span className="absolute inset-0 -z-10 animate-ping rounded-2xl bg-[#ff7a1a]/50 motion-reduce:hidden" aria-hidden="true" />
         <Rocket className="size-4 shrink-0" />
-        {feePaid ? "Next: finish setup and start your first campaign" : `Step 1: pay your ${feeLabel} setup fee`}
+        {feePaid ? "Next: finish setup and start your first campaign" : `Pay your ${feeLabel} setup fee`}
       </Link>
     </div>
   );

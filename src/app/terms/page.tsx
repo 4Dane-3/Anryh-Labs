@@ -7,7 +7,7 @@ export const metadata: Metadata = {
   description: "the terms for using anryh labs and the migz ai ad automation platform, for agents and for people who book calls.",
 };
 
-const EFFECTIVE = "october 21, 2026";
+const EFFECTIVE = "november 3, 2026";
 
 const SECTIONS = [
   ["agreement", "the agreement"],
@@ -106,16 +106,25 @@ export default function TermsPage() {
               we may add, change or remove features. migz ai is invite only and may change as we learn. we aim to keep it
               available but do not promise it will be uninterrupted or error free.
             </p>
+            <p>
+              <span className="font-medium text-slate-900">we are a middleman, not an insurance business.</span> anryh labs
+              provides marketing and software. we are not an insurance agency, producer, carrier, imo or marketing
+              organization, we do not sell, quote or bind insurance, and we do not check or vouch for any agent&apos;s
+              license, npn, appointments or standing. adding a license number or npn to your account or booking page is
+              optional and your choice; whether you show it or not, your licensing, appointments and compliance are your
+              responsibility, not ours.
+            </p>
 
             <H2 id="your-responsibilities">4. your responsibilities</H2>
             <p>you are the advertiser, and the ads run under your name and your ad account. you agree that:</p>
             <ul className="list-disc space-y-2 pl-5">
-              <li>you are licensed and in good standing for everything you advertise, and you only advertise in states where you are licensed.</li>
+              <li>you are licensed and in good standing for everything you advertise, and you only advertise in states where you are licensed. we don&apos;t verify this; you are responsible for it.</li>
               <li>you will follow the insurance advertising, privacy, telemarketing, texting and consumer protection laws that apply to you, and meta&apos;s advertising policies, including its rules for financial products and services.</li>
               <li>you will review what migz ai proposes or does, and tell us promptly if something is wrong. in ask-first mode, you decide what is approved. in automatic mode, you accept that migz ai acts within the limits you set.</li>
               <li>you will keep enough funds in your ad balance, and tell us if you want ads paused.</li>
               <li>you have the rights to any photos, videos, testimonials, license details or other material you give us, and testimonials are real and used with permission.</li>
               <li>you are responsible for how you follow up with people who book, and for the advice you give them.</li>
+              <li>if you choose to send your ads to your own booking page instead of the one we host, that page, what it collects and how it follows the law are yours, and we can&apos;t track or report bookings made there.</li>
             </ul>
 
             <H2 id="ai-and-automation">5. ai and automation</H2>
@@ -142,7 +151,7 @@ export default function TermsPage() {
             <ul className="list-disc space-y-2 pl-5">
               <li>ad spend is paid from the balance you add. migz ai will not spend more than your daily budget, and ads are paused if your balance cannot cover a day of spend.</li>
               <li>money spent on ads is paid to meta and cannot be refunded by us once spent.</li>
-              <li>our fees, if any, are the ones we agree with you in writing. we will not charge fees you have not agreed to.</li>
+              <li>our fees are the one-time setup fee and the fee on the ad funds you add, as shown on our <Link href="/pricing" className="font-medium text-slate-900 underline">pricing page</Link> and in your dashboard before you pay, or as we agree with you in writing. we will not charge fees you have not agreed to.</li>
               <li>you can ask for your unused balance back by email after you stop using migz ai. we return it less amounts already spent or owed to us, and subject to our payment processor and the law.</li>
               <li>you are responsible for your own taxes. card payments are handled by stripe; we don&apos;t store card numbers.</li>
             </ul>

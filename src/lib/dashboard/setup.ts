@@ -9,10 +9,11 @@ import { DEFAULT_INTENT, DEFAULT_VIDEO_TIER, isIntentLevel, isVideoTier } from "
 import { getOpenBatch, getRecentBatches, type Batch } from "@/lib/dashboard/batches";
 
 // What "Start here" checks. Each step is done or not, with the reason it isn't, so the page and the
-// launch action agree. Only what's needed to run a first campaign: the setup fee first, then the rest. Until
-// the first campaign starts, the rest of the dashboard stays locked (requireSetUpAgent).
+// launch action agree. Only what's needed to run a first campaign: their business details and Meta ad
+// account first, the setup fee, then the rest. Until the first campaign starts, the rest of the dashboard
+// stays locked (requireSetUpAgent).
 
-export type StepKey = "setup_fee" | "profile" | "page" | "funds" | "plan" | "creatives";
+export type StepKey = "business" | "meta" | "setup_fee" | "profile" | "page" | "slack" | "funds" | "plan" | "creatives";
 
 export type Step = {
   key: StepKey;
@@ -26,6 +27,8 @@ export type SetupState = {
   steps: Step[];
   balanceCents: number;
   creativeCount: number;
+  /** Whether they've set the hours they take calls (their page here can't book without them). */
+  hasHours: boolean;
   /** The batch planned in setup (or running), shown on the plan step. */
   batch: Batch | null;
   /** What the planned campaign needs in ad funds (ad spend plus paid videos), and that rounded up to the next $500. */
@@ -52,7 +55,23 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
       : !agent.bio
         ? "Write a short bio so people know who they're booking with."
         : null;
-  const pageMissing = (hours.count ?? 0) === 0 ? "Set the hours you take calls." : null;
+  const businessMissing = !agent.agency_name
+    ? "Tell us the agency or IMO you write through."
+    : !agent.call_phone
+      ? "Add the phone number leads should reach you on."
+      : null;
+  const metaMissing = agent.meta_ad_account_id && agent.meta_page_id
+    ? null
+    : agent.meta_access_requested_at
+      ? "Waiting for Anryh Labs to accept your ad account and Page. Check again once we've confirmed it."
+      : "Share your Meta ad account and Facebook Page with Anryh Labs.";
+  // Their page here needs hours to book; their own booking page needs its link
+  const pageMissing = !agent.booking_choice
+    ? "Choose where your ads send people."
+    : agent.booking_choice === "own"
+      ? agent.own_booking_url ? null : "Add the link to your booking page."
+      : (hours.count ?? 0) === 0 ? "Set the hours you take calls." : null;
+  const slackMissing = agent.slack_user_id ? null : "Connect Slack so Migz can tell you about new leads.";
   // The planned campaign sets what the funds step needs: its ad spend plus any paid videos
   const planned = batch && batch.status !== "ended" && batch.status !== "canceled" ? batch : null;
   const neededCents = planned
@@ -83,9 +102,12 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
       : null;
 
   const steps: Step[] = [
+    { key: "business", required: true, missing: businessMissing, done: !businessMissing },
+    { key: "meta", required: true, missing: metaMissing, done: !metaMissing },
     { key: "setup_fee", required: true, missing: setupFeeMissing, done: !setupFeeMissing },
     { key: "profile", required: true, missing: profileMissing, done: !profileMissing },
     { key: "page", required: true, missing: pageMissing, done: !pageMissing },
+    { key: "slack", required: true, missing: slackMissing, done: !slackMissing },
     { key: "plan", required: true, missing: planMissing, done: !planMissing },
     { key: "funds", required: true, missing: fundsMissing, done: !fundsMissing },
     { key: "creatives", required: true, missing: creativesMissing, done: !creativesMissing },
@@ -94,6 +116,7 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
     steps,
     balanceCents,
     creativeCount,
+    hasHours: (hours.count ?? 0) > 0,
     batch,
     fundsNeeded,
     canLaunch: steps.every((s) => s.done || !s.required),
