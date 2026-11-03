@@ -1,4 +1,4 @@
-import { depositFor, MIN_AD_BALANCE_CENTS, REVISE_AFTER_DAYS, SPRINT_COLLECT_DAYS, SPRINT_DAYS, TEST_DAYS } from "@/lib/campaign";
+import { depositFor, REVISE_AFTER_DAYS, SPRINT_COLLECT_DAYS, SPRINT_DAYS, TEST_DAYS } from "@/lib/campaign";
 import { DateTime } from "luxon";
 import { TOPICS, type TopicKey } from "@/lib/migz/topics";
 import type { BookingFunnel, FunnelVerdict } from "@/lib/migz/funnel";
@@ -21,7 +21,7 @@ import { recommendedDays } from "@/lib/campaign-plan";
 // batch can also be set to renew: it starts again when it ends, from the free ad balance (see renew.ts).
 
 
-export const MIN_BATCH_CENTS = MIN_AD_BALANCE_CENTS; // $280 of ads = the $350 minimum deposit after the fee
+export const MIN_BATCH_CENTS = 28_000; // older batch options: $20/day for two weeks (new campaigns start at $50/day, campaign-plan.ts)
 export const MIN_BATCH_DAYS = TEST_DAYS;
 export const MAX_BATCH_DAYS = 42;
 

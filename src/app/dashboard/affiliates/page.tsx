@@ -1,5 +1,5 @@
 import { DateTime } from "luxon";
-import { requireAgent } from "@/lib/auth";
+import { requireSetUpAgent } from "@/lib/auth";
 import { getAffiliateSummary } from "@/lib/referrals";
 import { REFERRAL_RATE, referralCreditCents } from "@/lib/referrals-core";
 import { MIN_DEPOSIT_CENTS } from "@/lib/campaign";
@@ -22,7 +22,7 @@ function Stat({ label, value, sub }: { label: string; value: React.ReactNode; su
 const STATUS = { pending: { label: "Waiting for approval", tone: "accent" }, declined: { label: "Not approved", tone: "neutral" }, approved: { label: "Joined", tone: "good" } } as const;
 
 export default async function AffiliatesPage() {
-  const agent = await requireAgent();
+  const agent = await requireSetUpAgent();
   const s = await getAffiliateSummary(agent);
   const date = (iso: string) => DateTime.fromISO(iso).setZone(agent.timezone).toFormat("LLL d, yyyy");
   const example = MIN_DEPOSIT_CENTS;

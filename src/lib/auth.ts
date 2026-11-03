@@ -59,6 +59,16 @@ export async function requireAgent(): Promise<Agent> {
   return agent;
 }
 
+/**
+ * The agent, for a page that only opens once setup is done (setup fee paid and first campaign started).
+ * Until then every page but Start here (and the calendar, questions and creatives it links to) sends them back.
+ */
+export async function requireSetUpAgent(): Promise<Agent> {
+  const agent = await requireAgent();
+  if (!agent.onboarding_completed_at) redirect("/dashboard/start");
+  return agent;
+}
+
 /** Anryh Labs staff (by verified email in ANRYH_ADMIN_EMAILS): the admin dashboard, AI budgets, Review now. */
 export const isAnryhAdmin = cache(async () => {
   // Local development only, to try the admin dashboard without a staff login

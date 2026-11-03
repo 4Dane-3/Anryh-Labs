@@ -37,7 +37,7 @@ export const INITIAL_ADS: Ad[] = [
 
 export const SETUP_SLIP: Omit<Slip, "id"> = {
   title: "Set up your booked-calls campaign",
-  reason: "Targets adults in your licensed states at $20/day, optimized for booked calls.",
+  reason: "Targets adults in your licensed states at $50/day, optimized for booked calls.",
   tag: "launch",
   state: "applied",
 };

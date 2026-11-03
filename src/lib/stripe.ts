@@ -1,7 +1,7 @@
 import "server-only";
 import Stripe from "stripe";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { feeCents, feeLabel } from "@/lib/campaign";
+import { feeCents, feeLabel, SETUP_FEE_CENTS } from "@/lib/campaign";
 import { getFundsAddedCents } from "@/lib/dashboard/queries";
 import { referralRowFor, type WalletRow } from "@/lib/referrals";
 import { reversalShares } from "@/lib/referrals-core";
@@ -53,19 +53,50 @@ export function checkoutReturnBase() {
   return "http://localhost:3000";
 }
 
-/** A Checkout page for a deposit. Returns the URL to send the agent to. */
-export async function createDepositCheckout(input: {
+type CheckoutFor = {
   agentId: string;
   email: string;
+  appUrl: string;
+  customerId?: string | null; // the agent's Stripe customer from an earlier payment
+};
+
+/** A Checkout page for a deposit. Returns the URL to send the agent to. */
+export async function createDepositCheckout(input: CheckoutFor & {
   cents: number;
   addedBeforeCents: number; // everything the agent has added so far: sets the fee rate
-  appUrl: string;
-  customerId?: string | null; // the agent's Stripe customer from an earlier deposit
+  returnTo: "funds" | "start"; // where Stripe sends them back (Start here while they're setting up)
 }) {
   const fee = feeCents(input.cents, input.addedBeforeCents);
   const forAds = input.cents - fee;
-  // One Stripe customer per agent: the first deposit creates it, later ones reuse it, so each paid
-  // deposit builds the history Stripe's fraud checks look at
+  const back = `${input.appUrl}/dashboard/${input.returnTo}`;
+  return openCheckout(input, {
+    cents: input.cents,
+    name: "Ad funds",
+    description: `$${(forAds / 100).toFixed(2)} for your Meta ads, $${(fee / 100).toFixed(2)} Anryh Labs fee (${feeLabel(input.cents, input.addedBeforeCents)}).`,
+    metadata: { deposit_cents: String(input.cents), fee_cents: String(fee), added_before_cents: String(input.addedBeforeCents), kind: "ad_funds" },
+    success: `${back}?deposit=success`,
+    cancel: `${back}?deposit=canceled`,
+  });
+}
+
+/** A Checkout page for the one-time setup fee. Returns the URL to send the agent to. */
+export async function createSetupFeeCheckout(input: CheckoutFor) {
+  return openCheckout(input, {
+    cents: SETUP_FEE_CENTS,
+    name: "Anryh Labs setup fee",
+    description: "One time: your Meta ad account, your first campaign, your lead form and booking page, set up and ready to launch.",
+    metadata: { kind: "setup_fee" },
+    success: `${input.appUrl}/dashboard/start?setup_fee=paid`,
+    cancel: `${input.appUrl}/dashboard/start?setup_fee=canceled`,
+  });
+}
+
+async function openCheckout(
+  input: CheckoutFor,
+  item: { cents: number; name: string; description: string; metadata: Record<string, string>; success: string; cancel: string },
+) {
+  // One Stripe customer per agent: the first payment creates it, later ones reuse it, so each paid
+  // one builds the history Stripe's fraud checks look at
   const reuse = input.customerId
     ? { customer: input.customerId, customer_update: { address: "auto" as const, name: "auto" as const } }
     : null;
@@ -77,24 +108,12 @@ export async function createDepositCheckout(input: {
     billing_address_collection: "required",
     phone_number_collection: { enabled: true },
     client_reference_id: input.agentId,
-    line_items: [
-      {
-        quantity: 1,
-        price_data: {
-          currency: "usd",
-          unit_amount: input.cents,
-          product_data: {
-            name: "Ad funds",
-            description: `$${(forAds / 100).toFixed(2)} for your Meta ads, $${(fee / 100).toFixed(2)} Anryh Labs fee (${feeLabel(input.cents, input.addedBeforeCents)}).`,
-          },
-        },
-      },
-    ],
+    line_items: [{ quantity: 1, price_data: { currency: "usd", unit_amount: item.cents, product_data: { name: item.name, description: item.description } } }],
     // The webhook trusts these (signed by Stripe), never the browser
-    metadata: { agent_id: input.agentId, deposit_cents: String(input.cents), fee_cents: String(fee), added_before_cents: String(input.addedBeforeCents), kind: "ad_funds" },
-    payment_intent_data: { metadata: { agent_id: input.agentId, kind: "ad_funds" } },
-    success_url: `${input.appUrl}/dashboard/funds?deposit=success`,
-    cancel_url: `${input.appUrl}/dashboard/funds?deposit=canceled`,
+    metadata: { agent_id: input.agentId, ...item.metadata },
+    payment_intent_data: { metadata: { agent_id: input.agentId, kind: item.metadata.kind } },
+    success_url: item.success,
+    cancel_url: item.cancel,
   });
   let session;
   try {
@@ -143,6 +162,27 @@ export async function recordDeposit(session: Stripe.Checkout.Session) {
   if (customer) {
     await supabaseAdmin.from("agents").update({ stripe_customer_id: customer }).eq("id", agentId).is("stripe_customer_id", null);
   }
+  return true;
+}
+
+/**
+ * Records a paid setup fee on the agent (it never touches their ad balance). Only the first payment counts,
+ * so a webhook Stripe sends twice is a no-op. Returns false when it was already recorded.
+ */
+export async function recordSetupFee(session: Stripe.Checkout.Session) {
+  const agentId = session.metadata?.agent_id ?? session.client_reference_id;
+  if (!agentId) throw new Error(`Checkout session ${session.id} has no agent`);
+  const customer = typeof session.customer === "string" ? session.customer : session.customer?.id;
+  const { data, error } = await supabaseAdmin
+    .from("agents")
+    .update({ setup_fee_paid_at: new Date().toISOString(), setup_fee_session_id: session.id })
+    .eq("id", agentId)
+    .is("setup_fee_paid_at", null)
+    .select("id, full_name");
+  if (error) throw new Error(`Couldn't record the setup fee: ${error.message}`);
+  if (customer) await supabaseAdmin.from("agents").update({ stripe_customer_id: customer }).eq("id", agentId).is("stripe_customer_id", null);
+  if (!data?.length) return false;
+  await alertAdmin(`${data[0].full_name} paid the ${usd(session.amount_total ?? SETUP_FEE_CENTS)} setup fee. Their setup is next: link their Meta ad account if it isn't yet.`);
   return true;
 }
 

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { DateTime } from "luxon";
-import { requireAgent } from "@/lib/auth";
+import { requireSetUpAgent } from "@/lib/auth";
 import { integrations } from "@/lib/integrations";
 import { getBalanceCents, getFundsAddedCents, getTransactions } from "@/lib/dashboard/queries";
 import { getActiveBatch } from "@/lib/dashboard/batches";
@@ -20,7 +20,7 @@ const KIND_LABEL: Record<string, string> = {
 };
 
 export default async function FundsPage({ searchParams }: { searchParams: Promise<{ deposit?: string }> }) {
-  const [agent, { deposit }] = await Promise.all([requireAgent(), searchParams]);
+  const [agent, { deposit }] = await Promise.all([requireSetUpAgent(), searchParams]);
   const [balance, transactions, batch, fundsAdded] = await Promise.all([
     getBalanceCents(agent.id),
     getTransactions(agent.id),

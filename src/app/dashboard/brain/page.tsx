@@ -1,4 +1,4 @@
-import { requireAgent } from "@/lib/auth";
+import { requireSetUpAgent } from "@/lib/auth";
 import { getBrainBoard, getBrainLive } from "@/lib/migz/brain";
 import { BrainView } from "@/components/dashboard/brain/BrainView";
 import { PageHeader } from "@/components/dashboard/ui";
@@ -29,7 +29,7 @@ export const dynamic = "force-dynamic";
 
 export default async function BrainPage({ searchParams }: { searchParams: Promise<{ started?: string }> }) {
   const { started } = await searchParams;
-  const agent = await requireAgent();
+  const agent = await requireSetUpAgent();
   const [live, board, proposals, batch] = await Promise.all([getBrainLive(agent), getBrainBoard(agent), getProposedActions(agent.id), getActiveBatch(agent.id)]);
   const plan = batch ? await getBatchPlan(batch.id) : null;
   return (

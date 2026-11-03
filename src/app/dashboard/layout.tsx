@@ -4,6 +4,7 @@ import { TopBar } from "@/components/dashboard/TopBar";
 import { GlassBackdrop } from "@/components/glass/GlassBackdrop";
 import { migzReadyFor } from "@/lib/integrations";
 import { UpdateNotice } from "@/components/dashboard/UpdateNotice";
+import { SETUP_FEE_CENTS } from "@/lib/campaign";
 
 // Server actions run here too; "Review now" runs a full Migz review (Meta sync + Claude)
 export const maxDuration = 300;
@@ -37,6 +38,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
         agent={{ name: agent.full_name, slug: agent.slug, photoUrl: agent.photo_url }}
         devLogin={!!devAgentSlug()}
         setupDone={!!agent.onboarding_completed_at}
+        setupFeePaid={!!agent.setup_fee_paid_at}
+        setupFeeLabel={`$${(SETUP_FEE_CENTS / 100).toLocaleString("en-US")}`}
         staff={staff && !viewing}
         connected={migzReadyFor(agent)}
       />

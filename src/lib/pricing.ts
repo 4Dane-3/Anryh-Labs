@@ -5,8 +5,10 @@
 // (the first $20,000 always stays at 20%). The dashboard charges the same way (src/lib/campaign.ts); keep the
 // two in step. A one-time setup fee comes first.
 
-export const SETUP_FEE = 750;
-export const MIN_FUNDS = 500;
+import { MIN_DEPOSIT_CENTS, SETUP_FEE_CENTS } from "@/lib/campaign";
+
+export const SETUP_FEE = SETUP_FEE_CENTS / 100;
+export const MIN_FUNDS = MIN_DEPOSIT_CENTS / 100;
 
 // `upTo` is where the slice ends (the last has none); each slice starts where the one before ended, counting
 // everything the agent has added in all

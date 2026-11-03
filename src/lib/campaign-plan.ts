@@ -94,9 +94,9 @@ export const STATE_CODES = "AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS K
 // ---------- Length and money ----------
 
 export const MIN_CAMPAIGN_DAYS = 7;
-export const MIN_CAMPAIGN_DAILY_CENTS = 2000;
+export const MIN_CAMPAIGN_DAILY_CENTS = 5000;
 export const MAX_CAMPAIGN_DAILY_CENTS = 100_000;
-export const DAILY_CHOICES = [3000, 5000, 7500, 10_000, 15_000, 20_000] as const;
+export const DAILY_CHOICES = [5000, 7500, 10_000, 15_000, 20_000, 30_000] as const;
 
 /**
  * How long Migz runs a campaign at this daily budget. Smaller budgets run longer so Meta sees enough

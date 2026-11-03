@@ -1,5 +1,5 @@
 import type Stripe from "stripe";
-import { reconcileRefunds, recordDeposit, recordDispute, stripe } from "@/lib/stripe";
+import { reconcileRefunds, recordDeposit, recordDispute, recordSetupFee, stripe } from "@/lib/stripe";
 
 // Stripe calls this when a Checkout payment completes. The signature is checked against
 // STRIPE_WEBHOOK_SECRET (each endpoint, test or live, has its own), so nobody else can add funds.
@@ -20,15 +20,16 @@ export async function POST(req: Request) {
   // Card payments arrive paid on completion; slower methods (bank debits) finish later
   if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
     const session = event.data.object as Stripe.Checkout.Session;
-    if (session.metadata?.kind !== "ad_funds") return Response.json({ ok: true, ignored: "not ad funds" });
+    const kind = session.metadata?.kind;
+    if (kind !== "ad_funds" && kind !== "setup_fee") return Response.json({ ok: true, ignored: "not ours" });
     if (session.payment_status !== "paid") return Response.json({ ok: true, pending: true });
     try {
-      const recorded = await recordDeposit(session);
+      const recorded = kind === "setup_fee" ? await recordSetupFee(session) : await recordDeposit(session);
       return Response.json({ ok: true, recorded });
     } catch (e) {
-      console.error("stripe deposit failed", e);
+      console.error(`stripe ${kind} failed`, e);
       // 500 makes Stripe retry later, which is what we want if the database hiccuped
-      return Response.json({ error: "Couldn't record the deposit" }, { status: 500 });
+      return Response.json({ error: "Couldn't record the payment" }, { status: 500 });
     }
   }
 

@@ -242,12 +242,13 @@ assert.deepEqual(campaignLabels([null], [...three]), ["Final expense + Mortgage 
 assert.deepEqual(campaignLabels([null]), ["Booked calls"], "no focus at all");
 assert.deepEqual(campaignLabels(["final_expense", "mortgage_protection", "final_expense"]), ["Final expense A", "Mortgage protection", "Final expense B"], "older batches with two on one topic");
 assert.equal(perCampaignCents(2500, 2), 1250);
-assert.equal(adSpendCents(MIN_DEPOSIT_CENTS), 28_000); assert.equal(MIN_AD_BALANCE_CENTS, 28_000);
-const { MIN_TOP_UP_CENTS } = await import("@/lib/campaign");
-assert.equal(MIN_TOP_UP_CENTS, 100, "a top-up can be $1 or more");
-assert.ok(MIN_TOP_UP_CENTS < MIN_DEPOSIT_CENTS, "funds add up, so a top-up needn't cover a whole batch");
-assert.equal(MIN_AD_BALANCE_CENTS, 28_000, "a batch still needs $280 of ads, however it was topped up");
-assert.equal(MIN_DAILY_CENTS * TEST_DAYS, MIN_AD_BALANCE_CENTS, "the minimum deposit funds $20/day for two weeks");
+assert.equal(MIN_DEPOSIT_CENTS, 50_000, "funds come $500 at a time at least");
+assert.equal(adSpendCents(MIN_DEPOSIT_CENTS), 40_000); assert.equal(MIN_AD_BALANCE_CENTS, 40_000);
+const { MIN_TOP_UP_CENTS, SETUP_FEE_CENTS } = await import("@/lib/campaign");
+assert.equal(MIN_TOP_UP_CENTS, MIN_DEPOSIT_CENTS, "every deposit is at least $500");
+assert.equal(MIN_DAILY_CENTS, 5000, "campaigns run at $50/day or more");
+assert.ok(MIN_DAILY_CENTS * TEST_DAYS > MIN_AD_BALANCE_CENTS, "a $500 deposit starts you off; two weeks at $50/day needs more");
+assert.equal(SETUP_FEE_CENTS, 75_000);
 assert.equal(depositFor(28_000), 35_000); assert.equal(depositFor(42_000), 52_500);
 const cand = (id: string, creative: string | null, topic: string | null) => ({ meta_ad_id: id, creative_id: creative, topic });
 const r = (impressions: number, clicks: number, booked = 0) => ({ impressions, clicks, booked });
@@ -1580,7 +1581,7 @@ for (const before of [0, 700_000, 1_999_900, 2_000_000, 5_000_000])
     assert.ok(fee.adSpendCents(dep, before) >= ad, `depositFor(${ad}, ${before}) covers the ad spend`);
     assert.ok(fee.adSpendCents(dep - 100, before) < ad || dep === 100, "and is the smallest whole-dollar deposit that does");
   }
-assert.equal(fee.depositFor(28_000), 35_000, "the first $350 deposit still funds the $280 minimum plan");
+assert.equal(fee.depositFor(40_000), 50_000, "a $500 deposit leaves $400 for ads");
 // The site quotes the same numbers
 const siteFee = price.feeFor(25_000)!;
 assert.equal(siteFee.fee, 4_600, "$25,000 added in all: 20% of $20,000 + 12% of $5,000");

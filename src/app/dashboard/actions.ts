@@ -16,6 +16,7 @@ import { traitSwipe } from "@/lib/migz/team/scout";
 import type { TopicKey } from "@/lib/migz/topics";
 import { PAGE_FONT_KEYS } from "@/lib/booking/page-font-keys";
 import { MAX_DEPOSIT_CENTS, MIN_TOP_UP_CENTS } from "@/lib/campaign";
+import { CONTACT_EMAIL } from "@/lib/contact";
 import { dailyBatch } from "@/lib/batch";
 import { closeEndedBatch, getActiveBatch, getBatchHistory, getOpenBatch } from "@/lib/dashboard/batches";
 import { buildCampaignPlan } from "@/lib/dashboard/campaign-plan";
@@ -36,7 +37,7 @@ import {
 import { campaignMoney, cleanAnswers, MAX_CAMPAIGN_DAILY_CENTS, MIN_CAMPAIGN_DAILY_CENTS, type CampaignAnswers, type CampaignPlan } from "@/lib/campaign-plan";
 import { activateBatch } from "@/lib/dashboard/start-batch";
 import { getBalanceCents, getFundsAddedCents } from "@/lib/dashboard/queries";
-import { checkoutReturnBase, createDepositCheckout } from "@/lib/stripe";
+import { checkoutReturnBase, createDepositCheckout, createSetupFeeCheckout } from "@/lib/stripe";
 import { setupBlockers } from "@/lib/dashboard/setup";
 import type { Agent } from "@/lib/booking/data";
 import { recheck, type ActionPayload } from "@/lib/migz/tools";
@@ -173,14 +174,39 @@ export async function startDeposit(cents: number): Promise<{ ok: true; url: stri
   const agent = await requireAgent();
   if (!Number.isInteger(cents) || cents < MIN_TOP_UP_CENTS || cents > MAX_DEPOSIT_CENTS)
     return { ok: false, error: `Deposits must be between $${MIN_TOP_UP_CENTS / 100} and $${(MAX_DEPOSIT_CENTS / 100).toLocaleString("en-US")}.` };
+  // Agents who finished setup before the setup fee existed count as paid
+  if (!agent.setup_fee_paid_at && !agent.onboarding_completed_at) return { ok: false, error: "Pay the setup fee first: it's step 1 in Start here." };
   if (!integrations.stripe)
     return { ok: false, error: "Payments aren't connected yet, so funds can't be added. This will work once Stripe is set up." };
   try {
     const addedBeforeCents = await getFundsAddedCents(agent.id);
-    const url = await createDepositCheckout({ agentId: agent.id, email: agent.email, cents, addedBeforeCents, appUrl: checkoutReturnBase(), customerId: agent.stripe_customer_id ?? null });
+    const url = await createDepositCheckout({
+      agentId: agent.id,
+      email: agent.email,
+      cents,
+      addedBeforeCents,
+      returnTo: agent.onboarding_completed_at ? "funds" : "start",
+      appUrl: checkoutReturnBase(),
+      customerId: agent.stripe_customer_id ?? null,
+    });
     return { ok: true, url };
   } catch (e) {
     console.error("stripe checkout failed", e);
+    return { ok: false, error: "Couldn't open the payment page. Please try again." };
+  }
+}
+
+/** Starts a Stripe Checkout session for the one-time setup fee (step 1 of Start here). */
+export async function startSetupFee(): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  const agent = await requireAgent();
+  if (agent.setup_fee_paid_at || agent.onboarding_completed_at) return { ok: false, error: "Your setup fee is already paid." };
+  if (!integrations.stripe)
+    return { ok: false, error: `Payments aren't connected yet. Email ${CONTACT_EMAIL} and we'll take the setup fee another way.` };
+  try {
+    const url = await createSetupFeeCheckout({ agentId: agent.id, email: agent.email, appUrl: checkoutReturnBase(), customerId: agent.stripe_customer_id ?? null });
+    return { ok: true, url };
+  } catch (e) {
+    console.error("stripe setup fee checkout failed", e);
     return { ok: false, error: "Couldn't open the payment page. Please try again." };
   }
 }
