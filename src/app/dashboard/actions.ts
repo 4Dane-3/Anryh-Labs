@@ -299,6 +299,16 @@ export async function setBookingChoice(input: { choice: "ours" | "own"; url: str
   return { ok: true };
 }
 
+/** Start here's last step: whether Migz runs the ads on its own or asks first. Changeable later in Settings. */
+export async function chooseMigzMode(mode: "auto" | "approve"): Promise<Result> {
+  const agent = await requireAgent();
+  if (mode !== "auto" && mode !== "approve") return fail("Pick one.");
+  const { error } = await supabaseAdmin.from("agents").update({ migz_mode: mode, migz_mode_chosen_at: new Date().toISOString() }).eq("id", agent.id);
+  if (error) return fail(missingColumn(error.code) ? "This step isn't switched on yet. Please try again shortly." : "Couldn't save that.");
+  revalidatePath("/dashboard", "layout");
+  return { ok: true };
+}
+
 /** Saves their Slack member ID only once a test message reaches them, so a wrong ID never sticks. */
 export async function connectSlack(memberId: string): Promise<Result> {
   const agent = await requireAgent();
@@ -865,7 +875,7 @@ async function resolveCampaign(agent: Agent, input: CampaignChoice): Promise<Res
       days: plan.days,
       daily_cents: plan.dailyCents,
       collect_days: plan.collectDays,
-      renew: input.renew === true,
+      renew: true, // rolling: the next 2-week cycle starts on its own while the balance covers it
       recommended_option: plan.key,
       reason: plan.reason.slice(0, 400),
     },
@@ -918,7 +928,7 @@ export async function startBatch(input: CampaignChoice): Promise<Result> {
   if (!migzReadyFor(agent)) return fail("Your ad account isn't linked yet. Anryh Labs links it for you.");
   await closeEndedBatch(agent).catch((e) => console.error("closing the ended batch failed", e));
   const open = await getOpenBatch(agent.id);
-  if (open?.status === "active") return fail(`Your current campaign runs until ${open.ends_on}. You can start the next one when it ends.`);
+  if (open?.status === "active") return fail(`Your campaign is running. It's rolling: its current 2-week cycle ends ${open.ends_on} and the next starts on its own.`);
   const r = await resolveCampaign(agent, input);
   if (typeof r === "string") return fail(r);
   const balance = await getBalanceCents(agent.id);

@@ -25,6 +25,7 @@ import {
   UNDERWRITING,
   campaignMoney,
   expectedResults,
+  KEEP_FUNDED,
   lengthReason,
   videoPriceFor,
   INCLUDED_VIDEOS,
@@ -54,7 +55,7 @@ export type CampaignStart = {
 
 type Result = { ok: true } | { ok: false; error: string };
 
-const RUN_MODES = [
+export const RUN_MODES = [
   { auto: true, title: "Let Migz run it", recommended: true, detail: "Migz launches ads and makes changes on its own, within the budget and guardrails. You get a Slack update every 3 days." },
   { auto: false, title: "Ask me first", recommended: false, detail: "Migz proposes each new ad and change. Nothing goes live until you approve it." },
 ] as const;
@@ -127,6 +128,7 @@ export function CampaignFlow({
   confirmLabel,
   onConfirm,
   needsBalance = true,
+  askRunMode = true,
 }: {
   initial: CampaignStart;
   balanceCents: number;
@@ -135,6 +137,8 @@ export function CampaignFlow({
   onConfirm: (choice: CampaignChoice) => Promise<Result>;
   /** Setup saves the plan before funds arrive (launch checks the balance); the overview needs it now. */
   needsBalance?: boolean;
+  /** Start here asks how Migz runs things as its own last step, so the flow leaves it out there. */
+  askRunMode?: boolean;
 }) {
   const [a, setA] = useState<CampaignAnswers>(initial.answers);
   const [states, setStates] = useState<string[]>(initial.states);
@@ -143,7 +147,7 @@ export function CampaignFlow({
   const [daily, setDaily] = useState(initial.dailyCents);
   const [customDaily, setCustomDaily] = useState(DAILY_CHOICES.includes(initial.dailyCents as never) ? "" : String(initial.dailyCents / 100));
   const [autoRun, setAutoRun] = useState(initial.autoRun);
-  const [renew, setRenew] = useState(initial.renew);
+  const renew = true; // campaigns are rolling: each 2-week cycle is followed by the next
   const [moreProducts, setMoreProducts] = useState(a.products.some((p) => !MAIN_PRODUCTS.includes(p)));
   const [step, setStep] = useState(0);
   const [dir, setDir] = useState(1);
@@ -158,7 +162,7 @@ export function CampaignFlow({
   const money = useMemo(() => campaignMoney({ dailyCents: daily, intent, tier }), [daily, intent, tier]);
   const expected = useMemo(() => expectedResults({ answers: a, states, intent, dailyCents: daily, own }), [a, states, intent, daily, own]);
   const ownUsed = expected.lines.some((l) => l.source === "yours");
-  const choice: CampaignChoice = { answers: a, states, intentLevel: intent, videoTier: tier, dailyCents: daily, autoRun, renew };
+  const choice: CampaignChoice = { answers: a, states, intentLevel: intent, videoTier: tier, dailyCents: daily, autoRun: askRunMode ? autoRun : undefined, renew };
 
   const dailyOk = daily >= MIN_CAMPAIGN_DAILY_CENTS && daily <= MAX_CAMPAIGN_DAILY_CENTS;
   const ageLabel = a.ageMin === null && a.ageMax === null ? "Any adult" : `${a.ageMin ?? 18}–${a.ageMax ?? "90"}`;
@@ -371,16 +375,16 @@ export function CampaignFlow({
           {dailyOk && (
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="rounded-xl border border-brand/30 bg-brand/[0.05] px-4 py-3">
-                <p className="text-[12px] text-fg-muted">Migz runs it</p>
-                <p className="text-2xl font-semibold tabular-nums text-fg">{money.days} days</p>
-                <p className="mt-1 text-[12px] leading-snug text-fg-muted">{lengthReason(daily, money.days)}</p>
+                <p className="text-[12px] text-fg-muted">How long it runs</p>
+                <p className="text-2xl font-semibold text-fg">Rolling</p>
+                <p className="mt-1 text-[12px] leading-snug text-fg-muted">{lengthReason(daily)}</p>
               </div>
               <div className="rounded-xl border border-line px-4 py-3">
-                <p className="text-[12px] text-fg-muted">Ad funds for this campaign</p>
+                <p className="text-[12px] text-fg-muted">Ad funds for the first 2 weeks</p>
                 <p className="text-2xl font-semibold tabular-nums text-fg">{whole(money.recommendedFundsCents)}</p>
                 <p className="mt-1 text-[12px] leading-snug text-fg-muted">
                   {whole(daily)} × {money.days} days = {whole(money.adSpendCents)}
-                  {money.videoCents ? `, plus ${whole(money.videoCents)} for ${VIDEO_TIERS[tier].title} videos` : ""}, rounded up to the next $500. Treat it as the minimum. You have {usd(balanceCents, { cents: true })}.
+                  {money.videoCents ? `, plus ${whole(money.videoCents)} for ${VIDEO_TIERS[tier].title} videos` : ""}, rounded up to the next $500. Treat it as the minimum, and keep adding so the next cycle can start. You have {usd(balanceCents, { cents: true })}.
                 </p>
               </div>
               <div className="rounded-xl border border-line px-4 py-3 sm:col-span-2">
@@ -405,7 +409,7 @@ export function CampaignFlow({
     {
       key: "plan",
       q: "Migz AI's plan",
-      body: <PlanScreen preview={preview} loading={previewing} needsBalance={needsBalance} autoRun={autoRun} setAutoRun={setAutoRun} renew={renew} setRenew={setRenew} money={money} tier={tier} />,
+      body: <PlanScreen preview={preview} loading={previewing} needsBalance={needsBalance} autoRun={autoRun} setAutoRun={askRunMode ? setAutoRun : null} renew={renew} money={money} tier={tier} />,
     },
   ];
 
@@ -513,7 +517,6 @@ function PlanScreen({
   autoRun,
   setAutoRun,
   renew,
-  setRenew,
   money,
   tier,
 }: {
@@ -521,9 +524,9 @@ function PlanScreen({
   loading: boolean;
   needsBalance: boolean;
   autoRun: boolean;
-  setAutoRun: (v: boolean) => void;
+  /** Null when Start here asks it as its own step. */
+  setAutoRun: ((v: boolean) => void) | null;
   renew: boolean;
-  setRenew: (v: boolean) => void;
   money: ReturnType<typeof campaignMoney>;
   tier: VideoTier;
 }) {
@@ -550,20 +553,20 @@ function PlanScreen({
       )}
       {needsBalance && preview.short && <p className="text-[13px] text-bad">{preview.short}</p>}
 
-      <div>
-        <p className="mb-2 text-[13px] font-medium text-fg-muted">How should Migz run it?</p>
-        <div role="radiogroup" aria-label="How Migz runs this campaign" className="grid gap-2 sm:grid-cols-2">
-          {RUN_MODES.map((m) => (
-            <Tile key={m.title} on={autoRun === m.auto} onClick={() => setAutoRun(m.auto)} title={m.title} detail={m.detail} badge={m.recommended ? "Recommended" : undefined} />
-          ))}
+      {setAutoRun && (
+        <div>
+          <p className="mb-2 text-[13px] font-medium text-fg-muted">How should Migz run it?</p>
+          <div role="radiogroup" aria-label="How Migz runs this campaign" className="grid gap-2 sm:grid-cols-2">
+            {RUN_MODES.map((m) => (
+              <Tile key={m.title} on={autoRun === m.auto} onClick={() => setAutoRun(m.auto)} title={m.title} detail={m.detail} badge={m.recommended ? "Recommended" : undefined} />
+            ))}
+          </div>
         </div>
-      </div>
-      <Tile
-        on={renew}
-        onClick={() => setRenew(!renew)}
-        title="Keep going"
-        detail="When this campaign ends, the next one starts from your balance with the same daily budget, and Migz plans it from what this one learned. It never charges a card."
-      />
+      )}
+      <p className="rounded-xl border border-line px-4 py-3 text-[12px] leading-relaxed text-fg-muted">
+        <span className="font-medium text-fg">Rolling, no end date.</span> Every 2 weeks the next cycle starts on its own from your balance at the same daily budget, and Migz plans it
+        from what the last one learned. It never charges a card. {KEEP_FUNDED}
+      </p>
     </div>
   );
 }
@@ -576,7 +579,7 @@ export function MigzPlan({ plan, renews = false }: { plan: NonNullable<Extract<C
     <div className="space-y-4">
       <div className="rounded-xl border border-brand/30 bg-brand/[0.05] px-4 py-3">
         <p className="flex items-center gap-1.5 text-[13px] font-semibold text-fg">
-          <Sparkles className="size-3.5 text-brand" /> {whole(plan.budget.dailyCents)}/day for {plan.budget.days} days
+          <Sparkles className="size-3.5 text-brand" /> {whole(plan.budget.dailyCents)}/day, rolling in {plan.budget.days}-day cycles
           {plan.budget.recommendedDailyCents !== plan.budget.dailyCents && <span className="font-normal text-fg-muted">· Migz recommends {whole(plan.budget.recommendedDailyCents)}/day</span>}
         </p>
         <p className="mt-1 text-[13px] leading-snug text-fg-muted">{plan.budget.why}</p>

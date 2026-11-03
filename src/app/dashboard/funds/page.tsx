@@ -71,7 +71,7 @@ export default async function FundsPage({ searchParams }: { searchParams: Promis
               {agent.ads_paused
                 ? "Your ads are paused."
                 : batch
-                  ? `Free to use. Your running batch has its ${usd(batch.budget_cents)} set aside; what it doesn't spend comes back here when it ends on ${batch.ends_on}.`
+                  ? `Free to use. This 2-week cycle has its ${usd(batch.budget_cents)} set aside; what it doesn't spend comes back here when it ends on ${batch.ends_on}. The next cycle starts from this balance, so keep at least ${usd(batch.budget_cents)} here to keep your campaign rolling.`
                   : daysLeft !== null
                     ? `Covers about ${daysLeft} day${daysLeft === 1 ? "" : "s"} of ads at ${usd(agent.daily_budget_cents)} a day.`
                     : null}
@@ -85,7 +85,7 @@ export default async function FundsPage({ searchParams }: { searchParams: Promis
           <BudgetControls
             dailyBudgetCents={agent.daily_budget_cents}
             paused={agent.ads_paused}
-            batchLabel={batch ? `$${(batch.budget_cents / 100).toFixed(0)} batch (until ${batch.ends_on})` : null}
+            batchLabel={batch ? `$${(batch.budget_cents / 100).toFixed(0)} cycle (until ${batch.ends_on})` : null}
           />
         </Panel>
       </div>

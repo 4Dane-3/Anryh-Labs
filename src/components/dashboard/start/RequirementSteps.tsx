@@ -4,7 +4,8 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowUpRight, Check, Copy, Loader2 } from "lucide-react";
-import { connectSlack, saveBusinessInfo, saveMetaAccess, setBookingChoice } from "@/app/dashboard/actions";
+import { chooseMigzMode, connectSlack, saveBusinessInfo, saveMetaAccess, setBookingChoice } from "@/app/dashboard/actions";
+import { RUN_MODES } from "@/components/dashboard/start/CampaignFlow";
 import { displayPhone } from "@/lib/booking/call";
 import { Button, Label, inputClass } from "@/components/dashboard/ui";
 import { cn } from "@/lib/utils";
@@ -327,6 +328,44 @@ export function SlackStep({ inviteUrl, contactEmail, current, onSaved }: { invit
           Send test message
         </Button>
       </form>
+      {error && <p className="text-[13px] text-bad">{error}</p>}
+    </div>
+  );
+}
+
+/** The last step: Migz runs the ads on its own, or asks before every new ad and change. */
+export function MigzModeStep({ current, onSaved }: { current: "auto" | "approve" | null; onSaved: () => void }) {
+  const [picked, setPicked] = useState(current);
+  const { pending, error, run } = useSave(onSaved);
+  return (
+    <div className="space-y-3">
+      <div role="radiogroup" aria-label="How Migz runs your ads" className="grid gap-2 sm:grid-cols-2">
+        {RUN_MODES.map((m) => {
+          const mode = m.auto ? "auto" : "approve";
+          const on = picked === mode;
+          return (
+            <button
+              key={mode}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              disabled={pending}
+              onClick={() => {
+                setPicked(mode);
+                run(() => chooseMigzMode(mode));
+              }}
+              className={cn("rounded-lg border px-4 py-3 text-left transition-colors", on ? "border-brand/60 bg-brand/[0.08]" : "border-line hover:border-line-strong hover:bg-white/[0.03]")}
+            >
+              <span className="flex items-center gap-2 text-sm font-medium text-fg">
+                {m.title}
+                {m.recommended && <span className="rounded-full bg-good/15 px-2 py-0.5 text-[11px] text-good">Recommended</span>}
+              </span>
+              <span className="mt-1 block text-[12px] leading-snug text-fg-muted">{m.detail}</span>
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-[12px] text-fg-faint">You can switch any time in Settings. Either way, Migz never spends past your daily budget or your balance.</p>
       {error && <p className="text-[13px] text-bad">{error}</p>}
     </div>
   );

@@ -50,7 +50,7 @@ export default async function OverviewPage() {
     : !migzReadyFor(agent)
       ? "Your ad account isn't linked yet"
       : activeBatch
-        ? `Your campaign runs until ${activeBatch.ends_on}`
+        ? `Your campaign is rolling: this 2-week cycle ends ${activeBatch.ends_on}, and the next starts on its own`
         : null;
   const recentlyRan =
     !!agent.migz_last_operator_at && DateTime.now().diff(DateTime.fromISO(agent.migz_last_operator_at), "minutes").minutes < 10;

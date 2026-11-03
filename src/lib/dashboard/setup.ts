@@ -13,7 +13,7 @@ import { getOpenBatch, getRecentBatches, type Batch } from "@/lib/dashboard/batc
 // account first, the setup fee, then the rest. Until the first campaign starts, the rest of the dashboard
 // stays locked (requireSetUpAgent).
 
-export type StepKey = "business" | "meta" | "setup_fee" | "profile" | "page" | "slack" | "funds" | "plan" | "creatives";
+export type StepKey = "business" | "meta" | "setup_fee" | "profile" | "page" | "slack" | "funds" | "plan" | "creatives" | "mode";
 
 export type Step = {
   key: StepKey;
@@ -101,6 +101,8 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
       ? "Upload at least one photo or video, or let Migz create them."
       : null;
 
+  const modeMissing = agent.migz_mode_chosen_at ? null : "Choose whether Migz runs your ads on its own or asks you first.";
+
   const steps: Step[] = [
     { key: "business", required: true, missing: businessMissing, done: !businessMissing },
     { key: "meta", required: true, missing: metaMissing, done: !metaMissing },
@@ -111,6 +113,7 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
     { key: "plan", required: true, missing: planMissing, done: !planMissing },
     { key: "funds", required: true, missing: fundsMissing, done: !fundsMissing },
     { key: "creatives", required: true, missing: creativesMissing, done: !creativesMissing },
+    { key: "mode", required: true, missing: modeMissing, done: !modeMissing },
   ];
   return {
     steps,

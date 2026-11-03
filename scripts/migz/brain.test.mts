@@ -242,12 +242,12 @@ assert.deepEqual(campaignLabels([null], [...three]), ["Final expense + Mortgage 
 assert.deepEqual(campaignLabels([null]), ["Booked calls"], "no focus at all");
 assert.deepEqual(campaignLabels(["final_expense", "mortgage_protection", "final_expense"]), ["Final expense A", "Mortgage protection", "Final expense B"], "older batches with two on one topic");
 assert.equal(perCampaignCents(2500, 2), 1250);
-assert.equal(MIN_DEPOSIT_CENTS, 50_000, "funds come $500 at a time at least");
-assert.equal(adSpendCents(MIN_DEPOSIT_CENTS), 40_000); assert.equal(MIN_AD_BALANCE_CENTS, 40_000);
+assert.equal(MIN_DEPOSIT_CENTS, 100_000, "the least a deposit can be is $1,000");
+assert.equal(adSpendCents(MIN_DEPOSIT_CENTS), 80_000); assert.equal(MIN_AD_BALANCE_CENTS, 80_000);
 const { MIN_TOP_UP_CENTS, SETUP_FEE_CENTS } = await import("@/lib/campaign");
-assert.equal(MIN_TOP_UP_CENTS, MIN_DEPOSIT_CENTS, "every deposit is at least $500");
+assert.equal(MIN_TOP_UP_CENTS, MIN_DEPOSIT_CENTS, "every deposit is at least $1,000");
 assert.equal(MIN_DAILY_CENTS, 5000, "campaigns run at $50/day or more");
-assert.ok(MIN_DAILY_CENTS * TEST_DAYS > MIN_AD_BALANCE_CENTS, "a $500 deposit starts you off; two weeks at $50/day needs more");
+assert.ok(MIN_AD_BALANCE_CENTS >= MIN_DAILY_CENTS * TEST_DAYS, "the minimum deposit, after the fee, covers $50/day for a 2-week cycle");
 assert.equal(SETUP_FEE_CENTS, 75_000);
 assert.equal(depositFor(28_000), 35_000); assert.equal(depositFor(42_000), 52_500);
 const cand = (id: string, creative: string | null, topic: string | null) => ({ meta_ad_id: id, creative_id: creative, topic });
@@ -1216,9 +1216,9 @@ const { fitBrief, briefDuration: bd } = await import("@/lib/migz/brief");
 const fitted = fitBrief(long, 15);
 assert.ok(bd(fitted) <= 15 && fitted.body_shots.length >= 1, `a 30s brief falling back to Standard fits 15s (${bd(fitted)}s)`);
 assert.equal(fitted.body_shots.at(-1)!.prompt, "Moment 3", "it keeps the last shot for the end card");
-// The campaign start flow: length from the daily budget, $500 funds, creative mix, prices, expected results
+// The campaign start flow: 2-week rolling cycles, $500 funds steps, creative mix, prices, expected results
 const cp = await import("@/lib/campaign-plan");
-assert.deepEqual([2000, 7499, 7500, 14_999, 15_000, 50_000].map(cp.recommendedDays), [21, 21, 14, 14, 10, 10], "under $75/day 21 days, $75–149 14, $150+ 10");
+assert.deepEqual([2000, 7499, 7500, 14_999, 15_000, 50_000].map(() => cp.recommendedDays()), [14, 14, 14, 14, 14, 14], "rolling: every cycle is 2 weeks, whatever the daily budget");
 assert.deepEqual([1, 50_000, 50_001, 140_000].map(cp.roundUpToFundsStep), [50_000, 50_000, 100_000, 150_000], "funds round up to the next $500");
 assert.deepEqual(cp.creativeMix(5000), { total: 8, videos: 2, images: 6, extraVideos: 0 }, "about 8 under $75/day");
 assert.deepEqual(cp.creativeMix(10_000), { total: 10, videos: 2, images: 8, extraVideos: 0 }, "10 at $100/day");
@@ -1229,7 +1229,7 @@ assert.equal(cp.videoPriceFor("seedance_30", 2), 960); assert.equal(cp.videoPric
 const m100 = cp.campaignMoney({ dailyCents: 10_000, intent: "medium_high", tier: "standard" });
 assert.deepEqual([m100.days, m100.adSpendCents, m100.videoCents, m100.recommendedFundsCents], [14, 140_000, 0, 150_000], "$100/day: 14 days, $1,400 of ads, $1,500 of funds");
 const m200 = cp.campaignMoney({ dailyCents: 20_000, intent: "medium_high", tier: "seedance_15" });
-assert.deepEqual([m200.days, m200.videoCents, m200.recommendedFundsCents], [10, 600 * 2 + 480 * 3, 250_000], "$200/day on Seedance: 2 videos at $6 and 3 at $4.80");
+assert.deepEqual([m200.days, m200.videoCents, m200.recommendedFundsCents], [14, 600 * 2 + 480 * 3, 300_000], "$200/day on Seedance: 2 videos at $6 and 3 at $4.80, a 2-week cycle");
 assert.equal(cp.campaignMoney({ dailyCents: 10_000, intent: "low_medium", tier: "standard" }).sets.length, 2, "instant forms add a second ad set with its own mix");
 const ans = cp.cleanAnswers({ products: ["final_expense", "nope"], ageMin: 85, ageMax: 50, languages: ["en", "fr"], underwriting: "simplified", healthIssuesOk: "yes" });
 assert.deepEqual([ans.products, ans.ageMin, ans.ageMax, ans.languages, ans.healthIssuesOk], [["final_expense"], 50, 85, ["en"], null], "answers are cleaned, ages kept in order");
@@ -1251,8 +1251,8 @@ assert.equal(cp.expectedResults({ answers: plain, states: ["TX", "FL", "GA"], in
 assert.equal(cp.recommendedDaily(9000), 13_000, "10 booked calls a week at $90: about $130/day");
 const { dailyBatch } = await import("@/lib/batch");
 const db1 = dailyBatch(5000, ["final_expense"], { spentCents: 0, bookedCalls: 0, batches: 0, byTopic: {} });
-assert.deepEqual([db1.days, db1.dailyCents, db1.key, db1.collectDays], [21, 5000, "focused", 7], "a daily budget becomes a campaign Migz sets the length of");
-assert.equal(dailyBatch(20_000, ["final_expense", "term_life"], { spentCents: 0, bookedCalls: 0, batches: 0, byTopic: {} }).collectDays, 7, "10 days: revise after 7, 3 to check");
+assert.deepEqual([db1.days, db1.dailyCents, db1.key, db1.collectDays], [14, 5000, "focused", 7], "a daily budget becomes a rolling 2-week cycle");
+assert.equal(dailyBatch(20_000, ["final_expense", "term_life"], { spentCents: 0, bookedCalls: 0, batches: 0, byTopic: {} }).collectDays, 7, "2-week cycle: revise after 7");
 // Age wording and claims the agent's answers don't back
 const gw = await import("@/lib/migz/guardrails");
 assert.equal(gw.checkCopy("If you're between 50 and 85, plan ahead.", "Coverage for people 50–85", "Seniors 60+"), null, "a range or a condition is fine");

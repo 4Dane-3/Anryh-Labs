@@ -81,6 +81,7 @@ export type Agent = {
   meta_ad_account_requested?: string | null; // the ad account they shared with us, until it's linked
   meta_page_requested?: string | null; // the Page they shared with us, until it's linked
   meta_access_requested_at?: string | null;
+  migz_mode_chosen_at?: string | null; // when they chose automatic or ask-first in Start here
 };
 
 export type Booking = {

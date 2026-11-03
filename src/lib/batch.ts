@@ -240,7 +240,7 @@ export function outcomeEstimate(budgetCents: number, history: BatchHistory) {
  * days, or 3 days before the end on a short campaign.
  */
 export function dailyBatch(dailyCents: number, focus: TopicKey[], history: BatchHistory): BatchOption & { reason: string } {
-  const days = recommendedDays(dailyCents);
+  const days = recommendedDays();
   const budgetCents = dailyCents * days;
   const best = bestTopic(history);
   const options = focus.length < 2 ? [option("focused", budgetCents, best ?? focus[0] ?? null, focus, days)] : [option("focused", budgetCents, best ?? focus[0], focus, days), option("balanced", budgetCents, null, focus, days)];

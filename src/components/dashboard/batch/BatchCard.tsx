@@ -20,15 +20,15 @@ const range = (b: Batch, zone: string) =>
 function keepNote(batch: Batch, balanceCents: number, zone: string, unspentCents = 0): { note: string; warn: boolean } {
   const need = batch.budget_cents;
   if (batch.status === "ended") {
-    return { note: batch.renew_blocked ?? "Your next batch starts within the hour.", warn: true };
+    return { note: batch.renew_blocked ?? "Your next cycle starts within the hour.", warn: true };
   }
-  if (!batch.renew) return { note: `When this batch ends, the same ${whole(need)} batch starts again from your balance. Turn it on to keep the ads running without a gap. It never charges a card.`, warn: false };
+  if (!batch.renew) return { note: `Rolling is off, so your campaign stops when this cycle ends. Turn it on and the next ${whole(need)} 2-week cycle starts from your balance, with no gap. It never charges a card.`, warn: false };
   const next = batch.ends_on ? DateTime.fromISO(batch.ends_on, { zone }).plus({ days: 1 }).toFormat("LLL d") : "when it ends";
   // The unspent part of this batch comes back before the next one starts
   const short = need - (balanceCents + unspentCents);
   return short > 0
-    ? { note: `The next ${whole(need)} batch starts ${next} from your balance, which is ${whole(balanceCents)} now. Add about ${whole(depositFor(short))} in funds before then, or it waits for them.`, warn: true }
-    : { note: `The next ${whole(need)} batch starts ${next}, paid from your balance (${whole(balanceCents)} free now). Turn this off and it just ends.`, warn: false };
+    ? { note: `The next ${whole(need)} cycle starts ${next} from your balance, which is ${whole(balanceCents)} now. Add about ${whole(depositFor(short))} in funds before then, or your ads pause until you do.`, warn: true }
+    : { note: `The next ${whole(need)} cycle starts ${next}, paid from your balance (${whole(balanceCents)} free now). Keep funds in so it keeps rolling; turn this off to stop after this cycle.`, warn: false };
 }
 
 /** The running batch (spend against its budget, day, booked calls), or what's next, plus the last few batches. */
@@ -54,8 +54,8 @@ export function BatchCard({
   return (
     <div className="flex h-full flex-col">
       <PanelHeader
-        title={active ? "Active campaign batch" : "Campaign batches"}
-        description={active ? `${TITLES[active.option]} · ${range(active, timezone)}` : "Each batch is a block of ad money Migz plans and runs."}
+        title={active ? "Your rolling campaign" : "Campaign cycles"}
+        description={active ? `${TITLES[active.option]} · ${range(active, timezone)}` : "Campaigns roll in 2-week cycles that Migz plans and runs, while your balance covers them."}
       />
       {active && progress ? (
         <div className="space-y-4 px-5 py-4">
@@ -94,7 +94,7 @@ export function BatchCard({
       ) : planned ? (
         <div className="px-5 py-4 text-[13px] text-fg-muted">
           <p>
-            Your first batch, {whole(planned.budget_cents)} over {planned.days} days ({listCampaignTopics(topicsOf(planned))}), starts when you finish setup.
+            Your campaign starts when you finish setup: {whole(planned.daily_cents)}/day, rolling in {planned.days}-day cycles ({listCampaignTopics(topicsOf(planned))}).
           </p>
           <Link href="/dashboard/start" className="mt-3 inline-flex items-center gap-1 font-medium text-brand hover:underline">
             Finish setup <ArrowRight className="size-3.5" />

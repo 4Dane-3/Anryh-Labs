@@ -218,39 +218,17 @@ function MenuSheet({ agent, devLogin, setupDone, staff, onClose }: { agent: Agen
   );
 }
 
-/** The first step, for a new agent: orange and pulsing under the tabs until setup is done. */
-function SetupCallout({ feePaid, feeLabel }: { feePaid: boolean; feeLabel: string }) {
-  const pathname = usePathname();
-  return (
-    <div className="flex justify-center px-4 pb-3">
-      <Link
-        href="/dashboard/start"
-        aria-current={pathname === "/dashboard/start" ? "page" : undefined}
-        className="relative isolate inline-flex items-center gap-2 rounded-2xl bg-[#ff7a1a] px-5 py-2.5 text-center text-sm font-semibold text-white shadow-[0_10px_30px_-8px_rgb(255_122_26/0.7)] transition-transform active:scale-95"
-      >
-        <span className="absolute inset-0 -z-10 animate-ping rounded-2xl bg-[#ff7a1a]/50 motion-reduce:hidden" aria-hidden="true" />
-        <Rocket className="size-4 shrink-0" />
-        {feePaid ? "Next: finish setup and start your first campaign" : `Pay your ${feeLabel} setup fee`}
-      </Link>
-    </div>
-  );
-}
-
 /** The dashboard's top bar: name left, the main places in a glass pill, Migz AI Brain and the menu on the right. */
 export function TopBar({
   agent,
   devLogin,
   setupDone,
-  setupFeePaid,
-  setupFeeLabel,
   staff = false,
   connected,
 }: {
   agent: AgentSummary;
   devLogin: boolean;
   setupDone: boolean;
-  setupFeePaid: boolean;
-  setupFeeLabel: string; // "$750"
   staff?: boolean;
   connected: boolean;
 }) {
@@ -311,7 +289,6 @@ export function TopBar({
           </button>
         </div>
       </div>
-      {!setupDone && <SetupCallout feePaid={setupFeePaid} feeLabel={setupFeeLabel} />}
       <AnimatePresence>{menu && <MenuSheet agent={agent} devLogin={devLogin} setupDone={setupDone} staff={staff} onClose={() => setMenu(false)} />}</AnimatePresence>
     </header>
   );

@@ -12,11 +12,11 @@ import { listCampaignTopics, type CampaignSlot } from "@/lib/batch";
 import { AddFunds } from "@/components/dashboard/FundsControls";
 import { ProfileForm, type Profile } from "@/components/dashboard/LandingEditor";
 import { Button, Panel } from "@/components/dashboard/ui";
-import { FUNDS_STEP_CENTS, type OwnNumbers } from "@/lib/campaign-plan";
+import { FUNDS_STEP_CENTS, KEEP_FUNDED, type OwnNumbers } from "@/lib/campaign-plan";
 import { usd } from "@/lib/dashboard/format";
 import { cleanFocus, TOPICS } from "@/lib/migz/topics";
 import { cn } from "@/lib/utils";
-import { BookingStep, BusinessStep, MetaStep, SlackStep, type Business } from "@/components/dashboard/start/RequirementSteps";
+import { BookingStep, BusinessStep, MetaStep, MigzModeStep, SlackStep, type Business } from "@/components/dashboard/start/RequirementSteps";
 
 type StepState = { key: string; done: boolean; missing: string | null };
 
@@ -48,6 +48,7 @@ type Props = {
   };
   booking: { choice: "ours" | "own" | null; ownUrl: string; pageUrl: string; hoursMissing: boolean };
   slack: { current: string; inviteUrl: string | null };
+  migzMode: "auto" | "approve" | null; // null until chosen here
 };
 
 const TITLES: Record<string, { title: string; blurb: string }> = {
@@ -58,8 +59,9 @@ const TITLES: Record<string, { title: string; blurb: string }> = {
   page: { title: "Your booking page", blurb: "Where your ads send people: your page here, or your own." },
   slack: { title: "Slack", blurb: "Where Migz tells you about new leads and bookings, and sends your morning summary." },
   plan: { title: "Plan your first campaign", blurb: "A few quick questions and a daily budget. Migz sets how long it runs and makes the ads." },
-  funds: { title: "Add funds", blurb: `Money for your Meta ads, in ${usd(FUNDS_STEP_CENTS)} steps. Your plan shows what your campaign needs.` },
+  funds: { title: "Add funds", blurb: `Money for your Meta ads, in ${usd(FUNDS_STEP_CENTS)} steps. Campaigns roll in 2-week cycles while your balance covers them.` },
   creatives: { title: "Videos and images", blurb: "Let Migz make your ads' videos and photos, or bring your own." },
+  mode: { title: "How Migz runs your ads", blurb: "On its own within your budget, or asking you before every new ad and change." },
 };
 
 function StepShell({
@@ -162,6 +164,7 @@ function PlanStep({ plan, balanceCents, onSaved }: { plan: Props["plan"]; balanc
       own={plan.own}
       confirmLabel="Save plan"
       needsBalance={false}
+      askRunMode={false}
       onConfirm={async (choice) => {
         const res = await saveBatchPlan(choice);
         if (res.ok) {
@@ -265,8 +268,9 @@ export function StartWizard(props: Props) {
     page: props.booking.choice === "own" ? `Your own page: ${props.booking.ownUrl.replace(/^https?:\/\//, "")}` : `Live at /${props.slug}`,
     funds: `${usd(props.balanceCents, { cents: true })} available`,
     plan: props.plan.batch
-      ? `${usd(props.plan.batch.daily_cents, { cents: false })}/day for ${props.plan.batch.days} days · ${listCampaignTopics(props.plan.batch.campaigns.map((t) => (t || null) as CampaignSlot))}`
+      ? `${usd(props.plan.batch.daily_cents, { cents: false })}/day, rolling · ${listCampaignTopics(props.plan.batch.campaigns.map((t) => (t || null) as CampaignSlot))}`
       : cleanFocus(props.plan.topics).map((t) => TOPICS[t].label).join(", "),
+    mode: props.migzMode === "auto" ? "Migz runs it" : "Ask me first",
     creatives: props.creativeMode === "ai" ? "Migz creates them" : props.creativeMode === "upload" ? `${props.creativeCount} of your own` : "Yours plus Migz's",
   };
 
@@ -317,9 +321,10 @@ export function StartWizard(props: Props) {
             <p className="mt-1 text-3xl font-semibold tracking-tight">{usd(props.balanceCents, { cents: true })}</p>
             {props.plan.fundsNeeded && (
               <p className="mt-1 text-[13px] text-fg-muted">
-                Your campaign needs {usd(props.plan.fundsNeeded.cents, { cents: false })} of ad funds. We recommend {usd(props.plan.fundsNeeded.recommendedCents, { cents: false })} (the next {usd(FUNDS_STEP_CENTS, { cents: false })} step): treat it as the minimum.
+                Your first 2-week cycle needs {usd(props.plan.fundsNeeded.cents, { cents: false })} of ad funds. We recommend {usd(props.plan.fundsNeeded.recommendedCents, { cents: false })} (the next {usd(FUNDS_STEP_CENTS, { cents: false })} step): treat it as the minimum.
               </p>
             )}
+            <p className="mt-2 text-[13px] text-fg-muted">{KEEP_FUNDED}</p>
           </div>
           <AddFunds addedBeforeCents={props.fundsAddedCents} />
           {!props.stripeConnected && (
@@ -336,6 +341,10 @@ export function StartWizard(props: Props) {
 
       <StepShell index={9} stepKey="creatives" done={stateOf("creatives").done} summary={summaries.creatives} open={open === "creatives"} onToggle={() => setOpen(open === "creatives" ? null : "creatives")}>
         <CreativesStep mode={props.creativeMode} count={props.creativeCount} onSaved={() => advance("creatives")} />
+      </StepShell>
+
+      <StepShell index={10} stepKey="mode" done={stateOf("mode").done} summary={summaries.mode} open={open === "mode"} onToggle={() => setOpen(open === "mode" ? null : "mode")}>
+        <MigzModeStep current={props.migzMode} onSaved={() => advance("mode")} />
       </StepShell>
 
       <Panel className={cn("mt-6 px-5 py-5", ready && !props.completed && "border-brand/40")}>
