@@ -244,12 +244,16 @@ export function TopBar({
   }, []);
 
   return (
-    <header
-      className={cn(
-        "sticky top-0 z-30 border-b transition-[background-color,border-color] duration-300",
-        scrolled ? "border-white/10 bg-[rgb(30_32_34/0.55)] backdrop-blur-xl" : "border-transparent",
-      )}
-    >
+    <header className="sticky top-0 z-30">
+      {/* The frosted bar is its own layer: a backdrop-filter on the header itself would make it the box the
+          menu sheet (position: fixed) and the Brain pop-out are laid out in, cutting them off once scrolled */}
+      <div
+        aria-hidden="true"
+        className={cn(
+          "absolute inset-0 -z-10 border-b transition-[background-color,border-color] duration-300",
+          scrolled ? "border-white/10 bg-[rgb(30_32_34/0.55)] backdrop-blur-xl" : "border-transparent",
+        )}
+      />
       <div className="mx-auto grid max-w-7xl grid-cols-[1fr_auto] items-center gap-3 px-4 py-3 sm:px-8 lg:grid-cols-[1fr_auto_1fr]">
         <Link href={setupDone ? "/dashboard" : "/dashboard/start"} className="flex items-center gap-2.5 justify-self-start text-[17px] font-semibold tracking-tight text-fg">
           <span className="size-5 -rotate-45 rounded-md border-[2.5px] border-white border-r-transparent" aria-hidden="true" />
