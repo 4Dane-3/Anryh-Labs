@@ -6,13 +6,16 @@ import { StartWizard } from "@/components/dashboard/start/StartWizard";
 import { PageHeader } from "@/components/dashboard/ui";
 import { getCampaignStart } from "@/lib/dashboard/campaign-plan";
 import { getFundsAddedCents } from "@/lib/dashboard/queries";
+import { displayPhone } from "@/lib/booking/call";
+import { landingUrl } from "@/lib/booking/sites";
+import { META_BUSINESS_ID } from "@/lib/meta/access";
 
 export const dynamic = "force-dynamic";
 
 // What Stripe's return links say, shown above the steps
 const RETURNS: Record<string, { text: string; good: boolean }> = {
-  "setup_fee:paid": { text: "Setup fee paid, thank you. Step 1 ticks off as soon as Stripe confirms it, usually within a few seconds; refresh if it hasn't yet.", good: true },
-  "setup_fee:canceled": { text: "No payment was made. Pay the setup fee whenever you're ready: it's step 1.", good: false },
+  "setup_fee:paid": { text: "Setup fee paid, thank you. Step 3 ticks off as soon as Stripe confirms it, usually within a few seconds; refresh if it hasn't yet.", good: true },
+  "setup_fee:canceled": { text: "No payment was made. Pay the setup fee whenever you're ready: it's step 3.", good: false },
   "deposit:success": { text: "Payment received. Your balance updates as soon as Stripe confirms it, usually within a few seconds; refresh if it hasn't yet.", good: true },
   "deposit:canceled": { text: "No payment was made. You can add funds whenever you're ready.", good: false },
 };
@@ -64,6 +67,28 @@ export default async function StartPage({ searchParams }: { searchParams: Promis
         creativeCount={state.creativeCount}
         contactEmail={CONTACT_EMAIL}
         completed={state.completed}
+        business={{
+          agency_name: agent.agency_name ?? "",
+          npn: agent.npn ?? "",
+          business_email: agent.business_email || agent.email,
+          phone: agent.call_phone ? displayPhone(agent.call_phone) : "",
+        }}
+        meta={{
+          businessId: META_BUSINESS_ID,
+          linked: agent.meta_ad_account_id && agent.meta_page_id ? { adAccount: agent.meta_ad_account_id, page: agent.meta_page_id } : null,
+          requested: {
+            adAccount: agent.meta_ad_account_requested?.replace(/^act_/, "") ?? "",
+            page: agent.meta_page_requested ?? "",
+            at: agent.meta_access_requested_at ?? null,
+          },
+        }}
+        booking={{
+          choice: agent.booking_choice ?? null,
+          ownUrl: agent.own_booking_url ?? "",
+          pageUrl: landingUrl(agent.slug),
+          hoursMissing: !state.hasHours,
+        }}
+        slack={{ current: agent.slack_user_id ?? "", inviteUrl: process.env.SLACK_INVITE_URL || null }}
       />
     </>
   );

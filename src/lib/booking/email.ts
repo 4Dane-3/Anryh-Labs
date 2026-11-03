@@ -50,7 +50,7 @@ export async function sendBookingConfirmation(input: {
     body: JSON.stringify({
       from: `${agent.full_name.replace(/[<>"]/g, "")} <${process.env.BOOKING_EMAIL_FROM}>`,
       to: [prospect.email],
-      reply_to: agent.email,
+      reply_to: agent.business_email || agent.email,
       subject: email.subject,
       html: email.html,
       text: email.text,
@@ -84,7 +84,7 @@ async function sendLeadNote(
   const bookUrl = `${base}?utm_source=email&utm_medium=${input.utmMedium}${hash ? `#${hash}` : ""}`;
   const { hostname, pathname } = new URL(base);
   const email = build({
-    agent: { fullName: agent.full_name, title: agent.title ?? null, licenseNumber: agent.license_number, email: agent.email },
+    agent: { fullName: agent.full_name, title: agent.title ?? null, licenseNumber: agent.license_number, email: agent.business_email || agent.email },
     bookUrl,
     bookPage: `${hostname.replace(/^www\./, "")}${pathname.replace(/\/$/, "")}`, // the link reads as the page it opens, e.g. foreignfinancial.org/miguel-cruz
     business: { name: sender.business, postalAddress: sender.postalAddress },
@@ -101,7 +101,7 @@ async function sendLeadNote(
     body: JSON.stringify({
       from: `${agent.full_name.replace(/[<>"]/g, "")} <${sender.from}>`,
       to: [input.to],
-      reply_to: agent.email,
+      reply_to: agent.business_email || agent.email,
       subject: email.subject,
       html: email.html,
       text: email.text,

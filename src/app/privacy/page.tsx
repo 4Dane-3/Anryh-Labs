@@ -8,7 +8,7 @@ export const metadata: Metadata = {
     "how anryh labs and the migz ai platform collect, use, share and delete data, including data from meta and from people who book calls with our agents.",
 };
 
-const EFFECTIVE = "october 29, 2026";
+const EFFECTIVE = "november 3, 2026";
 
 const SECTIONS = [
   ["who-we-are", "who we are"],
@@ -81,8 +81,9 @@ export default function PrivacyPage() {
               <span className="font-medium text-slate-900">migz ai</span>, a platform that independent life insurance
               agents use to run their advertising. with an agent&apos;s permission, migz ai creates and manages ad campaigns
               on meta (facebook and instagram) on their behalf, generates ad creatives, hosts the agent&apos;s booking page
-              and calendar, and reports results back to the agent. anryh labs is not an insurance company or agency and
-              does not sell insurance.
+              and calendar, and reports results back to the agent. anryh labs is a middleman that provides marketing and
+              software: it is not an insurance company, agency, carrier or imo, does not sell insurance, and does not
+              verify agents&apos; licenses. each agent is responsible for their own licensing and compliance.
             </p>
 
             <H2 id="who-this-covers">2. who this policy covers</H2>
@@ -95,13 +96,13 @@ export default function PrivacyPage() {
             <H2 id="what-we-collect">3. information we collect</H2>
             <p>from agents:</p>
             <ul className="list-disc space-y-2 pl-5">
-              <Item label="account and profile">name, email, login credentials, photo, bio, license number, licensed states, timezone, availability and slack member id.</Item>
+              <Item label="account and profile">name, email, login credentials, photo, bio, licensed states, timezone, availability and slack member id, and, at setup, their agency or imo, business email and phone number. a license number and npn are optional.</Item>
               <Item label="content">testimonials, photos and videos agents upload, the questions they choose to ask prospects, and clients they add themselves (name, phone, email and notes), which are never sent to meta or emailed by us.</Item>
               <Item label="billing">ad budget, balance and transaction history. card payments are handled by stripe; we do not store card numbers.</Item>
             </ul>
             <p>from meta&apos;s platform, through the meta marketing api, for agents who authorize it:</p>
             <ul className="list-disc space-y-2 pl-5">
-              <Item label="ad accounts and pages">ad account ids, facebook page and instagram account ids used to run the agent&apos;s ads.</Item>
+              <Item label="ad accounts and pages">ad account ids, facebook page and instagram account ids used to run the agent&apos;s ads, which agents share with our meta business account at setup.</Item>
               <Item label="campaign data">campaign, ad set and ad settings, budgets, delivery status and creative assets.</Item>
               <Item label="performance data">aggregated results such as spend, impressions, clicks and conversion counts.</Item>
             </ul>
@@ -137,7 +138,7 @@ export default function PrivacyPage() {
               <Item label="slack">delivers booking notifications and summaries to the agent.</Item>
               <Item label="anthropic (claude)">powers migz ai&apos;s decisions. it receives ad performance data, campaign settings and ad copy, not prospects&apos; contact details or prep answers.</Item>
               <Item label="higgsfield">generates ad videos and images from creative descriptions. it does not receive personal information.</Item>
-              <Item label="stripe">processes payments when agents add ad funds.</Item>
+              <Item label="stripe">processes payments when agents pay the setup fee or add ad funds.</Item>
             </ul>
             <p>
               these providers process data only to deliver their service to us. we may also disclose information when

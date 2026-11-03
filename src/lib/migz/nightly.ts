@@ -2,7 +2,7 @@ import "server-only";
 import { fetchPageEvents } from "@/lib/dashboard/page-events";
 import { DateTime } from "luxon";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { landingUrl } from "@/lib/booking/sites";
+import { adLinkFor } from "@/lib/booking/sites";
 import { getSlotBoard, type Agent } from "@/lib/booking/data";
 import { pageAnalytics, type EventRow } from "@/lib/admin/page-analytics";
 import { recordEventAlert } from "@/lib/admin/alerts";
@@ -93,7 +93,7 @@ export async function gatherPageFacts(agent: Agent): Promise<PageFacts> {
   if (base && !/localhost|127\.0\.0\.1/.test(base)) {
     try {
       // The page the ads send people to (an agency's own site, for some agents)
-      const res = await fetch(landingUrl(agent.slug, base), { cache: "no-store", signal: AbortSignal.timeout(10_000), headers: { "user-agent": "MigzPageCheck/1.0" } });
+      const res = await fetch(adLinkFor(agent, base), { cache: "no-store", signal: AbortSignal.timeout(10_000), headers: { "user-agent": "MigzPageCheck/1.0" } });
       load = { ok: res.ok, status: res.status };
     } catch {
       load = { ok: false, status: null };

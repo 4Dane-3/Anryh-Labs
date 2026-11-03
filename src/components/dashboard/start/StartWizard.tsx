@@ -16,6 +16,7 @@ import { FUNDS_STEP_CENTS, type OwnNumbers } from "@/lib/campaign-plan";
 import { usd } from "@/lib/dashboard/format";
 import { cleanFocus, TOPICS } from "@/lib/migz/topics";
 import { cn } from "@/lib/utils";
+import { BookingStep, BusinessStep, MetaStep, SlackStep, type Business } from "@/components/dashboard/start/RequirementSteps";
 
 type StepState = { key: string; done: boolean; missing: string | null };
 
@@ -39,12 +40,23 @@ type Props = {
   creativeCount: number;
   contactEmail: string;
   completed: boolean;
+  business: Business;
+  meta: {
+    businessId: string;
+    linked: { adAccount: string; page: string } | null;
+    requested: { adAccount: string; page: string; at: string | null };
+  };
+  booking: { choice: "ours" | "own" | null; ownUrl: string; pageUrl: string; hoursMissing: boolean };
+  slack: { current: string; inviteUrl: string | null };
 };
 
 const TITLES: Record<string, { title: string; blurb: string }> = {
+  business: { title: "Your business", blurb: "Your agency or IMO, your business email and the number leads reach you on." },
+  meta: { title: "Your Meta ad account", blurb: "Share your ad account and Facebook Page with Anryh Labs, so Migz can run your ads." },
   setup_fee: { title: `Setup fee: ${usd(SETUP_FEE_CENTS, { cents: false })}`, blurb: "One time, before anything else. It covers setting up your ad account, your first campaign and your pages." },
   profile: { title: "Your profile", blurb: "Your name, photo and a short bio. People see this before they book." },
-  page: { title: "Your booking page", blurb: "The hours you take calls, and a look at the page your ads send people to." },
+  page: { title: "Your booking page", blurb: "Where your ads send people: your page here, or your own." },
+  slack: { title: "Slack", blurb: "Where Migz tells you about new leads and bookings, and sends your morning summary." },
   plan: { title: "Plan your first campaign", blurb: "A few quick questions and a daily budget. Migz sets how long it runs and makes the ads." },
   funds: { title: "Add funds", blurb: `Money for your Meta ads, in ${usd(FUNDS_STEP_CENTS)} steps. Your plan shows what your campaign needs.` },
   creatives: { title: "Videos and images", blurb: "Let Migz make your ads' videos and photos, or bring your own." },
@@ -101,7 +113,7 @@ function StepShell({
   );
 }
 
-/** Step 1: the one-time setup fee, paid on Stripe's page. The step turns done when Stripe confirms it. */
+/** Step 3: the one-time setup fee, paid on Stripe's page. The step turns done when Stripe confirms it. */
 function SetupFeeStep({ stripeConnected, contactEmail }: { stripeConnected: boolean; contactEmail: string }) {
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -245,9 +257,12 @@ export function StartWizard(props: Props) {
     });
 
   const summaries: Record<string, string> = {
+    business: props.business.agency_name,
+    meta: props.meta.linked ? `Ad account ${props.meta.linked.adAccount}` : "",
+    slack: "Connected",
     setup_fee: props.setupFeePaidAt ? `Paid ${new Date(props.setupFeePaidAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : "",
     profile: props.profile.full_name,
-    page: `Live at /${props.slug}`,
+    page: props.booking.choice === "own" ? `Your own page: ${props.booking.ownUrl.replace(/^https?:\/\//, "")}` : `Live at /${props.slug}`,
     funds: `${usd(props.balanceCents, { cents: true })} available`,
     plan: props.plan.batch
       ? `${usd(props.plan.batch.daily_cents, { cents: false })}/day for ${props.plan.batch.days} days · ${listCampaignTopics(props.plan.batch.campaigns.map((t) => (t || null) as CampaignSlot))}`
@@ -260,47 +275,42 @@ export function StartWizard(props: Props) {
       <div className="mb-6">
         <div className="mb-2 flex items-baseline justify-between text-[13px]">
           <span className="text-fg-muted">{props.completed ? "Your campaign is set up." : `${doneCount} of ${props.steps.length} steps done`}</span>
-          {!props.completed && <span className="text-fg-faint">About 10 minutes</span>}
+          {!props.completed && <span className="text-fg-faint">About 15 minutes</span>}
         </div>
         <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.07]">
           <motion.div className="h-full rounded-full bg-brand" initial={{ width: 0 }} animate={{ width: `${(doneCount / props.steps.length) * 100}%` }} transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }} />
         </div>
       </div>
 
-      <StepShell index={1} stepKey="setup_fee" done={stateOf("setup_fee").done} summary={summaries.setup_fee} open={open === "setup_fee"} onToggle={() => setOpen(open === "setup_fee" ? null : "setup_fee")}>
+      <StepShell index={1} stepKey="business" done={stateOf("business").done} summary={summaries.business} open={open === "business"} onToggle={() => setOpen(open === "business" ? null : "business")}>
+        <BusinessStep initial={props.business} onSaved={() => advance("business")} />
+      </StepShell>
+
+      <StepShell index={2} stepKey="meta" done={stateOf("meta").done} summary={summaries.meta} open={open === "meta"} onToggle={() => setOpen(open === "meta" ? null : "meta")}>
+        <MetaStep {...props.meta} onSaved={() => advance("meta")} />
+      </StepShell>
+
+      <StepShell index={3} stepKey="setup_fee" done={stateOf("setup_fee").done} summary={summaries.setup_fee} open={open === "setup_fee"} onToggle={() => setOpen(open === "setup_fee" ? null : "setup_fee")}>
         <SetupFeeStep stripeConnected={props.stripeConnected} contactEmail={props.contactEmail} />
       </StepShell>
 
-      <StepShell index={2} stepKey="profile" done={stateOf("profile").done} summary={summaries.profile} open={open === "profile"} onToggle={() => setOpen(open === "profile" ? null : "profile")}>
+      <StepShell index={4} stepKey="profile" done={stateOf("profile").done} summary={summaries.profile} open={open === "profile"} onToggle={() => setOpen(open === "profile" ? null : "profile")}>
         <ProfileForm profile={props.profile} onSaved={() => advance("profile")} />
       </StepShell>
 
-      <StepShell index={3} stepKey="page" done={stateOf("page").done} summary={summaries.page} open={open === "page"} onToggle={() => setOpen(open === "page" ? null : "page")}>
-        <div className="space-y-4">
-          {stateOf("page").missing && <p className="text-[13px] text-brand">{stateOf("page").missing}</p>}
-          <div className="grid gap-2 sm:grid-cols-3">
-            <Link href="/dashboard/calendar" className="rounded-lg border border-line px-4 py-3 transition-colors hover:border-line-strong hover:bg-white/[0.03]">
-              <span className="block text-sm font-medium text-fg">Set your hours</span>
-              <span className="mt-1 block text-[12px] text-fg-muted">When people can book a call with you.</span>
-            </Link>
-            <Link href="/dashboard/questions" className="rounded-lg border border-line px-4 py-3 transition-colors hover:border-line-strong hover:bg-white/[0.03]">
-              <span className="block text-sm font-medium text-fg">Your questions</span>
-              <span className="mt-1 block text-[12px] text-fg-muted">What you ask people. Make any of them required before booking.</span>
-            </Link>
-            <a href={`/${props.slug}`} target="_blank" rel="noreferrer" className="rounded-lg border border-line px-4 py-3 transition-colors hover:border-line-strong hover:bg-white/[0.03]">
-              <span className="flex items-center gap-1 text-sm font-medium text-fg">View your page <ArrowUpRight className="size-3.5" /></span>
-              <span className="mt-1 block text-[12px] text-fg-muted">Exactly what your ads link to.</span>
-            </a>
-          </div>
-          <p className="text-[12px] text-fg-faint">Your title, headline and testimonials are on the My page tab when you want to polish them.</p>
-        </div>
+      <StepShell index={5} stepKey="page" done={stateOf("page").done} summary={summaries.page} open={open === "page"} onToggle={() => setOpen(open === "page" ? null : "page")}>
+        <BookingStep {...props.booking} slug={props.slug} onSaved={() => advance("page")} />
       </StepShell>
 
-      <StepShell index={4} stepKey="plan" done={stateOf("plan").done} summary={summaries.plan} open={open === "plan"} onToggle={() => setOpen(open === "plan" ? null : "plan")}>
+      <StepShell index={6} stepKey="slack" done={stateOf("slack").done} summary={summaries.slack} open={open === "slack"} onToggle={() => setOpen(open === "slack" ? null : "slack")}>
+        <SlackStep current={props.slack.current} inviteUrl={props.slack.inviteUrl} contactEmail={props.contactEmail} onSaved={() => advance("slack")} />
+      </StepShell>
+
+      <StepShell index={7} stepKey="plan" done={stateOf("plan").done} summary={summaries.plan} open={open === "plan"} onToggle={() => setOpen(open === "plan" ? null : "plan")}>
         <PlanStep plan={props.plan} balanceCents={props.balanceCents} onSaved={() => advance("plan")} />
       </StepShell>
 
-      <StepShell index={5} stepKey="funds" done={stateOf("funds").done} summary={summaries.funds} open={open === "funds"} onToggle={() => setOpen(open === "funds" ? null : "funds")}>
+      <StepShell index={8} stepKey="funds" done={stateOf("funds").done} summary={summaries.funds} open={open === "funds"} onToggle={() => setOpen(open === "funds" ? null : "funds")}>
         <div className="-mx-5 -my-5">
           <div className="border-b border-line px-5 py-4">
             <p className="text-[13px] text-fg-muted">Available balance</p>
@@ -324,7 +334,7 @@ export function StartWizard(props: Props) {
         </div>
       </StepShell>
 
-      <StepShell index={6} stepKey="creatives" done={stateOf("creatives").done} summary={summaries.creatives} open={open === "creatives"} onToggle={() => setOpen(open === "creatives" ? null : "creatives")}>
+      <StepShell index={9} stepKey="creatives" done={stateOf("creatives").done} summary={summaries.creatives} open={open === "creatives"} onToggle={() => setOpen(open === "creatives" ? null : "creatives")}>
         <CreativesStep mode={props.creativeMode} count={props.creativeCount} onSaved={() => advance("creatives")} />
       </StepShell>
 
@@ -342,7 +352,7 @@ export function StartWizard(props: Props) {
                 : `Finish ${props.steps.length - doneCount} more step${props.steps.length - doneCount === 1 ? "" : "s"} to start.`}
             </p>
             {!props.connected && ready && (
-              <p className="mt-2 text-[13px] text-brand">Your Meta ad account isn&apos;t linked yet. Anryh Labs links it for you, and then this button will work.</p>
+              <p className="mt-2 text-[13px] text-brand">Your Meta ad account isn&apos;t linked yet. Once we accept your partner request (step 2), this button will work.</p>
             )}
             {launchError && <p className="mt-2 text-[13px] text-bad">{launchError}</p>}
             <Button className="mt-4 bg-brand text-brand-fg hover:bg-brand/90" disabled={!ready || launching || !props.connected} onClick={launch}>

@@ -62,3 +62,11 @@ export function landingUrl(slug: string, appUrl = process.env.APP_URL || "http:/
   const partner = partnerPage(slug);
   return partner ? `${partner}#book` : `${appUrl.replace(/\/$/, "")}/${slug}`;
 }
+
+/**
+ * The link on the agent's ads: their own booking page when they chose to use it in Start here (no booking
+ * tracking there: no booking events to Meta, no booking numbers for Migz), else landingUrl.
+ */
+export function adLinkFor(agent: { slug: string; booking_choice?: string | null; own_booking_url?: string | null }, appUrl?: string) {
+  return agent.booking_choice === "own" && agent.own_booking_url ? agent.own_booking_url : landingUrl(agent.slug, appUrl);
+}
