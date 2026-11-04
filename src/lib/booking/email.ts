@@ -3,7 +3,8 @@ import { IANAZone } from "luxon";
 import type { Agent } from "@/lib/booking/data";
 import { confirmationEmail } from "@/lib/booking/confirmation-email";
 import { bookingIcs } from "@/lib/booking/ics";
-import { followUpEmail, leadEmail, triedCallEmail, type LeadEmailInput } from "@/lib/booking/lead-email";
+import { leadEmail, sequenceEmail, type LeadEmailInput } from "@/lib/booking/lead-email";
+import type { SequenceEmail, SequenceKey } from "@/lib/email-sequences";
 import { landingUrl, leadEmailSender, partnerPageUrl, partnerPhoto, prepareUrl } from "@/lib/booking/sites";
 
 // Booking emails, sent with Resend. Needs RESEND_API_KEY and BOOKING_EMAIL_FROM (an address on a domain
@@ -122,16 +123,21 @@ export function sendFormLeadEmail(input: { agent: Agent; leadId: string; prospec
   );
 }
 
-/** "Sorry I missed you": after the agent logs a call that didn't get through, once per lead or booking. */
-export function sendTriedCallEmail(input: { agent: Agent; subjectId: string; via: "instant_form" | "page" | "booking"; prospect: { name: string; email: string } }) {
-  return sendLeadNote({ agent: input.agent, idempotencyKey: `tried-call/${input.subjectId}`, to: input.prospect.email, utmMedium: "tried_call" }, (parts) =>
-    triedCallEmail({ ...parts, prospect: { name: input.prospect.name }, via: input.via, message: input.agent.followup_message }),
-  );
-}
-
-/** The nth 48-hour follow-up to a lead the agent hasn't reached (followups.ts decides when). */
-export function sendFollowUpEmail(input: { agent: Agent; leadId: string; n: number; via: "instant_form" | "page"; prospect: { name: string; email: string } }) {
-  return sendLeadNote({ agent: input.agent, idempotencyKey: `follow-up/${input.leadId}/${input.n}`, to: input.prospect.email, utmMedium: `follow_up_${input.n}` }, (parts) =>
-    followUpEmail({ ...parts, prospect: { name: input.prospect.name }, via: input.via }, input.n),
+/**
+ * The nth email (0-based) of one of the agent's automated sequences (email-sequences.ts), to a lead or a booked
+ * call. Each email of each sequence goes to a person once, even if a run is retried.
+ */
+export function sendSequenceEmail(input: {
+  agent: Agent;
+  subjectKey: string; // "lead:<id>" or "call:<id>"
+  sequence: SequenceKey;
+  index: number;
+  email: SequenceEmail;
+  via: "instant_form" | "page" | "booking";
+  prospect: { name: string; email: string };
+}) {
+  return sendLeadNote(
+    { agent: input.agent, idempotencyKey: `seq/${input.subjectKey}/${input.sequence}/${input.index}`, to: input.prospect.email, utmMedium: `${input.sequence}_${input.index + 1}` },
+    (parts) => sequenceEmail({ ...parts, prospect: { name: input.prospect.name }, via: input.via }, input.email),
   );
 }

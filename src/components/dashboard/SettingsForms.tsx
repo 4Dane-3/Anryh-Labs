@@ -3,7 +3,8 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { setCallButton, setGhostBookings, setMigzMode, setFollowUpEmails, updateSettings } from "@/app/dashboard/actions";
+import { setCallButton, setGhostBookings, setMigzMode, updateSettings } from "@/app/dashboard/actions";
+import Link from "next/link";
 import { displayPhone } from "@/lib/booking/call";
 import { Button, Label, Panel, PanelHeader, Switch, inputClass } from "@/components/dashboard/ui";
 
@@ -218,81 +219,20 @@ export function GhostBookingsForm({ on }: { on: boolean }) {
   );
 }
 
-/**
- * Follow-up emails: "sorry I missed you" when the agent logs a call that didn't get through (Clients, or the
- * Slack button), then up to 3 short follow-ups 48 hours apart while they stay unreached. Nothing goes out
- * until the agent taps Tried to call. Plain notes from the agent with their booking link.
- */
-export function FollowUpEmailsForm({ initial, ready }: { initial: { on: boolean; message: string }; ready: boolean }) {
-  const router = useRouter();
-  const [on, setOn] = useState(initial.on);
-  const [message, setMessage] = useState(initial.message);
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-  const [pending, startTransition] = useTransition();
-
-  const save = (nextOn: boolean) =>
-    startTransition(async () => {
-      setError(null);
-      setSaved(false);
-      const res = await setFollowUpEmails(nextOn, message);
-      if (!res.ok) {
-        setError(res.error);
-        setOn(initial.on);
-        return;
-      }
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
-      router.refresh();
-    });
-
+/** Automated emails moved to their own tab: Settings points there. */
+export function AutomatedEmailsLink({ on }: { on: boolean }) {
   return (
     <Panel>
-      <div className="flex items-start justify-between gap-4 px-5 py-4">
+      <div className="flex items-center justify-between gap-4 px-5 py-4">
         <div>
-          <h2 className="text-sm font-semibold text-fg">Follow-up emails</h2>
+          <h2 className="text-sm font-semibold text-fg">Automated emails</h2>
           <p className="mt-0.5 text-[13px] text-fg-muted">
-            Short, plain notes from you with a link to pick a time, written to land in their main inbox rather than promotions:
+            {on ? "On." : "Off."} The emails a lead gets after you tap Tried to call or Sent an email: what they say, how many, and when.
           </p>
-          <ul className="mt-1.5 list-disc space-y-1 pl-4 text-[13px] text-fg-muted">
-            <li>
-              <span className="text-fg">Missed call:</span> when you log &quot;Tried to call&quot; (in Clients, or the Slack button), they get &quot;Sorry I missed you&quot;. Once per person.
-            </li>
-            <li>
-              <span className="text-fg">Then every 48 hours:</span> if you still haven&apos;t reached them, up to 3 follow-ups, each at least 48 hours after their last email, during your daytime. The last one says it&apos;s the last.
-            </li>
-          </ul>
-          <p className="mt-1.5 text-[13px] text-fg-muted">Nothing is sent until you tap &quot;Tried to call&quot;, so leads you haven&apos;t called (or talked to but didn&apos;t mark) get no follow-ups. They stop as soon as someone books, you mark them reached, sold or not interested, or they reply to unsubscribe and you mark them not interested.</p>
-          {!ready && <p className="mt-1 text-[13px] text-fg-faint">Emails to leads aren&apos;t set up for your account yet (they need a sending address and a postal address). Ask Anryh Labs to turn them on.</p>}
-          {error && <p className="mt-1 text-[13px] text-bad">{error}</p>}
         </div>
-        <Switch
-          checked={on}
-          label="Follow-up emails"
-          disabled={pending}
-          onChange={(next) => {
-            setOn(next);
-            save(next);
-          }}
-        />
-      </div>
-      <div className="border-t border-line px-5 py-4">
-        <Label htmlFor="tried-call-message">Your own line in the missed-call email (optional)</Label>
-        <textarea
-          id="tried-call-message"
-          rows={2}
-          maxLength={300}
-          className={inputClass}
-          placeholder="e.g. I'm free most afternoons, or just reply with a good time."
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-        />
-        <div className="mt-2 flex items-center gap-3">
-          <Button size="sm" onClick={() => save(on)} disabled={pending || message === initial.message}>
-            {pending ? "Saving…" : "Save"}
-          </Button>
-          <Saved show={saved} />
-        </div>
+        <Link href="/dashboard/emails" className="shrink-0 text-[13px] font-medium text-brand hover:underline">
+          Edit emails
+        </Link>
       </div>
     </Panel>
   );
