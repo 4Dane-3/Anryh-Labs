@@ -690,3 +690,16 @@
 .site--glass .sb-input option {
   color: #12141a;
 }
+
+/* ---------- creative cycle ---------- */
+
+.site--glass .cc__step,
+.site--glass .cc__loop {
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  -webkit-backdrop-filter: blur(22px) saturate(1.25);
+  backdrop-filter: blur(22px) saturate(1.25);
+}
+.site--glass .cc__art {
+  background: rgb(11 26 62 / 0.28);
+}

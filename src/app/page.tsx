@@ -1,7 +1,7 @@
 import { DEMO_MAILTO, SiteFooter, SiteHeader, SiteShell } from "@/components/site/SiteChrome";
 import { GlassHero } from "@/components/site/GlassHero";
 import { Board } from "@/components/site/Board";
-import { Examples } from "@/components/site/Examples";
+import { CreativeCycle } from "@/components/site/CreativeCycle";
 import { Diagnose } from "@/components/site/Diagnose";
 import { SignalChain } from "@/components/site/SignalChain";
 import { BrainPreview } from "@/components/site/BrainPreview";
@@ -94,9 +94,12 @@ export default function Home() {
 
           <section className="sb-sec" aria-labelledby="creatives">
             <h2 className="sb-h2" id="creatives" data-reveal>
-              creative is one lever. it makes the video too.
+              10 to 13 ads at launch. better ones every cycle.
             </h2>
-            <Examples />
+            <CreativeCycle />
+            <p className="sb-note" style={{ marginTop: 16 }}>
+              illustration. how many ads launch depends on your daily budget and lead style.
+            </p>
           </section>
 
           <section className="sb-sec" id="how" aria-labelledby="how-h">
