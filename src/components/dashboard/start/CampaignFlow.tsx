@@ -147,7 +147,7 @@ export function CampaignFlow({
   const [daily, setDaily] = useState(initial.dailyCents);
   const [customDaily, setCustomDaily] = useState(DAILY_CHOICES.includes(initial.dailyCents as never) ? "" : String(initial.dailyCents / 100));
   const [autoRun, setAutoRun] = useState(initial.autoRun);
-  const renew = true; // campaigns are rolling: each 2-week cycle is followed by the next
+  const renew = true; // campaigns are rolling: each weekly cycle is followed by the next
   const [moreProducts, setMoreProducts] = useState(a.products.some((p) => !MAIN_PRODUCTS.includes(p)));
   const [step, setStep] = useState(0);
   const [dir, setDir] = useState(1);
@@ -380,7 +380,7 @@ export function CampaignFlow({
                 <p className="mt-1 text-[12px] leading-snug text-fg-muted">{lengthReason(daily)}</p>
               </div>
               <div className="rounded-xl border border-line px-4 py-3">
-                <p className="text-[12px] text-fg-muted">Ad funds for the first 2 weeks</p>
+                <p className="text-[12px] text-fg-muted">Ad funds for the first week</p>
                 <p className="text-2xl font-semibold tabular-nums text-fg">{whole(money.recommendedFundsCents)}</p>
                 <p className="mt-1 text-[12px] leading-snug text-fg-muted">
                   {whole(daily)} × {money.days} days = {whole(money.adSpendCents)}
@@ -564,7 +564,7 @@ function PlanScreen({
         </div>
       )}
       <p className="rounded-xl border border-line px-4 py-3 text-[12px] leading-relaxed text-fg-muted">
-        <span className="font-medium text-fg">Rolling, no end date.</span> Every 2 weeks the next cycle starts on its own from your balance at the same daily budget, and Migz plans it
+        <span className="font-medium text-fg">Rolling, no end date.</span> Every week the next cycle starts on its own from your balance at the same daily budget, and Migz plans it
         from what the last one learned. It never charges a card. {KEEP_FUNDED}
       </p>
     </div>

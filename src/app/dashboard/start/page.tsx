@@ -9,6 +9,7 @@ import { getFundsAddedCents } from "@/lib/dashboard/queries";
 import { displayPhone } from "@/lib/booking/call";
 import { landingUrl } from "@/lib/booking/sites";
 import { META_BUSINESS_ID } from "@/lib/meta/access";
+import { topUpDefaults } from "@/lib/auto-top-up";
 
 export const dynamic = "force-dynamic";
 
@@ -89,6 +90,19 @@ export default async function StartPage({ searchParams }: { searchParams: Promis
           hoursMissing: !state.hasHours,
         }}
         slack={{ current: agent.slack_user_id ?? "", inviteUrl: process.env.SLACK_INVITE_URL || null }}
+        autoTopUp={
+          integrations.stripe
+            ? {
+                on: !!agent.auto_topup,
+                card: agent.auto_topup_card ?? null,
+                amountCents: agent.auto_topup_amount_cents ?? topUpDefaults(agent.daily_budget_cents).amountCents,
+                belowCents: agent.auto_topup_below_cents ?? topUpDefaults(agent.daily_budget_cents).belowCents,
+                error: agent.auto_topup_error ?? null,
+                addedBeforeCents: fundsAdded,
+                dailyCents: start.initial.dailyCents,
+              }
+            : null
+        }
         migzMode={agent.migz_mode_chosen_at ? (agent.migz_mode === "auto" ? "auto" : "approve") : null}
       />
     </>

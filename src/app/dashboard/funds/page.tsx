@@ -7,6 +7,8 @@ import { getActiveBatch } from "@/lib/dashboard/batches";
 import { stripeTestMode } from "@/lib/stripe";
 import { usd } from "@/lib/dashboard/format";
 import { AddFunds, BudgetControls } from "@/components/dashboard/FundsControls";
+import { AutoTopUp } from "@/components/dashboard/AutoTopUp";
+import { topUpDefaults } from "@/lib/auto-top-up";
 import { Badge, EmptyState, NotConnected, PageHeader, Panel, PanelHeader } from "@/components/dashboard/ui";
 import { cn } from "@/lib/utils";
 
@@ -19,14 +21,15 @@ const KIND_LABEL: Record<string, string> = {
   referral_credit: "Referral credit",
 };
 
-export default async function FundsPage({ searchParams }: { searchParams: Promise<{ deposit?: string }> }) {
-  const [agent, { deposit }] = await Promise.all([requireSetUpAgent(), searchParams]);
+export default async function FundsPage({ searchParams }: { searchParams: Promise<{ deposit?: string; auto?: string }> }) {
+  const [agent, { deposit, auto }] = await Promise.all([requireSetUpAgent(), searchParams]);
   const [balance, transactions, batch, fundsAdded] = await Promise.all([
     getBalanceCents(agent.id),
     getTransactions(agent.id),
     getActiveBatch(agent.id),
     getFundsAddedCents(agent.id),
   ]);
+  const defaults = topUpDefaults(agent.daily_budget_cents);
   const daysLeft = agent.daily_budget_cents > 0 ? Math.floor(balance / agent.daily_budget_cents) : null;
 
   return (
@@ -50,6 +53,14 @@ export default async function FundsPage({ searchParams }: { searchParams: Promis
       {deposit === "canceled" && (
         <p className="mb-6 rounded-lg border border-line bg-ink-raised px-4 py-3 text-[13px] text-fg-muted">No payment was made. You can add funds whenever you&apos;re ready.</p>
       )}
+      {auto === "on" && (
+        <p className="mb-6 rounded-lg border border-good/30 bg-good/10 px-4 py-3 text-[13px] text-fg">
+          Card saved. Auto top-up turns on as soon as Stripe confirms it, usually within a few seconds; refresh if it hasn&apos;t yet.
+        </p>
+      )}
+      {auto === "canceled" && (
+        <p className="mb-6 rounded-lg border border-line bg-ink-raised px-4 py-3 text-[13px] text-fg-muted">No card was saved. Auto top-up is still off.</p>
+      )}
       {integrations.stripe && stripeTestMode() && (
         <p className="mb-6 rounded-lg border border-brand/30 bg-brand/[0.06] px-4 py-3 text-[13px] text-fg-muted">
           Payments are in Stripe test mode: no real money moves. Pay with card 4242 4242 4242 4242, any future date and any CVC.
@@ -71,7 +82,7 @@ export default async function FundsPage({ searchParams }: { searchParams: Promis
               {agent.ads_paused
                 ? "Your ads are paused."
                 : batch
-                  ? `Free to use. This 2-week cycle has its ${usd(batch.budget_cents)} set aside; what it doesn't spend comes back here when it ends on ${batch.ends_on}. The next cycle starts from this balance, so keep at least ${usd(batch.budget_cents)} here to keep your campaign rolling.`
+                  ? `Free to use. This week's cycle has its ${usd(batch.budget_cents)} set aside; what it doesn't spend comes back here when it ends on ${batch.ends_on}. The next cycle starts from this balance, so keep at least ${usd(batch.budget_cents)} here to keep your campaign rolling.`
                   : daysLeft !== null
                     ? `Covers about ${daysLeft} day${daysLeft === 1 ? "" : "s"} of ads at ${usd(agent.daily_budget_cents)} a day.`
                     : null}
@@ -89,6 +100,22 @@ export default async function FundsPage({ searchParams }: { searchParams: Promis
           />
         </Panel>
       </div>
+
+      {integrations.stripe && (
+        <div className="mt-3">
+          <AutoTopUp
+            state={{
+              on: !!agent.auto_topup,
+              card: agent.auto_topup_card ?? null,
+              amountCents: agent.auto_topup_amount_cents ?? defaults.amountCents,
+              belowCents: agent.auto_topup_below_cents ?? defaults.belowCents,
+              error: agent.auto_topup_error ?? null,
+              addedBeforeCents: fundsAdded,
+              dailyCents: agent.daily_budget_cents,
+            }}
+          />
+        </div>
+      )}
 
       <Panel className="mt-3">
         <PanelHeader title="History" description="Deposits, fees, and money set aside for (and returned from) your campaign batches." />

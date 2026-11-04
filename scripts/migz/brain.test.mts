@@ -242,12 +242,12 @@ assert.deepEqual(campaignLabels([null], [...three]), ["Final expense + Mortgage 
 assert.deepEqual(campaignLabels([null]), ["Booked calls"], "no focus at all");
 assert.deepEqual(campaignLabels(["final_expense", "mortgage_protection", "final_expense"]), ["Final expense A", "Mortgage protection", "Final expense B"], "older batches with two on one topic");
 assert.equal(perCampaignCents(2500, 2), 1250);
-assert.equal(MIN_DEPOSIT_CENTS, 100_000, "the least a deposit can be is $1,000");
-assert.equal(adSpendCents(MIN_DEPOSIT_CENTS), 80_000); assert.equal(MIN_AD_BALANCE_CENTS, 80_000);
+assert.equal(MIN_DEPOSIT_CENTS, 50_000, "the least a deposit can be is $500");
+assert.equal(adSpendCents(MIN_DEPOSIT_CENTS), 40_000); assert.equal(MIN_AD_BALANCE_CENTS, 40_000);
 const { MIN_TOP_UP_CENTS, SETUP_FEE_CENTS } = await import("@/lib/campaign");
-assert.equal(MIN_TOP_UP_CENTS, MIN_DEPOSIT_CENTS, "every deposit is at least $1,000");
+assert.equal(MIN_TOP_UP_CENTS, MIN_DEPOSIT_CENTS, "every deposit is at least $500");
 assert.equal(MIN_DAILY_CENTS, 5000, "campaigns run at $50/day or more");
-assert.ok(MIN_AD_BALANCE_CENTS >= MIN_DAILY_CENTS * TEST_DAYS, "the minimum deposit, after the fee, covers $50/day for a 2-week cycle");
+assert.ok(MIN_AD_BALANCE_CENTS >= MIN_DAILY_CENTS * 7, "the minimum deposit, after the fee, covers $50/day for a week");
 assert.equal(SETUP_FEE_CENTS, 75_000);
 assert.equal(depositFor(28_000), 35_000); assert.equal(depositFor(42_000), 52_500);
 const cand = (id: string, creative: string | null, topic: string | null) => ({ meta_ad_id: id, creative_id: creative, topic });
@@ -1218,7 +1218,7 @@ assert.ok(bd(fitted) <= 15 && fitted.body_shots.length >= 1, `a 30s brief fallin
 assert.equal(fitted.body_shots.at(-1)!.prompt, "Moment 3", "it keeps the last shot for the end card");
 // The campaign start flow: 2-week rolling cycles, $500 funds steps, creative mix, prices, expected results
 const cp = await import("@/lib/campaign-plan");
-assert.deepEqual([2000, 7499, 7500, 14_999, 15_000, 50_000].map(() => cp.recommendedDays()), [14, 14, 14, 14, 14, 14], "rolling: every cycle is 2 weeks, whatever the daily budget");
+assert.deepEqual([2000, 7499, 7500, 14_999, 15_000, 50_000].map(() => cp.recommendedDays()), [7, 7, 7, 7, 7, 7], "rolling: every cycle is a week, whatever the daily budget");
 assert.deepEqual([1, 50_000, 50_001, 140_000].map(cp.roundUpToFundsStep), [50_000, 50_000, 100_000, 150_000], "funds round up to the next $500");
 assert.deepEqual(cp.creativeMix(5000), { total: 8, videos: 2, images: 6, extraVideos: 0 }, "about 8 under $75/day");
 assert.deepEqual(cp.creativeMix(10_000), { total: 10, videos: 2, images: 8, extraVideos: 0 }, "10 at $100/day");
@@ -1227,9 +1227,9 @@ assert.deepEqual(cp.creativeMix(20_000), { total: 15, videos: 5, images: 10, ext
 assert.deepEqual([0, 1, 2, 3].map((n) => cp.videoPriceFor("seedance_15", n)), [600, 600, 480, 480], "the included two at list, extras 20% off");
 assert.equal(cp.videoPriceFor("seedance_30", 2), 960); assert.equal(cp.videoPriceFor("standard", 4), 0, "extra Standard videos: undecided, free for now");
 const m100 = cp.campaignMoney({ dailyCents: 10_000, intent: "medium_high", tier: "standard" });
-assert.deepEqual([m100.days, m100.adSpendCents, m100.videoCents, m100.recommendedFundsCents], [14, 140_000, 0, 150_000], "$100/day: 14 days, $1,400 of ads, $1,500 of funds");
+assert.deepEqual([m100.days, m100.adSpendCents, m100.videoCents, m100.recommendedFundsCents], [7, 70_000, 0, 100_000], "$100/day: a week, $700 of ads, $1,000 of funds");
 const m200 = cp.campaignMoney({ dailyCents: 20_000, intent: "medium_high", tier: "seedance_15" });
-assert.deepEqual([m200.days, m200.videoCents, m200.recommendedFundsCents], [14, 600 * 2 + 480 * 3, 300_000], "$200/day on Seedance: 2 videos at $6 and 3 at $4.80, a 2-week cycle");
+assert.deepEqual([m200.days, m200.videoCents, m200.recommendedFundsCents], [7, 600 * 2 + 480 * 3, 150_000], "$200/day on Seedance: 2 videos at $6 and 3 at $4.80, a week");
 assert.equal(cp.campaignMoney({ dailyCents: 10_000, intent: "low_medium", tier: "standard" }).sets.length, 2, "instant forms add a second ad set with its own mix");
 const ans = cp.cleanAnswers({ products: ["final_expense", "nope"], ageMin: 85, ageMax: 50, languages: ["en", "fr"], underwriting: "simplified", healthIssuesOk: "yes" });
 assert.deepEqual([ans.products, ans.ageMin, ans.ageMax, ans.languages, ans.healthIssuesOk], [["final_expense"], 50, 85, ["en"], null], "answers are cleaned, ages kept in order");
@@ -1251,8 +1251,8 @@ assert.equal(cp.expectedResults({ answers: plain, states: ["TX", "FL", "GA"], in
 assert.equal(cp.recommendedDaily(9000), 13_000, "10 booked calls a week at $90: about $130/day");
 const { dailyBatch } = await import("@/lib/batch");
 const db1 = dailyBatch(5000, ["final_expense"], { spentCents: 0, bookedCalls: 0, batches: 0, byTopic: {} });
-assert.deepEqual([db1.days, db1.dailyCents, db1.key, db1.collectDays], [14, 5000, "focused", 7], "a daily budget becomes a rolling 2-week cycle");
-assert.equal(dailyBatch(20_000, ["final_expense", "term_life"], { spentCents: 0, bookedCalls: 0, batches: 0, byTopic: {} }).collectDays, 7, "2-week cycle: revise after 7");
+assert.deepEqual([db1.days, db1.dailyCents, db1.key, db1.collectDays], [7, 5000, "focused", 4], "a daily budget becomes a rolling weekly cycle");
+assert.equal(dailyBatch(20_000, ["final_expense", "term_life"], { spentCents: 0, bookedCalls: 0, batches: 0, byTopic: {} }).collectDays, 4, "a weekly cycle: the first 4 days collect");
 // Age wording and claims the agent's answers don't back
 const gw = await import("@/lib/migz/guardrails");
 assert.equal(gw.checkCopy("If you're between 50 and 85, plan ahead.", "Coverage for people 50–85", "Seniors 60+"), null, "a range or a condition is fine");
@@ -1635,5 +1635,24 @@ assert.equal(sites.adLinkFor({ slug: "jane-doe", booking_choice: "own", own_book
 assert.equal(sites.adLinkFor({ slug: "jane-doe", booking_choice: "ours", own_booking_url: "https://calendly.com/jane/call" }, "https://anryhlabs.com"), "https://anryhlabs.com/jane-doe");
 assert.equal(sites.adLinkFor({ slug: "jane-doe", booking_choice: null }, "https://anryhlabs.com"), "https://anryhlabs.com/jane-doe", "no choice yet: their page here");
 ok("Start here: ad account IDs and Page links read however they're pasted (IDs, act_, Ads Manager links, Page links and IDs); ads link to the agent's own booking page only when they chose it");
+
+// Auto top-up: when the saved card is charged, and never twice in a row
+const tu = await import("@/lib/auto-top-up");
+const tuNow = new Date("2026-11-08T12:00:00Z");
+const tuState = { on: true, hasCard: true, error: null, freeBalanceCents: 20_000, belowCents: 35_000, amountCents: 50_000, lastAt: null };
+assert.deepEqual(tu.topUpDue(tuState, tuNow), { due: true }, "$200 left, level $350: charge");
+assert.deepEqual(tu.topUpDue({ ...tuState, freeBalanceCents: 35_000 }, tuNow), { due: false, why: "funded" }, "at the level: not yet");
+assert.deepEqual(tu.topUpDue({ ...tuState, lastAt: "2026-11-08T00:00:00Z" }, tuNow), { due: false, why: "cooldown" }, "12 hours after the last attempt: wait");
+assert.deepEqual(tu.topUpDue({ ...tuState, lastAt: "2026-11-07T15:00:00Z" }, tuNow), { due: true }, "21 hours after: allowed again");
+assert.deepEqual(tu.topUpDue({ ...tuState, error: "Card declined" }, tuNow), { due: false, why: "failed" }, "a declined card stays paused until a new one is saved");
+assert.deepEqual(tu.topUpDue({ ...tuState, hasCard: false }, tuNow), { due: false, why: "no_card" });
+assert.deepEqual(tu.topUpDue({ ...tuState, on: false }, tuNow), { due: false, why: "off" });
+assert.deepEqual(tu.topUpDefaults(5000), { amountCents: 50_000, belowCents: 35_000 }, "$50/day: add $500 (a week of ads after the fee) whenever under a week ($350) is left");
+assert.deepEqual(tu.topUpDefaults(10_000), { amountCents: 100_000, belowCents: 70_000 }, "$100/day: $1,000 when under $700");
+assert.equal(tu.cleanTopUp({ amountCents: 75_000, belowCents: 35_000 }), "Top up in $500 steps, from $500 to $10,000.", "only $500 steps");
+assert.equal(tu.cleanTopUp({ amountCents: 50_000, belowCents: 5_000 }), "Pick a level between $100 and $5,000.");
+assert.deepEqual(tu.cleanTopUp({ amountCents: "100000", belowCents: 50_000 }), { amountCents: 100_000, belowCents: 50_000 });
+assert.match(tu.topUpConsent(50_000, 35_000), /charge my saved card \$500 \(including the Anryh Labs fee\) whenever my ad balance falls below \$350, at most once every 20 hours/);
+ok("auto top-up: charges the saved card when the free balance drops below the agent's level, at most once every 20 hours, never after a decline until a new card; defaults to a week of ads; $500 steps; the authorization says exactly that");
 
 console.log(`\nALL ${n} UNIT GROUPS PASSED`);

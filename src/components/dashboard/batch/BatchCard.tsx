@@ -22,7 +22,7 @@ function keepNote(batch: Batch, balanceCents: number, zone: string, unspentCents
   if (batch.status === "ended") {
     return { note: batch.renew_blocked ?? "Your next cycle starts within the hour.", warn: true };
   }
-  if (!batch.renew) return { note: `Rolling is off, so your campaign stops when this cycle ends. Turn it on and the next ${whole(need)} 2-week cycle starts from your balance, with no gap. It never charges a card.`, warn: false };
+  if (!batch.renew) return { note: `Rolling is off, so your campaign stops when this cycle ends. Turn it on and the next ${whole(need)} weekly cycle starts from your balance, with no gap. It never charges a card.`, warn: false };
   const next = batch.ends_on ? DateTime.fromISO(batch.ends_on, { zone }).plus({ days: 1 }).toFormat("LLL d") : "when it ends";
   // The unspent part of this batch comes back before the next one starts
   const short = need - (balanceCents + unspentCents);
@@ -55,7 +55,7 @@ export function BatchCard({
     <div className="flex h-full flex-col">
       <PanelHeader
         title={active ? "Your rolling campaign" : "Campaign cycles"}
-        description={active ? `${TITLES[active.option]} · ${range(active, timezone)}` : "Campaigns roll in 2-week cycles that Migz plans and runs, while your balance covers them."}
+        description={active ? `${TITLES[active.option]} · ${range(active, timezone)}` : "Campaigns roll week to week, planned and run by Migz, while your balance covers them."}
       />
       {active && progress ? (
         <div className="space-y-4 px-5 py-4">

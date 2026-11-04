@@ -10,6 +10,7 @@ import { activateBatch } from "@/lib/dashboard/start-batch";
 import { renewalGate, RENEW_WINDOW_DAYS } from "@/lib/renew-core";
 import { DEFAULT_INTENT, DEFAULT_VIDEO_TIER, isIntentLevel, isVideoTier } from "@/lib/ad-options";
 import { campaignMoney } from "@/lib/campaign-plan";
+import { autoTopUp } from "@/lib/dashboard/top-up";
 
 export type RenewOutcome = "renewed" | "waiting" | "stopped" | "none";
 
@@ -34,6 +35,16 @@ export async function renewForAgent(agent: Agent, now = new Date()): Promise<Ren
   const { count } = await supabaseAdmin.from("campaign_batches").select("id", { count: "exact", head: true }).eq("renewed_from", batch.id);
   if (count) return "none";
 
+  // The next week isn't covered yet: an agent with auto top-up gets their card charged first
+  const videoCents = campaignMoney({
+    dailyCents: batch.daily_cents,
+    intent: isIntentLevel(agent.intent_level) ? agent.intent_level : DEFAULT_INTENT,
+    tier: isVideoTier(agent.video_tier) ? agent.video_tier : DEFAULT_VIDEO_TIER,
+  }).videoCents;
+  if (agent.auto_topup && (await getBalanceCents(agent.id)) < batch.budget_cents + videoCents) {
+    await autoTopUp(agent).catch((e) => console.error("auto top-up before renewal failed", agent.slug, e));
+  }
+
   const verdict = renewalGate({
     batch,
     agent: {
@@ -44,11 +55,7 @@ export async function renewForAgent(agent: Agent, now = new Date()): Promise<Ren
       focusCount: cleanFocus(agent.ad_focus).length,
     },
     balanceCents: await getBalanceCents(agent.id),
-    videoCents: campaignMoney({
-      dailyCents: batch.daily_cents,
-      intent: isIntentLevel(agent.intent_level) ? agent.intent_level : DEFAULT_INTENT,
-      tier: isVideoTier(agent.video_tier) ? agent.video_tier : DEFAULT_VIDEO_TIER,
-    }).videoCents,
+    videoCents,
     now,
   });
   if (verdict.action === "skip") return "none";

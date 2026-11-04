@@ -150,6 +150,7 @@ export default function TermsPage() {
             <H2 id="ad-funds-and-fees">7. ad funds and fees</H2>
             <ul className="list-disc space-y-2 pl-5">
               <li>ad spend is paid from the balance you add. migz ai will not spend more than your daily budget, and ads are paused if your balance cannot cover a day of spend.</li>
+              <li>if you turn on auto top-up, you authorize us to charge your saved card the amount you chose whenever your ad balance falls below the level you chose, at most once every 20 hours, until you turn it off or remove the card. each top-up is a deposit like any other, with the same fee.</li>
               <li>money spent on ads is paid to meta and cannot be refunded by us once spent.</li>
               <li>our fees are the one-time setup fee and the fee on the ad funds you add, as shown on our <Link href="/pricing" className="font-medium text-slate-900 underline">pricing page</Link> and in your dashboard before you pay, or as we agree with you in writing. we will not charge fees you have not agreed to.</li>
               <li>you can ask for your unused balance back by email after you stop using migz ai. we return it less amounts already spent or owed to us, and subject to our payment processor and the law.</li>

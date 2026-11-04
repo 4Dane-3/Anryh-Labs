@@ -83,6 +83,14 @@ export type Agent = {
   meta_page_requested?: string | null; // the Page they shared with us, until it's linked
   meta_access_requested_at?: string | null;
   migz_mode_chosen_at?: string | null; // when they chose automatic or ask-first in Start here
+  // Auto top-up (all missing before its migration): charge the saved card when the free balance drops below a level
+  auto_topup?: boolean;
+  auto_topup_amount_cents?: number | null;
+  auto_topup_below_cents?: number | null;
+  stripe_payment_method_id?: string | null;
+  auto_topup_card?: string | null; // "Visa ending 4242"
+  auto_topup_last_at?: string | null;
+  auto_topup_error?: string | null; // why the last charge failed; it stays paused until a card is saved again
 };
 
 export type Booking = {

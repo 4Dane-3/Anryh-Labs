@@ -10,6 +10,7 @@ import { SETUP_FEE_CENTS } from "@/lib/campaign";
 import { CampaignFlow, type CampaignStart } from "@/components/dashboard/start/CampaignFlow";
 import { listCampaignTopics, type CampaignSlot } from "@/lib/batch";
 import { AddFunds } from "@/components/dashboard/FundsControls";
+import { AutoTopUp, type AutoTopUpState } from "@/components/dashboard/AutoTopUp";
 import { ProfileForm, type Profile } from "@/components/dashboard/LandingEditor";
 import { Button, Panel } from "@/components/dashboard/ui";
 import { FUNDS_STEP_CENTS, KEEP_FUNDED, type OwnNumbers } from "@/lib/campaign-plan";
@@ -49,6 +50,7 @@ type Props = {
   booking: { choice: "ours" | "own" | null; ownUrl: string; pageUrl: string; hoursMissing: boolean };
   slack: { current: string; inviteUrl: string | null };
   migzMode: "auto" | "approve" | null; // null until chosen here
+  autoTopUp: AutoTopUpState | null; // null without Stripe
 };
 
 const TITLES: Record<string, { title: string; blurb: string }> = {
@@ -59,7 +61,7 @@ const TITLES: Record<string, { title: string; blurb: string }> = {
   page: { title: "Your booking page", blurb: "Where your ads send people: your page here, or your own." },
   slack: { title: "Slack", blurb: "Where Migz tells you about new leads and bookings, and sends your morning summary." },
   plan: { title: "Plan your first campaign", blurb: "A few quick questions and a daily budget. Migz sets how long it runs and makes the ads." },
-  funds: { title: "Add funds", blurb: `Money for your Meta ads, in ${usd(FUNDS_STEP_CENTS)} steps. Campaigns roll in 2-week cycles while your balance covers them.` },
+  funds: { title: "Add funds", blurb: `Money for your Meta ads, in ${usd(FUNDS_STEP_CENTS)} steps. Campaigns roll week to week while your balance covers them.` },
   creatives: { title: "Videos and images", blurb: "Let Migz make your ads' videos and photos, or bring your own." },
   mode: { title: "How Migz runs your ads", blurb: "On its own within your budget, or asking you before every new ad and change." },
 };
@@ -321,12 +323,17 @@ export function StartWizard(props: Props) {
             <p className="mt-1 text-3xl font-semibold tracking-tight">{usd(props.balanceCents, { cents: true })}</p>
             {props.plan.fundsNeeded && (
               <p className="mt-1 text-[13px] text-fg-muted">
-                Your first 2-week cycle needs {usd(props.plan.fundsNeeded.cents, { cents: false })} of ad funds. We recommend {usd(props.plan.fundsNeeded.recommendedCents, { cents: false })} (the next {usd(FUNDS_STEP_CENTS, { cents: false })} step): treat it as the minimum.
+                Your first week needs {usd(props.plan.fundsNeeded.cents, { cents: false })} of ad funds. We recommend {usd(props.plan.fundsNeeded.recommendedCents, { cents: false })} (the next {usd(FUNDS_STEP_CENTS, { cents: false })} step): treat it as the minimum.
               </p>
             )}
             <p className="mt-2 text-[13px] text-fg-muted">{KEEP_FUNDED}</p>
           </div>
           <AddFunds addedBeforeCents={props.fundsAddedCents} />
+          {props.autoTopUp && (
+            <div className="border-t border-line [&>section]:rounded-none [&>section]:border-0 [&>section]:bg-transparent [&>section]:shadow-none">
+              <AutoTopUp state={props.autoTopUp} />
+            </div>
+          )}
           {!props.stripeConnected && (
             <p className="border-t border-line px-6 py-4 text-[13px] text-fg-muted">
               Card payments aren&apos;t switched on yet. To add funds now, email{" "}

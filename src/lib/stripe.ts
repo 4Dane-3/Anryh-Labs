@@ -131,37 +131,120 @@ async function openCheckout(
 
 /**
  * Records a paid deposit: +deposit and -fee (and +1% to the referrer, if any), in one insert keyed by
- * the Checkout session id, so a webhook Stripe sends twice (it retries) is only ever counted once and
- * the credit can't be given without the deposit. Returns false when it was already recorded.
+ * the Checkout session id (or, for an auto top-up, the PaymentIntent id), so a webhook Stripe sends twice
+ * (it retries) is only ever counted once and the credit can't be given without the deposit. Returns false
+ * when it was already recorded.
  */
-export async function recordDeposit(session: Stripe.Checkout.Session) {
-  const agentId = session.metadata?.agent_id ?? session.client_reference_id;
-  const cents = session.amount_total ?? Number(session.metadata?.deposit_cents);
-  if (!agentId || !Number.isInteger(cents) || cents <= 0) throw new Error(`Checkout session ${session.id} has no agent or amount`);
-  // The fee Checkout showed (stored in the session when it opened); older sessions don't have it, so work it out
+async function recordFunds(input: { agentId: string; cents: number; key: string; metadata: Stripe.Metadata | null; customer: string | null; description: string }) {
+  const { agentId, cents, key } = input;
+  // The fee shown when the payment opened (stored in its metadata); older sessions don't have it, so work it out
   const count = (v: string | undefined) => (v !== undefined && /^\d+$/.test(v) ? Number(v) : null);
-  const storedFee = count(session.metadata?.fee_cents);
-  const addedBefore = count(session.metadata?.added_before_cents) ?? (await getFundsAddedCents(agentId, session.id));
+  const storedFee = count(input.metadata?.fee_cents);
+  const addedBefore = count(input.metadata?.added_before_cents) ?? (await getFundsAddedCents(agentId, key));
   const fee = storedFee !== null && storedFee <= cents ? storedFee : feeCents(cents, addedBefore);
-  const customer = typeof session.customer === "string" ? session.customer : session.customer?.id;
   const rows: WalletRow[] = [
-    { agent_id: agentId, kind: "deposit", amount_cents: cents, status: "completed", description: "Deposit (card)", external_id: session.id },
-    { agent_id: agentId, kind: "fee", amount_cents: -fee, status: "completed", description: `Anryh Labs fee (${feeLabel(cents, addedBefore)})`, external_id: `${session.id}:fee` },
+    { agent_id: agentId, kind: "deposit", amount_cents: cents, status: "completed", description: input.description, external_id: key },
+    { agent_id: agentId, kind: "fee", amount_cents: -fee, status: "completed", description: `Anryh Labs fee (${feeLabel(cents, addedBefore)})`, external_id: `${key}:fee` },
   ];
-  const referral = await referralRowFor({ agentId, depositCents: cents, sessionId: session.id, customerId: customer ?? null });
+  const referral = await referralRowFor({ agentId, depositCents: cents, sessionId: key, customerId: input.customer });
   let { error } = await supabaseAdmin.from("wallet_transactions").insert(referral ? [...rows, referral] : rows);
   if (error && error.code !== "23505" && referral) {
     // The credit must never cost the agent their deposit: record the deposit alone and tell staff
     console.error("referral credit row failed, recording the deposit without it", error.message);
     ({ error } = await supabaseAdmin.from("wallet_transactions").insert(rows));
-    if (!error) await alertAdmin(`A ${usd(cents)} deposit was recorded but its ${usd(referral.amount_cents)} referral credit failed (session ${session.id}). Add it by hand.`);
+    if (!error) await alertAdmin(`A ${usd(cents)} deposit was recorded but its ${usd(referral.amount_cents)} referral credit failed (${key}). Add it by hand.`);
   }
   if (error?.code === "23505") return false; // unique external_id: already recorded
   if (error) throw new Error(`Couldn't record the deposit: ${error.message}`);
   // Remember the customer Checkout created, for this agent's next deposit (never overwrite an existing one)
-  if (customer) {
-    await supabaseAdmin.from("agents").update({ stripe_customer_id: customer }).eq("id", agentId).is("stripe_customer_id", null);
+  if (input.customer) {
+    await supabaseAdmin.from("agents").update({ stripe_customer_id: input.customer }).eq("id", agentId).is("stripe_customer_id", null);
   }
+  return true;
+}
+
+/** A paid Checkout deposit (the webhook's checkout.session.completed). */
+export async function recordDeposit(session: Stripe.Checkout.Session) {
+  const agentId = session.metadata?.agent_id ?? session.client_reference_id;
+  const cents = session.amount_total ?? Number(session.metadata?.deposit_cents);
+  if (!agentId || !Number.isInteger(cents) || cents <= 0) throw new Error(`Checkout session ${session.id} has no agent or amount`);
+  const customer = typeof session.customer === "string" ? session.customer : (session.customer?.id ?? null);
+  return recordFunds({ agentId, cents, key: session.id, metadata: session.metadata, customer, description: "Deposit (card)" });
+}
+
+/** A succeeded auto top-up charge (charged here, or the webhook's payment_intent.succeeded). */
+export async function recordAutoTopUp(pi: Stripe.PaymentIntent) {
+  const agentId = pi.metadata?.agent_id;
+  if (!agentId || pi.metadata?.kind !== "ad_funds" || pi.metadata?.auto !== "1" || pi.status !== "succeeded") return false;
+  const customer = typeof pi.customer === "string" ? pi.customer : (pi.customer?.id ?? null);
+  return recordFunds({ agentId, cents: pi.amount_received || pi.amount, key: pi.id, metadata: pi.metadata, customer, description: "Auto top-up (card)" });
+}
+
+/** A top-up that failed after it started (a bank debit returned): pause auto top-up and tell staff. */
+export async function recordAutoTopUpFailure(pi: Stripe.PaymentIntent) {
+  const agentId = pi.metadata?.agent_id;
+  if (!agentId) return;
+  const reason = (pi.last_payment_error?.message ?? "The payment failed.").slice(0, 300);
+  await supabaseAdmin.from("agents").update({ auto_topup_error: reason }).eq("id", agentId);
+  await alertAdmin(`An auto top-up of ${usd(pi.amount)} failed after it started (agent ${agentId}): ${reason}`);
+}
+
+/**
+ * A Checkout page that saves a card for auto top-up (setup mode: nothing is charged). The agent's chosen
+ * amount and level, and the words they agreed to, ride along in the session; the webhook turns it on.
+ */
+export async function createAutoTopUpSetup(input: CheckoutFor & { amountCents: number; belowCents: number; consent: string }) {
+  // Setup mode needs a customer to attach the card to: their deposits' one, or a new one saved now
+  let customer = input.customerId;
+  if (!customer) {
+    customer = (await stripe().customers.create({ email: input.email, metadata: { agent_id: input.agentId } })).id;
+    await supabaseAdmin.from("agents").update({ stripe_customer_id: customer }).eq("id", input.agentId).is("stripe_customer_id", null);
+  }
+  const session = await stripe().checkout.sessions.create({
+    mode: "setup",
+    customer,
+    currency: "usd",
+    // Cards only (and Link, which saves a card): buy-now-pay-later and bank debits don't suit automatic top-ups.
+    // Stripe dropped payment_method_types for Checkout; excluding is what's left (missing from the SDK's types)
+    ...({ excluded_payment_method_types: ["klarna", "cashapp", "us_bank_account", "affirm", "amazon_pay"] } as object),
+    client_reference_id: input.agentId,
+    metadata: { agent_id: input.agentId, kind: "auto_topup_setup", amount_cents: String(input.amountCents), below_cents: String(input.belowCents), consent: input.consent.slice(0, 480) },
+    setup_intent_data: { metadata: { agent_id: input.agentId, kind: "auto_topup_setup" } },
+    custom_text: { submit: { message: input.consent.slice(0, 1200) } },
+    success_url: `${input.appUrl}/dashboard/funds?auto=on`,
+    cancel_url: `${input.appUrl}/dashboard/funds?auto=canceled`,
+  });
+  if (!session.url) throw new Error("Stripe didn't return a checkout link.");
+  return session.url;
+}
+
+/** The webhook's checkout.session.completed for a saved card: turns auto top-up on with the agent's choices. */
+export async function recordAutoTopUpSetup(session: Stripe.Checkout.Session) {
+  const agentId = session.metadata?.agent_id ?? session.client_reference_id;
+  const setupId = typeof session.setup_intent === "string" ? session.setup_intent : session.setup_intent?.id;
+  if (!agentId || !setupId) throw new Error(`Setup session ${session.id} has no agent or setup intent`);
+  const intent = await stripe().setupIntents.retrieve(setupId, { expand: ["payment_method"] });
+  const pm = intent.payment_method as Stripe.PaymentMethod | null;
+  if (intent.status !== "succeeded" || !pm) return false;
+  if (pm.type !== "card" && pm.type !== "link") {
+    await supabaseAdmin.from("agents").update({ auto_topup_error: "Auto top-up needs a card. Save a card instead." }).eq("id", agentId);
+    return false;
+  }
+  const card = pm.card ? `${pm.card.brand.replace(/^\w/, (c) => c.toUpperCase())} ending ${pm.card.last4}` : "Saved card";
+  const amount = Number(session.metadata?.amount_cents);
+  const below = Number(session.metadata?.below_cents);
+  const { error } = await supabaseAdmin
+    .from("agents")
+    .update({
+      stripe_payment_method_id: pm.id,
+      auto_topup_card: card,
+      auto_topup: true,
+      auto_topup_error: null,
+      ...(Number.isInteger(amount) && amount > 0 ? { auto_topup_amount_cents: amount } : {}),
+      ...(Number.isInteger(below) && below > 0 ? { auto_topup_below_cents: below } : {}),
+    })
+    .eq("id", agentId);
+  if (error) throw new Error(`Couldn't save the auto top-up card: ${error.message}`);
   return true;
 }
 
@@ -245,24 +328,29 @@ export async function recordReversal(input: { sessionId: string; key: string; am
   return { agentId: deposit.agent_id, referrerId: credit?.agent_id ?? null, ...share };
 }
 
-/** The ad-funds Checkout session behind a charge, or null when the charge isn't a deposit. */
-async function sessionForCharge(charge: Stripe.Charge) {
+/**
+ * The key a charge's deposit was recorded under: its ad-funds Checkout session id, or, for an auto top-up
+ * (no Checkout), its PaymentIntent id. Null when the charge isn't a deposit.
+ */
+async function depositKeyForCharge(charge: Stripe.Charge) {
   const pi = typeof charge.payment_intent === "string" ? charge.payment_intent : charge.payment_intent?.id;
   if (!pi) return null;
   const { data } = await stripe().checkout.sessions.list({ payment_intent: pi, limit: 1 });
   const session = data[0];
-  return session?.metadata?.kind === "ad_funds" ? session : null;
+  if (session) return session.metadata?.kind === "ad_funds" ? session.id : null;
+  const intent = await stripe().paymentIntents.retrieve(pi);
+  return intent.metadata?.kind === "ad_funds" && intent.metadata?.auto === "1" ? intent.id : null;
 }
 
 /** For charge.refunded / charge.refund.updated: records every succeeded refund on a deposit charge (each once). */
 export async function reconcileRefunds(charge: Stripe.Charge) {
-  const session = await sessionForCharge(charge);
-  if (!session) return 0;
+  const key = await depositKeyForCharge(charge);
+  if (!key) return 0;
   const refunds = await stripe().refunds.list({ charge: charge.id, limit: 100 });
   let recorded = 0;
   for (const r of refunds.data) {
     if (r.status !== "succeeded") continue;
-    if (await recordReversal({ sessionId: session.id, key: r.id, amountCents: r.amount, reason: "refund" })) recorded++;
+    if (await recordReversal({ sessionId: key, key: r.id, amountCents: r.amount, reason: "refund" })) recorded++;
   }
   return recorded;
 }
@@ -272,10 +360,10 @@ export async function recordDispute(dispute: Stripe.Dispute, closed: boolean) {
   if (closed && dispute.status !== "won") return null; // lost: the money already came out when it opened
   const chargeId = typeof dispute.charge === "string" ? dispute.charge : dispute.charge.id;
   const charge = await stripe().charges.retrieve(chargeId);
-  const session = await sessionForCharge(charge);
-  if (!session) return null;
+  const depositKey = await depositKeyForCharge(charge);
+  if (!depositKey) return null;
   const moved = await recordReversal({
-    sessionId: session.id,
+    sessionId: depositKey,
     key: closed ? `${dispute.id}:won` : dispute.id,
     amountCents: dispute.amount,
     reason: closed ? "chargeback_won" : "chargeback",

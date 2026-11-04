@@ -30,11 +30,11 @@ export const MAX_DAILY_CENTS = 100_000;
 
 // Anryh Labs keeps 20% of each deposit; the rest is ad spend. Once an agent has added $20,000 in all, the fee on
 // everything they add after that is 12% (the part of a deposit that crosses the line is split). The least
-// a deposit can be is $1,000: after the 20% fee it covers $50/day (the lowest daily budget) for a 2-week cycle.
+// a deposit can be is $500: after the 20% fee it covers $50/day (the lowest daily budget) for a 1-week cycle.
 export const FEE_RATE = 0.2;
 export const LOW_FEE_RATE = 0.12;
 export const LOW_FEE_AFTER_CENTS = 2_000_000;
-export const MIN_DEPOSIT_CENTS = 100_000;
+export const MIN_DEPOSIT_CENTS = 50_000;
 export const MAX_DEPOSIT_CENTS = 1_000_000;
 /** The least one deposit can be. */
 export const MIN_TOP_UP_CENTS = MIN_DEPOSIT_CENTS;

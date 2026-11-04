@@ -1,5 +1,5 @@
 import type Stripe from "stripe";
-import { reconcileRefunds, recordDeposit, recordDispute, recordSetupFee, stripe } from "@/lib/stripe";
+import { reconcileRefunds, recordAutoTopUp, recordAutoTopUpFailure, recordAutoTopUpSetup, recordDeposit, recordDispute, recordSetupFee, stripe } from "@/lib/stripe";
 
 // Stripe calls this when a Checkout payment completes. The signature is checked against
 // STRIPE_WEBHOOK_SECRET (each endpoint, test or live, has its own), so nobody else can add funds.
@@ -21,6 +21,15 @@ export async function POST(req: Request) {
   if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
     const session = event.data.object as Stripe.Checkout.Session;
     const kind = session.metadata?.kind;
+    // A card saved for auto top-up: nothing was charged
+    if (kind === "auto_topup_setup") {
+      try {
+        return Response.json({ ok: true, recorded: await recordAutoTopUpSetup(session) });
+      } catch (e) {
+        console.error("stripe auto top-up setup failed", e);
+        return Response.json({ error: "Couldn't save the card" }, { status: 500 });
+      }
+    }
     if (kind !== "ad_funds" && kind !== "setup_fee") return Response.json({ ok: true, ignored: "not ours" });
     if (session.payment_status !== "paid") return Response.json({ ok: true, pending: true });
     try {
@@ -30,6 +39,20 @@ export async function POST(req: Request) {
       console.error(`stripe ${kind} failed`, e);
       // 500 makes Stripe retry later, which is what we want if the database hiccuped
       return Response.json({ error: "Couldn't record the payment" }, { status: 500 });
+    }
+  }
+
+  // An auto top-up charged off-session: recorded when it succeeds (usually already, by the charger itself)
+  if (event.type === "payment_intent.succeeded" || event.type === "payment_intent.payment_failed") {
+    const pi = event.data.object as Stripe.PaymentIntent;
+    if (pi.metadata?.kind !== "ad_funds" || pi.metadata?.auto !== "1") return Response.json({ ok: true, ignored: "not an auto top-up" });
+    try {
+      if (event.type === "payment_intent.succeeded") return Response.json({ ok: true, recorded: await recordAutoTopUp(pi) });
+      await recordAutoTopUpFailure(pi);
+      return Response.json({ ok: true });
+    } catch (e) {
+      console.error(`stripe ${event.type} failed`, e);
+      return Response.json({ error: "Couldn't record the top-up" }, { status: 500 });
     }
   }
 
