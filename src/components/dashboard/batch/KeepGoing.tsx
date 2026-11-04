@@ -40,7 +40,7 @@ export function KeepGoing({ on, note, warn }: { on: boolean; note: string; warn?
           type="button"
           role="switch"
           aria-checked={value}
-          aria-label="Rolling: start the next 2-week cycle when this one ends"
+          aria-label="Rolling: start the next week's cycle when this one ends"
           disabled={pending}
           onClick={toggle}
           className={cn("relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:opacity-60", value ? "bg-brand" : "bg-white/[0.12]")}

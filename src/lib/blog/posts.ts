@@ -62,7 +62,7 @@ export const POSTS: Post[] = [
     ],
     faqs: [
       { q: "what is a good cost per lead for life insurance?", a: "it depends on your market, offer and season, so compare against your own results over a few weeks instead of a number from someone else's account. a lower cost per lead only matters if you reach the people." },
-      { q: "how much should a new agent spend on facebook ads?", a: "enough to give meta time to learn, which means a budget you can keep up for at least a month. anryh labs starts at a minimum of $1,000 in ad funds, enough for $50/day over a 2-week cycle, and campaigns keep rolling as long as you keep funds in." },
+      { q: "how much should a new agent spend on facebook ads?", a: "enough to give meta time to learn, which means a budget you can keep up for at least a month. anryh labs starts at a minimum of $500 in ad funds, enough for $50/day for a week, and campaigns keep rolling as long as you keep funds in. the longer one runs, the more data migz ai has to improve it." },
     ],
     types: ["final-expense", "mortgage-protection"],
   },

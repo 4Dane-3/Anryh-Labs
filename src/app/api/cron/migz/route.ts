@@ -4,6 +4,7 @@ import { isCronRequest } from "@/lib/cron-auth";
 import { migzReadyFor } from "@/lib/integrations";
 import { runMigz } from "@/lib/migz/agent";
 import { renewBatches } from "@/lib/dashboard/renew";
+import { autoTopUpAll } from "@/lib/dashboard/top-up";
 import { syncSpend } from "@/lib/migz/sync";
 
 export const maxDuration = 300;
@@ -24,6 +25,12 @@ export async function GET(req: Request) {
     .eq("status", "proposed")
     .lt("created_at", new Date(Date.now() - PROPOSAL_TTL_HOURS * 3_600_000).toISOString());
 
+  // Auto top-up first, so a balance that dropped below the agent's level is refilled before cycles renew
+  const topUps = await autoTopUpAll(deadline - 120_000).catch((e) => {
+    console.error("auto top-ups failed", e);
+    return {};
+  });
+
   // "Keep going": batches that ended and were set to renew start again from the agent's balance, before reviews
   const renewals = await renewBatches(deadline - 60_000).catch((e) => {
     console.error("renewals failed", e);
@@ -42,7 +49,7 @@ export async function GET(req: Request) {
     .order("migz_last_run_at", { ascending: true, nullsFirst: true })
     .limit(10);
 
-  const results: Record<string, unknown> = Object.keys(renewals).length ? { renewals } : {};
+  const results: Record<string, unknown> = { ...(Object.keys(topUps).length ? { topUps } : {}), ...(Object.keys(renewals).length ? { renewals } : {}) };
   for (const agent of (data ?? []) as Agent[]) {
     if (Date.now() > deadline) break;
     if (!migzReadyFor(agent)) {

@@ -40,7 +40,8 @@ import { cleanSequence, SEQUENCES, sequencesFor, type Sequence } from "@/lib/ema
 import { campaignMoney, cleanAnswers, MAX_CAMPAIGN_DAILY_CENTS, MIN_CAMPAIGN_DAILY_CENTS, type CampaignAnswers, type CampaignPlan } from "@/lib/campaign-plan";
 import { activateBatch } from "@/lib/dashboard/start-batch";
 import { getBalanceCents, getFundsAddedCents } from "@/lib/dashboard/queries";
-import { checkoutReturnBase, createDepositCheckout, createSetupFeeCheckout } from "@/lib/stripe";
+import { checkoutReturnBase, createAutoTopUpSetup, createDepositCheckout, createSetupFeeCheckout, stripe } from "@/lib/stripe";
+import { cleanTopUp, topUpConsent } from "@/lib/auto-top-up";
 import { setupBlockers } from "@/lib/dashboard/setup";
 import { adAccountFrom, checkMetaAccess, pageRefFrom } from "@/lib/meta/access";
 import { alertAdmin } from "@/lib/migz/slack";
@@ -200,6 +201,69 @@ export async function startDeposit(cents: number): Promise<{ ok: true; url: stri
     console.error("stripe checkout failed", e);
     return { ok: false, error: "Couldn't open the payment page. Please try again." };
   }
+}
+
+// ---------- Auto top-up ----------
+
+const topUpColumnsMissing = (code?: string) => code === "42703" || code === "PGRST204";
+
+/** Opens Stripe to save a card for auto top-up (nothing is charged), with the amount and level the agent chose. */
+export async function startAutoTopUpSetup(input: { amountCents: number; belowCents: number; agreed: boolean }): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  const agent = await requireAgent();
+  const t = cleanTopUp(input);
+  if (typeof t === "string") return { ok: false, error: t };
+  if (!input.agreed) return { ok: false, error: "Tick the box to authorize the automatic charges first." };
+  if (!agent.setup_fee_paid_at && !agent.onboarding_completed_at) return { ok: false, error: "Pay the setup fee first: it's in Start here." };
+  if (!integrations.stripe) return { ok: false, error: "Payments aren't connected yet. This will work once Stripe is set up." };
+  try {
+    const url = await createAutoTopUpSetup({
+      agentId: agent.id,
+      email: agent.email,
+      appUrl: checkoutReturnBase(),
+      customerId: agent.stripe_customer_id ?? null,
+      ...t,
+      consent: topUpConsent(t.amountCents, t.belowCents),
+    });
+    return { ok: true, url };
+  } catch (e) {
+    console.error("stripe auto top-up setup failed", e);
+    return { ok: false, error: "Couldn't open the card page. Please try again." };
+  }
+}
+
+/** Changes the amount and level of an auto top-up that already has a card. */
+export async function saveAutoTopUp(input: { amountCents: number; belowCents: number }): Promise<Result> {
+  const agent = await requireAgent();
+  const t = cleanTopUp(input);
+  if (typeof t === "string") return fail(t);
+  if (!agent.stripe_payment_method_id) return fail("Save a card first.");
+  const { error } = await supabaseAdmin.from("agents").update({ auto_topup_amount_cents: t.amountCents, auto_topup_below_cents: t.belowCents }).eq("id", agent.id);
+  if (error) return fail(topUpColumnsMissing(error.code) ? "Auto top-up isn't switched on yet. Please try again shortly." : "Couldn't save that.");
+  revalidatePath("/dashboard/funds");
+  return { ok: true };
+}
+
+/** Turns auto top-up off (the card stays saved), or back on with the saved card. */
+export async function setAutoTopUp(on: boolean): Promise<Result> {
+  const agent = await requireAgent();
+  if (on && !agent.stripe_payment_method_id) return fail("Save a card first.");
+  if (on && agent.auto_topup_error) return fail("The last top-up failed. Save a card again to turn it back on.");
+  const { error } = await supabaseAdmin.from("agents").update({ auto_topup: !!on }).eq("id", agent.id);
+  if (error) return fail(topUpColumnsMissing(error.code) ? "Auto top-up isn't switched on yet. Please try again shortly." : "Couldn't save that.");
+  revalidatePath("/dashboard/funds");
+  return { ok: true };
+}
+
+/** Removes the saved card from Stripe and turns auto top-up off. */
+export async function removeAutoTopUpCard(): Promise<Result> {
+  const agent = await requireAgent();
+  if (agent.stripe_payment_method_id && integrations.stripe) {
+    await stripe().paymentMethods.detach(agent.stripe_payment_method_id).catch((e) => console.error("detaching the card failed", e instanceof Error ? e.message : e));
+  }
+  const { error } = await supabaseAdmin.from("agents").update({ auto_topup: false, stripe_payment_method_id: null, auto_topup_card: null, auto_topup_error: null }).eq("id", agent.id);
+  if (error) return fail("Couldn't remove the card.");
+  revalidatePath("/dashboard/funds");
+  return { ok: true };
 }
 
 /** Starts a Stripe Checkout session for the one-time setup fee (step 1 of Start here). */
@@ -878,7 +942,7 @@ async function resolveCampaign(agent: Agent, input: CampaignChoice): Promise<Res
       days: plan.days,
       daily_cents: plan.dailyCents,
       collect_days: plan.collectDays,
-      renew: true, // rolling: the next 2-week cycle starts on its own while the balance covers it
+      renew: true, // rolling: the next weekly cycle starts on its own while the balance covers it
       recommended_option: plan.key,
       reason: plan.reason.slice(0, 400),
     },
@@ -931,7 +995,7 @@ export async function startBatch(input: CampaignChoice): Promise<Result> {
   if (!migzReadyFor(agent)) return fail("Your ad account isn't linked yet. Anryh Labs links it for you.");
   await closeEndedBatch(agent).catch((e) => console.error("closing the ended batch failed", e));
   const open = await getOpenBatch(agent.id);
-  if (open?.status === "active") return fail(`Your campaign is running. It's rolling: its current 2-week cycle ends ${open.ends_on} and the next starts on its own.`);
+  if (open?.status === "active") return fail(`Your campaign is running. It's rolling: this week's cycle ends ${open.ends_on} and the next starts on its own.`);
   const r = await resolveCampaign(agent, input);
   if (typeof r === "string") return fail(r);
   const balance = await getBalanceCents(agent.id);

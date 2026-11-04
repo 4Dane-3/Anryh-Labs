@@ -99,11 +99,11 @@ export const MAX_CAMPAIGN_DAILY_CENTS = 100_000;
 export const DAILY_CHOICES = [5000, 7500, 10_000, 15_000, 20_000, 30_000] as const;
 
 /**
- * Campaigns are rolling: no end date. They run in 2-week cycles, and the next cycle starts on its own from
- * the ad balance (Keep going is always on), with Migz reviewing what the last one learned. Each cycle is
- * 2 weeks whatever the daily budget: a week for Meta to learn, a week to improve.
+ * Campaigns are rolling: no end date. They run in 1-week cycles, and the next cycle starts on its own from
+ * the ad balance (Keep going is always on; auto top-up can keep it funded), on the same ad sets, so Meta's
+ * learning and Migz's creative rhythm carry across cycles. The minimum deposit covers one cycle at $50/day.
  */
-export const CYCLE_DAYS = 14;
+export const CYCLE_DAYS = 7;
 
 export function recommendedDays() {
   return Math.max(MIN_CAMPAIGN_DAYS, CYCLE_DAYS);
@@ -111,13 +111,13 @@ export function recommendedDays() {
 
 /** Why campaigns roll, and what the agent should do about it: keep funds in the account. */
 export const KEEP_FUNDED =
-  "We recommend running as long as you can: keep funds in your account so Meta always has budget to pull from. The longer a campaign runs, the more Meta learns about who books, and the lower your cost per lead gets.";
+  "Migz's strength is adjusting your ads from the data it collects over time, so the longer your campaign runs, the better it performs. The minimum covers one week at $50/day; keep funds in your account (or turn on auto top-up) so Meta always has budget to pull from.";
 
 export function lengthReason(dailyCents: number) {
-  return `No end date. It runs in 2-week cycles at ${usd(dailyCents)}/day, and the next cycle starts on its own while your balance covers it. ${KEEP_FUNDED}`;
+  return `No end date. It runs in weekly cycles at ${usd(dailyCents)}/day, and the next week starts on its own while your balance covers it. ${KEEP_FUNDED}`;
 }
 
-/** Ad funds come in $500 steps, so the amount the agent sees is the real minimum for a 2-week cycle. */
+/** Ad funds come in $500 steps, so the amount the agent sees is the real minimum for a weekly cycle. */
 export const FUNDS_STEP_CENTS = 50_000;
 export const roundUpToFundsStep = (cents: number) => Math.max(FUNDS_STEP_CENTS, Math.ceil(cents / FUNDS_STEP_CENTS) * FUNDS_STEP_CENTS);
 
