@@ -1,16 +1,26 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { Check, Loader2 } from "lucide-react";
+import { Check, Loader2, Mail } from "lucide-react";
 import { setOutcome } from "@/app/dashboard/actions";
 import { Panel, PanelHeader, inputClass } from "@/components/dashboard/ui";
-import { CALL_OUTCOMES, LEAD_OUTCOMES, badOutcome, outcomeLabel, type OutcomeKind } from "@/lib/outcomes";
+import { CALL_OUTCOMES, LEAD_OUTCOMES, badOutcome, outcomeLabel, startsFollowUps, type OutcomeKind } from "@/lib/outcomes";
 import { cn } from "@/lib/utils";
 
 // "How did it go?": one tap per lead. The dashboard list (Overview, Clients, Calendar) and the page the
 // Slack ask's buttons open use the same chips.
 
 export type OutcomeRow = { kind: OutcomeKind; id: string; name: string; at: string; outcome: string | null; premiumCents: number | null; source: "booking" | "page" | "instant_form" };
+
+/** The mark on a button that starts the automated follow-up emails (Tried to call, Couldn't reach). */
+export function FollowUpMark() {
+  return (
+    <span title="Starts your automated follow-up emails" className="inline-flex items-center rounded-full bg-brand/15 p-0.5 text-brand">
+      <Mail className="size-3" aria-hidden="true" />
+      <span className="sr-only">(starts your automated follow-up emails)</span>
+    </span>
+  );
+}
 
 export function Chips({ kind, value, onPick, disabled }: { kind: OutcomeKind; value: string | null; onPick: (o: string) => void; disabled?: boolean }) {
   return (
@@ -34,6 +44,7 @@ export function Chips({ kind, value, onPick, disabled }: { kind: OutcomeKind; va
         >
           {value === o.key && <Check className="size-3.5" />}
           {o.label}
+          {startsFollowUps(kind, o.key) && <FollowUpMark />}
         </button>
       ))}
     </div>

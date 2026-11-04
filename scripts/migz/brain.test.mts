@@ -1277,6 +1277,7 @@ assert.deepEqual([oc.metaEventsFor("lead", "not_interested"), oc.metaEventsFor("
 assert.deepEqual(oc.unsentEvents("lead", "not_interested", "Contact"), ["NotInterested"]);
 assert.deepEqual([oc.statusForOutcome("sold"), oc.statusForOutcome("not_interested"), oc.statusForOutcome("reached")], ["current", "not_interested", null], "a sale makes them current, a no makes them not interested");
 assert.ok(oc.badOutcome("not_interested") && oc.badOutcome("no_show") && !oc.badOutcome("quoted"));
+assert.ok(oc.startsFollowUps("lead", "not_reached") && !oc.startsFollowUps("lead", "reached") && !oc.startsFollowUps("call", "not_reached") && !oc.startsFollowUps("call", "no_show"), "a lead's Couldn't reach starts the missed-call emails, like Tried to call");
 const le = await import("@/lib/booking/lead-email");
 const noteInput = { agent: { fullName: "Miguel Cruz", title: null, licenseNumber: "123", email: "m@example.com" }, prospect: { name: "Linda Smith" }, bookUrl: "https://example.com/m?utm_source=email#book", bookPage: "example.com/m", business: { name: "FF", postalAddress: "1 Main St" } };
 const es = await import("@/lib/email-sequences");
