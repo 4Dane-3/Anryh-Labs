@@ -2,11 +2,12 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
 import type { IntakeAnswers } from "@/lib/booking/questions";
-import { sendTriedCallEmail } from "@/lib/booking/email";
+import { startSequence } from "@/lib/dashboard/followups";
 import { usPhone } from "@/lib/booking/call";
 import { logActivity, type ActivityKind, type AgentActivityKind, type Subject } from "@/lib/dashboard/activity";
 import { recordOutcome } from "@/lib/dashboard/outcomes";
 import { CLIENT_STATUSES, type ClientStatus, type OutcomeKind } from "@/lib/outcomes";
+import type { SequenceKey } from "@/lib/email-sequences";
 
 // The Clients tab: everyone who reached the agent, in one list. A booked call, an instant-form lead and a
 // page quote request each become a client; a lead who went on to book is one client (the call leads, with
@@ -40,6 +41,10 @@ export type Client = {
   notes: string | null;
   call: { startsAt: string; endsAt: string; status: string; bookedAt: string; answers: IntakeAnswers | null; intakeCompleted: boolean } | null;
   triedEmailSentAt: string | null;
+  /** False when what came in as their phone isn't a number (someone typed "." into the form): email only. */
+  phoneGiven: boolean;
+  /** Their automated emails: which sequence and how many have gone (null when none started). */
+  emailSequence: { key: SequenceKey; sent: number } | null;
   /** The latest thing that happened, for sorting the list. */
   lastAt: string;
 };
@@ -64,6 +69,8 @@ type LeadRow = {
   attribution: Record<string, string> | null;
   tried_email_sent_at: string | null;
   personal_source: string | null;
+  email_sequence?: SequenceKey | null;
+  sequence_sent?: number;
 };
 
 type BookingRow = {
@@ -81,6 +88,8 @@ type BookingRow = {
   premium_cents: number | null;
   client_status: ClientStatus;
   tried_email_sent_at: string | null;
+  email_sequence?: SequenceKey | null;
+  sequence_sent?: number;
   intake_responses: { answers: IntakeAnswers; completed_at: string | null } | { answers: IntakeAnswers; completed_at: string | null }[] | null;
 };
 
@@ -88,6 +97,15 @@ const LEAD_FIELDS =
   "id, name, phone, email, coverage, best_time, source, booked_at, created_at, outcome, premium_cents, client_status, agent_notes, meta_ad_id, attribution, tried_email_sent_at, personal_source";
 const BOOKING_FIELDS =
   "id, name, email, phone, starts_at, ends_at, status, created_at, agent_notes, attribution, outcome, premium_cents, client_status, tried_email_sent_at, intake_responses(answers, completed_at)";
+
+// The automated-email columns, read when their migration has run
+const SEQUENCE_FIELDS = ", email_sequence, sequence_sent";
+
+/** A phone number someone could actually be called on: a real US number ("." or (000) 000-0000 isn't). */
+export const phoneGiven = (p: string | null | undefined) => !!usPhone(p ?? "");
+/** A record's sequence, unless it's a finished pre-sequence one (marked 99 by the migration). */
+const sequenceOf = (r: { email_sequence?: SequenceKey | null; sequence_sent?: number }) =>
+  r.email_sequence && (r.sequence_sent ?? 0) < 99 ? { key: r.email_sequence, sent: r.sequence_sent ?? 0 } : null;
 
 const phoneKey = (p: string | null | undefined) => (p ?? "").replace(/\D/g, "").slice(-10) || null;
 const emailKey = (e: string | null | undefined) => e?.trim().toLowerCase() || null;
@@ -114,11 +132,15 @@ function cameFrom(attribution: Record<string, string> | null, adNames: Map<strin
 
 /** Everyone who reached the agent, newest activity first. */
 export async function getClients(agentId: string): Promise<Client[]> {
-  const [leadsRes, bookingsRes, activityRes] = await Promise.all([
-    supabaseAdmin.from("quote_requests").select(LEAD_FIELDS).eq("agent_id", agentId).order("created_at", { ascending: false }).limit(500),
-    supabaseAdmin.from("bookings").select(BOOKING_FIELDS).eq("agent_id", agentId).order("created_at", { ascending: false }).limit(500),
-    supabaseAdmin.from("client_activities").select("subject_kind, subject_id, at").eq("agent_id", agentId).order("at", { ascending: false }).limit(3000),
-  ]);
+  const load = (extra: string) =>
+    Promise.all([
+      supabaseAdmin.from("quote_requests").select(LEAD_FIELDS + extra).eq("agent_id", agentId).order("created_at", { ascending: false }).limit(500),
+      supabaseAdmin.from("bookings").select(BOOKING_FIELDS + extra).eq("agent_id", agentId).order("created_at", { ascending: false }).limit(500),
+    ]);
+  let [leadsRes, bookingsRes] = await load(SEQUENCE_FIELDS);
+  // Before the automated-emails migration: the list without them
+  if (leadsRes.error?.code === "42703" || bookingsRes.error?.code === "42703") [leadsRes, bookingsRes] = await load("");
+  const activityRes = await supabaseAdmin.from("client_activities").select("subject_kind, subject_id, at").eq("agent_id", agentId).order("at", { ascending: false }).limit(3000);
   if (leadsRes.error || bookingsRes.error) return [];
   const leads = (leadsRes.data ?? []) as unknown as LeadRow[];
   const bookings = (bookingsRes.data ?? []) as unknown as BookingRow[];
@@ -176,6 +198,8 @@ export async function getClients(agentId: string): Promise<Client[]> {
         intakeCompleted: !!intake?.completed_at,
       },
       triedEmailSentAt: b.tried_email_sent_at ?? lead?.tried_email_sent_at ?? null,
+      phoneGiven: phoneGiven(b.phone),
+      emailSequence: sequenceOf(b) ?? (lead ? sequenceOf(lead) : null),
       lastAt: latest(b.created_at, lead?.created_at, ...subjects.map((s) => lastAt.get(`${s.kind}:${s.id}`))),
     });
   }
@@ -201,6 +225,8 @@ export async function getClients(agentId: string): Promise<Client[]> {
       notes: l.agent_notes,
       call: null,
       triedEmailSentAt: l.tried_email_sent_at,
+      phoneGiven: phoneGiven(l.phone),
+      emailSequence: sequenceOf(l),
       lastAt: latest(l.created_at, lastAt.get(`lead:${l.id}`)),
     });
   }
@@ -274,48 +300,31 @@ const validEmail = (e: string | null | undefined): e is string => !!e && /^[^\s@
 
 /**
  * The agent tried to call and didn't get through: logged on the card, the answer set to couldn't reach (or
- * no show, once the call's time has passed) unless they already answered, and, when the agent has it on,
- * the "sorry I missed you" email with their booking link. That email goes once per person, never to someone
- * marked not interested, and never to a form lead who has already booked.
+ * no show, once the call's time has passed) unless they already answered, and their "after a missed call"
+ * automated emails start (followups.ts), the first right away when they've set it that way.
  */
 export async function triedToCall(agent: Agent, subject: Subject) {
-  const cols = subject.kind === "call" ? "id, name, email, outcome, client_status, tried_email_sent_at, starts_at" : "id, name, email, outcome, client_status, tried_email_sent_at, source, booked_at";
+  const cols = subject.kind === "call" ? "id, outcome, starts_at" : "id, outcome";
   const { data, error } = await supabaseAdmin.from(TABLE[subject.kind]).select(cols).eq("id", subject.id).eq("agent_id", agent.id).maybeSingle();
-  const row = data as unknown as {
-    name: string;
-    email: string | null;
-    outcome: string | null;
-    client_status: ClientStatus;
-    tried_email_sent_at: string | null;
-    starts_at?: string;
-    source?: string | null;
-    booked_at?: string | null;
-  } | null;
+  const row = data as unknown as { outcome: string | null; starts_at?: string } | null;
   if (error || !row) return { ok: false as const };
   await logActivity(agent.id, subject, "tried_call", null, { byAgent: true });
   if (!row.outcome) {
     if (subject.kind === "lead") await recordOutcome(agent.id, "lead", subject.id, "not_reached");
     else if (row.starts_at && row.starts_at < new Date().toISOString()) await recordOutcome(agent.id, "call", subject.id, "no_show");
   }
+  return { ok: true as const, ...(await startSequence(agent, subject, "tried_call")) };
+}
 
-  let emailed = false;
-  // Personal clients never get our emails: they didn't ask the agent's page or form to contact them
-  if (agent.followup_emails && row.source !== "manual" && validEmail(row.email) && row.client_status !== "not_interested" && !row.tried_email_sent_at && !row.booked_at) {
-    try {
-      const via = subject.kind === "call" ? "booking" : row.source === "instant_form" ? "instant_form" : "page";
-      const res = await sendTriedCallEmail({ agent, subjectId: subject.id, via, prospect: { name: row.name, email: row.email } });
-      if (!res.skipped) {
-        emailed = true;
-        const now = new Date().toISOString();
-        // A lead's next 48-hour follow-up counts from this email
-        await supabaseAdmin.from(TABLE[subject.kind]).update({ tried_email_sent_at: now, ...(subject.kind === "lead" ? { last_emailed_at: now } : {}) }).eq("id", subject.id);
-        await logActivity(agent.id, subject, "email", "Sorry I missed you (with your booking link)");
-      }
-    } catch (e) {
-      console.error("tried-call email failed", e instanceof Error ? e.message : e);
-    }
-  }
-  return { ok: true as const, emailed };
+/**
+ * The agent emailed them themself: logged on the card, and their "after you email them" automated emails start.
+ * The answer stays as it is: an email isn't a call.
+ */
+export async function sentAnEmail(agent: Agent, subject: Subject) {
+  const { data } = await supabaseAdmin.from(TABLE[subject.kind]).select("id").eq("id", subject.id).eq("agent_id", agent.id).maybeSingle();
+  if (!data) return { ok: false as const };
+  await logActivity(agent.id, subject, "emailed", null, { byAgent: true });
+  return { ok: true as const, ...(await startSequence(agent, subject, "emailed")) };
 }
 
 /**
@@ -324,6 +333,7 @@ export async function triedToCall(agent: Agent, subject: Subject) {
  */
 export async function clientTap(agent: Agent, subject: Subject, action: string, premiumCents?: number | null) {
   if (action === "tried_call") return (await triedToCall(agent, subject)).ok;
+  if (action === "sent_email") return (await sentAnEmail(agent, subject)).ok;
   return recordOutcome(agent.id, subject.kind, subject.id, action, premiumCents);
 }
 
@@ -356,12 +366,14 @@ export async function saveClientNotes(agentId: string, subject: Subject, notes: 
   return !error;
 }
 
-/** An entry the agent adds by hand ("tried to call", "left a voicemail", a note), at the time they say. */
+/** An entry the agent adds by hand ("tried to call", "sent an email", "left a voicemail", a note), at the time they say. */
 export async function addClientActivity(agent: Agent, subject: Subject, kind: AgentActivityKind, body: string, at: string) {
   const { data } = await supabaseAdmin.from(TABLE[subject.kind]).select("id").eq("id", subject.id).eq("agent_id", agent.id).maybeSingle();
   if (!data) return false;
-  // Logging a missed call now is the same as tapping "Tried to call" (answer and email included)
-  if (kind === "tried_call" && !body && Math.abs(Date.parse(at) - Date.now()) < 5 * 60_000) return (await triedToCall(agent, subject)).ok;
+  // Logging a missed call or an email now is the same as tapping the button (answer and automated emails included)
+  const now = !body && Math.abs(Date.parse(at) - Date.now()) < 5 * 60_000;
+  if (kind === "tried_call" && now) return (await triedToCall(agent, subject)).ok;
+  if (kind === "emailed" && now) return (await sentAnEmail(agent, subject)).ok;
   await logActivity(agent.id, subject, kind, body, { byAgent: true, at });
   return true;
 }

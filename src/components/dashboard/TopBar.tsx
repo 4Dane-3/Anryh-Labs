@@ -14,6 +14,7 @@ import {
   ListChecks,
   Lock,
   LogOut,
+  Mail,
   Menu,
   PanelsTopLeft,
   Rocket,
@@ -37,6 +38,7 @@ const MAIN = [
 const MORE = [
   { href: "/dashboard/calendar", label: "Calendar", icon: CalendarDays },
   { href: "/dashboard/clients", label: "Clients", icon: Users },
+  { href: "/dashboard/emails", label: "Automated emails", icon: Mail },
   { href: "/dashboard/creatives", label: "Creatives", icon: Film },
   { href: "/dashboard/landing", label: "My page", icon: PanelsTopLeft },
   { href: "/dashboard/questions", label: "Questions", icon: ListChecks },

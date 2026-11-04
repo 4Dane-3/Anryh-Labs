@@ -201,8 +201,8 @@ const SLACK_LABEL: Record<string, string> = { sold: "✅ Sold", not_interested: 
 
 /**
  * One lead's one-tap buttons for Slack: links (so nothing needs setting up in Slack) to a signed page that
- * saves the answer, updates their card and tells Meta. "Tried to call" logs the attempt (and sends the
- * "sorry I missed you" email when the agent has it on).
+ * saves the answer, updates their card and tells Meta. "Tried to call" logs the attempt (and starts the
+ * agent's missed-call automated emails when they're on).
  */
 export function outcomeButtons(kind: OutcomeKind, id: string, keys?: string[]) {
   const all = [...(kind === "call" ? CALL_OUTCOMES : LEAD_OUTCOMES).map((o) => o.key as string), "tried_call"];

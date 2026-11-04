@@ -4,7 +4,7 @@ import { getIntakeQuestions, type Agent } from "@/lib/booking/data";
 import { digestMessage, type DigestBooking } from "@/lib/booking/format";
 import { sendSlackMessage } from "@/lib/slack";
 import { askOutcomes } from "@/lib/dashboard/outcomes";
-import { sendDueFollowUps } from "@/lib/dashboard/followups";
+import { sendDueSequenceEmails } from "@/lib/dashboard/followups";
 
 // Called every hour by Supabase pg_cron (supabase/migrations/20261022000000_digest_cron.sql), which sends
 // `Authorization: Bearer <cron_secret from Vault>`. Each agent gets one DM per local day, at or after their digest hour.
@@ -94,8 +94,8 @@ export async function GET(req: Request) {
   const { data: emailing } = await supabaseAdmin.from("agents").select("*").eq("active", true).eq("followup_emails", true);
   for (const agent of (emailing ?? []) as Agent[]) {
     try {
-      const sent = await sendDueFollowUps(agent);
-      if (sent) results[agent.slug] = `${results[agent.slug] ?? "skipped"} · follow-ups ${sent}`;
+      const sent = await sendDueSequenceEmails(agent);
+      if (sent) results[agent.slug] = `${results[agent.slug] ?? "skipped"} · automated emails ${sent}`;
     } catch (e) {
       console.error("follow-ups failed", agent.slug, e);
     }

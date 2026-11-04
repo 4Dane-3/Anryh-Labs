@@ -119,7 +119,7 @@ export default function PrivacyPage() {
             <ul className="list-disc space-y-2 pl-5">
               <li>to run and improve agents&apos; ad campaigns: migz ai analyzes performance data, adjusts budgets, placements and ads, and generates new creatives.</li>
               <li>to let prospects book calls with an agent, confirm appointments and give the agent the prep answers before the call.</li>
-              <li>if you asked an agent for a quote and gave your email, to send you short emails from them with a link to book a call: one right away, and, if they turned follow-ups on and tried to call you but missed you, a &ldquo;sorry I missed you&rdquo; and up to 3 follow-ups at least 48 hours apart until you book or talk. reply &ldquo;unsubscribe&rdquo; to any of them to stop.</li>
+              <li>if you asked an agent for a quote and gave your email, to send you short emails from them with a link to book a call: one right away, and, if they turned follow-ups on and tried to call or email you without reaching you, up to 6 short follow-ups the agent has written, at least a day apart, until you book or talk. reply &ldquo;unsubscribe&rdquo; to any of them to stop.</li>
               <li>to notify agents about new bookings and send a daily summary, including through slack.</li>
               <li>to measure which ads lead to booked calls and to clients, including by reporting a booking, and later whether the call happened or a policy was bought, to meta as a conversion (see below).</li>
               <li>to manage agents&apos; ad funds and billing, provide support, keep the service secure and meet legal obligations.</li>

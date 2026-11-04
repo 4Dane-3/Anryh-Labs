@@ -30,10 +30,13 @@ import {
   deleteClientActivity,
   getClientActivity,
   saveClientNotes,
+  sentAnEmail,
   setClientStatus,
+  triedToCall,
   updateClientActivity,
   type ClientActivity,
 } from "@/lib/dashboard/clients";
+import { cleanSequence, SEQUENCES, sequencesFor, type Sequence } from "@/lib/email-sequences";
 import { campaignMoney, cleanAnswers, MAX_CAMPAIGN_DAILY_CENTS, MIN_CAMPAIGN_DAILY_CENTS, type CampaignAnswers, type CampaignPlan } from "@/lib/campaign-plan";
 import { activateBatch } from "@/lib/dashboard/start-batch";
 import { getBalanceCents, getFundsAddedCents } from "@/lib/dashboard/queries";
@@ -1022,7 +1025,7 @@ export async function loadClientActivity(subjects: { kind: OutcomeKind; id: stri
   return { ok: true, activities: await getClientActivity(agent.id, list) };
 }
 
-/** One tap on a card: an outcome, or "tried_call" (logged, and the "sorry I missed you" email when it's on). */
+/** One tap on a card: an outcome, or "tried_call" / "sent_email" (logged, and the automated emails start when they're on). */
 export async function tapClient(kind: OutcomeKind, id: string, action: string, premiumDollars?: number): Promise<Result> {
   const agent = await requireAgent();
   const subject = subjectOf(kind, id);
@@ -1030,6 +1033,34 @@ export async function tapClient(kind: OutcomeKind, id: string, action: string, p
   const premium = typeof premiumDollars === "number" && premiumDollars > 0 ? Math.round(premiumDollars * 100) : null;
   if (!(await clientTap(agent, subject, clean(action, 40), premium))) return fail(MIGRATION_HINT);
   revalidatePath("/dashboard", "layout");
+  return { ok: true };
+}
+
+/** "Tried to call" or "Sent an email" on a card: logged, and the matching automated emails start. Says what happened to them. */
+export async function reachOut(kind: OutcomeKind, id: string, action: "tried_call" | "sent_email"): Promise<{ ok: true; started: boolean; sentNow: boolean; reason: string | null } | { ok: false; error: string }> {
+  const agent = await requireAgent();
+  const subject = subjectOf(kind, id);
+  if (!subject || (action !== "tried_call" && action !== "sent_email")) return { ok: false, error: "Unknown client." };
+  const res = action === "tried_call" ? await triedToCall(agent, subject) : await sentAnEmail(agent, subject);
+  if (!res.ok) return { ok: false, error: MIGRATION_HINT };
+  revalidatePath("/dashboard", "layout");
+  return { ok: true, started: res.started, sentNow: res.sentNow, reason: res.reason };
+}
+
+/** The Automated emails tab: both sequences (subjects, bodies, how many, and when each goes). */
+export async function saveEmailSequences(input: unknown): Promise<Result> {
+  const agent = await requireAgent();
+  const current = sequencesFor(agent);
+  const raw = (input ?? {}) as Record<string, unknown>;
+  const next: Record<string, Sequence> = {};
+  for (const { key, title } of SEQUENCES) {
+    const s = cleanSequence(raw[key], current[key]);
+    if (typeof s === "string") return fail(`${title}: ${s}`);
+    next[key] = s;
+  }
+  const { error } = await supabaseAdmin.from("agents").update({ email_sequences: next }).eq("id", agent.id);
+  if (error) return fail(error.code === "42703" || error.code === "PGRST204" ? "Automated emails aren't switched on yet. Please try again shortly." : "Couldn't save your emails.");
+  revalidatePath("/dashboard/emails");
   return { ok: true };
 }
 
@@ -1093,15 +1124,13 @@ export async function removeActivity(activityId: string): Promise<Result> {
   return { ok: true };
 }
 
-/** Follow-up emails (missed call, and every 48 hours to unreached leads): on/off, and the agent's own line in the missed-call one. */
-export async function setFollowUpEmails(on: boolean, message: string): Promise<Result> {
+/** Automated emails on or off for the agent (the switch at the top of the Automated emails tab). */
+export async function setFollowUpEmails(on: boolean): Promise<Result> {
   const agent = await requireAgent();
-  const { error } = await supabaseAdmin
-    .from("agents")
-    .update({ followup_emails: !!on, followup_message: clean(message, 300) || null })
-    .eq("id", agent.id);
+  const { error } = await supabaseAdmin.from("agents").update({ followup_emails: !!on }).eq("id", agent.id);
   if (error) return fail(error.code === "42703" ? "Follow-up emails aren't set up yet." : "Couldn't save that.");
   revalidatePath("/dashboard/settings");
+  revalidatePath("/dashboard/emails");
   return { ok: true };
 }
 

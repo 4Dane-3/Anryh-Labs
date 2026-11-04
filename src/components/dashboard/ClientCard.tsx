@@ -12,6 +12,7 @@ import {
   Inbox,
   Loader2,
   Mail,
+  MailCheck,
   MessageSquare,
   Pencil,
   Phone,
@@ -27,7 +28,9 @@ import type { Client, ClientActivity } from "@/lib/dashboard/clients";
 import { phone as formatPhone } from "@/lib/dashboard/format";
 import { orderedAnswers } from "@/lib/booking/questions";
 import { CLIENT_STATUSES, type ClientStatus } from "@/lib/outcomes";
-import { addActivity, cancelBooking, changeClientStatus, editActivity, loadClientActivity, removeActivity, saveNotesFor, tapClient } from "@/app/dashboard/actions";
+import Link from "next/link";
+import { addActivity, cancelBooking, changeClientStatus, editActivity, loadClientActivity, reachOut, removeActivity, saveNotesFor, tapClient } from "@/app/dashboard/actions";
+import type { SequenceKey } from "@/lib/email-sequences";
 import { Chips, Premium } from "@/components/dashboard/OutcomeAsk";
 import { Badge, Button, inputClass } from "@/components/dashboard/ui";
 import { cn } from "@/lib/utils";
@@ -36,6 +39,9 @@ import { cn } from "@/lib/utils";
 // interested), one-tap answers after a call, notes, and everything that happened, newest first. The agent
 // adds their own entries (a call attempt, a voicemail, a text, a note) and can edit or delete those; the
 // system's entries (emails, answers, what Meta was told) are the record.
+
+/** What the card needs to know about the agent's automated emails. */
+export type Emailing = { on: boolean; ready: boolean; sequences: Record<SequenceKey, { on: boolean; total: number }> };
 
 export const SOURCE_LABEL: Record<Client["source"], string> = { instant_form: "Instant form", page: "Quote request", booking: "Booked call", manual: "Added by you" };
 
@@ -52,6 +58,7 @@ export function statusBadge(status: ClientStatus) {
 
 const ENTRY_KINDS = [
   { key: "tried_call", label: "Tried to call" },
+  { key: "emailed", label: "Sent an email" },
   { key: "voicemail", label: "Left a voicemail" },
   { key: "texted", label: "Texted" },
   { key: "note", label: "Note" },
@@ -61,6 +68,7 @@ type Entry = ClientActivity | { id: null; kind: "came_in" | "booked"; body: stri
 
 const ICONS: Record<Entry["kind"], typeof Phone> = {
   tried_call: PhoneMissed,
+  emailed: MailCheck,
   voicemail: Voicemail,
   texted: MessageSquare,
   note: StickyNote,
@@ -76,6 +84,8 @@ function entryTitle(e: Entry) {
   switch (e.kind) {
     case "tried_call":
       return "Tried to call";
+    case "emailed":
+      return "Sent an email";
     case "voicemail":
       return "Left a voicemail";
     case "texted":
@@ -198,7 +208,9 @@ function EntryForm({
   );
 }
 
-function CardBody({ client, timezone, questionOrder, onClose }: { client: Client; timezone: string; questionOrder: string[]; onClose: () => void }) {
+const SEQUENCE_NAME: Record<SequenceKey, string> = { tried_call: "after a missed call", emailed: "after your email" };
+
+function CardBody({ client, timezone, questionOrder, emailing, onClose }: { client: Client; timezone: string; questionOrder: string[]; emailing: Emailing; onClose: () => void }) {
   const router = useRouter();
   const [status, setStatus] = useState(client.status);
   const [outcome, setOutcome] = useState(client.outcome);
@@ -241,12 +253,34 @@ function CardBody({ client, timezone, questionOrder, onClose }: { client: Client
     });
 
   const tap = (action: string, premium?: number) => {
-    if (action !== "tried_call") {
-      setOutcome(action);
-      if (action === "sold") setStatus("current");
-      if (action === "not_interested") setStatus("not_interested");
-    } else if (!outcome && client.kind === "lead") setOutcome("not_reached");
-    run(() => tapClient(client.kind, client.id, action, premium), action === "tried_call" ? "Call attempt logged" : "Saved");
+    setOutcome(action);
+    if (action === "sold") setStatus("current");
+    if (action === "not_interested") setStatus("not_interested");
+    run(() => tapClient(client.kind, client.id, action, premium), "Saved");
+  };
+
+  // "Tried to call" / "Sent an email": logged, and the automated emails start; the note says what happened to them
+  const [reachNote, setReachNote] = useState<string | null>(null);
+  const reach = (action: "tried_call" | "sent_email") => {
+    if (action === "tried_call" && !outcome && client.kind === "lead") setOutcome("not_reached");
+    setReachNote(null);
+    startTransition(async () => {
+      setError(null);
+      const res = await reachOut(client.kind, client.id, action);
+      if (!res.ok) return setError(res.error);
+      const what = action === "tried_call" ? "Call attempt logged." : "Email logged.";
+      if (client.origin === "personal") {
+        setFlash(what);
+        setTimeout(() => setFlash(null), 1800);
+      }
+      setReachNote(
+        res.started
+          ? `${what} ${res.sentNow ? "Their first automated email just went out; the rest follow on schedule." : "Their automated emails are scheduled."}`
+          : `${what}${res.reason ? ` ${res.reason}` : ""}`,
+      );
+      await reload();
+      router.refresh();
+    });
   };
 
   const pickStatus = (s: ClientStatus) => {
@@ -320,13 +354,20 @@ function CardBody({ client, timezone, questionOrder, onClose }: { client: Client
 
       <div className="flex-1 space-y-7 overflow-y-auto px-6 py-6">
         <section className="space-y-1">
-          <div className="-mx-2 flex items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-white/[0.03]">
-            <Phone className="size-4 text-fg-faint" />
-            <a href={`tel:${client.phone}`} className="flex-1 text-sm hover:text-brand">
-              {/^\+1\d{10}$/.test(client.phone) ? formatPhone(client.phone) : client.phone}
-            </a>
-            <CopyButton value={client.phone} label="phone number" />
-          </div>
+          {client.phoneGiven ? (
+            <div className="-mx-2 flex items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-white/[0.03]">
+              <Phone className="size-4 text-fg-faint" />
+              <a href={`tel:${client.phone}`} className="flex-1 text-sm hover:text-brand">
+                {/^\+1\d{10}$/.test(client.phone) ? formatPhone(client.phone) : client.phone}
+              </a>
+              <CopyButton value={client.phone} label="phone number" />
+            </div>
+          ) : (
+            <div className="-mx-2 flex items-center gap-3 px-2 py-1.5">
+              <Phone className="size-4 text-fg-faint" />
+              <span className="flex-1 text-sm text-fg-muted">No phone given, email only</span>
+            </div>
+          )}
           {client.email && (
             <div className="-mx-2 flex items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-white/[0.03]">
               <Mail className="size-4 text-fg-faint" />
@@ -338,17 +379,61 @@ function CardBody({ client, timezone, questionOrder, onClose }: { client: Client
           )}
         </section>
 
+        {client.origin === "migz" && (
+          <section>
+            <SectionTitle>Reached out, no answer yet</SectionTitle>
+            <div className="space-y-3">
+              <div className="flex flex-wrap gap-2">
+                {client.phoneGiven && (
+                  <Button size="sm" variant="ghost" className="border border-line" onClick={() => reach("tried_call")} disabled={pending}>
+                    <PhoneMissed className="size-4" /> Tried to call
+                  </Button>
+                )}
+                {client.email && (
+                  <Button size="sm" variant="ghost" className="border border-line" onClick={() => reach("sent_email")} disabled={pending}>
+                    <MailCheck className="size-4" /> Sent an email
+                  </Button>
+                )}
+              </div>
+              <p className="text-[12px] leading-relaxed text-fg-muted">
+                {reachNote ? (
+                  <span className="text-good">{reachNote}</span>
+                ) : client.emailSequence ? (
+                  <>
+                    Automated emails {SEQUENCE_NAME[client.emailSequence.key]}: {Math.min(client.emailSequence.sent, emailing.sequences[client.emailSequence.key].total)} of {emailing.sequences[client.emailSequence.key].total} sent.
+                    They stop when you mark them reached, booked, sold or not interested.
+                  </>
+                ) : !emailing.on || !emailing.ready ? (
+                  <>Logs it on their card. Automated emails are off, so nothing is sent to them.</>
+                ) : (
+                  <>
+                    {client.phoneGiven && client.email
+                      ? `Pressing either logs it and starts your automated emails to ${client.name.split(" ")[0]}: one sequence after a missed call, another after you email them.`
+                      : `Pressing it logs it and starts your automated emails to ${client.name.split(" ")[0]}${client.phoneGiven ? " after a missed call" : " after you email them"}.`}{" "}
+                    They stop when you mark them reached, booked, sold or not interested.
+                  </>
+                )}{" "}
+                <Link href="/dashboard/emails" className="font-medium text-brand hover:underline">
+                  Change what they say in Automated emails
+                </Link>
+              </p>
+            </div>
+          </section>
+        )}
+
         <section>
-          <SectionTitle>After you call</SectionTitle>
+          <SectionTitle>{client.origin === "migz" ? "After you talk" : "After you call"}</SectionTitle>
           <div className="space-y-3">
-            <Button size="sm" variant="ghost" className="border border-line" onClick={() => tap("tried_call")} disabled={pending}>
-              <PhoneMissed className="size-4" /> Tried to call
-            </Button>
+            {client.origin === "personal" && client.phoneGiven && (
+              <Button size="sm" variant="ghost" className="border border-line" onClick={() => reach("tried_call")} disabled={pending}>
+                <PhoneMissed className="size-4" /> Tried to call
+              </Button>
+            )}
             <Chips kind={client.kind} value={outcome} onPick={(o) => tap(o)} disabled={pending} />
             {outcome === "sold" && <Premium initialCents={client.premiumCents} onSave={(d) => tap("sold", d)} />}
             <p className="min-h-4 text-[12px] text-fg-faint">
               {pending ? <Loader2 className="inline size-3 animate-spin" /> : flash ? <span className="text-good">{flash}</span> : client.origin === "personal"
-                  ? "For your own records: personal clients never go to Meta or Migz."
+                  ? "For your own records: personal clients never go to Meta or Migz, and never get automated emails."
                   : "Reached, sold and not interested go to Meta, so your ads find more people like the ones who buy."}
             </p>
           </div>
@@ -524,7 +609,7 @@ function CardBody({ client, timezone, questionOrder, onClose }: { client: Client
   );
 }
 
-export function ClientCard({ client, timezone, questionOrder, onClose }: { client: Client | null; timezone: string; questionOrder: string[]; onClose: () => void }) {
+export function ClientCard({ client, timezone, questionOrder, emailing, onClose }: { client: Client | null; timezone: string; questionOrder: string[]; emailing: Emailing; onClose: () => void }) {
   useEffect(() => {
     if (!client) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -547,7 +632,7 @@ export function ClientCard({ client, timezone, questionOrder, onClose }: { clien
             exit={{ x: "100%" }}
             transition={{ type: "spring", stiffness: 380, damping: 40 }}
           >
-            <CardBody client={client} timezone={timezone} questionOrder={questionOrder} onClose={onClose} />
+            <CardBody client={client} timezone={timezone} questionOrder={questionOrder} emailing={emailing} onClose={onClose} />
           </motion.aside>
         </>
       )}
