@@ -27,11 +27,11 @@ import {
 import type { Client, ClientActivity } from "@/lib/dashboard/clients";
 import { phone as formatPhone } from "@/lib/dashboard/format";
 import { orderedAnswers } from "@/lib/booking/questions";
-import { CLIENT_STATUSES, type ClientStatus } from "@/lib/outcomes";
+import { CLIENT_STATUSES, startsFollowUps, type ClientStatus } from "@/lib/outcomes";
 import Link from "next/link";
 import { addActivity, cancelBooking, changeClientStatus, editActivity, loadClientActivity, reachOut, removeActivity, saveNotesFor, tapClient } from "@/app/dashboard/actions";
 import type { SequenceKey } from "@/lib/email-sequences";
-import { Chips, Premium } from "@/components/dashboard/OutcomeAsk";
+import { Chips, FollowUpMark, Premium } from "@/components/dashboard/OutcomeAsk";
 import { Badge, Button, inputClass } from "@/components/dashboard/ui";
 import { cn } from "@/lib/utils";
 
@@ -253,6 +253,8 @@ function CardBody({ client, timezone, questionOrder, emailing, onClose }: { clie
     });
 
   const tap = (action: string, premium?: number) => {
+    // Couldn't reach starts the missed-call emails: the note says what happened to them
+    if (startsFollowUps(client.kind, action)) return reach("not_reached");
     setOutcome(action);
     if (action === "sold") setStatus("current");
     if (action === "not_interested") setStatus("not_interested");
@@ -261,14 +263,14 @@ function CardBody({ client, timezone, questionOrder, emailing, onClose }: { clie
 
   // "Tried to call" / "Sent an email": logged, and the automated emails start; the note says what happened to them
   const [reachNote, setReachNote] = useState<string | null>(null);
-  const reach = (action: "tried_call" | "sent_email") => {
-    if (action === "tried_call" && !outcome && client.kind === "lead") setOutcome("not_reached");
+  const reach = (action: "tried_call" | "sent_email" | "not_reached") => {
+    if (action === "not_reached" || (action === "tried_call" && !outcome && client.kind === "lead")) setOutcome("not_reached");
     setReachNote(null);
     startTransition(async () => {
       setError(null);
       const res = await reachOut(client.kind, client.id, action);
       if (!res.ok) return setError(res.error);
-      const what = action === "tried_call" ? "Call attempt logged." : "Email logged.";
+      const what = action === "tried_call" ? "Call attempt logged." : action === "sent_email" ? "Email logged." : "Saved.";
       if (client.origin === "personal") {
         setFlash(what);
         setTimeout(() => setFlash(null), 1800);
@@ -386,7 +388,7 @@ function CardBody({ client, timezone, questionOrder, emailing, onClose }: { clie
               <div className="flex flex-wrap gap-2">
                 {client.phoneGiven && (
                   <Button size="sm" variant="ghost" className="border border-line" onClick={() => reach("tried_call")} disabled={pending}>
-                    <PhoneMissed className="size-4" /> Tried to call
+                    <PhoneMissed className="size-4" /> Tried to call <FollowUpMark />
                   </Button>
                 )}
                 {client.email && (
@@ -410,6 +412,7 @@ function CardBody({ client, timezone, questionOrder, emailing, onClose }: { clie
                     {client.phoneGiven && client.email
                       ? `Pressing either logs it and starts your automated emails to ${client.name.split(" ")[0]}: one sequence after a missed call, another after you email them.`
                       : `Pressing it logs it and starts your automated emails to ${client.name.split(" ")[0]}${client.phoneGiven ? " after a missed call" : " after you email them"}.`}{" "}
+                    {client.kind === "lead" && "Couldn't reach below starts the missed-call emails too (look for the mail icon). "}
                     They stop when you mark them reached, booked, sold or not interested.
                   </>
                 )}{" "}

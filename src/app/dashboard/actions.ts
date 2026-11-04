@@ -20,8 +20,7 @@ import { CONTACT_EMAIL } from "@/lib/contact";
 import { dailyBatch } from "@/lib/batch";
 import { closeEndedBatch, getActiveBatch, getBatchHistory, getOpenBatch } from "@/lib/dashboard/batches";
 import { buildCampaignPlan } from "@/lib/dashboard/campaign-plan";
-import { recordOutcome } from "@/lib/dashboard/outcomes";
-import { isClientStatus, type OutcomeKind } from "@/lib/outcomes";
+import { isClientStatus, startsFollowUps, type OutcomeKind } from "@/lib/outcomes";
 import { isAgentActivityKind, type Subject } from "@/lib/dashboard/activity";
 import {
   addClientActivity,
@@ -30,6 +29,7 @@ import {
   deleteClientActivity,
   getClientActivity,
   saveClientNotes,
+  couldntReach,
   sentAnEmail,
   setClientStatus,
   triedToCall,
@@ -1066,7 +1066,8 @@ export async function setOutcome(kind: OutcomeKind, id: string, outcome: string,
   const agent = await requireAgent();
   if (kind !== "call" && kind !== "lead") return fail("Unknown lead.");
   const premium = typeof premiumDollars === "number" && premiumDollars > 0 ? Math.round(premiumDollars * 100) : null;
-  const ok = await recordOutcome(agent.id, kind, clean(id, 40), outcome, premium);
+  // The same path as a card or Slack tap, so "Couldn't reach" starts the missed-call emails here too
+  const ok = await clientTap(agent, { kind, id: clean(id, 40) }, clean(outcome, 40), premium);
   if (!ok) return fail("Couldn't save that. If this keeps happening, the latest migration may not have run yet.");
   revalidatePath("/dashboard", "layout");
   return { ok: true };
@@ -1100,12 +1101,13 @@ export async function tapClient(kind: OutcomeKind, id: string, action: string, p
   return { ok: true };
 }
 
-/** "Tried to call" or "Sent an email" on a card: logged, and the matching automated emails start. Says what happened to them. */
-export async function reachOut(kind: OutcomeKind, id: string, action: "tried_call" | "sent_email"): Promise<{ ok: true; started: boolean; sentNow: boolean; reason: string | null } | { ok: false; error: string }> {
+/** "Tried to call", "Sent an email" or "Couldn't reach" on a card: saved, and the matching automated emails start. Says what happened to them. */
+export async function reachOut(kind: OutcomeKind, id: string, action: "tried_call" | "sent_email" | "not_reached"): Promise<{ ok: true; started: boolean; sentNow: boolean; reason: string | null } | { ok: false; error: string }> {
   const agent = await requireAgent();
   const subject = subjectOf(kind, id);
-  if (!subject || (action !== "tried_call" && action !== "sent_email")) return { ok: false, error: "Unknown client." };
-  const res = action === "tried_call" ? await triedToCall(agent, subject) : await sentAnEmail(agent, subject);
+  if (!subject || !["tried_call", "sent_email", "not_reached"].includes(action) || (action === "not_reached" && !startsFollowUps(subject.kind, action)))
+    return { ok: false, error: "Unknown client." };
+  const res = action === "tried_call" ? await triedToCall(agent, subject) : action === "sent_email" ? await sentAnEmail(agent, subject) : await couldntReach(agent, subject);
   if (!res.ok) return { ok: false, error: MIGRATION_HINT };
   revalidatePath("/dashboard", "layout");
   return { ok: true, started: res.started, sentNow: res.sentNow, reason: res.reason };

@@ -24,6 +24,12 @@ export const LEAD_OUTCOMES: { key: LeadOutcome; label: string }[] = [
   { key: "not_interested", label: "Not interested" },
 ];
 
+/**
+ * Answers that start the agent's "after a missed call" automated emails, like tapping Tried to call: a form lead
+ * or quote request they couldn't reach. (Tried to call and Sent an email start them too.)
+ */
+export const startsFollowUps = (kind: OutcomeKind, outcome: string) => kind === "lead" && outcome === "not_reached";
+
 /** Answers that mean it went nowhere (shown in red). */
 export const badOutcome = (o: string | null | undefined) => o === "no_show" || o === "not_reached" || o === "not_interested";
 

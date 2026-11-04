@@ -6,7 +6,7 @@ import { startSequence } from "@/lib/dashboard/followups";
 import { usPhone } from "@/lib/booking/call";
 import { logActivity, type ActivityKind, type AgentActivityKind, type Subject } from "@/lib/dashboard/activity";
 import { recordOutcome } from "@/lib/dashboard/outcomes";
-import { CLIENT_STATUSES, type ClientStatus, type OutcomeKind } from "@/lib/outcomes";
+import { CLIENT_STATUSES, startsFollowUps, type ClientStatus, type OutcomeKind } from "@/lib/outcomes";
 import type { SequenceKey } from "@/lib/email-sequences";
 
 // The Clients tab: everyone who reached the agent, in one list. A booked call, an instant-form lead and a
@@ -328,12 +328,23 @@ export async function sentAnEmail(agent: Agent, subject: Subject) {
 }
 
 /**
- * One tap from the dashboard or Slack: an outcome (saved, status moved, Meta told) or "tried_call".
- * Returns false when the lead isn't the agent's or the answer isn't valid.
+ * "Couldn't reach" on a lead: the answer is saved like any other, and their "after a missed call" automated
+ * emails start, the same as tapping Tried to call (once per person: a running sequence isn't restarted).
+ */
+export async function couldntReach(agent: Agent, subject: Subject) {
+  if (!(await recordOutcome(agent.id, subject.kind, subject.id, "not_reached"))) return { ok: false as const };
+  return { ok: true as const, ...(await startSequence(agent, subject, "tried_call")) };
+}
+
+/**
+ * One tap from the dashboard or Slack: an outcome (saved, status moved, Meta told), "tried_call" or "sent_email".
+ * "Couldn't reach" also starts the missed-call emails. Returns false when the lead isn't the agent's or the
+ * answer isn't valid.
  */
 export async function clientTap(agent: Agent, subject: Subject, action: string, premiumCents?: number | null) {
   if (action === "tried_call") return (await triedToCall(agent, subject)).ok;
   if (action === "sent_email") return (await sentAnEmail(agent, subject)).ok;
+  if (startsFollowUps(subject.kind, action)) return (await couldntReach(agent, subject)).ok;
   return recordOutcome(agent.id, subject.kind, subject.id, action, premiumCents);
 }
 
