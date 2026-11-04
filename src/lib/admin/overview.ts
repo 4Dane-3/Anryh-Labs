@@ -4,7 +4,7 @@ import { DateTime } from "luxon";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
 import { getActiveBatch, getBatchProgress } from "@/lib/dashboard/batches";
-import { getBalanceCents } from "@/lib/dashboard/queries";
+import { getBalanceCents, getLiveAdCount } from "@/lib/dashboard/queries";
 import { getLiveStats } from "@/lib/migz/live";
 import { integrations } from "@/lib/integrations";
 import type { AdminAlert, AdminOverview, AdminAgentRow } from "@/lib/admin/types";
@@ -29,7 +29,8 @@ async function agentRow(agent: Agent, alerts: AdminAlert[], working: string | nu
     getBalanceCents(agent.id),
     supabaseAdmin.from("migz_runs").select("status, started_at, finished_at").eq("agent_id", agent.id).order("started_at", { ascending: false }).limit(1).maybeSingle(),
     agent.meta_ad_account_id ? getLiveStats(agent).catch(() => null) : Promise.resolve(null),
-    supabaseAdmin.from("ads").select("id", { count: "exact", head: true }).eq("agent_id", agent.id).eq("status", "ACTIVE"),
+    // The same "live" as the agent's Overview: ads Meta can deliver (ad, ad set and campaign all on)
+    getLiveAdCount(agent.id),
   ]);
   let batchInfo: AdminAgentRow["batch"] = null;
   if (batch?.starts_on) {
@@ -51,7 +52,7 @@ async function agentRow(agent: Agent, alerts: AdminAlert[], working: string | nu
     balanceCents: balance,
     today: live && !live.error ? { spendCents: live.today.spendCents, budgetCents: live.today.budgetCents, impressions: live.today.impressions, linkClicks: live.today.linkClicks, bookedCalls: live.today.bookedCalls } : null,
     metaError: live?.error ?? null,
-    liveAds: liveAds.count ?? 0,
+    liveAds,
     alerts: { critical: mine.filter((a) => a.severity === "critical").length, warn: mine.filter((a) => a.severity === "warn").length, info: mine.filter((a) => a.severity === "info").length },
     working,
     adAccount: agent.meta_ad_account_id,

@@ -134,9 +134,13 @@ export async function traitCreative(creative: CreativeRow, opts: { agentId: stri
 export async function watchNewCreatives(agent: Agent, opts: { runId: string; budget: Budget; createMessage: CreateMessage }) {
   const { data } = await supabaseAdmin
     .from("ads")
-    .select("primary_text, creatives(id, kind, storage_path, mime_type, hook, script, traits)")
+    .select("primary_text, creatives(id, kind, storage_path, mime_type, hook, script, traits), ad_sets!inner(status, ad_campaigns!inner(status, retired_at))")
     .eq("agent_id", agent.id)
+    // Live means Meta can deliver it: the ad, its ad set and its campaign all on (as getLiveAdCount)
     .eq("status", "ACTIVE")
+    .eq("ad_sets.status", "ACTIVE")
+    .eq("ad_sets.ad_campaigns.status", "ACTIVE")
+    .is("ad_sets.ad_campaigns.retired_at", null)
     .not("creative_id", "is", null);
   const todo = (data ?? [])
     .map((r) => ({ creative: r.creatives as unknown as (CreativeRow & { traits: unknown }) | null, copy: r.primary_text as string | null }))

@@ -3,7 +3,7 @@ import { DateTime } from "luxon";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
 import { actionValue, getAdInsights, getAdSet, getPlacementInsights, keepToFacebookAndInstagram, reachesOtherApps, scheduleConversions } from "@/lib/meta/ads";
-import { graphAll } from "@/lib/meta/graph";
+import { graph, graphAll } from "@/lib/meta/graph";
 import { pullFormLeads } from "@/lib/migz/leads";
 import { refundRejectedVideo } from "@/lib/migz/creative-jobs";
 
@@ -11,7 +11,7 @@ export const LOOKBACK_DAYS = 14;
 
 /**
  * Pulls the latest from Meta into our mirror: per-ad daily insights, ad set budget/status/learning,
- * and ad statuses. Then rolls up the dashboard's daily metrics and the ad-spend ledger.
+ * and campaign and ad statuses. Then rolls up the dashboard's daily metrics and the ad-spend ledger.
  */
 export async function syncAgent(agent: Agent) {
   const account = agent.meta_ad_account_id!;
@@ -89,6 +89,9 @@ export async function syncAgent(agent: Agent) {
       .eq("meta_ad_id", ad.id)
       .eq("agent_id", agent.id);
   }
+
+  // 3a. Campaign statuses (a campaign paused or archived in Ads Manager stops its ads counting as live)
+  await syncCampaignStatuses(agent, account).catch((e) => console.error("syncing campaign statuses failed", e instanceof Error ? e.message : e));
 
   // 3b. Ads archived or deleted in Meta (by Migz, the agent or in Ads Manager) aren't in that listing:
   // mark them so they stop counting as live (scorecards, live-ad counts, the review)
@@ -246,4 +249,26 @@ async function rollUp(agent: Agent, since: string, until: string) {
 
   // Spend isn't taken from the wallet day by day: a batch sets its whole budget aside when it starts and
   // returns what it didn't spend when it ends (see setAsideBatch in dashboard/batches.ts)
+}
+
+/**
+ * Our campaigns' statuses as Meta has them now. Archived campaigns aren't in the account's default listing, so
+ * any of ours missing from it is looked up by id.
+ */
+async function syncCampaignStatuses(agent: Agent, account: string) {
+  const { data: ours } = await supabaseAdmin.from("ad_campaigns").select("id, meta_campaign_id, status").eq("agent_id", agent.id).not("status", "in", "(ARCHIVED,DELETED)");
+  if (!ours?.length) return;
+  const listed = await graphAll<{ id: string; status: string }>(`${account}/campaigns`, { fields: "id,status", limit: 500 });
+  const live = new Map(listed.map((c) => [c.id, c.status]));
+  const now = new Date().toISOString();
+  for (const c of ours) {
+    let status = live.get(c.meta_campaign_id);
+    if (!status) {
+      // Not knowing (Meta unreachable, or gone) changes nothing: a deleted campaign's ads are marked gone in 3b
+      const one = await graph<{ status?: string }>("GET", c.meta_campaign_id, { fields: "status" }).catch(() => null);
+      if (!one?.status) continue;
+      status = one.status;
+    }
+    if (status !== c.status) await supabaseAdmin.from("ad_campaigns").update({ status, updated_at: now }).eq("id", c.id);
+  }
 }
