@@ -2,7 +2,7 @@ import "server-only";
 import { DateTime } from "luxon";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { callModel, defaultCreateMessage, monthlyBudget, planTier, textOf, type CreateMessage } from "@/lib/migz/router";
-import { TOPICS, type TopicKey } from "@/lib/migz/topics";
+import { INSURANCE_TOPIC_KEYS, TOPICS, type TopicKey } from "@/lib/migz/topics";
 import type { ModelTier } from "@/lib/migz/models";
 import type { Traits } from "@/lib/migz/team/scout";
 
@@ -29,7 +29,7 @@ export const PLATFORMS = [
   "YouTube and X (Twitter) ads",
 ] as const;
 
-const FINDER_TOPICS = Object.keys(TOPICS) as TopicKey[];
+const FINDER_TOPICS = INSURANCE_TOPIC_KEYS;
 
 /** True during the overnight window the finder runs in. */
 export function finderWindow(now = new Date()) {

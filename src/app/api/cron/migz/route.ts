@@ -7,6 +7,7 @@ import { renewBatches } from "@/lib/dashboard/renew";
 import { autoTopUpAll } from "@/lib/dashboard/top-up";
 import { settleGuarantees } from "@/lib/dashboard/guarantee";
 import { sendAllDueSequenceEmails } from "@/lib/dashboard/followups";
+import { sendInspectionReminders } from "@/lib/roofing/notify";
 import { syncSpend } from "@/lib/migz/sync";
 
 export const maxDuration = 300;
@@ -49,6 +50,12 @@ export async function GET(req: Request) {
     return {};
   });
 
+  // Roofers: the morning-of list of today's inspections (7am to noon their time, once a day)
+  const inspections = await sendInspectionReminders(deadline - 90_000).catch((e) => {
+    console.error("inspection reminders failed", e);
+    return {};
+  });
+
   const dueBefore = new Date(Date.now() - REVIEW_EVERY_HOURS * 3_600_000).toISOString();
   const { data } = await supabaseAdmin
     .from("agents")
@@ -65,6 +72,7 @@ export async function GET(req: Request) {
     ...(Object.keys(topUps).length ? { topUps } : {}),
     ...(Object.keys(renewals).length ? { renewals } : {}),
     ...(Object.keys(emails).length ? { emails } : {}),
+    ...(Object.keys(inspections).length ? { inspections } : {}),
   };
   for (const agent of (data ?? []) as Agent[]) {
     if (Date.now() > deadline) break;

@@ -24,7 +24,9 @@ import { DEFAULT_INTENT, isIntentLevel } from "@/lib/ad-options";
 // Form leads also get an email with the booking link, so their consent names email too
 export const FORM_CONSENT_TEXT = `${QUOTE_CONSENT_TEXT.replace("by phone and text", "by phone, text and email")} By submitting, you ask to be called back about life insurance.`;
 
-export const wantsInstantForms = (agent: Pick<Agent, "intent_level">) => (isIntentLevel(agent.intent_level) ? agent.intent_level : DEFAULT_INTENT) === "low_medium";
+/** Roofers never run instant forms: an inspection needs an address and a time, which the booking page asks for. */
+export const wantsInstantForms = (agent: Pick<Agent, "intent_level" | "vertical">) =>
+  agent.vertical !== "roofing" && (isIntentLevel(agent.intent_level) ? agent.intent_level : DEFAULT_INTENT) === "low_medium";
 
 const appUrl = () => (process.env.APP_URL || "http://localhost:3000").replace(/\/$/, "");
 

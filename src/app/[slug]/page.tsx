@@ -13,6 +13,7 @@ import { callButtonShows, displayPhone } from "@/lib/booking/call";
 import { DEFAULT_TITLE } from "@/lib/campaign";
 import { pageFont } from "@/lib/booking/page-fonts";
 import { partnerPage } from "@/lib/booking/sites";
+import { areaLabel, isRoofer } from "@/lib/verticals";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const agent = await getAgentBySlug(slug);
   if (!agent) return {};
+  if (isRoofer(agent))
+    return {
+      title: `Book a free roof inspection with ${agent.full_name}`,
+      description: agent.headline ?? `${agent.full_name} inspects your roof for free and tells you what they find.`,
+    };
   return {
     title: `Book a free consultation with ${agent.full_name}`,
     description:
@@ -52,6 +58,30 @@ const steps = [
     icon: CalendarCheck,
     title: "No pressure, no obligation",
     body: "It's a conversation. You decide what, if anything, makes sense.",
+  },
+];
+
+/** A roofer's page: what happens at the free inspection. No promises about damage, insurance or price. */
+const roofSteps = [
+  {
+    icon: MessageCircle,
+    title: "Tell us about the roof",
+    body: "The address, what you've noticed and roughly how old it is. That's all we need.",
+  },
+  {
+    icon: SearchCheck,
+    title: "We inspect it, top to bottom",
+    body: "Shingles, flashing, vents, gutters and the attic if you'd like. You don't need to climb anything.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "You get straight answers, with photos",
+    body: "What we found, good or bad, and what (if anything) it would take to fix.",
+  },
+  {
+    icon: CalendarCheck,
+    title: "No pressure, no obligation",
+    body: "The inspection is free. You decide what, if anything, to do next.",
   },
 ];
 
@@ -84,7 +114,8 @@ export default async function AgentPage({ params, searchParams }: Props) {
   const call = callButtonShows(agent, hours ?? []) && agent.call_phone ? { phone: agent.call_phone, firstName: agent.full_name.split(" ")[0] } : null;
   const requiredSteps = agent.required_intake_steps ?? [];
 
-  const firstName = agent.full_name.split(" ")[0];
+  // A roofing company goes by its whole name ("Summit Ridge Roofing", not "Summit")
+  const firstName = isRoofer(agent) ? agent.full_name : agent.full_name.split(" ")[0];
   const initials = agent.full_name
     .split(" ")
     .map((w) => w[0])
@@ -92,7 +123,9 @@ export default async function AgentPage({ params, searchParams }: Props) {
     .join("");
 
   const slotMinutes = agent.slot_minutes ?? 30;
-  const states = agent.licensed_states;
+  const roof = isRoofer(agent);
+  const states = roof ? [] : agent.licensed_states;
+  const meeting = roof ? "roof inspection" : "consultation";
   const rated = (testimonials ?? []).filter((t) => t.rating);
   const avgRating = rated.length ? rated.reduce((s, t) => s + (t.rating ?? 0), 0) / rated.length : null;
   const font = pageFont(agent.page_font);
@@ -119,7 +152,13 @@ export default async function AgentPage({ params, searchParams }: Props) {
             )}
             <div className="min-w-0">
               <h1 className="text-xl font-bold leading-tight sm:text-3xl">{agent.full_name}</h1>
-              <p className="text-sm text-slate-500 sm:text-base">{agent.title || DEFAULT_TITLE}</p>
+              <p className="text-sm text-slate-500 sm:text-base">{agent.title || (roof ? "Roofing" : DEFAULT_TITLE)}</p>
+              {roof && agent.service_area && (
+                <p className="mt-0.5 flex items-center gap-1 text-sm text-slate-600">
+                  <ShieldCheck className="size-4 shrink-0 text-blue-700" />
+                  <span>Serving homes {areaLabel(agent)}{agent.company_license ? ` · License #${agent.company_license}` : ""}</span>
+                </p>
+              )}
               {states.length > 0 && (
                 <p className="mt-0.5 flex items-center gap-1 text-sm text-slate-600">
                   <ShieldCheck className="size-4 shrink-0 text-blue-700" />
@@ -142,14 +181,14 @@ export default async function AgentPage({ params, searchParams }: Props) {
           )}
 
           <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-sm text-slate-600">
-            <li className="flex items-center gap-1.5"><Clock className="size-4 text-blue-700" /> Free {slotMinutes}-min consultation</li>
+            <li className="flex items-center gap-1.5"><Clock className="size-4 text-blue-700" /> Free {slotMinutes}-min {meeting}</li>
             <li className="flex items-center gap-1.5"><BadgeCheck className="size-4 text-blue-700" /> No obligation</li>
           </ul>
         </header>
 
         <aside id="book" className="min-w-0 scroll-mt-4 lg:sticky lg:top-8 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:self-start">
           <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 sm:p-6">
-            <h2 className="text-lg font-bold sm:text-xl">Book your free consultation with {firstName}</h2>
+            <h2 className="text-lg font-bold sm:text-xl">{roof ? `Book your free roof inspection with ${agent.full_name}` : `Book your free consultation with ${firstName}`}</h2>
             <p className="mb-4 mt-0.5 text-sm text-slate-500">Pick a time. It takes under a minute.</p>
             {call && <CallNow phone={call.phone} display={displayPhone(call.phone)} firstName={call.firstName} preview={preview} />}
             <BookingWidget
@@ -158,8 +197,9 @@ export default async function AgentPage({ params, searchParams }: Props) {
               preview={preview}
               questions={preBookingQuestions(questions, requiredSteps)}
               requiredSteps={requiredSteps}
+              meeting={meeting}
             />
-            {agent.quote_mode !== "off" && (
+            {!roof && agent.quote_mode !== "off" && (
               <QuoteForm slug={agent.slug} firstName={firstName} preview={preview} openForAds={agent.quote_mode === "open_for_ads"} />
             )}
           </div>
@@ -167,9 +207,9 @@ export default async function AgentPage({ params, searchParams }: Props) {
 
         <section className="min-w-0 space-y-10 lg:col-start-1">
           <div>
-            <h2 className="text-lg font-semibold">How the consultation works</h2>
+            <h2 className="text-lg font-semibold">How the {meeting} works</h2>
             <ul className="mt-4 space-y-4">
-              {steps.map(({ icon: Icon, title, body }) => (
+              {(roof ? roofSteps : steps).map(({ icon: Icon, title, body }) => (
                 <li key={title} className="flex gap-3.5">
                   <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-700">
                     <Icon className="size-[18px]" />
@@ -206,9 +246,19 @@ export default async function AgentPage({ params, searchParams }: Props) {
         </section>
       </main>
 
-      <StickyBookBar preview={preview} call={call} />
+      <StickyBookBar preview={preview} call={call} label={roof ? "Book a free inspection" : undefined} />
 
       <footer className="mx-auto max-w-5xl px-4 pb-28 text-xs lg:pb-10 leading-relaxed text-slate-400 sm:px-6">
+        {roof ? (
+          <p>
+            {agent.full_name}
+            {agent.company_license ? ` (License #${agent.company_license})` : ""} offers free roof inspections to homeowners
+            in its service area. An inspection is not a quote or a promise of any repair, price or insurance outcome.{" "}
+            <Link href="/privacy" className="underline">
+              Privacy policy
+            </Link>
+          </p>
+        ) : (
         <p>
           {agent.full_name} is a licensed insurance agent
           {agent.license_number ? ` (License #${agent.license_number})` : ""}.
@@ -218,6 +268,7 @@ export default async function AgentPage({ params, searchParams }: Props) {
             Privacy policy
           </Link>
         </p>
+        )}
       </footer>
     </div>
   );

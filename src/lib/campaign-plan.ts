@@ -1,5 +1,6 @@
 import { isTopic, TOPICS, MAX_FOCUS, type TopicKey } from "@/lib/migz/topics";
 import { MIN_SPLIT_DAILY_CENTS, VIDEO_TIERS, type IntentLevel, type VideoTier } from "@/lib/ad-options";
+import type { Vertical } from "@/lib/verticals";
 
 // Starting a campaign: the agent answers a few questions and picks a daily budget. Migz picks the length,
 // the ad funds it needs, the creative mix, and shows the range of results to expect. Pure (client-safe):
@@ -187,8 +188,24 @@ export const ANGLES = {
 } as const;
 export type Angle = keyof typeof ANGLES;
 
+/** Roofing angles: every one offers the free inspection; none claims damage, a free roof, insurance paying or financing. */
+export const ROOFING_ANGLES = {
+  storm_check: "After the storm: hail or wind came through the area, get it checked before small damage spreads (never say their roof is damaged).",
+  roof_age: "Roof age: roofs over 15–20 years old, know what shape it's in before it leaks.",
+  local_crew: "Local crew: the owner or crew on camera, trucks in local neighborhoods, years in town and a written warranty.",
+  before_after: "Before and after: the company's own finished roofs (never stock or someone else's work).",
+  what_we_check: "What the inspection covers: shingles, flashing, vents, gutters, photos of what we find, no pressure.",
+  neighbors: "Neighbors: we're working in your area this week (never name a customer or address).",
+} as const;
+export type RoofingAngle = keyof typeof ROOFING_ANGLES;
+
 export function anglesFor(a: Pick<CampaignAnswers, "underwriting" | "ageMin" | "ageMax">): Angle[] {
   return (Object.keys(ANGLES) as Angle[]).filter((k) => (k === "no_exam" ? offersNoExam(a) : k === "age_callout" ? a.ageMin !== null || a.ageMax !== null : true));
+}
+
+/** The angle notes a campaign's creatives cover, for its business. */
+export function angleNotesFor(a: Pick<CampaignAnswers, "underwriting" | "ageMin" | "ageMax">, vertical: Vertical = "insurance"): string[] {
+  return vertical === "roofing" ? Object.values(ROOFING_ANGLES) : anglesFor(a).map((k) => ANGLES[k]);
 }
 
 // ---------- Expected results ----------
@@ -201,11 +218,19 @@ export const TYPICAL = {
   website: { cost: { low: 6000, mid: 9000, high: 15_000 } as Range, follow: "50–70% of booked calls show up" },
 };
 
+/** Typical booked free roof inspections from Meta (homeowners, a local radius). */
+export const TYPICAL_ROOFING = { cost: { low: 7500, mid: 13_000, high: 22_000 } as Range, follow: "60–75% of booked inspections happen" };
+
 const PRODUCT_COST: Partial<Record<TopicKey, number>> = { final_expense: 1, mortgage_protection: 1.2, retirement_iul: 1.3, term_life: 1.1, whole_life: 1.05 };
 
 /** How the agent's answers move the typical cost per result, and why, in plain words. */
-export function costAdjustments(a: CampaignAnswers, states: string[]) {
+export function costAdjustments(a: CampaignAnswers, states: string[], vertical: Vertical = "insurance") {
   const notes: { text: string; factor: number }[] = [];
+  if (vertical === "roofing") {
+    if (a.ageMin !== null && a.ageMax !== null && a.ageMax - a.ageMin < 20) notes.push({ factor: 1.15, text: "A narrow age range makes each inspection cost more." });
+    if (a.languages.includes("es")) notes.push({ factor: 0.9, text: "Spanish-language ads usually cost less per result." });
+    return { factor: notes.reduce((f, n) => f * n.factor, 1), notes };
+  }
   if (states.length > 0 && states.length <= 2) notes.push({ factor: 1.2, text: "Only 1–2 states is a small audience, so each result costs more." });
   if (a.ageMin !== null && a.ageMax !== null && a.ageMax - a.ageMin < 20) notes.push({ factor: 1.15, text: "A narrow age range makes each result cost more." });
   if (offersNoExam(a)) notes.push({ factor: 0.9, text: "No-exam coverage gets more people to respond." });
@@ -229,7 +254,7 @@ export type OwnNumbers = {
 
 export type ExpectedLine = {
   destination: "website" | "instant_form";
-  unit: "booked call" | "form lead";
+  unit: "booked call" | "booked inspection" | "form lead";
   dailyCents: number;
   cost: Range; // cents per result
   perWeek: Range;
@@ -238,21 +263,24 @@ export type ExpectedLine = {
   source: "typical" | "yours";
 };
 
-export function expectedResults(input: { answers: CampaignAnswers; states: string[]; intent: IntentLevel; dailyCents: number; days?: number; own?: OwnNumbers | null }) {
+export function expectedResults(input: { answers: CampaignAnswers; states: string[]; intent: IntentLevel; dailyCents: number; days?: number; own?: OwnNumbers | null; vertical?: Vertical }) {
   const days = input.days ?? recommendedDays();
-  const adj = costAdjustments(input.answers, input.states);
+  const roof = input.vertical === "roofing";
+  const adj = costAdjustments(input.answers, input.states, input.vertical);
   // Costs: their own after 2 finished campaigns. Show-up and reach rates: their own as soon as they're known
   const own = input.own && input.own.campaigns >= 2 ? input.own : null;
   const rate = (r: number | null | undefined) => `${Math.round(r! * 100)}%`;
-  const lines: ExpectedLine[] = adsetShares(input.intent, input.dailyCents).map(({ destination, dailyCents }) => {
+  // Roofers run the booking page only (an inspection needs an address and a time)
+  const shares = roof ? [{ destination: "website" as const, dailyCents: input.dailyCents }] : adsetShares(input.intent, input.dailyCents);
+  const lines: ExpectedLine[] = shares.map(({ destination, dailyCents }) => {
     const mine = destination === "website" ? own?.costPerCallCents : own?.costPerLeadCents;
     const cost: Range = mine
       ? { low: Math.round(mine * 0.75), mid: mine, high: Math.round(mine * 1.4) }
-      : scale(TYPICAL[destination].cost, adj.factor);
+      : scale(roof ? TYPICAL_ROOFING.cost : TYPICAL[destination].cost, adj.factor);
     const per = (cents: number, c: number) => (cents * 7) / c;
     return {
       destination,
-      unit: destination === "website" ? "booked call" : "form lead",
+      unit: destination === "website" ? (roof ? "booked inspection" : "booked call") : "form lead",
       dailyCents,
       cost,
       perWeek: { low: Math.floor(per(dailyCents, cost.high)), mid: Math.round(per(dailyCents, cost.mid)), high: Math.ceil(per(dailyCents, cost.low)) },
@@ -263,10 +291,12 @@ export function expectedResults(input: { answers: CampaignAnswers; states: strin
       },
       follow:
         destination === "website" && input.own?.showRate != null
-          ? `${rate(input.own.showRate)} of your booked calls show up (from your answers)`
+          ? `${rate(input.own.showRate)} of your ${roof ? "booked inspections happen" : "booked calls show up"} (from your answers)`
           : destination === "instant_form" && input.own?.reachRate != null
             ? `you reach ${rate(input.own.reachRate)} of your form leads (from your answers)`
-            : TYPICAL[destination].follow,
+            : roof
+              ? TYPICAL_ROOFING.follow
+              : TYPICAL[destination].follow,
       source: mine ? "yours" : "typical",
     };
   });
@@ -277,10 +307,10 @@ const scale = (r: Range, f: number): Range => ({ low: Math.round(r.low * f), mid
 
 // ---------- The whole plan for a daily budget ----------
 
-export function campaignMoney(input: { dailyCents: number; intent: IntentLevel; tier: VideoTier }) {
+export function campaignMoney(input: { dailyCents: number; intent: IntentLevel; tier: VideoTier; vertical?: Vertical }) {
   const days = recommendedDays();
   const adSpendCents = input.dailyCents * days;
-  const sets = adsetShares(input.intent, input.dailyCents).map((s) => ({ ...s, mix: creativeMix(s.dailyCents) }));
+  const sets = (input.vertical === "roofing" ? [{ destination: "website" as const, dailyCents: input.dailyCents }] : adsetShares(input.intent, input.dailyCents)).map((s) => ({ ...s, mix: creativeMix(s.dailyCents) }));
   const videoCents = sets.reduce((sum, s) => sum + mixVideoCents(input.tier, s.mix), 0);
   // To start: two weeks of ads plus the videos made on day one
   const startSpendCents = input.dailyCents * START_FUNDED_DAYS;

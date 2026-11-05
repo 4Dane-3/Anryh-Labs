@@ -1,6 +1,9 @@
 // Shown next to the phone field and stored with every booking as proof of consent.
 export const CONSENT_TEXT =
   "I agree to be contacted by phone, text, and email about my life insurance inquiry and this appointment. Message and data rates may apply. Consent is not a condition of purchase.";
+export const ROOFING_CONSENT_TEXT =
+  "I agree to be contacted by phone, text, and email about my roof inspection and this appointment. Message and data rates may apply. Consent is not a condition of purchase.";
+export const consentTextFor = (roof: boolean | undefined) => (roof ? ROOFING_CONSENT_TEXT : CONSENT_TEXT);
 
 // Shown on the quote form and stored with every quote request as proof of consent.
 export const QUOTE_CONSENT_TEXT =

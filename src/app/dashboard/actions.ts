@@ -47,6 +47,11 @@ import { setupBlockers } from "@/lib/dashboard/setup";
 import { adAccountFrom, checkMetaAccess, pageRefFrom } from "@/lib/meta/access";
 import { alertAdmin } from "@/lib/migz/slack";
 import { sendSlackMessage } from "@/lib/slack";
+import { isRoofer, MAX_RADIUS_MILES, MIN_RADIUS_MILES } from "@/lib/verticals";
+import { ROOFING_TOPIC_KEYS } from "@/lib/migz/topics";
+import { crmPayload, validWebhookUrl } from "@/lib/roofing/notify";
+import { radiusCenter } from "@/lib/meta/ads";
+import { STATE_CODES } from "@/lib/campaign-plan";
 import type { Agent } from "@/lib/booking/data";
 import { recheck, type ActionPayload } from "@/lib/migz/tools";
 import { STEP_TITLES, type IntakeQuestion, type QuestionKind } from "@/lib/booking/questions";
@@ -292,7 +297,7 @@ const missingColumn = (code?: string) => code === "42703" || code === "PGRST204"
 export async function saveBusinessInfo(input: { agency_name: string; npn: string; business_email: string; phone: string }): Promise<Result> {
   const agent = await requireAgent();
   const agency = clean(input.agency_name, 120);
-  if (agency.length < 2) return fail("Add the agency or IMO you write through.");
+  if (agency.length < 2 && !isRoofer(agent)) return fail("Add the agency or IMO you write through.");
   const npn = clean(input.npn, 20).replace(/\D/g, "");
   if (input.npn.trim() && (npn.length < 4 || npn.length > 10)) return fail("NPNs are 4 to 10 digits. Leave it blank if you'd rather not add it.");
   const email = clean(input.business_email, 200).toLowerCase();
@@ -301,7 +306,7 @@ export async function saveBusinessInfo(input: { agency_name: string; npn: string
   if (!phone) return fail("Enter a 10-digit US phone number.");
   const { error } = await supabaseAdmin
     .from("agents")
-    .update({ agency_name: agency, npn: npn || null, business_email: email === agent.email.toLowerCase() ? null : email, call_phone: phone })
+    .update({ agency_name: agency || null, npn: npn || null, business_email: email === agent.email.toLowerCase() ? null : email, call_phone: phone })
     .eq("id", agent.id);
   if (error) return fail(missingColumn(error.code) ? "This step isn't switched on yet. Please try again shortly." : "Couldn't save that.");
   revalidatePath("/dashboard", "layout");
@@ -903,11 +908,14 @@ export type CampaignChoice = {
   dailyCents: number;
   autoRun?: boolean;
   renew?: boolean;
+  /** A roofer's service area, asked in the flow in place of licensed states. */
+  area?: { service_area: string; state: string; radius: number; crews: number; license: string } | null;
 };
 
 type Resolved = {
   answers: CampaignAnswers;
   states: string[];
+  area?: { service_area: string; service_radius_miles: number; crews: number; company_license: string | null } | null;
   focus: TopicKey[];
   intent: IntentLevel;
   tier: VideoTier;
@@ -921,22 +929,42 @@ const cleanStates = (raw: unknown) =>
 /** Re-derives everything from the agent's choices on the server (never trusting the client's numbers). */
 async function resolveCampaign(agent: Agent, input: CampaignChoice): Promise<Resolved | string> {
   const answers = cleanAnswers(input.answers);
-  if (!answers.products.length) return "Choose at least one product to advertise.";
-  const states = cleanStates(input.states);
-  if (!states.length) return "Choose the states you're licensed in.";
+  const roof = isRoofer(agent);
+  if (roof) answers.products = answers.products.filter((p) => ROOFING_TOPIC_KEYS.includes(p));
+  if (!answers.products.length) return roof ? "Choose at least one thing to advertise." : "Choose at least one product to advertise.";
+  let area: Resolved["area"] = null;
+  let states: string[];
+  if (roof) {
+    const raw = input.area;
+    const where = clean(raw?.service_area, 160);
+    const state = clean(raw?.state, 2).toUpperCase();
+    if (where.length < 3) return "Add the address, city or ZIP your crews work from.";
+    if (!STATE_CODES.includes(state)) return "Pick the state your service area is in.";
+    const radius = Math.round(Number(raw?.radius));
+    if (!(radius >= MIN_RADIUS_MILES && radius <= MAX_RADIUS_MILES)) return `Choose a radius between ${MIN_RADIUS_MILES} and ${MAX_RADIUS_MILES} miles.`;
+    const unfound = await placeProblem(where, state, radius);
+    if (unfound) return unfound;
+    area = { service_area: where, service_radius_miles: radius, crews: Number(raw?.crews) === 2 ? 2 : 1, company_license: clean(raw?.license, 40) || null };
+    states = [state];
+  } else {
+    states = cleanStates(input.states);
+    if (!states.length) return "Choose the states you're licensed in.";
+  }
   const daily = Math.round(Number(input.dailyCents));
   if (!Number.isInteger(daily) || daily < MIN_CAMPAIGN_DAILY_CENTS || daily > MAX_CAMPAIGN_DAILY_CENTS)
     return `Choose a daily budget between $${MIN_CAMPAIGN_DAILY_CENTS / 100} and $${(MAX_CAMPAIGN_DAILY_CENTS / 100).toLocaleString("en-US")}.`;
-  const intent = isIntentLevel(input.intentLevel) ? input.intentLevel : DEFAULT_INTENT;
+  // Roofers run the booking page only: an inspection needs an address and a time
+  const intent = roof ? "medium_high" : isIntentLevel(input.intentLevel) ? input.intentLevel : DEFAULT_INTENT;
   const tier = isVideoTier(input.videoTier) ? input.videoTier : DEFAULT_VIDEO_TIER;
   const plan = dailyBatch(daily, answers.products, await getBatchHistory(agent));
   return {
     answers,
     states,
+    area,
     focus: answers.products,
     intent,
     tier,
-    money: campaignMoney({ dailyCents: daily, intent, tier }),
+    money: campaignMoney({ dailyCents: daily, intent, tier, vertical: roof ? "roofing" : "insurance" }),
     row: {
       agent_id: agent.id,
       budget_cents: plan.dailyCents * plan.days,
@@ -962,7 +990,7 @@ const usdShort = (cents: number) => `$${(cents / 100).toLocaleString("en-US", { 
 
 /** Saves the answers on the agent (prefilled next time), with the focus, states and the two ad choices. */
 async function saveCampaignAnswers(agent: Agent, r: Resolved, autoRun: boolean | undefined) {
-  const base = { ad_focus: r.focus, licensed_states: r.states, migz_mode: modeFor(agent, autoRun) };
+  const base = { ad_focus: r.focus, licensed_states: r.states, migz_mode: modeFor(agent, autoRun), ...(r.area ?? {}) };
   const { error } = await supabaseAdmin.from("agents").update({ ...base, campaign_answers: r.answers, intent_level: r.intent, video_tier: r.tier }).eq("id", agent.id);
   if (!error) return null;
   // Before the latest migration: keep what the old columns can hold, and say so
@@ -1243,4 +1271,61 @@ export async function launchCampaign(): Promise<Result> {
   await startGuarantee({ ...agent, daily_budget_cents: planned.daily_cents });
   revalidatePath("/dashboard", "layout");
   return { ok: true };
+}
+
+// ---------- Roofing: service area, crews, license, CRM webhook ----------
+
+/** Why Meta can't target this service area, or null (also null when Meta can't be reached: it's checked again at launch). */
+async function placeProblem(area: string, state: string, miles: number) {
+  try {
+    return (await radiusCenter(area, state, miles)) ? null : `Meta couldn't find "${area}". Use your ZIP code, your city, or a full street address.`;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveRoofingSettings(input: { service_area: string; state: string; radius: number; crews: number; license: string; crm_webhook_url: string }): Promise<Result> {
+  const agent = await requireAgent();
+  if (!isRoofer(agent)) return fail("This is only for roofing accounts.");
+  const area = clean(input.service_area, 160);
+  if (area.length < 3) return fail("Add the address, city or ZIP your crews work from.");
+  const state = clean(input.state, 2).toUpperCase();
+  if (!STATE_CODES.includes(state)) return fail("Pick the state your service area is in.");
+  const radius = Math.round(Number(input.radius));
+  if (!(radius >= MIN_RADIUS_MILES && radius <= MAX_RADIUS_MILES)) return fail(`Choose a radius between ${MIN_RADIUS_MILES} and ${MAX_RADIUS_MILES} miles.`);
+  const crews = Number(input.crews) === 2 ? 2 : 1;
+  const hook = clean(input.crm_webhook_url, 500);
+  if (hook && !validWebhookUrl(hook)) return fail("The CRM webhook must be an https:// link (from Zapier, Make or your CRM).");
+  const unfound = await placeProblem(area, state, radius);
+  if (unfound) return fail(unfound);
+  const { error } = await supabaseAdmin
+    .from("agents")
+    .update({ service_area: area, service_radius_miles: radius, licensed_states: [state], crews, company_license: clean(input.license, 40) || null, crm_webhook_url: hook || null })
+    .eq("id", agent.id);
+  if (error) return fail(missingColumn(error.code) ? "Roofing settings aren't switched on yet. Please try again shortly." : "Couldn't save that.");
+  // A new area or radius goes to Meta now, not at the next review
+  const moved = area !== agent.service_area || radius !== agent.service_radius_miles;
+  if (moved && agent.meta_ad_account_id) {
+    const fresh = { ...agent, service_area: area, service_radius_miles: radius, licensed_states: [state] };
+    after(async () => {
+      await retargetNow(fresh).catch((e) => console.error("re-targeting failed", e));
+    });
+  }
+  revalidatePath("/dashboard", "layout");
+  return { ok: true };
+}
+
+/** Sends a sample booking to the roofer's CRM webhook, so they can map the fields in Zapier. */
+export async function testCrmWebhook(url: string): Promise<Result> {
+  const agent = await requireAgent();
+  const hook = clean(url, 500);
+  if (!validWebhookUrl(hook)) return fail("Enter an https:// webhook link first.");
+  const sample = { id: "00000000-0000-0000-0000-000000000000", starts_at: new Date(Date.now() + 86_400_000).toISOString(), ends_at: new Date(Date.now() + 90_000_000).toISOString(), name: "Sample Homeowner", email: "sample@example.com", phone: "+15550140199" };
+  const answers = { property_address: { label: "Address", value: "123 Sample St, Springfield, IL 62701" }, homeowner: { label: "Owns", value: "Yes" }, roof_issue: { label: "Issue", value: "Storm or hail" }, roof_age: { label: "Age", value: "10–20 years" } };
+  try {
+    const res = await fetch(hook, { method: "POST", headers: { "Content-Type": "application/json", "User-Agent": "MigzAI-Webhook/1" }, body: JSON.stringify({ ...crmPayload(agent, sample, answers), test: true }), redirect: "error", signal: AbortSignal.timeout(10_000) });
+    return res.ok ? { ok: true } : fail(`Your webhook answered ${res.status}. Check the link.`);
+  } catch {
+    return fail("Couldn't reach that link.");
+  }
 }

@@ -2,7 +2,8 @@ import "server-only";
 import { DateTime } from "luxon";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
-import { createAdSet, createCampaign, getAdSet, setDailyBudget, setEndTime, setStates, setStatus, stateRegionKeys } from "@/lib/meta/ads";
+import { createAdSet, createCampaign, getAdSet, setDailyBudget, setEndTime, setGeo, setStates, setStatus, stateRegionKeys, type AdGeo } from "@/lib/meta/ads";
+import { areaLabel, hasServiceArea, isRoofer, radiusMiles, roofingAges } from "@/lib/verticals";
 import { batchEndTime, EXPLORE, pacedDailyCents, splitDaily, type CampaignSlot } from "@/lib/batch";
 import { isCarouselBrief, isVideoBrief, type AnyBrief, type CreativeBrief } from "@/lib/migz/brief";
 import { buildSnapshot, type Snapshot } from "@/lib/migz/snapshot";
@@ -13,7 +14,7 @@ import { campaignEnded, campaignLabels, daysLeft as daysLeftIn, pickCarryOver, p
 import { adsForBudget } from "@/lib/migz/playbook";
 import { cleanFocus, isTopic, type TopicKey } from "@/lib/migz/topics";
 import { MAX_ACTIONS_PER_RUN, MIN_ADSET_BUDGET_CENTS, type GuardContext } from "@/lib/migz/guardrails";
-import { anglesFor, ANGLES, ageCallout, cleanAnswers, creativeMix, INCLUDED_VIDEOS, offersNoExam, videoPriceFor, type CreativeMix } from "@/lib/campaign-plan";
+import { angleNotesFor, ageCallout, cleanAnswers, creativeMix, INCLUDED_VIDEOS, offersNoExam, videoPriceFor, type CreativeMix } from "@/lib/campaign-plan";
 import { DEFAULT_VIDEO_TIER, isVideoTier, MIN_SPLIT_DAILY_CENTS, VIDEO_TIERS } from "@/lib/ad-options";
 import { videoModel } from "@/lib/higgsfield";
 import { cycleDay, cycleSteps, lastWaveDay, LIVE_ADS_HIGH, LIVE_ADS_LOW, pauseWindow, runsTheCycle, WAVE_MAX, WAVE_MIN, waveStatus, type WaveStatus } from "@/lib/migz/cycle";
@@ -95,6 +96,7 @@ export async function buildEvalContext(agent: Agent, snapshot: Snapshot): Promis
     videosThisRun: 0,
     testMode: isTestMode(),
     facts: factsOf(agent),
+    vertical: isRoofer(agent) ? "roofing" : "insurance",
     revisionsFrom: snapshot.revisionsFrom ? DateTime.fromISO(snapshot.revisionsFrom, { zone: agent.timezone }).toJSDate() : null,
     cycle: await runCycle(agent, await getActiveBatch(agent.id)).then((c) => (c ? { day: c.day, cycling: c.cycling } : null)).catch(() => null),
     targetCostCents: snapshot.targetCostCents,
@@ -149,7 +151,7 @@ async function enforceSpendState(agent: Agent, snapshot: Snapshot, runId: string
   }
 
   // Never resume into no states: the ads would reach places the agent can't sell (retargetNow paused them)
-  if (!agent.ads_paused && !lowBalance && !ended && agent.licensed_states.length) {
+  if (!agent.ads_paused && !lowBalance && !ended && targetReady(agent)) {
     const { data: last } = await supabaseAdmin
       .from("ad_actions")
       .select("tool, payload")
@@ -279,7 +281,7 @@ export async function syncCampaignPlan(agent: Agent, runId: string | null, batch
   const unused = pool.filter((c) => !c.retired_at);
   if (!missing.length && !applying) return false;
 
-  if (!agent.licensed_states.length) throw new Error("Add the agent's licensed states before Migz can launch ads.");
+  if (!targetReady(agent)) throw new Error(isRoofer(agent) ? "Add the service area before Migz can launch ads." : "Add the agent's licensed states before Migz can launch ads.");
   const account = agent.meta_ad_account_id!;
   const labels = campaignLabels(slots, focus);
   // Each slot's share of the daily spend; campaigns outside the plan (only before a new batch retires
@@ -290,7 +292,7 @@ export async function syncCampaignPlan(agent: Agent, runId: string | null, batch
   const campaignStatus = isTestMode() ? "PAUSED" : "ACTIVE";
   // Meta stops delivery itself at the end of the batch's last day, even if our reviews stop running
   const endTime = batch?.ends_on ? batchEndTime(batch.ends_on, agent.timezone) : null;
-  const adsetName = `${agent.licensed_states.join(", ")} · adults 18+`;
+  const adsetName = adSetName(agent);
   const now = () => new Date().toISOString();
   // Ad sets whose live ads a one-campaign batch may carry over: the retired campaigns', and any extra
   // ad set in the kept campaign (an older batch's test ad set)
@@ -355,8 +357,8 @@ export async function syncCampaignPlan(agent: Agent, runId: string | null, batch
     }
 
     for (const i of missing) {
-      const name = `Migz · ${labels[i]} · ${agent.licensed_states.join(" ")}`;
-      const campaignId = await createCampaign(account, name);
+      const name = `Migz · ${labels[i]} · ${isRoofer(agent) ? agent.service_area : agent.licensed_states.join(" ")}`;
+      const campaignId = await createCampaign(account, name, { specialCategory: !isRoofer(agent) });
       if (campaignStatus === "ACTIVE") await setStatus(campaignId, "ACTIVE"); // spends nothing until ads exist
       const adsetId = await createAdSet(account, {
         campaignId,
@@ -364,6 +366,7 @@ export async function syncCampaignPlan(agent: Agent, runId: string | null, batch
         dailyBudgetCents: centsFor(i),
         pixelId: process.env.META_PIXEL_ID!,
         states: agent.licensed_states,
+        geo: adGeoFor(agent),
         placements: [],
         status: "ACTIVE",
         endTime,
@@ -382,7 +385,7 @@ export async function syncCampaignPlan(agent: Agent, runId: string | null, batch
         name: adsetName,
         status: "ACTIVE",
         daily_budget_cents: centsFor(i),
-        states: agent.licensed_states,
+        states: geoKey(agent),
         optimization_event: "LEAD",
       });
     }
@@ -401,13 +404,73 @@ export async function syncCampaignPlan(agent: Agent, runId: string | null, batch
       ? `Set up your $${(batch!.budget_cents / 100).toFixed(0)} batch`
       : made.length === 1 ? `Set up your ${made[0]} campaign` : `Set up ${made.length} campaigns`,
     detail: applying
-      ? `${slots.length === 1 ? "One campaign" : `${slots.length} campaigns`}: ${plan}, for ${batch!.days} days, targeting ${agent.licensed_states.join(", ")}.${made.length ? ` New: ${made.join(", ")}.` : ""}${unused.length ? ` Paused ${unused.length} campaign${unused.length === 1 ? "" : "s"} this batch doesn't use.` : ""}${carried ? ` Carried over ${carried} of the best live ad${carried === 1 ? "" : "s"} from them.` : ""} Ads go live as creatives are approved.`
-      : `${made.join(", ")}. Each targets adults in ${agent.licensed_states.join(", ")} at ${perDay}, optimized for booked calls${existing?.length ? `; your other campaigns moved to ${perDay} so the total stays within your daily budget` : ""}. Ads go live as creatives are approved.`,
+      ? `${slots.length === 1 ? "One campaign" : `${slots.length} campaigns`}: ${plan}, for ${batch!.days} days, targeting ${whereLabel(agent)}.${made.length ? ` New: ${made.join(", ")}.` : ""}${unused.length ? ` Paused ${unused.length} campaign${unused.length === 1 ? "" : "s"} this batch doesn't use.` : ""}${carried ? ` Carried over ${carried} of the best live ad${carried === 1 ? "" : "s"} from them.` : ""} Ads go live as creatives are approved.`
+      : `${made.join(", ")}. Each targets ${isRoofer(agent) ? `homeowners ${whereLabel(agent)}` : `adults in ${whereLabel(agent)}`} at ${perDay}, optimized for ${isRoofer(agent) ? "booked inspections" : "booked calls"}${existing?.length ? `; your other campaigns moved to ${perDay} so the total stays within your daily budget` : ""}. Ads go live as creatives are approved.`,
     status: "applied",
     tool: "system_setup",
     run_id: runId,
   });
   return true;
+}
+
+// ---------- Where the ads run ----------
+
+/** Where this account's ads run: a roofer's radius and ages, or an agent's licensed states. */
+export function adGeoFor(agent: Agent): AdGeo {
+  if (!isRoofer(agent)) return { kind: "states", states: agent.licensed_states };
+  const ages = roofingAges(cleanAnswers(agent.campaign_answers));
+  return { kind: "radius", address: agent.service_area?.trim() ?? "", state: agent.licensed_states[0] ?? null, miles: radiusMiles(agent), ageMin: ages.min, ageMax: ages.max };
+}
+
+/** Whether the ads have somewhere to run (a roofer's service area, an agent's licensed states). */
+export const targetReady = (agent: Agent) => (isRoofer(agent) ? hasServiceArea(agent) : agent.licensed_states.length > 0);
+
+/** "TX, OK" or "within 15 miles of Plano, TX". */
+export const whereLabel = (agent: Agent) => (isRoofer(agent) ? areaLabel(agent) : agent.licensed_states.join(", "));
+
+function adSetName(agent: Agent) {
+  if (!isRoofer(agent)) return `${agent.licensed_states.join(", ")} · adults 18+`;
+  const g = adGeoFor(agent) as Extract<AdGeo, { kind: "radius" }>;
+  return `${g.miles} mi around ${g.address} · ${g.ageMin}–${g.ageMax === 65 ? "65+" : g.ageMax}`;
+}
+
+/**
+ * What an ad set's recorded targeting is: the states, or for a roofer one key for the radius and ages (kept in
+ * the same states column), so a changed service area, radius or age range is noticed and pushed to Meta.
+ */
+export function geoKey(agent: Agent): string[] {
+  const g = adGeoFor(agent);
+  return g.kind === "states" ? g.states : [`radius:${g.address}|${g.miles}|${g.ageMin}-${g.ageMax}`];
+}
+
+/** A roofer's version of syncTargeting: every live ad set on the current service area, radius and ages. */
+async function syncArea(agent: Agent, runId: string | null) {
+  if (!hasServiceArea(agent)) return 0;
+  const want = geoKey(agent);
+  const { data: sets, error } = await supabaseAdmin
+    .from("ad_sets")
+    .select("id, meta_adset_id, states, ad_campaigns!inner(retired_at)")
+    .eq("agent_id", agent.id)
+    .neq("status", "DELETED")
+    .is("ad_campaigns.retired_at", null);
+  if (error) return 0;
+  const stale = (sets ?? []).filter((s) => (s.states ?? []).join() !== want.join());
+  if (!stale.length) return 0;
+  await metaStep({ agentId: agent.id, runId, summary: `Pointing your ads ${areaLabel(agent)}` }, async () => {
+    for (const s of stale) {
+      await setGeo(s.meta_adset_id, adGeoFor(agent));
+      await supabaseAdmin.from("ad_sets").update({ states: want, name: adSetName(agent), last_edited_at: new Date().toISOString() }).eq("id", s.id);
+    }
+  });
+  await logAction(agent.id, {
+    kind: "audience",
+    title: "Updated your ads to your service area",
+    detail: `Your ads now reach homeowners ${areaLabel(agent)}, ages ${adSetName(agent).split(" · ")[1]}.`,
+    status: "applied",
+    tool: "system_targeting",
+    run_id: runId,
+  });
+  return stale.length;
 }
 
 let destinationColumn: boolean | null = null;
@@ -791,6 +854,7 @@ async function paceBudgets(agent: Agent, runId: string, pacing: Pacing) {
  * targeting is updated in Meta (ads must never reach people in states the agent can't sell in).
  */
 async function syncTargeting(agent: Agent, runId: string | null) {
+  if (isRoofer(agent)) return syncArea(agent, runId);
   if (!agent.licensed_states.length) return 0;
   const want = [...agent.licensed_states].sort();
   const { data: sets, error } = await supabaseAdmin
@@ -860,7 +924,13 @@ export async function pauseAdSetsNow(agent: Agent, why: { title: string; detail:
  */
 export async function retargetNow(agent: Agent) {
   if (!agent.meta_ad_account_id) return;
-  if (agent.licensed_states.length) return syncTargeting(agent, null);
+  if (targetReady(agent)) return syncTargeting(agent, null);
+  if (isRoofer(agent))
+    return pauseAdSetsNow(agent, {
+      summary: "Pausing your ads: no service area",
+      title: "Paused your ads: no service area",
+      detail: "Your account has no service area, so Migz paused your ads. Add the address or ZIP your crews work from and they'll target the homes around it.",
+    });
   return pauseAdSetsNow(agent, {
     summary: "Pausing your ads: no licensed states",
     title: "Paused your ads: no licensed states",
@@ -1018,8 +1088,8 @@ async function review(agent: Agent, trigger: "schedule" | "manual", createMessag
           have: `${g.videos} videos, ${g.images} images (live or being made)`,
           still_to_make: { videos: g.needVideos, images: g.needImages },
         })),
-        angles: anglesFor(answers).map((k) => ANGLES[k]),
-        age_on_screen: ageCallout(answers),
+        angles: angleNotesFor(answers, isRoofer(agent) ? "roofing" : "insurance"),
+        age_on_screen: isRoofer(agent) ? null : ageCallout(answers),
         plan: batch ? await getBatchPlan(batch.id) : null,
       };
       extraReasons.push(`campaign setup: ${fill.length} ad set${fill.length === 1 ? "" : "s"} still short of ${fill.length === 1 ? "its" : "their"} creative mix`);
@@ -1036,8 +1106,8 @@ async function review(agent: Agent, trigger: "schedule" | "manual", createMessag
         videos: wave.videoCents
           ? `A video in this wave costs the agent $${(wave.videoCents / 100).toFixed(2)} (an extra video at the ${VIDEO_TIERS[isVideoTier(agent.video_tier) ? agent.video_tier : DEFAULT_VIDEO_TIER].title} price, 20% off), so it's proposed for their approval first, even in auto mode. At most one per ad set, and only when a video angle is winning.`
           : "Videos on this agent's tier cost nothing; at most one per ad set.",
-        angles: anglesFor(answers).map((k) => ANGLES[k]),
-        age_on_screen: ageCallout(answers),
+        angles: angleNotesFor(answers, isRoofer(agent) ? "roofing" : "insurance"),
+        age_on_screen: isRoofer(agent) ? null : ageCallout(answers),
         summary_note: "Say in the summary that Meta will still put most of the budget behind two or three ads; that's normal.",
       };
       extraReasons.push(`creative wave: day ${wave.day} of the run`);

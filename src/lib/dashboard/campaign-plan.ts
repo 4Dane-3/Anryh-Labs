@@ -1,4 +1,5 @@
 import "server-only";
+import { DEFAULT_RADIUS_MILES, isRoofer } from "@/lib/verticals";
 import { DateTime } from "luxon";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
@@ -90,7 +91,8 @@ export async function buildCampaignPlan(agent: Agent, input: { answers: Campaign
   const ended = (data ?? []) as Batch[];
   const own = await ownNumbers(agent, ended);
   const days = recommendedDays();
-  const expected = expectedResults({ ...input, days, own });
+  const vertical = agent.vertical === "roofing" ? "roofing" : "insurance";
+  const expected = expectedResults({ ...input, days, own, vertical });
   const main = expected.lines.find((l) => l.destination === "website") ?? expected.lines[0];
   const recommendedDailyCents = recommendedDaily(main.cost.mid);
   const budgetWhy = (source: string) =>
@@ -99,12 +101,12 @@ export async function buildCampaignPlan(agent: Agent, input: { answers: Campaign
     } ${lengthReason(input.dailyCents)}`;
 
   if (!ended.length) {
-    const adj = costAdjustments(input.answers, input.states);
+    const adj = costAdjustments(input.answers, input.states, vertical);
     return {
       first: true,
       learned: [],
       changes: [
-        "This is your first campaign, so Migz starts from typical numbers for US life insurance on Meta, adjusted for your answers. After it ends, Migz plans from your own results.",
+        `This is your first campaign, so Migz starts from typical numbers for ${vertical === "roofing" ? "roofing companies booking free inspections" : "US life insurance"} on Meta, adjusted for your answers. After it ends, Migz plans from your own results.`,
         "Every creative launches on day one, each on a different angle, and Meta finds which ones book.",
         ...(adj.notes.length ? [`Your answers move the typical numbers: ${adj.notes.map((n) => n.text.replace(/\.$/, "")).join("; ")}.`] : []),
       ],
@@ -212,6 +214,17 @@ export async function getCampaignStart(agent: Agent): Promise<{ initial: Campaig
       dailyCents: Math.min(MAX_CAMPAIGN_DAILY_CENTS, Math.max(MIN_CAMPAIGN_DAILY_CENTS, daily)),
       autoRun: agent.migz_mode === "auto",
       renew: true, // campaigns are rolling
+      vertical: isRoofer(agent) ? "roofing" : "insurance",
+      area: isRoofer(agent)
+        ? {
+            service_area: agent.service_area ?? "",
+            state: agent.licensed_states?.[0] ?? "",
+            radius: agent.service_radius_miles ?? DEFAULT_RADIUS_MILES,
+            crews: agent.crews ?? 1,
+            license: agent.company_license ?? "",
+            crm_webhook_url: agent.crm_webhook_url ?? "",
+          }
+        : null,
     },
     own: own.campaigns >= 2 || own.showRate != null || own.reachRate != null ? own : null,
   };

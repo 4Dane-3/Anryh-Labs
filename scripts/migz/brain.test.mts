@@ -1681,4 +1681,95 @@ assert.equal(gu.evaluateGuarantee({ ...guEnd, ownBookingPage: true, bookings: 9 
 assert.equal(gu.evaluateGuarantee({ ...guBase, today: "2026-11-13", ownBookingPage: true }).onTrack, false, "running with a blocking condition: off track");
 ok("booked-call guarantee: 30 days from launch; 8 booked calls (12 at $75/day or more); a month of ad funds, ads running all but 3 days, their Anryh Labs booking page, 15 open hours a week and Migz on, or it doesn't apply; under target with all of that is a miss (fee back)");
 
+// ---------- Roofing ----------
+{
+  const v = await import("@/lib/verticals");
+  const pr = await import("@/lib/roofing/print");
+  const nt = await import("@/lib/roofing/notify");
+  const qs = await import("@/lib/booking/questions");
+  const cp = await import("@/lib/campaign-plan");
+  const gr = await import("@/lib/migz/guardrails");
+  const pm = await import("@/lib/migz/prompt");
+  const oc = await import("@/lib/outcomes");
+  const tp = await import("@/lib/migz/topics");
+
+  // Who's a roofer, and where their ads run
+  assert.equal(v.isRoofer({ vertical: "roofing" }), true);
+  assert.equal(v.isRoofer({ vertical: null }), false, "missing before the migration: insurance");
+  assert.equal(v.radiusMiles({ service_radius_miles: 80 }), 50, "Meta's radius limit");
+  assert.equal(v.radiusMiles({}), 15, "default radius");
+  assert.deepEqual(v.roofingAges(null), { min: 30, max: 65 }, "homeowners 30 to 65+ by default");
+  assert.deepEqual(v.roofingAges({ ageMin: 25, ageMax: 90 }), { min: 25, max: 65 }, "65 is Meta's top age (65+)");
+  assert.equal(v.areaLabel({ service_area: "Plano, TX", service_radius_miles: 25 }), "within 25 miles of Plano, TX");
+
+  // Roofing ad rules
+  for (const bad of ["Get a FREE roof today", "Free new roof if you qualify", "A new roof for free", "We'll cover your deductible", "Your roof is damaged from the hail", "0% financing available", "Low monthly payments", "Insurance will pay for it"])
+    assert.ok(gr.checkCopyFor("roofing", bad), `refused: ${bad}`);
+  for (const good of ["Had the hail last week? Get your roof checked, free.", "Free roof inspection from a local crew", "Book a free inspection"])
+    assert.equal(gr.checkCopyFor("roofing", good), null, `allowed: ${good}`);
+  assert.ok(gr.checkCopyFor("insurance", "Guaranteed approval"), "insurance still gets the insurance rules");
+  assert.equal(gr.checkCopyFor("roofing", "Guaranteed workmanship warranty"), null, "insurance rules don't apply to roofers");
+
+  // The roofing prompt has no insurance rules left, and the insurance one is untouched
+  assert.ok(pm.MIGZ_ROOFING_SYSTEM_PROMPT.startsWith("You are Migz AI, the media buyer running Meta (Facebook and Instagram) ads for a local roofing company."));
+  for (const gone of ["Financial Products & Services special ad category, so", "lowest premium", "Insurance ad rules apply", "burial costs, age callout"])
+    assert.ok(!pm.MIGZ_ROOFING_SYSTEM_PROMPT.includes(gone), `roofing prompt drops: ${gone}`);
+  assert.ok(pm.MIGZ_ROOFING_SYSTEM_PROMPT.includes("Roofing account"));
+  assert.equal(pm.systemPromptFor("insurance"), pm.MIGZ_SYSTEM_PROMPT);
+  assert.equal(pm.systemPromptFor(undefined), pm.MIGZ_SYSTEM_PROMPT);
+
+  // Topics and angles by business
+  assert.ok(tp.topicKeysFor("roofing").every((k) => !tp.INSURANCE_TOPIC_KEYS.includes(k)));
+  assert.ok(tp.topicKeysFor("insurance").includes("final_expense") && !tp.topicKeysFor("insurance").includes("storm_damage"));
+  assert.ok(cp.angleNotesFor(cp.cleanAnswers({}), "roofing").some((a) => a.startsWith("After the storm")));
+
+  // Expected results: booked inspections, booking page only, roofing costs
+  const ex = cp.expectedResults({ answers: cp.cleanAnswers({ products: ["storm_damage"] }), states: ["TX"], intent: "low_medium", dailyCents: 5000, vertical: "roofing" });
+  assert.equal(ex.lines.length, 1, "no instant forms for roofers, whatever the intent");
+  assert.equal(ex.lines[0].unit, "booked inspection");
+  assert.equal(ex.lines[0].cost.mid, 13_000);
+  assert.equal(cp.campaignMoney({ dailyCents: 5000, intent: "low_medium", tier: "standard", vertical: "roofing" }).sets.length, 1);
+
+  // Booking questions: address and homeowner asked before booking
+  assert.ok(qs.isRoofingForm(qs.ROOFING_QUESTIONS));
+  assert.equal(qs.stepTitles(qs.ROOFING_QUESTIONS)[0], "Your home");
+  assert.equal(qs.stepTitles(qs.DEFAULT_QUESTIONS)[0], "About you");
+  const asked = qs.preBookingQuestions(qs.ROOFING_QUESTIONS, []).map((q) => q.key);
+  assert.deepEqual(asked, ["property_address", "homeowner", "roof_issue", "roof_age"]);
+  assert.equal(qs.missingRequired(qs.ROOFING_QUESTIONS, [], { property_address: "1 Oak St" })?.key, "homeowner");
+  assert.equal(qs.defaultQuestionsFor("roofing"), qs.ROOFING_QUESTIONS);
+  assert.equal(qs.defaultQuestionsFor(null), qs.DEFAULT_QUESTIONS);
+
+  // Postcards: the street only, never the customer
+  assert.equal(pr.streetOf("1420 Oak St, Plano, TX 75023"), "Oak St");
+  assert.equal(pr.streetOf("88B Maple Avenue Apt 4, Austin, TX"), "Maple Avenue");
+  assert.equal(pr.streetOf("75023"), null);
+  assert.equal(pr.cityOf("1420 Oak St, Plano, TX 75023"), "Plano");
+  const link = new URL(pr.printLink("https://anryhlabs.com/summit-roofing", "door_hanger", "Oak St"));
+  assert.equal(link.searchParams.get("utm_source"), "door_hanger");
+  assert.equal(link.searchParams.get("utm_campaign"), "oak-st");
+
+  // The roofer's email and CRM payload
+  const bk = { id: "b1", starts_at: "2026-11-10T15:00:00.000Z", ends_at: "2026-11-10T15:45:00.000Z", name: "Pat Lee", email: "pat@example.com", phone: "+15550140199" };
+  const ans = { property_address: { label: "a", value: "1420 Oak St, Plano, TX" }, homeowner: { label: "h", value: "Yes" }, roof_issue: { label: "i", value: "A leak" }, roof_age: { label: "r", value: "Over 20 years" } };
+  const em = nt.inspectionEmail({ full_name: "Summit Roofing", timezone: "America/Chicago" }, bk, ans);
+  assert.ok(em.subject.startsWith("New inspection: Oak St, Tue Nov 10, 9:00 AM"), em.subject);
+  assert.ok(em.html.includes("/print/b1") && em.text.includes("(555) 014-0199"));
+  const crm = nt.crmPayload({ slug: "s", full_name: "Summit Roofing", timezone: "America/Chicago" }, bk, ans);
+  assert.equal(crm.first_name, "Pat");
+  assert.equal(crm.last_name, "Lee");
+  assert.equal(crm.address, "1420 Oak St, Plano, TX");
+  assert.equal(crm.starts_at_local, "2026-11-10 09:00");
+  assert.equal(nt.validWebhookUrl("https://hooks.zapier.com/hooks/catch/1/abc"), true);
+  for (const bad of ["http://hooks.zapier.com/x", "https://localhost/x", "https://10.0.0.1/x", "not a url"]) assert.equal(nt.validWebhookUrl(bad), false, bad);
+
+  // "Not a homeowner": roofers only, counts as a bad outcome, tells Meta nothing
+  assert.ok(oc.callOutcomesFor(true).some((o) => o.key === "not_homeowner"));
+  assert.ok(!oc.callOutcomesFor(false).some((o) => o.key === "not_homeowner"));
+  assert.equal(oc.badOutcome("not_homeowner"), true);
+  assert.deepEqual(oc.metaEventsFor("call", "not_homeowner"), []);
+  assert.equal(oc.outcomeLabel("call", "not_homeowner"), "Not a homeowner");
+}
+ok("roofing: radius and ages (no special category), roofing ad rules (no free roof, deductibles, implied damage or financing), a roofing prompt with no insurance rules left, roofing topics, angles and costs, booking page only, address and homeowner asked before booking, street-only postcards, the roofer's email and CRM payload, and Not a homeowner");
+
 console.log(`\nALL ${n} UNIT GROUPS PASSED`);

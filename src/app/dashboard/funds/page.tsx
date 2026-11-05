@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { isRoofer } from "@/lib/verticals";
 import { DateTime } from "luxon";
 import { requireSetUpAgent } from "@/lib/auth";
 import { integrations } from "@/lib/integrations";
@@ -123,6 +124,7 @@ export default async function FundsPage({ searchParams }: { searchParams: Promis
       {guarantee && (
         <div className="mt-3">
           <GuaranteeCard
+            roof={isRoofer(agent)}
             g={{
               status: guarantee.row.status === "running" ? guarantee.evaluation.status : guarantee.row.status,
               day: guarantee.evaluation.day,

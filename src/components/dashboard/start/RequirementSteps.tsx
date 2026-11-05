@@ -33,7 +33,7 @@ const Note = ({ children }: { children: React.ReactNode }) => <p className="mt-1
 export type Business = { agency_name: string; npn: string; business_email: string; phone: string };
 
 /** Their agency, NPN (optional), the email replies go to and the number leads reach them on. */
-export function BusinessStep({ initial, onSaved }: { initial: Business; onSaved: () => void }) {
+export function BusinessStep({ initial, onSaved, roof }: { initial: Business; onSaved: () => void; roof?: boolean }) {
   const [form, setForm] = useState(initial);
   const { pending, error, run } = useSave(onSaved);
   const set = (k: keyof Business) => (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [k]: e.target.value });
@@ -46,6 +46,7 @@ export function BusinessStep({ initial, onSaved }: { initial: Business; onSaved:
       }}
     >
       <div className="grid gap-4 sm:grid-cols-2">
+        {!roof && (<>
         <div>
           <Label htmlFor="agency">Agency or IMO</Label>
           <input id="agency" className={inputClass} placeholder="Who you write through" value={form.agency_name} onChange={set("agency_name")} />
@@ -54,21 +55,29 @@ export function BusinessStep({ initial, onSaved }: { initial: Business; onSaved:
           <Label htmlFor="npn">NPN (optional)</Label>
           <input id="npn" inputMode="numeric" className={inputClass} placeholder="National Producer Number" value={form.npn} onChange={set("npn")} />
         </div>
+        </>)}
         <div>
           <Label htmlFor="bemail">Business email</Label>
           <input id="bemail" type="email" className={inputClass} value={form.business_email} onChange={set("business_email")} />
-          <Note>When a lead replies to an email we send for you, it goes here.</Note>
+          <Note>{roof ? "New inspections, the morning-of list and homeowners' replies come here." : "When a lead replies to an email we send for you, it goes here."}</Note>
         </div>
         <div>
-          <Label htmlFor="lphone">Phone for leads</Label>
+          <Label htmlFor="lphone">{roof ? "Phone for homeowners" : "Phone for leads"}</Label>
           <input id="lphone" type="tel" className={inputClass} placeholder="(555) 555-0100" value={form.phone} onChange={set("phone")} />
-          <Note>The number leads call, and the &quot;Call now&quot; button on your page if you turn it on.</Note>
+          <Note>{roof ? "Printed on your postcards and door hangers, and the \"Call now\" button on your page if you turn it on." : <>The number leads call, and the &quot;Call now&quot; button on your page if you turn it on.</>}</Note>
         </div>
       </div>
+      {roof ? (
+        <p className="rounded-lg bg-white/[0.04] px-4 py-3 text-[12px] leading-relaxed text-fg-muted">
+          You&apos;re responsible for your own licensing, permits, insurance and the work itself: Anryh Labs runs your ads and booking tools, and
+          isn&apos;t a contractor.
+        </p>
+      ) : (
       <p className="rounded-lg bg-white/[0.04] px-4 py-3 text-[12px] leading-relaxed text-fg-muted">
         Your license number and NPN are optional, and only shown where you choose to show them. You&apos;re responsible for your own licensing,
         appointments and compliance: Anryh Labs runs your ads and booking tools, and isn&apos;t an insurance agency or carrier.
       </p>
+      )}
       {error && <p className="text-[13px] text-bad">{error}</p>}
       <Button type="submit" className="bg-brand text-brand-fg hover:bg-brand/90" disabled={pending}>
         {pending ? <Loader2 className="animate-spin" /> : null}

@@ -3,8 +3,8 @@ import { graph, graphAll, MetaApiError } from "@/lib/meta/graph";
 import { ENHANCEMENTS_OFF, enhancementsOn, enhancementsOptOut, refusedFeature } from "@/lib/meta/enhancements";
 
 // The Marketing API operations Migz uses. Every campaign is created under the Financial Products &
-// Services special ad category (required in the US for insurance), which rules out age, gender and
-// ZIP targeting: targeting here is licensed states only.
+// Services special ad category (required in the US for insurance), which rules out age, gender and ZIP
+// targeting: targeting is licensed states only. Roofers run with no special category, a radius and ages.
 
 export type Placement =
   | "facebook_feed"
@@ -88,13 +88,75 @@ export async function stateRegionKeys(states: string[]) {
   return keys;
 }
 
-export async function createCampaign(account: string, name: string) {
+/**
+ * Where an ad set's ads run. Insurance: the agent's licensed states (under the Financial category, no age or
+ * radius). Roofing: a radius around the roofer's service area, at the ages they chose (no special category).
+ */
+export type AdGeo =
+  | { kind: "states"; states: string[] }
+  | { kind: "radius"; address: string; state?: string | null; miles: number; ageMin: number; ageMax: number };
+
+const placeCache = new Map<string, Record<string, unknown> | null>();
+
+/**
+ * Where a roofer's radius is centered, as Meta wants it. Meta only geocodes a full street address
+ * ("1520 K Ave, Plano, TX"); a city or ZIP as an address string reaches nobody. So: a street address goes as
+ * it is, a ZIP becomes its city, and a city name is looked up in the roofer's state, each with the radius.
+ * Null when Meta can't find the place.
+ */
+export async function radiusCenter(address: string, state: string | null | undefined, miles: number) {
+  const where = address.trim();
+  const cacheKey = `${where}|${state ?? ""}|${miles}`;
+  if (placeCache.has(cacheKey)) return placeCache.get(cacheKey)!;
+  let out: Record<string, unknown> | null = null;
+  if (/^\d+[a-z]?\s+\S+.*,/i.test(where)) {
+    out = { custom_locations: [{ address_string: where, radius: miles, distance_unit: "mile" }] };
+  } else {
+    let cityKey: string | null = null;
+    const zip = where.match(/\b(\d{5})(?:-\d{4})?\b/)?.[1];
+    if (zip) {
+      const res = await graph<{ data: { zips?: Record<string, { primary_city_id?: number }> } }>("GET", "search", { type: "adgeolocationmeta", zips: [`US:${zip}`] });
+      const id = res.data?.zips?.[`US:${zip}`]?.primary_city_id;
+      cityKey = id ? String(id) : null;
+    }
+    if (!cityKey) {
+      const name = where.split(",")[0].replace(/\b\d{5}(-\d{4})?\b/, "").trim();
+      const stateName = state ? STATE_NAMES[state] : null;
+      if (name) {
+        const res = await graph<{ data: { key: string; name: string; region?: string; type: string }[] }>("GET", "search", { type: "adgeolocation", location_types: ["city"], country_code: "US", q: name });
+        const cities = res.data.filter((d) => d.type === "city");
+        const pick = cities.find((d) => d.name.toLowerCase() === name.toLowerCase() && (!stateName || d.region === stateName)) ?? (stateName ? cities.find((d) => d.region === stateName) : cities[0]);
+        cityKey = pick?.key ?? null;
+      }
+    }
+    if (cityKey) out = { cities: [{ key: cityKey, radius: miles, distance_unit: "mile" }] };
+  }
+  placeCache.set(cacheKey, out);
+  return out;
+}
+
+/** Meta's targeting for a geo (without placements). */
+export async function geoTargeting(geo: AdGeo) {
+  if (geo.kind === "radius") {
+    if (!geo.address.trim()) throw new Error("The roofer has no service area to target.");
+    const center = await radiusCenter(geo.address, geo.state, geo.miles);
+    if (!center) throw new Error(`Meta couldn't find "${geo.address}". Use a ZIP code, a city, or a full street address.`);
+    return { geo_locations: { ...center, location_types: ["home"] }, age_min: geo.ageMin, age_max: geo.ageMax };
+  }
+  const regions = await stateRegionKeys(geo.states);
+  if (!regions.length) throw new Error("The agent has no licensed states to target.");
+  return { geo_locations: { regions }, age_min: 18 };
+}
+
+/** Campaigns for roofers run with no special ad category; insurance runs under Financial Products & Services. */
+export async function createCampaign(account: string, name: string, opts: { specialCategory?: boolean } = {}) {
+  const special = opts.specialCategory ?? true;
   const res = await graph<{ id: string }>("POST", `${account}/campaigns`, {
     name,
     objective: "OUTCOME_LEADS",
     status: "PAUSED", // activated after its first ad set and ads exist
-    special_ad_categories: ["FINANCIAL_PRODUCTS_SERVICES"],
-    special_ad_category_country: ["US"],
+    special_ad_categories: special ? ["FINANCIAL_PRODUCTS_SERVICES"] : [],
+    ...(special ? { special_ad_category_country: ["US"] } : {}),
     is_adset_budget_sharing_enabled: false,
   });
   return res.id;
@@ -108,6 +170,8 @@ export async function createAdSet(
     dailyBudgetCents: number;
     pixelId: string;
     states: string[];
+    /** A roofer's radius and ages; replaces the states when set. */
+    geo?: AdGeo | null;
     placements: Placement[];
     status: "ACTIVE" | "PAUSED";
     /** ISO time Meta stops delivery by itself (the batch's last day), so spend ends even if we're down. */
@@ -116,8 +180,7 @@ export async function createAdSet(
     instantForm?: { pageId: string } | null;
   },
 ) {
-  const regions = await stateRegionKeys(input.states);
-  if (!regions.length) throw new Error("The agent has no licensed states to target.");
+  const where = await geoTargeting(input.geo ?? { kind: "states", states: input.states });
   const goal = input.instantForm
     ? // Lead ads: the form opens on Facebook/Instagram and Meta optimizes for submitted forms
       { optimization_goal: "LEAD_GENERATION", destination_type: "ON_AD", promoted_object: { page_id: input.instantForm.pageId } }
@@ -136,9 +199,8 @@ export async function createAdSet(
     bid_strategy: "LOWEST_COST_WITHOUT_CAP",
     ...goal,
     targeting: {
-      geo_locations: { regions },
-      age_min: 18,
-      // Special ad categories require an explicit choice; keep audience expansion off
+      ...where,
+      // Special ad categories require an explicit choice; keep audience expansion off (roofers too: the radius and ages are the audience)
       targeting_automation: { advantage_audience: 0 },
       ...placementTargeting(input.placements),
     },
@@ -537,4 +599,13 @@ export function scheduleConversions(row: AdInsightRow) {
   return (row.actions ?? [])
     .filter((a) => a.action_type.toLowerCase().includes("schedule"))
     .reduce((max, a) => Math.max(max, Number(a.value) || 0), 0);
+}
+
+/** Re-targets an ad set to a geo (a roofer's radius and ages), keeping the rest of its targeting. */
+export async function setGeo(adsetId: string, geo: AdGeo) {
+  const where = await geoTargeting(geo);
+  const current = await getAdSet(adsetId);
+  const targeting = { ...(current.targeting ?? {}) };
+  delete targeting.age_max;
+  await graph("POST", adsetId, { targeting: { ...targeting, ...where } });
 }

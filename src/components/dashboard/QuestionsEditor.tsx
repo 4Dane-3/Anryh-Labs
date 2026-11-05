@@ -7,7 +7,7 @@ import { ChevronDown, ChevronUp, GripVertical, Plus, Trash2, X } from "lucide-re
 import { resetQuestions, saveQuestions } from "@/app/dashboard/actions";
 import {
   KIND_LABELS,
-  STEP_TITLES,
+  stepTitles,
   type IntakeQuestion,
   type QuestionKind,
 } from "@/lib/booking/questions";
@@ -204,7 +204,7 @@ function QuestionCard({
                     value={question.step}
                     onChange={(e) => set("step", Number(e.target.value))}
                   >
-                    {STEP_TITLES.map((t, i) => (
+                    {stepTitles(all).map((t, i) => (
                       <option key={t} value={i + 1}>
                         {i + 1}. {t}
                       </option>
@@ -434,7 +434,7 @@ export function QuestionsEditor({
       </div>
 
       <div className="space-y-8">
-        {STEP_TITLES.map((title, i) => {
+        {stepTitles(questions).map((title, i) => {
           const step = i + 1;
           const list = byStep(step);
           return (

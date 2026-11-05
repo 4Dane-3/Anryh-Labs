@@ -4,7 +4,7 @@
 const stamp = (d: Date) => d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
 const escapeIcs = (s: string) => s.replace(/[\\;,]/g, (c) => `\\${c}`).replace(/\n/g, "\\n");
 
-export function bookingIcs(booking: { id: string; starts_at: string; ends_at: string }, agentName: string) {
+export function bookingIcs(booking: { id: string; starts_at: string; ends_at: string }, agentName: string, roof?: { address: string | null } | null) {
   return [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
@@ -15,8 +15,16 @@ export function bookingIcs(booking: { id: string; starts_at: string; ends_at: st
     `DTSTAMP:${stamp(new Date())}`,
     `DTSTART:${stamp(new Date(booking.starts_at))}`,
     `DTEND:${stamp(new Date(booking.ends_at))}`,
-    `SUMMARY:${escapeIcs(`Life insurance consultation with ${agentName}`)}`,
-    `DESCRIPTION:${escapeIcs(`Your scheduled consultation with ${agentName}. ${agentName} will call you at the number you gave.`)}`,
+    ...(roof
+      ? [
+          `SUMMARY:${escapeIcs(`Free roof inspection with ${agentName}`)}`,
+          `DESCRIPTION:${escapeIcs(`${agentName} inspects your roof. They'll call the number you gave if they're running late.`)}`,
+          ...(roof.address ? [`LOCATION:${escapeIcs(roof.address)}`] : []),
+        ]
+      : [
+          `SUMMARY:${escapeIcs(`Life insurance consultation with ${agentName}`)}`,
+          `DESCRIPTION:${escapeIcs(`Your scheduled consultation with ${agentName}. ${agentName} will call you at the number you gave.`)}`,
+        ]),
     "END:VEVENT",
     "END:VCALENDAR",
   ].join("\r\n");

@@ -4,14 +4,14 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "reac
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Globe, Loader2, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { CONSENT_TEXT } from "@/lib/booking/constants";
+import { consentTextFor } from "@/lib/booking/constants";
 import { startTracking, track, trackOnce } from "@/lib/booking/track";
 import { QuestionField } from "@/components/booking/IntakeForm";
 import {
   isHidden,
   isRequired,
   missingRequired,
-  STEP_TITLES,
+  stepTitles,
   type IntakeQuestion,
 } from "@/lib/booking/questions";
 
@@ -47,6 +47,7 @@ export function BookingWidget({
   preview = false,
   questions = [],
   requiredSteps = [],
+  meeting = "consultation",
 }: {
   slug: string;
   firstName: string;
@@ -54,6 +55,8 @@ export function BookingWidget({
   /** The agent's required questions (and what they depend on), asked before the booking is confirmed. */
   questions?: IntakeQuestion[];
   requiredSteps?: number[];
+  /** What's being booked: "consultation", or "roof inspection" for a roofer. */
+  meeting?: string;
 }) {
   const router = useRouter();
   // Visitor's timezone; empty during SSR so server and client markup match
@@ -259,17 +262,17 @@ export function BookingWidget({
           <div className="font-semibold">
             {when} at {fmtTime(picked)}
           </div>
-          <div className="text-blue-800/80">{slotMinutes}-minute consultation with {firstName}</div>
+          <div className="text-blue-800/80">{slotMinutes}-minute {meeting} with {firstName}</div>
         </div>
 
         {page > 0 ? (
           <div className="space-y-5">
             <div>
               <p className="text-xs font-medium text-slate-500" aria-live="polite">
-                Before you book · {page} of {questionSteps.length} · {STEP_TITLES[step - 1]}
+                Before you book · {page} of {questionSteps.length} · {stepTitles(questions)[step - 1]}
               </p>
               <p className="mt-1 text-sm text-slate-600">
-                {firstName} asks these before confirming your consultation. Questions marked{" "}
+                {firstName} asks these before confirming your {meeting}. Questions marked{" "}
                 <span className="text-red-600">*</span> are required.
               </p>
             </div>
@@ -348,7 +351,7 @@ export function BookingWidget({
                 checked={form.consent}
                 onChange={(e) => setForm({ ...form, consent: e.target.checked })}
               />
-              <span>{CONSENT_TEXT}</span>
+              <span>{consentTextFor(meeting === "roof inspection")}</span>
             </label>
           </>
         )}

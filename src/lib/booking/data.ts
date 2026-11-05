@@ -6,7 +6,7 @@ import {
   type AvailabilityRule,
   type SlotConfig,
 } from "@/lib/booking/slots";
-import { DEFAULT_QUESTIONS, type IntakeQuestion } from "@/lib/booking/questions";
+import { defaultQuestionsFor, ROOFING_ADDRESS_KEY, type IntakeQuestion } from "@/lib/booking/questions";
 import type { QuoteMode } from "@/lib/booking/constants";
 
 export type Agent = {
@@ -91,6 +91,13 @@ export type Agent = {
   auto_topup_card?: string | null; // "Visa ending 4242"
   auto_topup_last_at?: string | null;
   auto_topup_error?: string | null; // why the last charge failed; it stays paused until a card is saved again
+  // Roofing (all missing before the roofing migration; lib/verticals.ts)
+  vertical?: "insurance" | "roofing";
+  service_area?: string | null; // the address, city or ZIP a roofer's radius is centered on
+  service_radius_miles?: number | null;
+  crews?: number; // inspections a roofer can take at the same time (1 or 2)
+  crm_webhook_url?: string | null; // each booking is POSTed here
+  company_license?: string | null; // contractor license on the page and postcards
 };
 
 export type Booking = {
@@ -130,6 +137,16 @@ export async function getBookingByToken(
   return data;
 }
 
+/** The address a roofer's inspection is at (the booking's address answer), or null. */
+export async function bookingAddress(bookingId: string): Promise<string | null> {
+  const { data } = await supabaseAdmin.from("intake_responses").select("answers").eq("booking_id", bookingId).maybeSingle();
+  const v = (data?.answers as Record<string, { value?: string }> | null)?.[ROOFING_ADDRESS_KEY]?.value;
+  return v?.trim() || null;
+}
+
+/** How many bookings the account takes at the same time: a roofer's crews (1 or 2), everyone else 1. */
+export const crewsOf = (agent: Pick<Agent, "crews" | "vertical">) => (agent.vertical === "roofing" ? Math.min(2, Math.max(1, agent.crews ?? 1)) : 1);
+
 export async function getOpenSlots(agent: Agent): Promise<string[]> {
   return (await getSlotBoard(agent)).open;
 }
@@ -142,24 +159,30 @@ export async function getOpenSlots(agent: Agent): Promise<string[]> {
 export async function getSlotBoard(agent: Agent): Promise<{ open: string[]; taken: string[] }> {
   const horizon = new Date(Date.now() + (agent.max_days_ahead + 2) * 86_400_000);
 
-  const [rulesRes, busyRes] = await Promise.all([
+  const crews = crewsOf(agent);
+  const busyQuery = (cols: string) =>
+    supabaseAdmin
+      .from("bookings")
+      .select(cols)
+      .eq("agent_id", agent.id)
+      .eq("status", "confirmed")
+      .gte("ends_at", new Date().toISOString())
+      .lte("starts_at", horizon.toISOString());
+  const [rulesRes, busyFirst] = await Promise.all([
     supabaseAdmin
       .from("availability_rules")
       .select("weekday, start_time, end_time")
       .eq("agent_id", agent.id),
-    supabaseAdmin
-      .from("bookings")
-      .select("starts_at, ends_at")
-      .eq("agent_id", agent.id)
-      .eq("status", "confirmed")
-      .gte("ends_at", new Date().toISOString())
-      .lte("starts_at", horizon.toISOString()),
+    busyQuery(crews > 1 ? "starts_at, ends_at, crew" : "starts_at, ends_at"),
   ]);
+  // Before the roofing migration there's no crew column: everything is crew 1
+  const busyRes = busyFirst.error && crews > 1 ? await busyQuery("starts_at, ends_at") : busyFirst;
 
   const rules: AvailabilityRule[] = rulesRes.data ?? [];
-  const busy = (busyRes.data ?? []).map((b) => ({
+  const busy = ((busyRes.data ?? []) as unknown as { starts_at: string; ends_at: string; crew?: number }[]).map((b) => ({
     start: new Date(b.starts_at),
     end: new Date(b.ends_at),
+    crew: b.crew ?? 1,
   }));
 
   const config: SlotConfig = {
@@ -171,14 +194,18 @@ export async function getSlotBoard(agent: Agent): Promise<{ open: string[]; take
     maxDaysAhead: agent.max_days_ahead,
   };
 
-  const free = generateSlots(rules, busy, config);
+  // A time is open while any crew is free there (a roofer with 2 crews takes 2 inspections at once)
+  const free =
+    crews === 1
+      ? generateSlots(rules, busy, config)
+      : [...new Set(Array.from({ length: crews }, (_, i) => generateSlots(rules, busy.filter((b) => b.crew === i + 1), config)).flat())].sort();
   const open = agent.ghost_bookings ? withGhostHolds(free, agent.id, agent.timezone) : free;
   const openSet = new Set(open);
   const taken = generateSlots(rules, [], config).filter((t) => !openSet.has(t));
   return { open, taken };
 }
 
-/** The agent's questions (enabled and disabled), or the defaults if they've never edited them. */
+/** The agent's questions (enabled and disabled), or the defaults for their business if they've never edited them. */
 export async function getIntakeQuestions(agentId: string): Promise<IntakeQuestion[]> {
   const columns = "key, step, sort, label, kind, options, allow_other, placeholder, hidden_when_key, hidden_when_value, enabled";
   const query = (cols: string) =>
@@ -186,6 +213,9 @@ export async function getIntakeQuestions(agentId: string): Promise<IntakeQuestio
   let { data, error } = await query(`${columns}, required`);
   // Before the required-questions migration: the agent's own questions, none required
   if (error) ({ data, error } = await query(columns));
-  if (!data?.length) return DEFAULT_QUESTIONS;
+  if (!data?.length) {
+    const { data: agent } = await supabaseAdmin.from("agents").select("vertical").eq("id", agentId).maybeSingle();
+    return defaultQuestionsFor((agent as { vertical?: string } | null)?.vertical);
+  }
   return (data as unknown as IntakeQuestion[]).map((q) => ({ ...q, required: q.required ?? false }));
 }
