@@ -6,6 +6,7 @@ import { runMigz } from "@/lib/migz/agent";
 import { renewBatches } from "@/lib/dashboard/renew";
 import { autoTopUpAll } from "@/lib/dashboard/top-up";
 import { settleGuarantees } from "@/lib/dashboard/guarantee";
+import { sendAllDueSequenceEmails } from "@/lib/dashboard/followups";
 import { syncSpend } from "@/lib/migz/sync";
 
 export const maxDuration = 300;
@@ -41,6 +42,13 @@ export async function GET(req: Request) {
     return {};
   });
 
+  // Automated emails now due (the follow-ups after Tried to call or Sent an email). They run here, on the job
+  // that's always scheduled, during each agent's daytime
+  const emails = await sendAllDueSequenceEmails(deadline - 90_000).catch((e) => {
+    console.error("automated emails failed", e);
+    return {};
+  });
+
   const dueBefore = new Date(Date.now() - REVIEW_EVERY_HOURS * 3_600_000).toISOString();
   const { data } = await supabaseAdmin
     .from("agents")
@@ -53,7 +61,11 @@ export async function GET(req: Request) {
     .order("migz_last_run_at", { ascending: true, nullsFirst: true })
     .limit(10);
 
-  const results: Record<string, unknown> = { ...(Object.keys(topUps).length ? { topUps } : {}), ...(Object.keys(renewals).length ? { renewals } : {}) };
+  const results: Record<string, unknown> = {
+    ...(Object.keys(topUps).length ? { topUps } : {}),
+    ...(Object.keys(renewals).length ? { renewals } : {}),
+    ...(Object.keys(emails).length ? { emails } : {}),
+  };
   for (const agent of (data ?? []) as Agent[]) {
     if (Date.now() > deadline) break;
     if (!migzReadyFor(agent)) {

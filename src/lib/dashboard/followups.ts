@@ -165,3 +165,21 @@ export async function sendDueSequenceEmails(agent: Agent, now: DateTime = DateTi
   }
   return sent;
 }
+
+/**
+ * The hourly run for every agent with automated emails on (Slack or not). Called from the Migz cron, the hourly
+ * job that's always scheduled. Returns slug -> emails sent, for the cron's log.
+ */
+export async function sendAllDueSequenceEmails(deadlineMs: number) {
+  const { data } = await supabaseAdmin.from("agents").select("*").eq("active", true).eq("followup_emails", true);
+  const out: Record<string, number> = {};
+  for (const agent of (data ?? []) as Agent[]) {
+    if (Date.now() > deadlineMs) break;
+    const sent = await sendDueSequenceEmails(agent).catch((e) => {
+      console.error("automated emails failed", agent.slug, e instanceof Error ? e.message : e);
+      return 0;
+    });
+    if (sent) out[agent.slug] = sent;
+  }
+  return out;
+}
