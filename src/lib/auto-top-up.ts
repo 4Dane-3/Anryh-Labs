@@ -1,4 +1,4 @@
-import { depositFor, MAX_DEPOSIT_CENTS, MIN_DEPOSIT_CENTS } from "@/lib/campaign";
+import { depositFor, MAX_DEPOSIT_CENTS, MIN_TOP_UP_CENTS } from "@/lib/campaign";
 import { CYCLE_DAYS, FUNDS_STEP_CENTS, roundUpToFundsStep } from "@/lib/campaign-plan";
 
 // Auto top-up: the agent saves a card and picks an amount and a level; when their free ad balance drops below
@@ -17,7 +17,7 @@ export const weekOfAds = (dailyCents: number) => dailyCents * CYCLE_DAYS;
 export function topUpDefaults(dailyCents: number) {
   const week = weekOfAds(Math.max(dailyCents, 5000));
   return {
-    amountCents: Math.min(MAX_DEPOSIT_CENTS, Math.max(MIN_DEPOSIT_CENTS, roundUpToFundsStep(depositFor(week)))),
+    amountCents: Math.min(MAX_DEPOSIT_CENTS, Math.max(MIN_TOP_UP_CENTS, roundUpToFundsStep(depositFor(week)))),
     belowCents: Math.min(MAX_BELOW_CENTS, Math.max(MIN_BELOW_CENTS, week)),
   };
 }
@@ -26,8 +26,8 @@ export function topUpDefaults(dailyCents: number) {
 export function cleanTopUp(input: { amountCents: unknown; belowCents: unknown }): { amountCents: number; belowCents: number } | string {
   const amount = Math.round(Number(input.amountCents));
   const below = Math.round(Number(input.belowCents));
-  if (!Number.isInteger(amount) || amount < MIN_DEPOSIT_CENTS || amount > MAX_DEPOSIT_CENTS || amount % FUNDS_STEP_CENTS)
-    return `Top up in $${FUNDS_STEP_CENTS / 100} steps, from $${MIN_DEPOSIT_CENTS / 100} to $${(MAX_DEPOSIT_CENTS / 100).toLocaleString("en-US")}.`;
+  if (!Number.isInteger(amount) || amount < MIN_TOP_UP_CENTS || amount > MAX_DEPOSIT_CENTS || amount % FUNDS_STEP_CENTS)
+    return `Top up in $${FUNDS_STEP_CENTS / 100} steps, from $${MIN_TOP_UP_CENTS / 100} to $${(MAX_DEPOSIT_CENTS / 100).toLocaleString("en-US")}.`;
   if (!Number.isInteger(below) || below < MIN_BELOW_CENTS || below > MAX_BELOW_CENTS)
     return `Pick a level between $${MIN_BELOW_CENTS / 100} and $${(MAX_BELOW_CENTS / 100).toLocaleString("en-US")}.`;
   return { amountCents: amount, belowCents: below };

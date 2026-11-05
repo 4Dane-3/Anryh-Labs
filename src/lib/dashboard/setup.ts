@@ -72,15 +72,14 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
       ? agent.own_booking_url ? null : "Add the link to your booking page."
       : (hours.count ?? 0) === 0 ? "Set the hours you take calls." : null;
   const slackMissing = agent.slack_user_id ? null : "Connect Slack so Migz can tell you about new leads.";
-  // The planned campaign sets what the funds step needs: its ad spend plus any paid videos
+  // The planned campaign sets what the funds step needs: two weeks of its ad spend plus any paid videos
   const planned = batch && batch.status !== "ended" && batch.status !== "canceled" ? batch : null;
   const neededCents = planned
-    ? planned.budget_cents +
-      campaignMoney({
+    ? campaignMoney({
         dailyCents: planned.daily_cents,
         intent: isIntentLevel(agent.intent_level) ? agent.intent_level : DEFAULT_INTENT,
         tier: isVideoTier(agent.video_tier) ? agent.video_tier : DEFAULT_VIDEO_TIER,
-      }).videoCents
+      }).neededCents
     : null;
   const fundsNeeded = neededCents ? { cents: neededCents, recommendedCents: roundUpToFundsStep(neededCents) } : null;
   const money = (c: number) => `$${(c / 100).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
@@ -89,7 +88,7 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
       ? `Your campaign needs ${money(fundsNeeded.cents)} in ad funds (we recommend ${money(fundsNeeded.recommendedCents)}). Add about ${money(roundUpToFundsStep(depositFor(fundsNeeded.recommendedCents - balanceCents)))} with the 20% fee.`
       : null
     : balanceCents < MIN_AD_BALANCE_CENTS
-      ? `Add at least $${MIN_DEPOSIT_CENTS / 100}. Plan your campaign first to see what it needs.`
+      ? `Add at least $${(MIN_DEPOSIT_CENTS / 100).toLocaleString("en-US")} (two weeks at $50/day). Plan your campaign first to see what it needs.`
       : null;
   // Agents who finished setup before the setup fee existed count as paid
   const setupFeeMissing = agent.setup_fee_paid_at || agent.onboarding_completed_at ? null : `Pay the one-time $${(SETUP_FEE_CENTS / 100).toLocaleString("en-US")} setup fee.`;
