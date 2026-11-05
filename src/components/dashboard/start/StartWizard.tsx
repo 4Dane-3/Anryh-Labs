@@ -14,6 +14,7 @@ import { AutoTopUp, type AutoTopUpState } from "@/components/dashboard/AutoTopUp
 import { ProfileForm, type Profile } from "@/components/dashboard/LandingEditor";
 import { Button, Panel } from "@/components/dashboard/ui";
 import { FUNDS_STEP_CENTS, KEEP_FUNDED, type OwnNumbers } from "@/lib/campaign-plan";
+import { TARGET_HIGH, TARGET_LOW } from "@/lib/guarantee";
 import { usd } from "@/lib/dashboard/format";
 import { cleanFocus, TOPICS } from "@/lib/migz/topics";
 import { cn } from "@/lib/utils";
@@ -327,6 +328,10 @@ export function StartWizard(props: Props) {
               </p>
             )}
             <p className="mt-2 text-[13px] text-fg-muted">{KEEP_FUNDED}</p>
+            <p className="mt-2 text-[13px] text-fg-muted">
+              <span className="text-fg">Booked-call guarantee:</span> keep your campaign funded and running for its first 30 days, on your Anryh Labs booking page with your calendar
+              open, and get {TARGET_LOW} booked calls ({TARGET_HIGH} at $75/day or more), or we credit back your Anryh Labs fee.
+            </p>
           </div>
           <AddFunds addedBeforeCents={props.fundsAddedCents} />
           {props.autoTopUp && (

@@ -5,32 +5,36 @@ import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { setAdsPaused, startDeposit } from "@/app/dashboard/actions";
 import { usd } from "@/lib/dashboard/format";
-import { adSpendCents, feeLabel, FEE_RATE, LOW_FEE_AFTER_CENTS, LOW_FEE_RATE, MIN_TOP_UP_CENTS } from "@/lib/campaign";
-import { CYCLE_DAYS, FUNDS_STEP_CENTS, roundUpToFundsStep } from "@/lib/campaign-plan";
+import { adSpendCents, feeLabel, FEE_RATE, LOW_FEE_AFTER_CENTS, LOW_FEE_RATE, minDepositFor } from "@/lib/campaign";
+import { CYCLE_DAYS, FUNDS_STEP_CENTS, roundUpToFundsStep, START_FUNDED_DAYS } from "@/lib/campaign-plan";
 import { Button, Switch, inputClass } from "@/components/dashboard/ui";
 import { cn } from "@/lib/utils";
 
-// Funds come in $500 steps from the $500 minimum, so the amount reads as what a week of ads really needs
-const PRESET_CENTS = [1, 2, 3, 4].map((n) => n * FUNDS_STEP_CENTS);
+// Funds come in $500 steps. The first deposit starts the campaign with two weeks funded ($1,000 or more), so its
+// per-day reads over two weeks; later top-ups start at $500 and read over a week (one cycle)
+const presetsFor = (first: boolean) => (first ? [2, 3, 4, 6] : [1, 2, 3, 4]).map((n) => n * FUNDS_STEP_CENTS);
 
 /**
  * Add funds. `addedBeforeCents` is everything the agent has added so far: the fee is 20% until they've added
  * $20,000 in all, then 12% on everything after that.
  */
 export function AddFunds({ addedBeforeCents = 0 }: { addedBeforeCents?: number }) {
-  const [amount, setAmount] = useState<number>(PRESET_CENTS[0]);
+  const first = addedBeforeCents === 0;
+  const spanDays = first ? START_FUNDED_DAYS : CYCLE_DAYS;
+  const minCents = minDepositFor(addedBeforeCents);
+  const [amount, setAmount] = useState<number>(presetsFor(first)[0]);
   const [custom, setCustom] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-  const PRESETS = PRESET_CENTS.map((c) => ({ cents: c, perDay: Math.floor(adSpendCents(c, addedBeforeCents) / CYCLE_DAYS / 100) }));
+  const PRESETS = presetsFor(first).map((c) => ({ cents: c, perDay: Math.floor(adSpendCents(c, addedBeforeCents) / spanDays / 100) }));
 
   const typed = Math.round(Number(custom.replace(/[^0-9.]/g, "")) * 100);
   // A typed amount rounds up to the next $500 step, and never below the minimum
-  const cents = custom ? (typed > 0 ? Math.max(MIN_TOP_UP_CENTS, roundUpToFundsStep(typed)) : 0) : amount;
+  const cents = custom ? (typed > 0 ? Math.max(minCents, roundUpToFundsStep(typed)) : 0) : amount;
   const forAds = adSpendCents(cents, addedBeforeCents);
   const rate = addedBeforeCents >= LOW_FEE_AFTER_CENTS ? LOW_FEE_RATE : FEE_RATE;
-  // The daily spend this deposit pays for over a week (one cycle)
-  const perDay = Math.floor(forAds / CYCLE_DAYS / 100) * 100;
+  // The daily spend this deposit pays for: over two weeks for the first one, a week (one cycle) after that
+  const perDay = Math.floor(forAds / spanDays / 100) * 100;
 
   const go = () =>
     startTransition(async () => {
@@ -84,7 +88,7 @@ export function AddFunds({ addedBeforeCents = 0 }: { addedBeforeCents?: number }
         {cents > 0 ? (
           <>
             {custom && typed > 0 && typed !== cents ? `Rounded up to ${usd(cents)}: funds come in ${usd(FUNDS_STEP_CENTS)} steps. ` : ""}
-            {`${usd(forAds)} goes to your ads, ${usd(cents - forAds, { cents: (cents - forAds) % 100 !== 0 })} is the Anryh Labs fee (${feeLabel(cents, addedBeforeCents)}). That runs your ads at about ${usd(perDay, { cents: false })}/day for a week. `}
+            {`${usd(forAds)} goes to your ads, ${usd(cents - forAds, { cents: (cents - forAds) % 100 !== 0 })} is the Anryh Labs fee (${feeLabel(cents, addedBeforeCents)}). That runs your ads at about ${usd(perDay, { cents: false })}/day for ${first ? "two weeks" : "a week"}. `}
             <WhyFee rate={rate} />
           </>
         ) : null}

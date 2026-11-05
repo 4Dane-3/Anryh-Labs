@@ -6,7 +6,7 @@ import { CreditCard, Loader2, RefreshCw } from "lucide-react";
 import { removeAutoTopUpCard, saveAutoTopUp, setAutoTopUp, startAutoTopUpSetup } from "@/app/dashboard/actions";
 import { FUNDS_STEP_CENTS } from "@/lib/campaign-plan";
 import { MAX_BELOW_CENTS, MIN_BELOW_CENTS, topUpConsent } from "@/lib/auto-top-up";
-import { adSpendCents, MAX_DEPOSIT_CENTS, MIN_DEPOSIT_CENTS } from "@/lib/campaign";
+import { adSpendCents, MAX_DEPOSIT_CENTS, MIN_TOP_UP_CENTS } from "@/lib/campaign";
 import { usd } from "@/lib/dashboard/format";
 import { Button, Label, Panel, PanelHeader, Switch, inputClass } from "@/components/dashboard/ui";
 import { cn } from "@/lib/utils";
@@ -24,7 +24,7 @@ export type AutoTopUpState = {
   dailyCents: number;
 };
 
-const AMOUNTS = Array.from({ length: MAX_DEPOSIT_CENTS / FUNDS_STEP_CENTS }, (_, i) => (i + 1) * FUNDS_STEP_CENTS).filter((c) => c >= MIN_DEPOSIT_CENTS && c <= 500_000);
+const AMOUNTS = Array.from({ length: MAX_DEPOSIT_CENTS / FUNDS_STEP_CENTS }, (_, i) => (i + 1) * FUNDS_STEP_CENTS).filter((c) => c >= MIN_TOP_UP_CENTS && c <= 500_000);
 const LEVELS = [10_000, 15_000, 20_000, 25_000, 35_000, 50_000, 70_000, 100_000, 150_000, 200_000].filter((c) => c >= MIN_BELOW_CENTS && c <= MAX_BELOW_CENTS);
 
 export function AutoTopUp({ state }: { state: AutoTopUpState }) {

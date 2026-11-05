@@ -15,7 +15,7 @@ import { defaultCreateMessage, monthlyBudget } from "@/lib/migz/router";
 import { traitSwipe } from "@/lib/migz/team/scout";
 import type { TopicKey } from "@/lib/migz/topics";
 import { PAGE_FONT_KEYS } from "@/lib/booking/page-font-keys";
-import { MAX_DEPOSIT_CENTS, MIN_TOP_UP_CENTS } from "@/lib/campaign";
+import { MAX_DEPOSIT_CENTS, MIN_TOP_UP_CENTS, minDepositFor } from "@/lib/campaign";
 import { CONTACT_EMAIL } from "@/lib/contact";
 import { dailyBatch } from "@/lib/batch";
 import { closeEndedBatch, getActiveBatch, getBatchHistory, getOpenBatch } from "@/lib/dashboard/batches";
@@ -42,6 +42,7 @@ import { activateBatch } from "@/lib/dashboard/start-batch";
 import { getBalanceCents, getFundsAddedCents } from "@/lib/dashboard/queries";
 import { checkoutReturnBase, createAutoTopUpSetup, createDepositCheckout, createSetupFeeCheckout, stripe } from "@/lib/stripe";
 import { cleanTopUp, topUpConsent } from "@/lib/auto-top-up";
+import { startGuarantee } from "@/lib/dashboard/guarantee";
 import { setupBlockers } from "@/lib/dashboard/setup";
 import { adAccountFrom, checkMetaAccess, pageRefFrom } from "@/lib/meta/access";
 import { alertAdmin } from "@/lib/migz/slack";
@@ -179,8 +180,10 @@ export async function setAdsPaused(paused: boolean): Promise<Result> {
 /** Starts a Stripe Checkout session for an ad-funds deposit. Needs Stripe keys. */
 export async function startDeposit(cents: number): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
   const agent = await requireAgent();
-  if (!Number.isInteger(cents) || cents < MIN_TOP_UP_CENTS || cents > MAX_DEPOSIT_CENTS)
-    return { ok: false, error: `Deposits must be between $${MIN_TOP_UP_CENTS / 100} and $${(MAX_DEPOSIT_CENTS / 100).toLocaleString("en-US")}.` };
+  // The first deposit starts a campaign, so it covers two weeks; later top-ups can be smaller
+  const minCents = minDepositFor(await getFundsAddedCents(agent.id));
+  if (!Number.isInteger(cents) || cents < minCents || cents > MAX_DEPOSIT_CENTS)
+    return { ok: false, error: `${minCents > MIN_TOP_UP_CENTS ? "Your first deposit starts your campaign with two weeks of ads, so it" : "A deposit"} must be between $${(minCents / 100).toLocaleString("en-US")} and $${(MAX_DEPOSIT_CENTS / 100).toLocaleString("en-US")}.` };
   // Agents who finished setup before the setup fee existed count as paid
   if (!agent.setup_fee_paid_at && !agent.onboarding_completed_at) return { ok: false, error: "Pay the setup fee first: it's step 1 in Start here." };
   if (!integrations.stripe)
@@ -953,7 +956,7 @@ async function resolveCampaign(agent: Agent, input: CampaignChoice): Promise<Res
 function shortOf(r: Resolved, balance: number) {
   if (r.money.neededCents <= balance) return null;
   const videos = r.money.videoCents ? ` plus ${usdShort(r.money.videoCents)} for the campaign's ${VIDEO_TIERS[r.tier].title} videos` : "";
-  return `This campaign needs ${usdShort(r.money.adSpendCents)} of ad spend${videos}, and your ad balance is ${usdShort(balance)}. Add funds (we recommend ${usdShort(r.money.recommendedFundsCents)} in ad funds), choose a smaller daily budget${r.money.videoCents ? ", or switch videos to Standard" : ""}.`;
+  return `This campaign starts with two weeks of ad spend, ${usdShort(r.money.startSpendCents)}${videos}, and your ad balance is ${usdShort(balance)}. Add funds (we recommend ${usdShort(r.money.recommendedFundsCents)} in ad funds), choose a smaller daily budget${r.money.videoCents ? ", or switch videos to Standard" : ""}.`;
 }
 const usdShort = (cents: number) => `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: cents % 100 ? 2 : 0, maximumFractionDigits: 2 })}`;
 
@@ -1225,8 +1228,9 @@ export async function launchCampaign(): Promise<Result> {
     intent: isIntentLevel(agent.intent_level) ? agent.intent_level : DEFAULT_INTENT,
     tier: isVideoTier(agent.video_tier) ? agent.video_tier : DEFAULT_VIDEO_TIER,
   });
-  if (planned.budget_cents + money.videoCents > balance)
-    return fail(`Your campaign needs ${usdShort(planned.budget_cents + money.videoCents)}${money.videoCents ? ` (with ${usdShort(money.videoCents)} for videos)` : ""} and your ad balance is ${usdShort(balance)}. Add funds (we recommend ${usdShort(money.recommendedFundsCents)} in ad funds) or choose a smaller daily budget.`);
+  // A campaign starts with two weeks funded (plus its videos)
+  if (money.neededCents > balance)
+    return fail(`Your campaign starts with two weeks funded: ${usdShort(money.neededCents)}${money.videoCents ? ` (with ${usdShort(money.videoCents)} for videos)` : ""}, and your ad balance is ${usdShort(balance)}. Add funds (we recommend ${usdShort(money.recommendedFundsCents)} in ad funds) or choose a smaller daily budget.`);
 
   const { error } = await supabaseAdmin.from("agents").update({ onboarding_completed_at: new Date().toISOString() }).eq("id", agent.id);
   if (error) return fail("Couldn't start your campaign. Please try again.");
@@ -1235,6 +1239,8 @@ export async function launchCampaign(): Promise<Result> {
   } catch (e) {
     return fail(e instanceof Error ? e.message : "Couldn't start your campaign. Please try again.");
   }
+  // The booked-call guarantee's 30 days start now, at the campaign's daily budget
+  await startGuarantee({ ...agent, daily_budget_cents: planned.daily_cents });
   revalidatePath("/dashboard", "layout");
   return { ok: true };
 }

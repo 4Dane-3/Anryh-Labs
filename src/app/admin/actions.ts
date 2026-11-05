@@ -6,6 +6,7 @@ import { createSupabaseServer } from "@/lib/supabase-server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { scanAll } from "@/lib/admin/health";
 import { approveJoinRequest, declineJoinRequest, setReferralPaused, setReferrer } from "@/lib/referrals";
+import { decideGuarantee } from "@/lib/dashboard/guarantee";
 
 type Result = { ok: true; message?: string } | { ok: false; error: string };
 
@@ -13,6 +14,16 @@ async function staffEmail() {
   if (!(await isAnryhAdmin())) return null;
   const { data } = await (await createSupabaseServer()).auth.getUser();
   return data.user?.email ?? "staff";
+}
+
+/** A missed booked-call guarantee: approve credits the agent's Anryh Labs fee back to their ad balance, or decline. */
+export async function decideBookingGuarantee(id: string, approve: boolean): Promise<Result> {
+  const who = await staffEmail();
+  if (!who) return { ok: false, error: "Staff only." };
+  const res = await decideGuarantee(id, approve, who);
+  if (!res.ok) return res;
+  revalidatePath("/admin");
+  return { ok: true, message: approve ? "Fee credited back to their ad balance." : "Declined." };
 }
 
 /** Marks an alert handled. If the problem is still there, it won't alert again for a day. */

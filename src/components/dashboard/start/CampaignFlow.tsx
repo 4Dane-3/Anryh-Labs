@@ -380,10 +380,10 @@ export function CampaignFlow({
                 <p className="mt-1 text-[12px] leading-snug text-fg-muted">{lengthReason(daily)}</p>
               </div>
               <div className="rounded-xl border border-line px-4 py-3">
-                <p className="text-[12px] text-fg-muted">Ad funds for the first week</p>
+                <p className="text-[12px] text-fg-muted">Ad funds to start (two weeks)</p>
                 <p className="text-2xl font-semibold tabular-nums text-fg">{whole(money.recommendedFundsCents)}</p>
                 <p className="mt-1 text-[12px] leading-snug text-fg-muted">
-                  {whole(daily)} × {money.days} days = {whole(money.adSpendCents)}
+                  {whole(daily)} × {money.startDays} days = {whole(money.startSpendCents)}
                   {money.videoCents ? `, plus ${whole(money.videoCents)} for ${VIDEO_TIERS[tier].title} videos` : ""}, rounded up to the next $500. Treat it as the minimum, and keep adding so the next cycle can start. You have {usd(balanceCents, { cents: true })}.
                 </p>
               </div>

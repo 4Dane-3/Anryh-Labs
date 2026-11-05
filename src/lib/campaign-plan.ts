@@ -101,9 +101,11 @@ export const DAILY_CHOICES = [5000, 7500, 10_000, 15_000, 20_000, 30_000] as con
 /**
  * Campaigns are rolling: no end date. They run in 1-week cycles, and the next cycle starts on its own from
  * the ad balance (Keep going is always on; auto top-up can keep it funded), on the same ad sets, so Meta's
- * learning and Migz's creative rhythm carry across cycles. The minimum deposit covers one cycle at $50/day.
+ * learning and Migz's creative rhythm carry across cycles. A campaign starts with START_FUNDED_DAYS funded, so
+ * Migz's first full loop (learn a week, add new ads on day 8, read them) runs without a gap.
  */
 export const CYCLE_DAYS = 7;
+export const START_FUNDED_DAYS = 14;
 
 export function recommendedDays() {
   return Math.max(MIN_CAMPAIGN_DAYS, CYCLE_DAYS);
@@ -111,13 +113,13 @@ export function recommendedDays() {
 
 /** Why campaigns roll, and what the agent should do about it: keep funds in the account. */
 export const KEEP_FUNDED =
-  "Migz's strength is adjusting your ads from the data it collects over time, so the longer your campaign runs, the better it performs. The minimum covers one week at $50/day; keep funds in your account (or turn on auto top-up) so Meta always has budget to pull from.";
+  "Migz's strength is adjusting your ads from the data it collects over time, so the longer your campaign runs, the better it performs. A campaign starts with two weeks funded; after that, keep funds in your account (or turn on auto top-up) so Meta always has budget to pull from.";
 
 export function lengthReason(dailyCents: number) {
   return `No end date. It runs in weekly cycles at ${usd(dailyCents)}/day, and the next week starts on its own while your balance covers it. ${KEEP_FUNDED}`;
 }
 
-/** Ad funds come in $500 steps, so the amount the agent sees is the real minimum for a weekly cycle. */
+/** Ad funds come in $500 steps, so the amount the agent sees is the real minimum for the first two weeks. */
 export const FUNDS_STEP_CENTS = 50_000;
 export const roundUpToFundsStep = (cents: number) => Math.max(FUNDS_STEP_CENTS, Math.ceil(cents / FUNDS_STEP_CENTS) * FUNDS_STEP_CENTS);
 
@@ -280,12 +282,16 @@ export function campaignMoney(input: { dailyCents: number; intent: IntentLevel; 
   const adSpendCents = input.dailyCents * days;
   const sets = adsetShares(input.intent, input.dailyCents).map((s) => ({ ...s, mix: creativeMix(s.dailyCents) }));
   const videoCents = sets.reduce((sum, s) => sum + mixVideoCents(input.tier, s.mix), 0);
+  // To start: two weeks of ads plus the videos made on day one
+  const startSpendCents = input.dailyCents * START_FUNDED_DAYS;
   return {
     days,
     adSpendCents,
+    startDays: START_FUNDED_DAYS,
+    startSpendCents,
     videoCents,
-    neededCents: adSpendCents + videoCents,
-    recommendedFundsCents: roundUpToFundsStep(adSpendCents + videoCents),
+    neededCents: startSpendCents + videoCents,
+    recommendedFundsCents: roundUpToFundsStep(startSpendCents + videoCents),
     sets,
   };
 }

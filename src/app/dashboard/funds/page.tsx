@@ -9,6 +9,8 @@ import { usd } from "@/lib/dashboard/format";
 import { AddFunds, BudgetControls } from "@/components/dashboard/FundsControls";
 import { AutoTopUp } from "@/components/dashboard/AutoTopUp";
 import { topUpDefaults } from "@/lib/auto-top-up";
+import { getGuarantee } from "@/lib/dashboard/guarantee";
+import { GuaranteeCard } from "@/components/dashboard/GuaranteeCard";
 import { Badge, EmptyState, NotConnected, PageHeader, Panel, PanelHeader } from "@/components/dashboard/ui";
 import { cn } from "@/lib/utils";
 
@@ -23,11 +25,12 @@ const KIND_LABEL: Record<string, string> = {
 
 export default async function FundsPage({ searchParams }: { searchParams: Promise<{ deposit?: string; auto?: string }> }) {
   const [agent, { deposit, auto }] = await Promise.all([requireSetUpAgent(), searchParams]);
-  const [balance, transactions, batch, fundsAdded] = await Promise.all([
+  const [balance, transactions, batch, fundsAdded, guarantee] = await Promise.all([
     getBalanceCents(agent.id),
     getTransactions(agent.id),
     getActiveBatch(agent.id),
     getFundsAddedCents(agent.id),
+    getGuarantee(agent).catch(() => null),
   ]);
   const defaults = topUpDefaults(agent.daily_budget_cents);
   const daysLeft = agent.daily_budget_cents > 0 ? Math.floor(balance / agent.daily_budget_cents) : null;
@@ -112,6 +115,24 @@ export default async function FundsPage({ searchParams }: { searchParams: Promis
               error: agent.auto_topup_error ?? null,
               addedBeforeCents: fundsAdded,
               dailyCents: agent.daily_budget_cents,
+            }}
+          />
+        </div>
+      )}
+
+      {guarantee && (
+        <div className="mt-3">
+          <GuaranteeCard
+            g={{
+              status: guarantee.row.status === "running" ? guarantee.evaluation.status : guarantee.row.status,
+              day: guarantee.evaluation.day,
+              daysTotal: guarantee.evaluation.daysTotal,
+              endsOn: guarantee.row.ends_on,
+              target: guarantee.row.target,
+              bookings: guarantee.row.status === "running" ? guarantee.bookings : (guarantee.row.bookings ?? guarantee.bookings),
+              feeCents: guarantee.row.status === "running" ? guarantee.feeCents : (guarantee.row.fee_cents ?? guarantee.feeCents),
+              conditions: guarantee.evaluation.conditions,
+              onTrack: guarantee.evaluation.onTrack,
             }}
           />
         </div>

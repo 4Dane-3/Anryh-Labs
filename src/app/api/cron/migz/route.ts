@@ -5,6 +5,7 @@ import { migzReadyFor } from "@/lib/integrations";
 import { runMigz } from "@/lib/migz/agent";
 import { renewBatches } from "@/lib/dashboard/renew";
 import { autoTopUpAll } from "@/lib/dashboard/top-up";
+import { settleGuarantees } from "@/lib/dashboard/guarantee";
 import { syncSpend } from "@/lib/migz/sync";
 
 export const maxDuration = 300;
@@ -24,6 +25,9 @@ export async function GET(req: Request) {
     .update({ status: "expired", decided_at: new Date().toISOString() })
     .eq("status", "proposed")
     .lt("created_at", new Date(Date.now() - PROPOSAL_TTL_HOURS * 3_600_000).toISOString());
+
+  // Booked-call guarantees whose 30 days are over get their verdict (a miss is flagged to staff)
+  await settleGuarantees().catch((e) => console.error("settling guarantees failed", e));
 
   // Auto top-up first, so a balance that dropped below the agent's level is refilled before cycles renew
   const topUps = await autoTopUpAll(deadline - 120_000).catch((e) => {

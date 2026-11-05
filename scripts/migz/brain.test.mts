@@ -242,12 +242,14 @@ assert.deepEqual(campaignLabels([null], [...three]), ["Final expense + Mortgage 
 assert.deepEqual(campaignLabels([null]), ["Booked calls"], "no focus at all");
 assert.deepEqual(campaignLabels(["final_expense", "mortgage_protection", "final_expense"]), ["Final expense A", "Mortgage protection", "Final expense B"], "older batches with two on one topic");
 assert.equal(perCampaignCents(2500, 2), 1250);
-assert.equal(MIN_DEPOSIT_CENTS, 50_000, "the least a deposit can be is $500");
-assert.equal(adSpendCents(MIN_DEPOSIT_CENTS), 40_000); assert.equal(MIN_AD_BALANCE_CENTS, 40_000);
+assert.equal(MIN_DEPOSIT_CENTS, 100_000, "the first deposit is at least $1,000");
+assert.equal(adSpendCents(MIN_DEPOSIT_CENTS), 80_000); assert.equal(MIN_AD_BALANCE_CENTS, 80_000);
 const { MIN_TOP_UP_CENTS, SETUP_FEE_CENTS } = await import("@/lib/campaign");
-assert.equal(MIN_TOP_UP_CENTS, MIN_DEPOSIT_CENTS, "every deposit is at least $500");
+assert.equal(MIN_TOP_UP_CENTS, 50_000, "later top-ups are at least $500");
+const { minDepositFor } = await import("@/lib/campaign");
+assert.deepEqual([minDepositFor(0), minDepositFor(100_000)], [100_000, 50_000], "the first deposit starts the campaign; after that, $500");
 assert.equal(MIN_DAILY_CENTS, 5000, "campaigns run at $50/day or more");
-assert.ok(MIN_AD_BALANCE_CENTS >= MIN_DAILY_CENTS * 7, "the minimum deposit, after the fee, covers $50/day for a week");
+assert.ok(MIN_AD_BALANCE_CENTS >= MIN_DAILY_CENTS * 14, "the first deposit, after the fee, covers $50/day for two weeks");
 assert.equal(SETUP_FEE_CENTS, 75_000);
 assert.equal(depositFor(28_000), 35_000); assert.equal(depositFor(42_000), 52_500);
 const cand = (id: string, creative: string | null, topic: string | null) => ({ meta_ad_id: id, creative_id: creative, topic });
@@ -1227,9 +1229,9 @@ assert.deepEqual(cp.creativeMix(20_000), { total: 15, videos: 5, images: 10, ext
 assert.deepEqual([0, 1, 2, 3].map((n) => cp.videoPriceFor("seedance_15", n)), [600, 600, 480, 480], "the included two at list, extras 20% off");
 assert.equal(cp.videoPriceFor("seedance_30", 2), 960); assert.equal(cp.videoPriceFor("standard", 4), 0, "extra Standard videos: undecided, free for now");
 const m100 = cp.campaignMoney({ dailyCents: 10_000, intent: "medium_high", tier: "standard" });
-assert.deepEqual([m100.days, m100.adSpendCents, m100.videoCents, m100.recommendedFundsCents], [7, 70_000, 0, 100_000], "$100/day: a week, $700 of ads, $1,000 of funds");
+assert.deepEqual([m100.days, m100.adSpendCents, m100.startSpendCents, m100.videoCents, m100.recommendedFundsCents], [7, 70_000, 140_000, 0, 150_000], "$100/day: weekly cycles of $700, and it starts with two weeks ($1,400, $1,500 of funds)");
 const m200 = cp.campaignMoney({ dailyCents: 20_000, intent: "medium_high", tier: "seedance_15" });
-assert.deepEqual([m200.days, m200.videoCents, m200.recommendedFundsCents], [7, 600 * 2 + 480 * 3, 150_000], "$200/day on Seedance: 2 videos at $6 and 3 at $4.80, a week");
+assert.deepEqual([m200.days, m200.videoCents, m200.recommendedFundsCents], [7, 600 * 2 + 480 * 3, 300_000], "$200/day on Seedance: 2 videos at $6 and 3 at $4.80, two weeks to start");
 assert.equal(cp.campaignMoney({ dailyCents: 10_000, intent: "low_medium", tier: "standard" }).sets.length, 2, "instant forms add a second ad set with its own mix");
 const ans = cp.cleanAnswers({ products: ["final_expense", "nope"], ageMin: 85, ageMax: 50, languages: ["en", "fr"], underwriting: "simplified", healthIssuesOk: "yes" });
 assert.deepEqual([ans.products, ans.ageMin, ans.ageMax, ans.languages, ans.healthIssuesOk], [["final_expense"], 50, 85, ["en"], null], "answers are cleaned, ages kept in order");
@@ -1655,5 +1657,28 @@ assert.equal(tu.cleanTopUp({ amountCents: 50_000, belowCents: 5_000 }), "Pick a 
 assert.deepEqual(tu.cleanTopUp({ amountCents: "100000", belowCents: 50_000 }), { amountCents: 100_000, belowCents: 50_000 });
 assert.match(tu.topUpConsent(50_000, 35_000), /charge my saved card \$500 \(including the Anryh Labs fee\) whenever my ad balance falls below \$350, at most once every 20 hours/);
 ok("auto top-up: charges the saved card when the free balance drops below the agent's level, at most once every 20 hours, never after a decline until a new card; defaults to a week of ads; $500 steps; the authorization says exactly that");
+
+// Booked-call guarantee: 30 days from launch, judged on bookings alone, with the conditions the agent controls
+const gu = await import("@/lib/guarantee");
+assert.deepEqual([gu.targetFor(5000), gu.targetFor(7499), gu.targetFor(7500), gu.targetFor(20_000)], [8, 8, 12, 12], "8 booked calls, 12 at $75/day or more");
+assert.equal(gu.monthOfFundsCents(5000), 150_000, "a month at $50/day is $1,500 of ad money");
+assert.equal(gu.monthOfFundsCents(3000), 150_000, "never under $50/day");
+assert.equal(gu.addDays("2026-11-04", 29), "2026-12-03", "30 days, the start day included");
+assert.equal(gu.openHoursPerWeek([{ start_time: "09:00:00", end_time: "12:00:00" }, { start_time: "13:00", end_time: "17:30" }]), 7.5);
+const guBase = { startsOn: "2026-11-04", endsOn: "2026-12-03", dailyCents: 5000, target: 8, bookings: 3, adFundsAddedCents: 80_000, spendDays: 9, ownBookingPage: false, openHours: 20, migzOff: false };
+const guDay10 = gu.evaluateGuarantee({ ...guBase, today: "2026-11-13" });
+assert.deepEqual([guDay10.day, guDay10.status, guDay10.onTrack], [10, "running", true], "day 10: running, on track even though a month isn't funded yet");
+assert.ok(guDay10.conditions.find((c) => c.key === "funded")!.ok === false, "funding shows as still to do");
+const guEnd = { ...guBase, today: "2026-12-04", adFundsAddedCents: 150_000, spendDays: 28 };
+assert.equal(gu.evaluateGuarantee({ ...guEnd, bookings: 8 }).status, "met", "8 booked calls: met");
+assert.equal(gu.evaluateGuarantee(guEnd).status, "missed", "3 of 8 with every condition met: missed, the fee comes back");
+assert.equal(gu.evaluateGuarantee({ ...guEnd, adFundsAddedCents: 120_000 }).status, "ineligible", "under a month of funds: the guarantee doesn't apply");
+assert.equal(gu.evaluateGuarantee({ ...guEnd, spendDays: 26 }).status, "ineligible", "4 days without ads: not running");
+assert.equal(gu.evaluateGuarantee({ ...guEnd, spendDays: 27 }).status, "missed", "3 days off is allowed");
+assert.equal(gu.evaluateGuarantee({ ...guEnd, ownBookingPage: true }).status, "ineligible", "their own booking page: bookings can't be counted");
+assert.equal(gu.evaluateGuarantee({ ...guEnd, openHours: 12 }).status, "ineligible", "under 15 open hours a week");
+assert.equal(gu.evaluateGuarantee({ ...guEnd, ownBookingPage: true, bookings: 9 }).status, "met", "hitting the target always counts as met");
+assert.equal(gu.evaluateGuarantee({ ...guBase, today: "2026-11-13", ownBookingPage: true }).onTrack, false, "running with a blocking condition: off track");
+ok("booked-call guarantee: 30 days from launch; 8 booked calls (12 at $75/day or more); a month of ad funds, ads running all but 3 days, their Anryh Labs booking page, 15 open hours a week and Migz on, or it doesn't apply; under target with all of that is a miss (fee back)");
 
 console.log(`\nALL ${n} UNIT GROUPS PASSED`);
