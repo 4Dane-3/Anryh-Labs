@@ -27,7 +27,7 @@ export type CustomValue = string | number | boolean | null;
 
 export type CrmClient = {
   id: string;
-  name: string;
+  name: string | null; // the contact person; optional when the client is a company
   email: string | null;
   phone: string | null;
   company: string | null;
@@ -67,7 +67,13 @@ export type CrmMeeting = {
   created_at: string;
 };
 
-export type CalendarMeeting = CrmMeeting & { client: { id: string; name: string; email: string | null } };
+export type ClientRef = { id: string; name: string | null; company: string | null; email: string | null };
+export type CalendarMeeting = CrmMeeting & { client: ClientRef };
+
+/** What a client is called in lists and titles: the contact's name, or the company when there's no contact. */
+export const clientLabel = (c: { name: string | null; company?: string | null }) => c.name?.trim() || c.company?.trim() || "Unnamed client";
+/** How an email greets them: the contact's first name, or nothing personal for a company-only client. */
+export const clientFirstName = (c: { name: string | null }) => c.name?.trim().split(/\s+/)[0] || null;
 
 export type CrmSettings = {
   meeting_url: string | null;
@@ -88,6 +94,6 @@ export const DEFAULT_SETTINGS: CrmSettings = {
 };
 
 /** The fields a CSV column can map to: a built-in field, an existing custom column, or skip. */
-export type ImportRow = { name: string; email?: string; phone?: string; company?: string; status?: string; note?: string; custom?: Record<string, CustomValue> };
+export type ImportRow = { name?: string; email?: string; phone?: string; company?: string; status?: string; note?: string; custom?: Record<string, CustomValue> };
 
 export type Result<T = undefined> = ({ ok: true; message?: string } & (T extends undefined ? object : { data: T })) | { ok: false; error: string };

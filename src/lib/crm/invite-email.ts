@@ -1,4 +1,5 @@
 import { DateTime } from "luxon";
+import { clientFirstName } from "@/lib/crm/types";
 
 // The CRM's emails to a client: the meeting invite (with a big Confirm button), the reminder the day
 // before, and the cancellation. Pure: subject, HTML and text; email.ts sends them. Table layout and inline
@@ -9,7 +10,7 @@ export type InviteKind = "invite" | "update" | "reminder" | "cancel";
 export type InviteInput = {
   kind: InviteKind;
   from: string; // the name it goes out under
-  client: { name: string };
+  client: { name: string | null };
   meeting: { title: string; starts_at: string; ends_at: string; timezone: string; meeting_url: string | null; meeting_details: string | null; description: string | null; status: string };
   confirmUrl: string;
 };
@@ -31,7 +32,7 @@ export function whenText(m: { starts_at: string; ends_at: string; timezone: stri
 
 export function inviteEmail(input: InviteInput) {
   const { meeting: m, kind } = input;
-  const first = input.client.name.trim().split(/\s+/)[0] || "there";
+  const first = clientFirstName(input.client) ?? "there";
   const w = whenText(m);
   const confirmed = m.status === "confirmed";
   const subject =

@@ -1,6 +1,6 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { DEFAULT_SETTINGS, type CalendarMeeting, type CrmClient, type CrmColumn, type CrmMeeting, type CrmNote, type CrmSettings } from "@/lib/crm/types";
+import { DEFAULT_SETTINGS, type CalendarMeeting, type ClientRef, type CrmClient, type CrmColumn, type CrmMeeting, type CrmNote, type CrmSettings } from "@/lib/crm/types";
 
 // Reads for the admin CRM. Every caller has already checked isAnryhAdmin(); these use the service role.
 
@@ -47,7 +47,7 @@ export async function getClientDetail(id: string) {
 export async function getMeetingsBetween(fromIso: string, toIso: string): Promise<{ ready: boolean; meetings: CalendarMeeting[] }> {
   const { data, error } = await supabaseAdmin
     .from("crm_meetings")
-    .select("*, client:crm_clients(id, name, email)")
+    .select("*, client:crm_clients(id, name, company, email)")
     .lt("starts_at", toIso)
     .gt("ends_at", fromIso)
     .order("starts_at");
@@ -58,12 +58,12 @@ export async function getMeetingsBetween(fromIso: string, toIso: string): Promis
 
 /** Name/email only, for the meeting form's client picker. */
 export async function getClientOptions() {
-  const { data } = await supabaseAdmin.from("crm_clients").select("id, name, email").order("name").limit(5000);
-  return (data ?? []) as { id: string; name: string; email: string | null }[];
+  const { data } = await supabaseAdmin.from("crm_clients").select("id, name, company, email").order("name", { nullsFirst: false }).order("company").limit(5000);
+  return (data ?? []) as ClientRef[];
 }
 
 export async function getMeetingByToken(token: string) {
   if (!/^[a-f0-9]{32,128}$/.test(token)) return null;
-  const { data } = await supabaseAdmin.from("crm_meetings").select("*, client:crm_clients(id, name, email)").eq("token", token).maybeSingle();
+  const { data } = await supabaseAdmin.from("crm_meetings").select("*, client:crm_clients(id, name, company, email)").eq("token", token).maybeSingle();
   return (data ?? null) as CalendarMeeting | null;
 }

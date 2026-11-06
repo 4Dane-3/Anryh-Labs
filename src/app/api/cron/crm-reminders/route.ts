@@ -14,7 +14,7 @@ export async function GET(req: Request) {
   const now = Date.now();
   const { data, error } = await supabaseAdmin
     .from("crm_meetings")
-    .select("*, client:crm_clients(name, email)")
+    .select("*, client:crm_clients(name, company, email)")
     .in("status", ["invited", "confirmed"])
     .is("reminder_sent_at", null)
     .gt("starts_at", new Date(now + 30 * 60_000).toISOString())

@@ -11,6 +11,7 @@ import { describeOutcome, sendMeetingEmail } from "@/lib/crm/email";
 import { deleteZoomMeeting, upsertZoomMeeting, zoomReady } from "@/lib/crm/zoom";
 import {
   CLIENT_STATUSES,
+  clientLabel,
   COLUMN_TYPES,
   OPTION_COLORS,
   type ClientStatus,
@@ -47,16 +48,17 @@ function dupeError(e: { code?: string; message?: string }) {
 
 // ---------- Clients ----------
 
-export async function saveClient(input: { id?: string; name: string; email?: string; phone?: string; company?: string; status?: string }): Promise<Result<{ id: string }>> {
+export async function saveClient(input: { id?: string; name?: string; email?: string; phone?: string; company?: string; status?: string }): Promise<Result<{ id: string }>> {
   if (!(await staff())) return { ok: false, error: "Staff only." };
   const name = clean(input.name);
-  if (!name) return { ok: false, error: "Add a name." };
+  const company = clean(input.company);
+  if (!name && !company) return { ok: false, error: "Add a company or a contact name." };
   const email = clean(input.email)?.toLowerCase() ?? null;
   if (email && !EMAIL.test(email)) return { ok: false, error: "That email doesn't look right." };
   const phone = clean(input.phone, 40);
   if (phone && phoneDigits(phone).length < 7) return { ok: false, error: "That phone number looks too short." };
   const status = (CLIENT_STATUSES as readonly string[]).includes(input.status ?? "") ? (input.status as ClientStatus) : "lead";
-  const row = { name, email, phone, company: clean(input.company), status, updated_at: new Date().toISOString() };
+  const row = { name, email, phone, company, status, updated_at: new Date().toISOString() };
   const q = input.id ? supabaseAdmin.from("crm_clients").update(row).eq("id", input.id) : supabaseAdmin.from("crm_clients").insert(row);
   const { data, error } = await q.select("id").single();
   if (error) return { ok: false, error: dupeError(error) ?? "Couldn't save that client." };
@@ -127,38 +129,52 @@ export async function setClientField(clientId: string, field: string, value: unk
  * CSV import (the browser parses the file and maps its columns). Skips rows without a name, with a bad
  * email, and anyone already in the list by email or phone, including repeats inside the file itself.
  */
-export async function importClients(rows: ImportRow[]): Promise<Result<{ imported: number; duplicates: number; invalid: number }>> {
+export async function importClients(rows: ImportRow[]): Promise<Result<{ imported: number; duplicates: number; invalid: number; cleaned: number }>> {
   const who = await staff();
   if (!who) return { ok: false, error: "Staff only." };
   if (!Array.isArray(rows) || rows.length > 2000) return { ok: false, error: "Send at most 2,000 rows at a time." };
 
   const [{ data: existing }, { data: cols }] = await Promise.all([
-    supabaseAdmin.from("crm_clients").select("email, phone").limit(50000),
+    supabaseAdmin.from("crm_clients").select("name, company, email, phone").limit(50000),
     supabaseAdmin.from("crm_columns").select("id, type, options"),
   ]);
   const emails = new Set((existing ?? []).map((c) => c.email?.toLowerCase()).filter(Boolean));
   const phones = new Set((existing ?? []).map((c) => c.phone && phoneDigits(c.phone)).filter(Boolean));
   const colById = new Map((cols ?? []).map((c) => [c.id, c as CrmColumn]));
+  // Clients with no email or phone are matched on name + company, so importing the same list twice doesn't double it
+  const nameKey = (name: string | null, company: string | null) => `${name?.toLowerCase() ?? ""}|${company?.toLowerCase() ?? ""}`;
+  const names = new Set((existing ?? []).filter((c) => !c.email && !c.phone).map((c) => nameKey(c.name, c.company)));
 
   let duplicates = 0;
   let invalid = 0;
+  let cleaned = 0;
   const insert: { row: Record<string, unknown>; note: string | null }[] = [];
   for (const r of rows) {
     const name = clean(r.name);
-    const emailRaw = clean(r.email)?.toLowerCase() ?? null;
-    const email = emailRaw && EMAIL.test(emailRaw) ? emailRaw : null;
-    const phone = clean(r.phone, 40);
-    const digits = phone ? phoneDigits(phone) : "";
-    if (!name || (emailRaw && !email)) {
+    const company = clean(r.company);
+    if (!name && !company) {
       invalid++;
       continue;
     }
-    if ((email && emails.has(email)) || (digits.length >= 7 && phones.has(digits))) {
+    // An email or phone that isn't one ("Not verified", "n/a") is left blank, and kept in a note
+    const kept: string[] = [];
+    const emailRaw = clean(r.email);
+    const email = emailRaw && EMAIL.test(emailRaw.toLowerCase()) ? emailRaw.toLowerCase() : null;
+    if (emailRaw && !email) kept.push(`Email in the CSV: ${emailRaw}`);
+    const phoneRaw = clean(r.phone, 40);
+    const digits = phoneRaw ? phoneDigits(phoneRaw) : "";
+    const phone = digits.length >= 7 && digits.length <= 15 ? phoneRaw : null;
+    if (phoneRaw && !phone) kept.push(`Phone in the CSV: ${phoneRaw}`);
+    if (kept.length) cleaned++;
+
+    const key = nameKey(name, company);
+    if ((email && emails.has(email)) || (phone && phones.has(digits)) || (!email && !phone && names.has(key))) {
       duplicates++;
       continue;
     }
     if (email) emails.add(email);
-    if (digits.length >= 7) phones.add(digits);
+    if (phone) phones.add(digits);
+    if (!email && !phone) names.add(key);
     const custom: Record<string, CustomValue> = {};
     for (const [id, raw] of Object.entries(r.custom ?? {})) {
       const col = colById.get(id);
@@ -166,7 +182,8 @@ export async function importClients(rows: ImportRow[]): Promise<Result<{ importe
       if (v !== undefined && v !== null) custom[id] = v;
     }
     const status = (CLIENT_STATUSES as readonly string[]).find((s) => s === r.status?.trim().toLowerCase()) ?? "lead";
-    insert.push({ row: { name, email, phone: digits.length >= 7 ? phone : null, company: clean(r.company), status, custom, source: "csv" }, note: clean(r.note, 10000) });
+    const note = [clean(r.note, 10000), ...kept].filter(Boolean).join("\n\n") || null;
+    insert.push({ row: { name, email, phone, company, status, custom, source: "csv" }, note });
   }
 
   let imported = 0;
@@ -179,6 +196,11 @@ export async function importClients(rows: ImportRow[]): Promise<Result<{ importe
       ids = [];
       for (const b of batch) {
         const one = await supabaseAdmin.from("crm_clients").insert(b.row).select("id").single();
+        // Only a clash with the unique email/phone index is a duplicate; anything else stops the import
+        if (one.error && one.error.code !== "23505") {
+          refresh();
+          return { ok: false, error: `Stopped after ${imported + ids.filter(Boolean).length} rows: ${one.error.message}` };
+        }
         if (one.error) duplicates++;
         ids.push(one.data?.id ?? null);
       }
@@ -188,7 +210,7 @@ export async function importClients(rows: ImportRow[]): Promise<Result<{ importe
     if (notes.length) await supabaseAdmin.from("crm_notes").insert(notes);
   }
   refresh();
-  return { ok: true, imported, duplicates, invalid };
+  return { ok: true, imported, duplicates, invalid, cleaned };
 }
 
 // ---------- Custom columns ----------
@@ -303,11 +325,11 @@ export async function saveMeeting(input: MeetingInput): Promise<Result<{ id: str
   }
 
   const [{ data: client }, previous] = await Promise.all([
-    supabaseAdmin.from("crm_clients").select("id, name, email, status").eq("id", input.clientId).maybeSingle(),
+    supabaseAdmin.from("crm_clients").select("id, name, company, email, status").eq("id", input.clientId).maybeSingle(),
     input.id ? supabaseAdmin.from("crm_meetings").select("*").eq("id", input.id).maybeSingle().then((r) => r.data as CrmMeeting | null) : Promise.resolve(null),
   ]);
   if (!client) return { ok: false, error: "That client is gone." };
-  if (input.send && !client.email) return { ok: false, error: `${client.name} has no email. Add one, or save without sending.` };
+  if (input.send && !client.email) return { ok: false, error: `${clientLabel(client)} has no email. Add one, or save without sending.` };
   if (input.id && !previous) return { ok: false, error: "That meeting is gone." };
 
   const startsAt = start.toUTC().toISO()!;
@@ -374,7 +396,7 @@ export async function saveMeeting(input: MeetingInput): Promise<Result<{ id: str
 
 export async function cancelMeeting(id: string, notify: boolean): Promise<Result> {
   if (!(await staff())) return { ok: false, error: "Staff only." };
-  const { data } = await supabaseAdmin.from("crm_meetings").select("*, client:crm_clients(name, email)").eq("id", id).maybeSingle();
+  const { data } = await supabaseAdmin.from("crm_meetings").select("*, client:crm_clients(name, company, email)").eq("id", id).maybeSingle();
   if (!data) return { ok: false, error: "That meeting is gone." };
   const m = data as CrmMeeting & { client: { name: string; email: string | null } };
   const { data: updated, error } = await supabaseAdmin

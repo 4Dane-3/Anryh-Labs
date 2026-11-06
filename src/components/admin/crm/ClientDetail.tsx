@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { DateTime } from "luxon";
 import { ArrowLeft, CalendarPlus, Mail, Pencil, Phone, Trash2, Video } from "lucide-react";
 import { addNote, deleteClient, deleteNote, setClientField } from "@/app/admin/crm/actions";
-import { CLIENT_STATUSES, STATUS_LABEL, type ClientStatus, type CrmClient, type CrmColumn, type CrmMeeting, type CrmNote, type CrmSettings } from "@/lib/crm/types";
+import { CLIENT_STATUSES, clientLabel, STATUS_LABEL, type ClientStatus, type CrmClient, type CrmColumn, type CrmMeeting, type CrmNote, type CrmSettings } from "@/lib/crm/types";
 import { Button, EmptyState, inputClass, Panel, PanelHeader } from "@/components/dashboard/ui";
 import { CustomCell } from "@/components/admin/crm/CustomCell";
 import { ClientForm } from "@/components/admin/crm/ClientForm";
@@ -27,7 +27,8 @@ export function ClientDetail({ client, notes, meetings, columns, settings, zoom,
   const upcoming = meetings.filter((m) => Date.parse(m.ends_at) >= now).reverse();
   const past = meetings.filter((m) => Date.parse(m.ends_at) < now);
   const fmt = (iso: string, zone: string) => DateTime.fromISO(iso).setZone(zone);
-  const opt = { id: client.id, name: client.name, email: client.email };
+  const opt = { id: client.id, name: client.name, company: client.company, email: client.email };
+  const label = clientLabel(client);
 
   return (
     <div className="space-y-6">
@@ -37,9 +38,10 @@ export function ClientDetail({ client, notes, meetings, columns, settings, zoom,
         </Link>
         <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
           <div className="min-w-0">
-            <h1 className="truncate text-2xl font-semibold tracking-tight">{client.name}</h1>
+            <h1 className="truncate text-2xl font-semibold tracking-tight">{label}</h1>
             <p className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-fg-muted">
-              {client.company && <span>{client.company}</span>}
+              {client.name && client.company && <span>{client.company}</span>}
+              {!client.name && <span className="text-fg-faint">No contact yet</span>}
               {client.email && (
                 <a href={`mailto:${client.email}`} className="inline-flex items-center gap-1 hover:text-fg">
                   <Mail className="size-3.5" /> {client.email}
@@ -62,7 +64,7 @@ export function ClientDetail({ client, notes, meetings, columns, settings, zoom,
               variant="danger"
               disabled={pending}
               onClick={() => {
-                if (!confirm(`Delete ${client.name}, with their notes and meetings? This can't be undone.`)) return;
+                if (!confirm(`Delete ${label}, with their notes and meetings? This can't be undone.`)) return;
                 start(async () => {
                   await deleteClient(client.id);
                   router.push("/admin/clients");

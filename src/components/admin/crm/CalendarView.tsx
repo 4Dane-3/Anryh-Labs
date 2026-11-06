@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { DateTime } from "luxon";
 import { CalendarPlus, ChevronLeft, ChevronRight, Settings2 } from "lucide-react";
-import type { CalendarMeeting, CrmSettings } from "@/lib/crm/types";
+import { clientLabel, type CalendarMeeting, type CrmSettings } from "@/lib/crm/types";
 import { Button, Panel } from "@/components/dashboard/ui";
 import { MeetingForm, type ClientOption } from "@/components/admin/crm/MeetingForm";
 import { MEETING_LABEL, MEETING_TONE, TONE_DOT } from "@/components/admin/crm/shared";
@@ -102,12 +102,12 @@ function Chip({ m, tz, onOpen }: { m: CalendarMeeting; tz: string; onOpen: (m: C
         e.stopPropagation();
         onOpen(m);
       }}
-      title={`${m.title} · ${m.client.name} · ${MEETING_LABEL[m.status]}`}
+      title={`${m.title} · ${clientLabel(m.client)} · ${MEETING_LABEL[m.status]}`}
       className={cn("flex w-full items-center gap-1 truncate rounded border px-1.5 py-0.5 text-left text-[11px] hover:brightness-125", CHIP[MEETING_TONE[m.status]])}
     >
       <span className={cn("size-1.5 shrink-0 rounded-full", TONE_DOT[MEETING_TONE[m.status]])} />
       <span className="font-mono text-fg-faint no-underline">{s.toFormat(s.minute ? "h:mm" : "h")}{s.toFormat("a").toLowerCase()[0]}</span>
-      <span className="truncate">{m.client.name}</span>
+      <span className="truncate">{clientLabel(m.client)}</span>
     </button>
   );
 }
@@ -200,7 +200,7 @@ function WeekGrid({ anchor, today, byDay, tz, onOpen, onNew }: { anchor: DateTim
                       style={{ top, height }}
                       className={cn("absolute inset-x-1 overflow-hidden rounded-md border px-1.5 py-1 text-left text-[11px] leading-tight hover:brightness-125", CHIP[MEETING_TONE[m.status]])}
                     >
-                      <p className="truncate font-medium">{m.client.name}</p>
+                      <p className="truncate font-medium">{clientLabel(m.client)}</p>
                       <p className="truncate font-mono text-[10px] text-fg-faint">
                         {s.toFormat("h:mm")}–{e.toFormat("h:mm a")} · {MEETING_LABEL[m.status]}
                       </p>
