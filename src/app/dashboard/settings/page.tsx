@@ -4,7 +4,7 @@ import { AutomatedEmailsLink, CallButtonForm, GhostBookingsForm, MigzModeForm, N
 import { IntentLevelForm, VideoTierForm } from "@/components/dashboard/AdChoices";
 import { DEFAULT_INTENT, DEFAULT_VIDEO_TIER, isIntentLevel, isVideoTier } from "@/lib/ad-options";
 import { RoofingForm } from "@/components/dashboard/RoofingForm";
-import { isRoofer, DEFAULT_RADIUS_MILES } from "@/lib/verticals";
+import { isRoofer, radiusMiles } from "@/lib/verticals";
 
 export default async function SettingsPage() {
   const agent = await requireSetUpAgent();
@@ -19,7 +19,7 @@ export default async function SettingsPage() {
             initial={{
               service_area: agent.service_area ?? "",
               state: agent.licensed_states[0] ?? "",
-              radius: agent.service_radius_miles ?? DEFAULT_RADIUS_MILES,
+              radius: radiusMiles(agent),
               crews: agent.crews ?? 1,
               license: agent.company_license ?? "",
               crm_webhook_url: agent.crm_webhook_url ?? "",

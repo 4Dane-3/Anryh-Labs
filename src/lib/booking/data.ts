@@ -1,6 +1,7 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import {
+  crewSlots,
   generateSlots,
   withGhostHolds,
   type AvailabilityRule,
@@ -155,9 +156,10 @@ export async function getOpenSlots(agent: Agent): Promise<string[]> {
 /**
  * Every time the booking page shows: `open` can be booked; `taken` are times inside the agent's hours
  * that are already booked (or held back by ghost bookings), shown greyed out so the calendar reads as
- * a real, busy one. Both are UTC ISO strings, ascending.
+ * a real, busy one. Both are UTC ISO strings, ascending. `crewsFreeAt` says which crews (1-based) are free
+ * at a time, counting the buffer around their own bookings, so a booking goes to a crew with travel time.
  */
-export async function getSlotBoard(agent: Agent): Promise<{ open: string[]; taken: string[] }> {
+export async function getSlotBoard(agent: Agent): Promise<{ open: string[]; taken: string[]; crewsFreeAt: (time: string) => number[] }> {
   const horizon = new Date(Date.now() + (agent.max_days_ahead + 2) * 86_400_000);
 
   const crews = crewsOf(agent);
@@ -196,14 +198,11 @@ export async function getSlotBoard(agent: Agent): Promise<{ open: string[]; take
   };
 
   // A time is open while any crew is free there (a roofer with 2 crews takes 2 inspections at once)
-  const free =
-    crews === 1
-      ? generateSlots(rules, busy, config)
-      : [...new Set(Array.from({ length: crews }, (_, i) => generateSlots(rules, busy.filter((b) => b.crew === i + 1), config)).flat())].sort();
+  const { free, crewsFreeAt } = crewSlots(rules, busy, config, crews);
   const open = agent.ghost_bookings ? withGhostHolds(free, agent.id, agent.timezone) : free;
   const openSet = new Set(open);
   const taken = generateSlots(rules, [], config).filter((t) => !openSet.has(t));
-  return { open, taken };
+  return { open, taken, crewsFreeAt };
 }
 
 /** The agent's questions (enabled and disabled), or the defaults for their business if they've never edited them. */

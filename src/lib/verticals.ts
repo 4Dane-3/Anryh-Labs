@@ -34,9 +34,11 @@ export const words = (a: HasVertical) => WORDS[verticalOf(a)];
 
 // ---------- Service area (roofers) ----------
 
-export const RADIUS_CHOICES = [10, 15, 25, 40] as const;
+// Roofing is home repair, which Meta puts under the Housing special ad category: a radius of at least 15 miles,
+// no ZIP targeting, and no age choice (every adult, 18 to 65+).
+export const RADIUS_CHOICES = [15, 25, 40, 50] as const;
 export const DEFAULT_RADIUS_MILES = 15;
-export const MIN_RADIUS_MILES = 5;
+export const MIN_RADIUS_MILES = 15; // Housing's smallest radius
 export const MAX_RADIUS_MILES = 50; // Meta's limit for a radius around an address
 
 /** A roofer's ads reach people this many miles around their service area (clamped to Meta's limits). */
@@ -45,13 +47,9 @@ export function radiusMiles(a: { service_radius_miles?: number | null }) {
   return Math.min(MAX_RADIUS_MILES, Math.max(MIN_RADIUS_MILES, Math.round(r)));
 }
 
-/** Roofing ads target ages directly (no special ad category); homeowners skew 30+. Meta's top age is 65 (= 65+). */
-export const ROOFING_DEFAULT_AGE_MIN = 30;
-export function roofingAges(answers: { ageMin?: number | null; ageMax?: number | null } | null | undefined) {
-  const min = Math.min(65, Math.max(18, answers?.ageMin ?? ROOFING_DEFAULT_AGE_MIN));
-  const max = answers?.ageMax == null || answers.ageMax >= 65 ? 65 : Math.max(min, answers.ageMax);
-  return { min, max };
-}
+/** Housing ads can't target by age: a roofer's ads reach every adult in the radius. Meta's top age, 65, means 65+. */
+export const ROOFING_AGES = { min: 18, max: 65 } as const;
+export const roofingAges = () => ROOFING_AGES;
 
 /** "within 15 miles of Plano, TX": where a roofer's ads run, in plain words. */
 export function areaLabel(a: { service_area?: string | null; service_radius_miles?: number | null }) {

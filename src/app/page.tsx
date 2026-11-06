@@ -24,7 +24,7 @@ const VERTICALS = [
     goal: "booked free roof inspections",
     lead: "ads reach homeowners around your service area and book them straight into your crews’ calendar.",
     points: [
-      "radius targeting: homeowners within 10 to 40 miles of you",
+      "radius targeting: homeowners within 15 to 50 miles of you",
       "booking page asks the address, homeowner, roof issue and roof age",
       "books two inspections at once if you run two crews",
       "an email per inspection with a postcard and door hanger for that street",

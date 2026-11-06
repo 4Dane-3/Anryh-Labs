@@ -358,7 +358,7 @@ export async function syncCampaignPlan(agent: Agent, runId: string | null, batch
 
     for (const i of missing) {
       const name = `Migz · ${labels[i]} · ${isRoofer(agent) ? agent.service_area : agent.licensed_states.join(" ")}`;
-      const campaignId = await createCampaign(account, name, { specialCategory: !isRoofer(agent) });
+      const campaignId = await createCampaign(account, name, { category: isRoofer(agent) ? "HOUSING" : "FINANCIAL_PRODUCTS_SERVICES" });
       if (campaignStatus === "ACTIVE") await setStatus(campaignId, "ACTIVE"); // spends nothing until ads exist
       const adsetId = await createAdSet(account, {
         campaignId,
@@ -415,10 +415,10 @@ export async function syncCampaignPlan(agent: Agent, runId: string | null, batch
 
 // ---------- Where the ads run ----------
 
-/** Where this account's ads run: a roofer's radius and ages, or an agent's licensed states. */
+/** Where this account's ads run: a roofer's radius (every adult, under Housing), or an agent's licensed states. */
 export function adGeoFor(agent: Agent): AdGeo {
   if (!isRoofer(agent)) return { kind: "states", states: agent.licensed_states };
-  const ages = roofingAges(cleanAnswers(agent.campaign_answers));
+  const ages = roofingAges();
   return { kind: "radius", address: agent.service_area?.trim() ?? "", state: agent.licensed_states[0] ?? null, miles: radiusMiles(agent), ageMin: ages.min, ageMax: ages.max };
 }
 

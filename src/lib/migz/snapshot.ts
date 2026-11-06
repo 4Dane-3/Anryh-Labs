@@ -404,7 +404,7 @@ export async function buildSnapshot(agent: Agent) {
       ...(agent.vertical === "roofing"
         ? {
             business: "roofing company: every ad offers a free roof inspection; booked_calls count booked inspections",
-            service_area: `homeowners ${areaLabel(agent)}, ages ${roofingAges(cleanAnswers(agent.campaign_answers)).min}–${roofingAges(cleanAnswers(agent.campaign_answers)).max === 65 ? "65+" : roofingAges(cleanAnswers(agent.campaign_answers)).max}`,
+            service_area: `homeowners ${areaLabel(agent)}, every adult ${roofingAges().min}–65+ (Meta's Housing category: no age targeting)`,
             inspections_at_once: agent.crews ?? 1,
             free_inspection_minutes: agent.slot_minutes,
           }
