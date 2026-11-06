@@ -15,6 +15,8 @@ export type ConfirmationInput = {
   calendarUrl: string;
   prepareUrl: string;
   bookedOn: string; // the site they booked on, e.g. "foreignfinancial.org"
+  /** A roofer's inspection: they come to the home instead of calling. */
+  roof?: { address: string | null; license: string | null } | null;
 };
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -48,7 +50,10 @@ export function confirmationEmail(input: ConfirmationInput) {
   const day = start.toFormat("cccc, LLLL d");
   const time = `${start.toFormat("h:mm")}–${end.toFormat("h:mm a")} ${start.toFormat("ZZZZ")}`;
   const subject = `You're booked with ${agent.fullName} · ${start.toFormat("ccc, LLL d")} at ${start.toFormat("h:mm a")}`;
-  const preheader = `${day}, ${time}. ${agentFirst} will call you at ${phone(prospect.phone)}.`;
+  const roof = input.roof ?? null;
+  const where = roof ? (roof.address ? `at ${roof.address}` : "at your home") : "";
+  const preheader = roof ? `${day}, ${time}. ${agent.fullName} will inspect the roof ${where}.` : `${day}, ${time}. ${agentFirst} will call you at ${phone(prospect.phone)}.`;
+  const what = roof ? `free ${input.minutes}-minute roof inspection with ${agent.fullName}` : `free ${input.minutes}-minute call with ${agentFirst}`;
 
   const avatar = agent.photoUrl
     ? `<img src="${esc(agent.photoUrl)}" width="64" height="64" alt="${esc(agent.fullName)}" style="display:block;width:64px;height:64px;border-radius:32px;object-fit:cover;border:0;" />`
@@ -80,7 +85,7 @@ export function confirmationEmail(input: ConfirmationInput) {
                 <td style="vertical-align:middle;">${avatar}</td>
                 <td style="vertical-align:middle;padding-left:14px;">
                   <div style="font:600 17px/1.3 ${FONT};color:${INK};">${esc(agent.fullName)}</div>
-                  <div style="font:400 14px/1.4 ${FONT};color:${MUTED};">${esc(agent.title || "Licensed life insurance agent")}</div>
+                  <div style="font:400 14px/1.4 ${FONT};color:${MUTED};">${esc(agent.title || (roof ? "Roofing" : "Licensed life insurance agent"))}</div>
                 </td>
               </tr>
             </table>
@@ -89,7 +94,7 @@ export function confirmationEmail(input: ConfirmationInput) {
         <tr>
           <td style="padding:28px 28px 0;">
             <h1 style="margin:0;font:700 28px/1.2 ${FONT};color:${INK};letter-spacing:-0.02em;">You&rsquo;re booked.</h1>
-            <p style="margin:12px 0 0;font:400 16px/1.55 ${FONT};color:${BODY};">Hi ${esc(first)}, your free ${input.minutes}-minute call with ${esc(agentFirst)} is confirmed.</p>
+            <p style="margin:12px 0 0;font:400 16px/1.55 ${FONT};color:${BODY};">Hi ${esc(first)}, your ${esc(what)} is confirmed.</p>
           </td>
         </tr>
         <tr>
@@ -104,8 +109,8 @@ export function confirmationEmail(input: ConfirmationInput) {
               </tr>
               <tr>
                 <td style="padding:16px 18px;">
-                  <div style="font:600 12px/1 ${FONT};color:${MUTED};text-transform:uppercase;letter-spacing:0.06em;">How</div>
-                  <div style="margin-top:8px;font:400 15px/1.45 ${FONT};color:${BODY};">${esc(agentFirst)} will call you at <span style="color:${INK};font-weight:600;white-space:nowrap;">${esc(phone(prospect.phone))}</span>.</div>
+                  <div style="font:600 12px/1 ${FONT};color:${MUTED};text-transform:uppercase;letter-spacing:0.06em;">${roof ? "Where" : "How"}</div>
+                  <div style="margin-top:8px;font:400 15px/1.45 ${FONT};color:${BODY};">${roof ? `The crew comes to <span style="color:${INK};font-weight:600;">${esc(roof.address ?? "your home")}</span>. Nobody needs to go on the roof but us; they&rsquo;ll call ${esc(phone(prospect.phone))} if they&rsquo;re running late.` : `${esc(agentFirst)} will call you at <span style="color:${INK};font-weight:600;white-space:nowrap;">${esc(phone(prospect.phone))}</span>.`}</div>
                 </td>
               </tr>
             </table>
@@ -116,17 +121,17 @@ export function confirmationEmail(input: ConfirmationInput) {
             <table role="presentation" cellpadding="0" cellspacing="0">
               <tr>
                 <td style="padding:0 10px 10px 0;">${button(input.calendarUrl, "Add to my calendar", true)}</td>
-                <td style="padding:0 0 10px;">${button(input.prepareUrl, `Help ${agentFirst} prepare`, false)}</td>
+                <td style="padding:0 0 10px;">${button(input.prepareUrl, roof ? "Tell the inspector more" : `Help ${agentFirst} prepare`, false)}</td>
               </tr>
             </table>
-            <p style="margin:6px 0 0;font:400 14px/1.55 ${FONT};color:${MUTED};">A few optional questions help ${esc(agentFirst)} come ready with options that fit you. Need a different time? Just reply to this email.</p>
+            <p style="margin:6px 0 0;font:400 14px/1.55 ${FONT};color:${MUTED};">${roof ? "A few optional questions (roof type, gate codes, dogs) help the inspection go smoothly." : `A few optional questions help ${esc(agentFirst)} come ready with options that fit you.`} Need a different time? Just reply to this email.</p>
           </td>
         </tr>
         <tr>
           <td style="padding:26px 28px 28px;">
             <div style="border-top:1px solid ${LINE};padding-top:18px;font:400 12px/1.6 ${FONT};color:#94a3b8;">
-              The call is free, with no obligation. ${esc(agent.fullName)} is a licensed insurance agent${agent.licenseNumber ? ` (License #${esc(agent.licenseNumber)})` : ""}. Coverage and pricing depend on underwriting and aren&rsquo;t guaranteed.<br />
-              You&rsquo;re getting this email because you booked a call on ${esc(input.bookedOn)}.
+              ${roof ? `The inspection is free, with no obligation. It isn&rsquo;t a quote or a promise of any repair, price or insurance outcome.${roof.license ? ` ${esc(agent.fullName)}, License #${esc(roof.license)}.` : ""}` : `The call is free, with no obligation. ${esc(agent.fullName)} is a licensed insurance agent${agent.licenseNumber ? ` (License #${esc(agent.licenseNumber)})` : ""}. Coverage and pricing depend on underwriting and aren&rsquo;t guaranteed.`}<br />
+              You&rsquo;re getting this email because you booked ${roof ? "an inspection" : "a call"} on ${esc(input.bookedOn)}.
             </div>
           </td>
         </tr>
@@ -140,17 +145,19 @@ export function confirmationEmail(input: ConfirmationInput) {
   const text = [
     `You're booked.`,
     ``,
-    `Hi ${first}, your free ${input.minutes}-minute call with ${agent.fullName} is confirmed.`,
+    `Hi ${first}, your ${what} is confirmed.`,
     ``,
     `When: ${day}, ${time}`,
-    `How: ${agentFirst} will call you at ${phone(prospect.phone)}.`,
+    roof ? `Where: ${roof.address ?? "your home"}` : `How: ${agentFirst} will call you at ${phone(prospect.phone)}.`,
     ``,
     `Add to my calendar: ${input.calendarUrl}`,
-    `Help ${agentFirst} prepare: ${input.prepareUrl}`,
+    `${roof ? "Tell the inspector more" : `Help ${agentFirst} prepare`}: ${input.prepareUrl}`,
     ``,
     `Need a different time? Just reply to this email.`,
     ``,
-    `The call is free, with no obligation. ${agent.fullName} is a licensed insurance agent${agent.licenseNumber ? ` (License #${agent.licenseNumber})` : ""}.`,
+    roof
+      ? `The inspection is free, with no obligation. It isn't a quote or a promise of any repair, price or insurance outcome.`
+      : `The call is free, with no obligation. ${agent.fullName} is a licensed insurance agent${agent.licenseNumber ? ` (License #${agent.licenseNumber})` : ""}.`,
   ].join("\n");
 
   return { subject, html, text };

@@ -432,7 +432,7 @@ function CardBody({ client, timezone, questionOrder, emailing, onClose }: { clie
                 <PhoneMissed className="size-4" /> Tried to call
               </Button>
             )}
-            <Chips kind={client.kind} value={outcome} onPick={(o) => tap(o)} disabled={pending} />
+            <Chips kind={client.kind} value={outcome} onPick={(o) => tap(o)} disabled={pending} roof={questionOrder.includes("property_address")} />
             {outcome === "sold" && <Premium initialCents={client.premiumCents} onSave={(d) => tap("sold", d)} />}
             <p className="min-h-4 text-[12px] text-fg-faint">
               {pending ? <Loader2 className="inline size-3 animate-spin" /> : flash ? <span className="text-good">{flash}</span> : client.origin === "personal"

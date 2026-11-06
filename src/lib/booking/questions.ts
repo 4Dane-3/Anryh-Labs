@@ -21,6 +21,11 @@ export type IntakeQuestion = {
 export type IntakeAnswers = Record<string, { label: string; value: string }>;
 
 export const STEP_TITLES = ["About you", "Your goals", "Your coverage", "Anything else?"];
+export const ROOFING_STEP_TITLES = ["Your home", "Your roof", "Insurance", "Anything else?"];
+
+/** A roofer's form is recognised by its address question, so every screen titles the steps right. */
+export const isRoofingForm = (questions: Pick<IntakeQuestion, "key">[]) => questions.some((q) => q.key === ROOFING_ADDRESS_KEY);
+export const stepTitles = (questions: Pick<IntakeQuestion, "key">[]) => (isRoofingForm(questions) ? ROOFING_STEP_TITLES : STEP_TITLES);
 
 export const KIND_LABELS: Record<QuestionKind, string> = {
   short_text: "Short answer",
@@ -103,6 +108,30 @@ export const DEFAULT_QUESTIONS: IntakeQuestion[] = [
     placeholder: "Health changes, family situation, questions you have, anything that helps.",
   }),
 ];
+
+/** The address question on a roofer's form: the inspection happens there, and the postcards use its street. */
+export const ROOFING_ADDRESS_KEY = "property_address";
+export const ROOFING_HOMEOWNER_KEY = "homeowner";
+
+/**
+ * A roofer's standard questions. The first four are asked before the booking is confirmed (the inspection
+ * needs the address, and renters can't sign for a roof); the rest are optional, after booking.
+ */
+export const ROOFING_QUESTIONS: IntakeQuestion[] = [
+  q(ROOFING_ADDRESS_KEY, 1, 0, "Address of the home to inspect", "short_text", { placeholder: "e.g. 1420 Oak St, Plano, TX 75023", required: true }),
+  q(ROOFING_HOMEOWNER_KEY, 1, 1, "Do you own this home?", "choice", { options: ["Yes", "No"], required: true }),
+  q("roof_issue", 2, 0, "What's going on with the roof?", "choice", {
+    options: ["A leak", "Storm or hail", "Missing or damaged shingles", "It's old, thinking about replacing", "Gutters", "Just want it checked"],
+    allow_other: true,
+    required: true,
+  }),
+  q("roof_age", 2, 1, "About how old is the roof?", "choice", { options: ["Under 10 years", "10–20 years", "Over 20 years", "Not sure"], required: true }),
+  q("roof_type", 2, 2, "What kind of roof is it?", "choice", { options: ["Shingle", "Metal", "Tile", "Flat", "Not sure"], allow_other: true }),
+  q("insurance_claim", 3, 0, "Have you filed an insurance claim for it?", "choice", { options: ["Not yet", "Yes, it's open", "No"] }),
+  q("notes", 4, 0, "Anything the inspector should know?", "long_text", { placeholder: "Gate code, dogs, best place to park, where the leak shows up." }),
+];
+
+export const defaultQuestionsFor = (vertical: string | null | undefined) => (vertical === "roofing" ? ROOFING_QUESTIONS : DEFAULT_QUESTIONS);
 
 export function isHidden(question: IntakeQuestion, values: Record<string, string>) {
   return (

@@ -8,7 +8,7 @@ import { INTAKE_HEADER } from "@/lib/booking/constants";
 import {
   activeSteps,
   isHidden,
-  STEP_TITLES,
+  stepTitles,
   type IntakeQuestion,
 } from "@/lib/booking/questions";
 
@@ -303,7 +303,7 @@ export function IntakeForm({
           ))}
         </div>
         <p className="mt-2 text-xs font-medium text-slate-500" aria-live="polite">
-          Step {index + 1} of {steps.length} · {STEP_TITLES[step - 1]}
+          Step {index + 1} of {steps.length} · {stepTitles(questions)[step - 1]}
         </p>
       </div>
 

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { isRoofer } from "@/lib/verticals";
 import { DateTime } from "luxon";
 import { ArrowRight, ArrowUpRight } from "lucide-react";
 import { isAnryhAdmin, requireSetUpAgent } from "@/lib/auth";
@@ -156,14 +157,14 @@ export default async function OverviewPage() {
             },
             { label: "Spent · 30 days", value: usd(spend), hint: `${usd(Math.round(spend / 30))} a day on average` },
             {
-              label: "Calls booked from ads",
+              label: isRoofer(agent) ? "Inspections booked from ads" : "Calls booked from ads",
               value: leads.toLocaleString(),
               hint: clicks ? `${clicks.toLocaleString()} clicks · ${pct(clicks / Math.max(impressions, 1))} click rate` : undefined,
             },
             {
-              label: "Cost per booked call",
+              label: isRoofer(agent) ? "Cost per booked inspection" : "Cost per booked call",
               value: costPerCall ? usd(costPerCall) : null,
-              hint: leads ? "Ad spend ÷ calls booked" : "Needs at least one booked call",
+              hint: leads ? (isRoofer(agent) ? "Ad spend ÷ inspections booked" : "Ad spend ÷ calls booked") : isRoofer(agent) ? "Needs at least one booked inspection" : "Needs at least one booked call",
             },
           ]}
         />
@@ -171,7 +172,7 @@ export default async function OverviewPage() {
 
       {outcomesDue.length > 0 && (
         <div className="mb-3">
-          <OutcomeList rows={outcomesDue} timezone={agent.timezone} />
+          <OutcomeList rows={outcomesDue} timezone={agent.timezone} roof={isRoofer(agent)} />
         </div>
       )}
 
@@ -191,16 +192,16 @@ export default async function OverviewPage() {
           </div>
         </Panel>
         <Panel>
-          <PanelHeader title="Calls booked per day" description={`${leads} from ads over 30 days`} />
+          <PanelHeader title={isRoofer(agent) ? "Inspections booked per day" : "Calls booked per day"} description={`${leads} from ads over 30 days`} />
           <div className="px-4 pb-3 pt-4">
             {hasMetrics ? (
               <BarChart
-                label="Calls booked from ads per day, last 30 days"
+                label={isRoofer(agent) ? "Inspections booked from ads per day, last 30 days" : "Calls booked from ads per day, last 30 days"}
                 format="number"
                 data={metrics.map((d) => ({ date: d.date, value: d.leads }))}
               />
             ) : (
-              <EmptyState title="No booked calls yet">Bookings from your ads show here.</EmptyState>
+              <EmptyState title={isRoofer(agent) ? "No booked inspections yet" : "No booked calls yet"}>Bookings from your ads show here.</EmptyState>
             )}
           </div>
         </Panel>

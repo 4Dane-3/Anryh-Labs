@@ -11,7 +11,7 @@ import type { Agent } from "@/lib/booking/data";
 import { applyPayload } from "@/lib/migz/executor";
 import { emit, type Step } from "@/lib/migz/events";
 import { MODELS } from "@/lib/migz/models";
-import { MIGZ_SYSTEM_PROMPT, reviewMessage } from "@/lib/migz/prompt";
+import { reviewMessage, systemPromptFor } from "@/lib/migz/prompt";
 import { callModel, planTier, textOf, type Budget, type CreateMessage } from "@/lib/migz/router";
 import type { Snapshot } from "@/lib/migz/snapshot";
 import { precheckCopy } from "@/lib/migz/team/clerk";
@@ -160,7 +160,7 @@ export async function runOperator(
         max_tokens: 16000,
         betas: [ADVISOR_BETA],
         output_config: { effort: "medium" },
-        system: [{ type: "text", text: MIGZ_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
+        system: [{ type: "text", text: systemPromptFor(agent.vertical), cache_control: { type: "ephemeral" } }],
         tools,
         messages,
       },
@@ -245,7 +245,7 @@ export async function runOperator(
           reply(use.id, { isError: true, content: lifted });
           continue;
         }
-        const issue = await precheckCopy(copyOf(evaluated.payload), { agentId: agent.id, runId, budget: env.budget, createMessage: env.createMessage });
+        const issue = await precheckCopy(copyOf(evaluated.payload), { agentId: agent.id, runId, budget: env.budget, createMessage: env.createMessage, vertical: agent.vertical === "roofing" ? "roofing" : "insurance" });
         if (issue) {
           await emit({ agentId: agent.id, runId, step: "checking", tier: "haiku", model: MODELS.haiku, summary: `Copy check sent back "${evaluated.title}"`, evidence: { issue } });
           reply(use.id, { isError: true, content: issue });

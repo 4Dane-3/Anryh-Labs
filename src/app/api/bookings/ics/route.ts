@@ -1,4 +1,5 @@
-import { getBookingByToken } from "@/lib/booking/data";
+import { bookingAddress, getBookingByToken } from "@/lib/booking/data";
+import { isRoofer } from "@/lib/verticals";
 import { bookingIcs } from "@/lib/booking/ics";
 
 export async function GET(req: Request) {
@@ -6,7 +7,8 @@ export async function GET(req: Request) {
   const booking = await getBookingByToken(token);
   if (!booking) return new Response("Not found", { status: 404 });
 
-  const ics = bookingIcs(booking, booking.agents.full_name);
+  const roof = isRoofer(booking.agents) ? { address: await bookingAddress(booking.id) } : null;
+  const ics = bookingIcs(booking, booking.agents.full_name, roof);
 
   return new Response(ics, {
     headers: {

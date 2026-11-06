@@ -1,4 +1,5 @@
 import { checkPlatformFocus, type PlatformStats } from "@/lib/migz/platforms";
+import { roofingCopyProblem, type Vertical } from "@/lib/verticals";
 import { adsForBudget, SCHEDULE_FROM_CALLS_PER_WEEK } from "@/lib/migz/playbook";
 import { QUOTE_MODES, type QuoteMode } from "@/lib/booking/constants";
 import { isCostlyLoser, LIVE_ADS_HIGH, loserCheck, pauseWindow, WAVE_MAX, waveRoom } from "@/lib/migz/cycle";
@@ -63,6 +64,8 @@ export type GuardContext = {
   fillAdsets?: string[];
   /** What the agent's answers allow the copy to claim (null before they answered the start flow). */
   facts?: { noExam: boolean; healthIssuesOk: boolean } | null;
+  /** The account's business: roofing copy is checked against the roofing rules instead of the insurance ones. */
+  vertical?: Vertical;
   /** The longest video this agent's video quality allows (15s, or 30s on Seedance 30s). */
   maxVideoSeconds?: number;
   /** Fewer new creatives than usual this review (e.g. 1 while checking whether generator credits are back; 0 outside batch setup). */
@@ -413,6 +416,17 @@ export function checkCopy(...texts: (string | null | undefined)[]) {
     for (const [pattern, rule] of COPY_RULES) if (pattern.test(text)) problems.add(rule);
   }
   return problems.size ? `Ad copy breaks insurance ad rules: ${[...problems].join("; ")}. Rewrite it.` : null;
+}
+
+/** The copy rules for the account's business: insurance (above) or roofing (lib/verticals.ts). */
+export function checkCopyFor(vertical: Vertical | undefined, ...texts: (string | null | undefined)[]) {
+  if (vertical !== "roofing") return checkCopy(...texts);
+  const problems = new Set<string>();
+  for (const text of texts) {
+    const why = text ? roofingCopyProblem(text) : null;
+    if (why) problems.add(why);
+  }
+  return problems.size ? `Ad copy breaks roofing ad rules: ${[...problems].join(" ")} Rewrite it.` : null;
 }
 
 // Market examples are inspiration only: refuse copy that lifts a run of 6+ words from the swipe file.

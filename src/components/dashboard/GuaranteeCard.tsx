@@ -28,15 +28,16 @@ const HEADLINE: Record<GuaranteeView["status"], string> = {
   declined: "Refund not approved",
 };
 
-export function GuaranteeCard({ g }: { g: GuaranteeView }) {
+export function GuaranteeCard({ g, roof }: { g: GuaranteeView; roof?: boolean }) {
+  const unit = roof ? "booked inspections" : "booked calls";
   const pct = Math.min(100, (g.bookings / g.target) * 100);
   return (
     <Panel>
       <PanelHeader
-        title="Booked-call guarantee"
+        title={roof ? "Booked-inspection guarantee" : "Booked-call guarantee"}
         description={
           g.status === "running"
-            ? `Day ${g.day} of ${g.daysTotal}. Get ${g.target} booked calls in your first ${g.daysTotal} days, or we credit back your Anryh Labs fee, as long as the conditions below are met.`
+            ? `Day ${g.day} of ${g.daysTotal}. Get ${g.target} ${unit} in your first ${g.daysTotal} days, or we credit back your Anryh Labs fee, as long as the conditions below are met.`
             : HEADLINE[g.status]
         }
         action={<ShieldCheck className="size-5 text-brand" />}
@@ -45,7 +46,7 @@ export function GuaranteeCard({ g }: { g: GuaranteeView }) {
         <div>
           <div className="flex items-baseline justify-between text-[13px]">
             <span className="text-fg">
-              <span className="text-2xl font-semibold tabular-nums">{g.bookings}</span> <span className="text-fg-muted">of {g.target} booked calls</span>
+              <span className="text-2xl font-semibold tabular-nums">{g.bookings}</span> <span className="text-fg-muted">of {g.target} {unit}</span>
             </span>
             <span className="text-fg-faint">{g.status === "running" ? `ends ${g.endsOn}` : `ended ${g.endsOn}`}</span>
           </div>
@@ -69,7 +70,7 @@ export function GuaranteeCard({ g }: { g: GuaranteeView }) {
         </ul>
         <p className="text-[12px] leading-relaxed text-fg-faint">
           {g.status === "running"
-            ? `Only booked calls on your Anryh Labs page count; what happens on the call is up to you. The refund is the Anryh Labs fee on the funds you add (${usd(g.feeCents, { cents: false })} so far), credited to your ad balance. Ad spend paid to Meta isn't refundable.`
+            ? `Only ${unit} on your Anryh Labs page count; what happens ${roof ? "at the inspection" : "on the call"} is up to you. The refund is the Anryh Labs fee on the funds you add (${usd(g.feeCents, { cents: false })} so far), credited to your ad balance. Ad spend paid to Meta isn't refundable.`
             : g.status === "refunded"
               ? `${usd(g.feeCents, { cents: false })} was added to your ad balance.`
               : g.status === "ineligible"

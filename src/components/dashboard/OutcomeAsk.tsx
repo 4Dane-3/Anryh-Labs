@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { Check, Loader2, Mail } from "lucide-react";
 import { setOutcome } from "@/app/dashboard/actions";
 import { Panel, PanelHeader, inputClass } from "@/components/dashboard/ui";
-import { CALL_OUTCOMES, LEAD_OUTCOMES, badOutcome, outcomeLabel, startsFollowUps, type OutcomeKind } from "@/lib/outcomes";
+import { callOutcomesFor, LEAD_OUTCOMES, badOutcome, outcomeLabel, startsFollowUps, type OutcomeKind } from "@/lib/outcomes";
 import { cn } from "@/lib/utils";
 
 // "How did it go?": one tap per lead. The dashboard list (Overview, Clients, Calendar) and the page the
@@ -22,10 +22,10 @@ export function FollowUpMark() {
   );
 }
 
-export function Chips({ kind, value, onPick, disabled }: { kind: OutcomeKind; value: string | null; onPick: (o: string) => void; disabled?: boolean }) {
+export function Chips({ kind, value, onPick, disabled, roof }: { kind: OutcomeKind; value: string | null; onPick: (o: string) => void; disabled?: boolean; roof?: boolean }) {
   return (
     <div role="radiogroup" aria-label="What happened" className="flex flex-wrap gap-1.5">
-      {(kind === "call" ? CALL_OUTCOMES : LEAD_OUTCOMES).map((o) => (
+      {(kind === "call" ? callOutcomesFor(roof) : LEAD_OUTCOMES).map((o) => (
         <button
           key={o.key}
           type="button"
@@ -76,7 +76,7 @@ export function Premium({ initialCents, onSave }: { initialCents: number | null;
 
 const SOURCE: Record<OutcomeRow["source"], string> = { booking: "booked call", page: "quote request", instant_form: "instant form" };
 
-function Row({ row, timezone }: { row: OutcomeRow; timezone: string }) {
+function Row({ row, timezone, roof }: { row: OutcomeRow; timezone: string; roof?: boolean }) {
   const [value, setValue] = useState(row.outcome);
   const [pending, start] = useTransition();
   const [error, setError] = useState(false);
@@ -103,7 +103,7 @@ function Row({ row, timezone }: { row: OutcomeRow; timezone: string }) {
         </p>
       </div>
       <div className="sm:text-right">
-        <Chips kind={row.kind} value={value} onPick={(o) => save(o)} disabled={pending} />
+        <Chips kind={row.kind} value={value} onPick={(o) => save(o)} disabled={pending} roof={roof} />
         {value === "sold" && <Premium initialCents={row.premiumCents} onSave={(d) => save("sold", d)} />}
       </div>
     </li>
@@ -111,7 +111,7 @@ function Row({ row, timezone }: { row: OutcomeRow; timezone: string }) {
 }
 
 /** "How did these go?": the agent's recent calls and leads with one-tap answers. */
-export function OutcomeList({ rows, timezone, title = "How did these go?", description, id }: { rows: OutcomeRow[]; timezone: string; title?: string; description?: string; id?: string }) {
+export function OutcomeList({ rows, timezone, title = "How did these go?", description, id, roof }: { rows: OutcomeRow[]; timezone: string; title?: string; description?: string; id?: string; roof?: boolean }) {
   if (!rows.length) return null;
   return (
     <Panel id={id} className="scroll-mt-24">
@@ -121,7 +121,7 @@ export function OutcomeList({ rows, timezone, title = "How did these go?", descr
       />
       <ul className="divide-y divide-line">
         {rows.map((r) => (
-          <Row key={`${r.kind}:${r.id}`} row={r} timezone={timezone} />
+          <Row key={`${r.kind}:${r.id}`} row={r} timezone={timezone} roof={roof} />
         ))}
       </ul>
     </Panel>
@@ -132,7 +132,7 @@ export function OutcomeList({ rows, timezone, title = "How did these go?", descr
  * The page a Slack button opens: saves the tapped answer once, then lets the agent change it. "Tried to call"
  * logs the attempt (the answer becomes couldn't reach / no show unless they'd already answered).
  */
-export function OneTapOutcome({ kind, id, sig, name, when, tapped, current }: { kind: OutcomeKind; id: string; sig: string; name: string; when: string; tapped: string | null; current: string | null }) {
+export function OneTapOutcome({ kind, id, sig, name, when, tapped, current, roof }: { kind: OutcomeKind; id: string; sig: string; name: string; when: string; tapped: string | null; current: string | null; roof?: boolean }) {
   const [value, setValue] = useState<string | null>(current);
   const [state, setState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [logged, setLogged] = useState(false);
@@ -162,7 +162,7 @@ export function OneTapOutcome({ kind, id, sig, name, when, tapped, current }: { 
         <h1 className="mt-1 text-2xl font-normal tracking-[-0.02em] text-fg">{name}</h1>
         <p className="text-[13px] text-fg-muted">{when}</p>
       </div>
-      <Chips kind={kind} value={value} onPick={(o) => post(o)} disabled={state === "saving"} />
+      <Chips kind={kind} value={value} onPick={(o) => post(o)} disabled={state === "saving"} roof={roof} />
       {value === "sold" && <Premium initialCents={null} onSave={(d) => post("sold", d)} />}
       <p className={cn("text-[13px]", state === "error" ? "text-bad" : "text-fg-muted")}>
         {state === "saving"

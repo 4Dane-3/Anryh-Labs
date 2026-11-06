@@ -8,7 +8,7 @@ import { track } from "@/lib/booking/track";
  * Phones only: a "Book a free consultation" bar pinned to the bottom once the booking card has scrolled out of
  * view (after the visitor has read past it), so booking is always one tap away.
  */
-export function StickyBookBar({ preview, call }: { preview: boolean; call?: { phone: string; firstName: string } | null }) {
+export function StickyBookBar({ preview, call, label }: { preview: boolean; call?: { phone: string; firstName: string } | null; label?: string }) {
   const [show, setShow] = useState(false);
   useEffect(() => {
     const card = document.getElementById("book");
@@ -34,7 +34,7 @@ export function StickyBookBar({ preview, call }: { preview: boolean; call?: { ph
           }}
           className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-blue-700 text-base font-semibold text-white active:bg-blue-800"
         >
-          <CalendarDays className="size-5" /> {call ? "Book a consultation" : "Book a free consultation"}
+          <CalendarDays className="size-5" /> {label ?? (call ? "Book a consultation" : "Book a free consultation")}
         </button>
         {call && (
           <a

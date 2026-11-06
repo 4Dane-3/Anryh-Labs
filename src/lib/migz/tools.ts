@@ -1,4 +1,5 @@
 import "server-only";
+import type { Vertical } from "@/lib/verticals";
 import type Anthropic from "@anthropic-ai/sdk";
 import { PLACEMENTS, type Placement } from "@/lib/meta/ads";
 import {
@@ -24,7 +25,7 @@ import {
 import {
   checkActionBudget,
   checkBudgetChange,
-  checkCopy,
+  checkCopyFor,
   checkGeneration,
   checkFillTarget,
   checkOnScreen,
@@ -317,7 +318,7 @@ const KIND: Record<ActionPayload["tool"], string> = {
 /** A longer video tier (30s) has room for more shots than the 15s standard. */
 const maxBodyShots = (maxSeconds: number) => (maxSeconds > MAX_VIDEO_SECONDS ? MAX_BODY_SHOTS + 4 : MAX_BODY_SHOTS);
 
-function validateBrief(brief: CreativeBrief, maxSeconds = MAX_VIDEO_SECONDS) {
+function validateBrief(brief: CreativeBrief, maxSeconds = MAX_VIDEO_SECONDS, vertical?: Vertical) {
   if (!brief.hook_line || !brief.hook_shot || !brief.primary_text || !brief.headline) return "Every brief field is required.";
   const maxShots = maxBodyShots(maxSeconds);
   if (brief.body_shots.length < 1 || brief.body_shots.length > maxShots) return `Use 1 to ${maxShots} body shots.`;
@@ -325,7 +326,7 @@ function validateBrief(brief: CreativeBrief, maxSeconds = MAX_VIDEO_SECONDS) {
     return "Each body shot needs a prompt and a duration of 1 to 6 seconds.";
   const total = briefDuration(brief);
   if (total > maxSeconds) return `The video would be ${total}s; keep it to ${maxSeconds}s including the ${hookSeconds(brief)}s hook.`;
-  return checkCopy(brief.hook_line, brief.primary_text, brief.headline, brief.voiceover);
+  return checkCopyFor(vertical, brief.hook_line, brief.primary_text, brief.headline, brief.voiceover);
 }
 
 /** Validates one tool call against the current state. Also used to re-check proposals at approval time. */
@@ -433,7 +434,7 @@ function evaluateTool(name: string, raw: unknown, ctx: EvalContext): Evaluated {
       const jumpAt = shots.findIndex(timeJumpWithoutAging);
       if (jumpAt >= 0)
         return fail(`Shot ${jumpAt + 1} jumps forward in time but doesn't say how the people have aged. Either keep the story in one stretch of time, or say it plainly (e.g. "Years later, the daughter is a teenager in a graduation gown and her mother has grey in her hair").`);
-      const err = validateBrief(brief, maxSeconds);
+      const err = validateBrief(brief, maxSeconds, ctx.vertical);
       if (err) return fail(err);
       const launchId = typeof input.launch_adset_id === "string" && input.launch_adset_id ? input.launch_adset_id : null;
       if (launchId) {
@@ -469,7 +470,7 @@ function evaluateTool(name: string, raw: unknown, ctx: EvalContext): Evaluated {
       if (long) return fail(`"${long}" is too long for the image; keep each line under ${MAX_OVERLAY_LINE_CHARS} characters.`);
       if (button && button.length > MAX_BUTTON_CHARS)
         return fail(`The button text is too long; keep it under ${MAX_BUTTON_CHARS} characters.`);
-      const copy = checkCopy(...lines, button, brief.primary_text, brief.headline);
+      const copy = checkCopyFor(ctx.vertical, ...lines, button, brief.primary_text, brief.headline);
       if (copy) return fail(copy);
       const launchId = typeof input.launch_adset_id === "string" && input.launch_adset_id ? input.launch_adset_id : null;
       if (launchId) {
@@ -505,7 +506,7 @@ function evaluateTool(name: string, raw: unknown, ctx: EvalContext): Evaluated {
         if (long) return fail(`"${long}" is too long for a card; keep each line under ${MAX_OVERLAY_LINE_CHARS} characters.`);
         if (c.headline.length > 40) return fail(`Card ${i + 1}'s headline is too long; keep it under 40 characters.`);
       }
-      const copy = checkCopy(...cards.flatMap((c) => [...c.overlay_lines, c.headline]), brief.primary_text);
+      const copy = checkCopyFor(ctx.vertical, ...cards.flatMap((c) => [...c.overlay_lines, c.headline]), brief.primary_text);
       if (copy) return fail(copy);
       const launchId = str(input.launch_adset_id, 40);
       if (!launchId) return fail("Carousels launch straight into an ad set; give launch_adset_id.");
@@ -525,7 +526,7 @@ function evaluateTool(name: string, raw: unknown, ctx: EvalContext): Evaluated {
         primary_text: str(input.primary_text, 500),
       };
       const target = variantTarget(ctx, source.meta_adset_id);
-      const err = validateBrief(brief, ctx.maxVideoSeconds) ?? checkLaunchTarget(ctx, target);
+      const err = validateBrief(brief, ctx.maxVideoSeconds, ctx.vertical) ?? checkLaunchTarget(ctx, target);
       if (err) return fail(err);
       return done({ tool: "new_hook_variant", brief, launch_adset_id: target, parent_creative_id: source.creative_id });
     }
@@ -536,7 +537,7 @@ function evaluateTool(name: string, raw: unknown, ctx: EvalContext): Evaluated {
       const headline = str(input.headline, 60);
       if (!ctx.libraryCreativeIds.has(creativeId)) return fail("That creative isn't in creatives_not_running.");
       if (!primaryText || !headline) return fail("Launching needs primary text and a headline.");
-      const err = checkLaunchTarget(ctx, adsetId) ?? checkCopy(primaryText, headline);
+      const err = checkLaunchTarget(ctx, adsetId) ?? checkCopyFor(ctx.vertical, primaryText, headline);
       return err ? fail(err) : done({ tool: "launch_creative", creative_id: creativeId, adset_id: adsetId, primary_text: primaryText, headline });
     }
     case "write_copy_variants": {
@@ -550,7 +551,7 @@ function evaluateTool(name: string, raw: unknown, ctx: EvalContext): Evaluated {
         .map((v: { primary_text?: unknown; headline?: unknown }) => ({ primary_text: str(v?.primary_text, 500), headline: str(v?.headline, 60) }))
         .filter((v) => v.primary_text && v.headline);
       if (variants.length < 1 || variants.length > MAX_COPY_VARIANTS) return fail(`Give 1 to ${MAX_COPY_VARIANTS} variants, each with primary text and a headline.`);
-      const err = checkLaunchTarget(ctx, adsetId) ?? checkCopy(...variants.flatMap((v) => [v.primary_text, v.headline]));
+      const err = checkLaunchTarget(ctx, adsetId) ?? checkCopyFor(ctx.vertical, ...variants.flatMap((v) => [v.primary_text, v.headline]));
       return err ? fail(err) : done({ tool: "write_copy_variants", source_ad_id: sourceId, adset_id: adsetId, variants });
     }
     case "promote_ad": {

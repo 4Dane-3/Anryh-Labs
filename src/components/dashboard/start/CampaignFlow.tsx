@@ -8,7 +8,9 @@ import { IntentPicker, VideoTierPicker } from "@/components/dashboard/AdChoices"
 import { Button, inputClass } from "@/components/dashboard/ui";
 import { usd } from "@/lib/dashboard/format";
 import { cn } from "@/lib/utils";
-import { TOPIC_KEYS, TOPICS, MAX_FOCUS, type TopicKey } from "@/lib/migz/topics";
+import { INSURANCE_TOPIC_KEYS, ROOFING_TOPIC_KEYS, TOPICS, MAX_FOCUS, type TopicKey } from "@/lib/migz/topics";
+import { ServiceAreaFields, type RoofingInitial } from "@/components/dashboard/RoofingForm";
+import type { Vertical } from "@/lib/verticals";
 import { VIDEO_TIERS, type IntentLevel, type VideoTier } from "@/lib/ad-options";
 import { cycleSteps, runsTheCycle, WAVE_MAX, WAVE_MIN } from "@/lib/migz/cycle";
 import {
@@ -51,7 +53,18 @@ export type CampaignStart = {
   dailyCents: number;
   autoRun: boolean;
   renew: boolean;
+  /** Roofers answer a service area instead of licensed states, and skip the insurance questions. */
+  vertical?: Vertical;
+  area?: RoofingInitial | null;
 };
+
+/** Ages a roofer's ads target (Meta's top age, 65, means 65 and over). */
+const ROOF_AGE_PRESETS = [
+  { min: 30, max: 65, label: "30–65+", detail: "Most homeowners (recommended)" },
+  { min: 35, max: 65, label: "35–65+", detail: "Established homeowners" },
+  { min: 25, max: 65, label: "25–65+", detail: "Include first-time buyers" },
+  { min: 45, max: 65, label: "45–65+", detail: "Older homes and roofs" },
+] as const;
 
 type Result = { ok: true } | { ok: false; error: string };
 
@@ -93,7 +106,7 @@ function ResultLine({ line, compact }: { line: ExpectedLine; compact?: boolean }
   const r = line.perWeek;
   return (
     <div className={cn("min-w-0", !compact && "rounded-xl border border-line px-4 py-3")}>
-      <p className="text-[12px] text-fg-muted">{line.unit === "booked call" ? "Booked calls" : "Instant-form leads"} a week{line.dailyCents ? ` at ${whole(line.dailyCents)}/day` : ""}</p>
+      <p className="text-[12px] text-fg-muted">{line.unit === "booked call" ? "Booked calls" : line.unit === "booked inspection" ? "Booked inspections" : "Instant-form leads"} a week{line.dailyCents ? ` at ${whole(line.dailyCents)}/day` : ""}</p>
       <p className="mt-0.5 text-fg">
         <span className="tabular-nums text-fg-muted">{r.low}–</span>
         <span className="text-2xl font-semibold tabular-nums">{r.mid}</span>
@@ -106,10 +119,10 @@ function ResultLine({ line, compact }: { line: ExpectedLine; compact?: boolean }
   );
 }
 
-function Expected({ lines, notes, own, compact }: { lines: ExpectedLine[]; notes: string[]; own: boolean; compact?: boolean }) {
+function Expected({ lines, notes, own, compact, roof }: { lines: ExpectedLine[]; notes: string[]; own: boolean; compact?: boolean; roof?: boolean }) {
   return (
     <div className={cn("rounded-xl border border-line bg-white/[0.03]", compact ? "px-4 py-3" : "px-4 py-4")}>
-      <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-fg-faint">{own ? "What to expect, from your own results" : "What to expect (typical for US life insurance on Meta)"}</p>
+      <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-fg-faint">{own ? "What to expect, from your own results" : roof ? "What to expect (typical for roofers booking free inspections on Meta)" : "What to expect (typical for US life insurance on Meta)"}</p>
       <div className={cn("grid gap-3", lines.length > 1 && "sm:grid-cols-2")}>
         {lines.map((l) => (
           <ResultLine key={l.destination} line={l} compact />
@@ -142,6 +155,8 @@ export function CampaignFlow({
 }) {
   const [a, setA] = useState<CampaignAnswers>(initial.answers);
   const [states, setStates] = useState<string[]>(initial.states);
+  const roof = initial.vertical === "roofing";
+  const [area, setArea] = useState<RoofingInitial>(initial.area ?? { service_area: "", state: "", radius: 15, crews: 1, license: "", crm_webhook_url: "" });
   const [intent, setIntent] = useState<IntentLevel>(initial.intent);
   const [tier, setTier] = useState<VideoTier>(initial.tier);
   const [daily, setDaily] = useState(initial.dailyCents);
@@ -159,24 +174,27 @@ export function CampaignFlow({
   const set = <K extends keyof CampaignAnswers>(k: K, v: CampaignAnswers[K]) => setA((cur) => ({ ...cur, [k]: v }));
   const toggle = <T,>(list: T[], v: T) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
 
-  const money = useMemo(() => campaignMoney({ dailyCents: daily, intent, tier }), [daily, intent, tier]);
-  const expected = useMemo(() => expectedResults({ answers: a, states, intent, dailyCents: daily, own }), [a, states, intent, daily, own]);
+  const vertical: Vertical = roof ? "roofing" : "insurance";
+  const money = useMemo(() => campaignMoney({ dailyCents: daily, intent, tier, vertical }), [daily, intent, tier, vertical]);
+  const expected = useMemo(() => expectedResults({ answers: a, states: roof ? [area.state] : states, intent, dailyCents: daily, own, vertical }), [a, states, intent, daily, own, vertical, roof, area.state]);
   const ownUsed = expected.lines.some((l) => l.source === "yours");
-  const choice: CampaignChoice = { answers: a, states, intentLevel: intent, videoTier: tier, dailyCents: daily, autoRun: askRunMode ? autoRun : undefined, renew };
+  const choice: CampaignChoice = { answers: a, states: roof ? [area.state] : states, intentLevel: intent, videoTier: tier, dailyCents: daily, autoRun: askRunMode ? autoRun : undefined, renew, area: roof ? area : null };
 
   const dailyOk = daily >= MIN_CAMPAIGN_DAILY_CENTS && daily <= MAX_CAMPAIGN_DAILY_CENTS;
-  const ageLabel = a.ageMin === null && a.ageMax === null ? "Any adult" : `${a.ageMin ?? 18}–${a.ageMax ?? "90"}`;
+  const ageLabel = a.ageMin === null && a.ageMax === null ? (roof ? "30–65+" : "Any adult") : `${a.ageMin ?? 18}–${roof && (a.ageMax ?? 65) >= 65 ? "65+" : a.ageMax ?? "90"}`;
 
-  const screens: { key: string; q: string; help?: string; skip?: () => void; valid?: boolean; body: React.ReactNode }[] = [
+  const allScreens: { key: string; q: string; help?: string; skip?: () => void; valid?: boolean; body: React.ReactNode }[] = [
     {
       key: "products",
-      q: "What do you want to advertise?",
-      help: `Pick up to ${MAX_FOCUS}, main one first. Migz makes the most ads for your first pick.`,
+      q: roof ? "What should your ads lead with?" : "What do you want to advertise?",
+      help: roof
+        ? `Every ad offers a free roof inspection. Pick up to ${MAX_FOCUS} reasons homeowners book one, main one first.`
+        : `Pick up to ${MAX_FOCUS}, main one first. Migz makes the most ads for your first pick.`,
       valid: a.products.length > 0,
       body: (
         <div className="space-y-2">
           <div className="grid gap-2 sm:grid-cols-2">
-            {(moreProducts ? TOPIC_KEYS : MAIN_PRODUCTS).map((k: TopicKey) => {
+            {(roof ? ROOFING_TOPIC_KEYS : moreProducts ? INSURANCE_TOPIC_KEYS : MAIN_PRODUCTS).map((k: TopicKey) => {
               const rank = a.products.indexOf(k);
               return (
                 <Tile
@@ -190,7 +208,7 @@ export function CampaignFlow({
               );
             })}
           </div>
-          {!moreProducts && (
+          {!moreProducts && !roof && (
             <button type="button" className="text-[13px] text-fg-muted underline-offset-4 hover:text-fg hover:underline" onClick={() => setMoreProducts(true)}>
               More products
             </button>
@@ -200,16 +218,18 @@ export function CampaignFlow({
     },
     {
       key: "ages",
-      q: "What ages do you write?",
-      help: "Meta doesn't let insurance ads target by age, so Migz says it in the ads instead (\"for people 50–85\"). The right people answer, the rest scroll on.",
+      q: roof ? "Which ages should your ads reach?" : "What ages do you write?",
+      help: roof
+        ? "Roofing ads can target ages directly. Most homeowners are 30 and up; younger renters can't book a roof."
+        : "Meta doesn't let insurance ads target by age, so Migz says it in the ads instead (\"for people 50–85\"). The right people answer, the rest scroll on.",
       skip: () => setA((c) => ({ ...c, ageMin: null, ageMax: null })),
       body: (
         <div className="space-y-3">
           <div className="grid gap-2 sm:grid-cols-2">
-            {AGE_PRESETS.map((p) => (
+            {(roof ? ROOF_AGE_PRESETS : AGE_PRESETS).map((p) => (
               <Tile key={p.label} on={a.ageMin === p.min && a.ageMax === p.max} onClick={() => setA((c) => ({ ...c, ageMin: p.min, ageMax: p.max }))} title={p.label} detail={p.detail} />
             ))}
-            <Tile on={a.ageMin === null && a.ageMax === null} onClick={() => setA((c) => ({ ...c, ageMin: null, ageMax: null }))} title="Any adult" detail="No age in the ads." />
+            {!roof && <Tile on={a.ageMin === null && a.ageMax === null} onClick={() => setA((c) => ({ ...c, ageMin: null, ageMax: null }))} title="Any adult" detail="No age in the ads." />}
           </div>
           <div className="flex flex-wrap items-center gap-2 text-[13px] text-fg-muted">
             Or exactly:
@@ -219,6 +239,13 @@ export function CampaignFlow({
           </div>
         </div>
       ),
+    },
+    {
+      key: "area",
+      q: "Where do you work?",
+      help: "Your ads reach homeowners living within this distance. Pick what your crews will actually drive to.",
+      valid: area.service_area.trim().length >= 3 && !!area.state,
+      body: <ServiceAreaFields value={area} onChange={setArea} />,
     },
     {
       key: "states",
@@ -395,7 +422,7 @@ export function CampaignFlow({
                     .join(" · ")}
                 </p>
                 <p className="mt-1 text-[12px] text-fg-faint">
-                  Each on a different angle (price, no exam, family, burial costs, age, testimonial style).{" "}
+                  {roof ? "Each on a different angle (after the storm, roof age, local crew, before and after, what the inspection covers)." : "Each on a different angle (price, no exam, family, burial costs, age, testimonial style)."}{" "}
                   {runsTheCycle(money.days, renew)
                     ? `Meta learns for the first week; then, from day 8 and every two weeks after, Migz adds ${WAVE_MIN}–${WAVE_MAX} new ones together, built from what's winning.`
                     : `At ${money.days} days the campaign is too short to read new ads, so these are the ads it runs.`}
@@ -413,6 +440,9 @@ export function CampaignFlow({
     },
   ];
 
+  // Roofers: a service area instead of states, and none of the insurance questions or instant forms
+  const ROOF_SKIPS = ["states", "premium", "underwriting", "health", "contact", "intent"];
+  const screens = allScreens.filter((s) => (roof ? !ROOF_SKIPS.includes(s.key) : s.key !== "area"));
   const screen = screens[step];
   const last = step === screens.length - 1;
 
@@ -439,7 +469,13 @@ export function CampaignFlow({
     });
 
   const blocked = needsBalance && preview?.ok && !!preview.short;
-  const summary = [a.products.map((p) => TOPICS[p].label).join(", "), ageLabel, states.length ? `${states.length} state${states.length === 1 ? "" : "s"}` : null].filter(Boolean).join(" · ");
+  const summary = [
+    a.products.map((p) => TOPICS[p].label).join(", "),
+    ageLabel,
+    roof ? (area.service_area ? `${area.radius} mi around ${area.service_area}` : null) : states.length ? `${states.length} state${states.length === 1 ? "" : "s"}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
     <div className="space-y-5">
@@ -473,7 +509,7 @@ export function CampaignFlow({
         </motion.div>
       </AnimatePresence>
 
-      {screen.key !== "plan" && screen.key !== "products" && dailyOk && <Expected lines={expected.lines} notes={expected.notes} own={ownUsed} compact={screen.key !== "budget"} />}
+      {screen.key !== "plan" && screen.key !== "products" && dailyOk && <Expected lines={expected.lines} notes={expected.notes} own={ownUsed} compact={screen.key !== "budget"} roof={roof} />}
 
       {error && <p className="text-[13px] text-bad">{error}</p>}
 
@@ -623,7 +659,7 @@ export function MigzPlan({ plan, renews = false }: { plan: NonNullable<Extract<C
         </ol>
       </div>
 
-      <Expected lines={plan.expected.lines} notes={plan.expected.notes} own={plan.expected.lines.some((l) => l.source === "yours")} />
+      <Expected lines={plan.expected.lines} notes={plan.expected.notes} own={plan.expected.lines.some((l) => l.source === "yours")} roof={plan.expected.lines.some((l) => l.unit === "booked inspection")} />
     </div>
   );
 }

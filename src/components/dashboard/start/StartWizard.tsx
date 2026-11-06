@@ -67,7 +67,17 @@ const TITLES: Record<string, { title: string; blurb: string }> = {
   mode: { title: "How Migz runs your ads", blurb: "On its own within your budget, or asking you before every new ad and change." },
 };
 
+/** What changes for a roofing company. */
+const ROOF_TITLES: Record<string, { title: string; blurb: string }> = {
+  business: { title: "Your business", blurb: "Your business email and the number homeowners reach you on." },
+  profile: { title: "Your company", blurb: "Your company name, logo or photo and a short intro. Homeowners see this before they book." },
+  page: { title: "Your booking page", blurb: "Where homeowners book a free inspection, and the hours your crews inspect." },
+  slack: { title: "Slack (optional)", blurb: "New inspections also come to your email. Connect Slack if you'd like them there too." },
+  plan: { title: "Plan your first campaign", blurb: "What your ads lead with, where you work and a daily budget. Migz makes the ads." },
+};
+
 function StepShell({
+  roof,
   index,
   stepKey,
   done,
@@ -76,6 +86,7 @@ function StepShell({
   onToggle,
   children,
 }: {
+  roof?: boolean;
   index: number;
   stepKey: string;
   done: boolean;
@@ -96,8 +107,8 @@ function StepShell({
           {done ? <Check className="size-4" /> : index}
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block text-sm font-semibold text-fg">{TITLES[stepKey].title}</span>
-          <span className="block truncate text-[13px] text-fg-muted">{done ? summary : TITLES[stepKey].blurb}</span>
+          <span className="block text-sm font-semibold text-fg">{((roof && ROOF_TITLES[stepKey]) || TITLES[stepKey]).title}</span>
+          <span className="block truncate text-[13px] text-fg-muted">{done ? summary : ((roof && ROOF_TITLES[stepKey]) || TITLES[stepKey]).blurb}</span>
         </span>
         <span className={cn("shrink-0 text-[12px]", done ? "text-good" : "text-fg-faint")}>{done ? "Done" : open ? "" : "To do"}</span>
       </button>
@@ -239,6 +250,7 @@ function CreativesStep({ mode, count, onSaved }: { mode: Props["creativeMode"]; 
 
 export function StartWizard(props: Props) {
   const router = useRouter();
+  const roof = props.plan.start.vertical === "roofing";
   const doneCount = props.steps.filter((s) => s.done).length;
   const firstTodo = props.steps.find((s) => !s.done)?.key ?? null;
   const [open, setOpen] = useState<string | null>(firstTodo);
@@ -263,7 +275,7 @@ export function StartWizard(props: Props) {
     });
 
   const summaries: Record<string, string> = {
-    business: props.business.agency_name,
+    business: roof ? props.business.business_email || "Saved" : props.business.agency_name,
     meta: props.meta.linked ? `Ad account ${props.meta.linked.adAccount}` : "",
     slack: "Connected",
     setup_fee: props.setupFeePaidAt ? `Paid ${new Date(props.setupFeePaidAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : "",
@@ -289,35 +301,35 @@ export function StartWizard(props: Props) {
         </div>
       </div>
 
-      <StepShell index={1} stepKey="business" done={stateOf("business").done} summary={summaries.business} open={open === "business"} onToggle={() => setOpen(open === "business" ? null : "business")}>
-        <BusinessStep initial={props.business} onSaved={() => advance("business")} />
+      <StepShell roof={roof} index={1} stepKey="business" done={stateOf("business").done} summary={summaries.business} open={open === "business"} onToggle={() => setOpen(open === "business" ? null : "business")}>
+        <BusinessStep initial={props.business} roof={roof} onSaved={() => advance("business")} />
       </StepShell>
 
-      <StepShell index={2} stepKey="meta" done={stateOf("meta").done} summary={summaries.meta} open={open === "meta"} onToggle={() => setOpen(open === "meta" ? null : "meta")}>
+      <StepShell roof={roof} index={2} stepKey="meta" done={stateOf("meta").done} summary={summaries.meta} open={open === "meta"} onToggle={() => setOpen(open === "meta" ? null : "meta")}>
         <MetaStep {...props.meta} onSaved={() => advance("meta")} />
       </StepShell>
 
-      <StepShell index={3} stepKey="setup_fee" done={stateOf("setup_fee").done} summary={summaries.setup_fee} open={open === "setup_fee"} onToggle={() => setOpen(open === "setup_fee" ? null : "setup_fee")}>
+      <StepShell roof={roof} index={3} stepKey="setup_fee" done={stateOf("setup_fee").done} summary={summaries.setup_fee} open={open === "setup_fee"} onToggle={() => setOpen(open === "setup_fee" ? null : "setup_fee")}>
         <SetupFeeStep stripeConnected={props.stripeConnected} contactEmail={props.contactEmail} />
       </StepShell>
 
-      <StepShell index={4} stepKey="profile" done={stateOf("profile").done} summary={summaries.profile} open={open === "profile"} onToggle={() => setOpen(open === "profile" ? null : "profile")}>
+      <StepShell roof={roof} index={4} stepKey="profile" done={stateOf("profile").done} summary={summaries.profile} open={open === "profile"} onToggle={() => setOpen(open === "profile" ? null : "profile")}>
         <ProfileForm profile={props.profile} onSaved={() => advance("profile")} />
       </StepShell>
 
-      <StepShell index={5} stepKey="page" done={stateOf("page").done} summary={summaries.page} open={open === "page"} onToggle={() => setOpen(open === "page" ? null : "page")}>
+      <StepShell roof={roof} index={5} stepKey="page" done={stateOf("page").done} summary={summaries.page} open={open === "page"} onToggle={() => setOpen(open === "page" ? null : "page")}>
         <BookingStep {...props.booking} slug={props.slug} onSaved={() => advance("page")} />
       </StepShell>
 
-      <StepShell index={6} stepKey="slack" done={stateOf("slack").done} summary={summaries.slack} open={open === "slack"} onToggle={() => setOpen(open === "slack" ? null : "slack")}>
+      <StepShell roof={roof} index={6} stepKey="slack" done={stateOf("slack").done} summary={summaries.slack} open={open === "slack"} onToggle={() => setOpen(open === "slack" ? null : "slack")}>
         <SlackStep current={props.slack.current} inviteUrl={props.slack.inviteUrl} contactEmail={props.contactEmail} onSaved={() => advance("slack")} />
       </StepShell>
 
-      <StepShell index={7} stepKey="plan" done={stateOf("plan").done} summary={summaries.plan} open={open === "plan"} onToggle={() => setOpen(open === "plan" ? null : "plan")}>
+      <StepShell roof={roof} index={7} stepKey="plan" done={stateOf("plan").done} summary={summaries.plan} open={open === "plan"} onToggle={() => setOpen(open === "plan" ? null : "plan")}>
         <PlanStep plan={props.plan} balanceCents={props.balanceCents} onSaved={() => advance("plan")} />
       </StepShell>
 
-      <StepShell index={8} stepKey="funds" done={stateOf("funds").done} summary={summaries.funds} open={open === "funds"} onToggle={() => setOpen(open === "funds" ? null : "funds")}>
+      <StepShell roof={roof} index={8} stepKey="funds" done={stateOf("funds").done} summary={summaries.funds} open={open === "funds"} onToggle={() => setOpen(open === "funds" ? null : "funds")}>
         <div className="-mx-5 -my-5">
           <div className="border-b border-line px-5 py-4">
             <p className="text-[13px] text-fg-muted">Available balance</p>
@@ -351,11 +363,11 @@ export function StartWizard(props: Props) {
         </div>
       </StepShell>
 
-      <StepShell index={9} stepKey="creatives" done={stateOf("creatives").done} summary={summaries.creatives} open={open === "creatives"} onToggle={() => setOpen(open === "creatives" ? null : "creatives")}>
+      <StepShell roof={roof} index={9} stepKey="creatives" done={stateOf("creatives").done} summary={summaries.creatives} open={open === "creatives"} onToggle={() => setOpen(open === "creatives" ? null : "creatives")}>
         <CreativesStep mode={props.creativeMode} count={props.creativeCount} onSaved={() => advance("creatives")} />
       </StepShell>
 
-      <StepShell index={10} stepKey="mode" done={stateOf("mode").done} summary={summaries.mode} open={open === "mode"} onToggle={() => setOpen(open === "mode" ? null : "mode")}>
+      <StepShell roof={roof} index={10} stepKey="mode" done={stateOf("mode").done} summary={summaries.mode} open={open === "mode"} onToggle={() => setOpen(open === "mode" ? null : "mode")}>
         <MigzModeStep current={props.migzMode} onSaved={() => advance("mode")} />
       </StepShell>
 

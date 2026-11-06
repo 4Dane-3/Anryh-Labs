@@ -1,15 +1,18 @@
 import { after } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { getAgentBySlug, getIntakeQuestions, getOpenSlots } from "@/lib/booking/data";
+import { crewsOf, getAgentBySlug, getIntakeQuestions, getOpenSlots } from "@/lib/booking/data";
 import { parseAnswers, parseBooking } from "@/lib/booking/validate";
 import { missingRequired, preBookingQuestions, type IntakeAnswers } from "@/lib/booking/questions";
-import { CONSENT_TEXT } from "@/lib/booking/constants";
+import { consentTextFor } from "@/lib/booking/constants";
 import { newBookingMessage } from "@/lib/booking/format";
 import { sendSlackMessage } from "@/lib/slack";
 import { sendConversionEvents } from "@/lib/meta/capi";
 import { markFormLeadBooked } from "@/lib/migz/leads";
 import { partnerPageUrl } from "@/lib/booking/sites";
 import { sendBookingConfirmation } from "@/lib/booking/email";
+import { sendInspectionBooked, sendToCrm } from "@/lib/roofing/notify";
+import { isRoofer } from "@/lib/verticals";
+import { ROOFING_ADDRESS_KEY } from "@/lib/booking/questions";
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
@@ -51,20 +54,26 @@ export async function POST(req: Request) {
   const startsAt = new Date(input.startsAt);
   const endsAt = new Date(startsAt.getTime() + agent.slot_minutes * 60_000);
 
-  const { data: booking, error } = await supabaseAdmin
-    .from("bookings")
-    .insert({
-      agent_id: agent.id,
-      starts_at: startsAt.toISOString(),
-      ends_at: endsAt.toISOString(),
-      name: input.name,
-      email: input.email,
-      phone: input.phone,
-      consent_text: CONSENT_TEXT,
-      attribution: input.attribution,
-    })
-    .select("id, token, starts_at, ends_at")
-    .single();
+  // One booking per crew per time: try each crew in turn (the database refuses an overlap on the same crew)
+  const crews = crewsOf(agent);
+  const insert = (crew: number) =>
+    supabaseAdmin
+      .from("bookings")
+      .insert({
+        agent_id: agent.id,
+        starts_at: startsAt.toISOString(),
+        ends_at: endsAt.toISOString(),
+        name: input.name,
+        email: input.email,
+        phone: input.phone,
+        consent_text: consentTextFor(isRoofer(agent)),
+        attribution: input.attribution,
+        ...(crews > 1 ? { crew } : {}), // the column is missing before the roofing migration; crew 1 is its default
+      })
+      .select("id, token, starts_at, ends_at")
+      .single();
+  let { data: booking, error } = await insert(1);
+  for (let crew = 2; crew <= crews && error?.code === "23P01"; crew++) ({ data: booking, error } = await insert(crew));
 
   if (error || !booking) {
     // 23P01 = exclusion violation: someone else booked the same slot a moment ago
@@ -115,11 +124,21 @@ export async function POST(req: Request) {
         prospect: { name: input.name, email: input.email, phone: input.phone },
         timezone: body?.timezone,
         pageUrl: body?.page_url,
+        address: answers[ROOFING_ADDRESS_KEY]?.value ?? null,
       });
     } catch (e) {
       console.error("confirmation email failed", e);
     }
   });
+
+  // A roofer hears about the inspection by email (with that street's postcard to print), and their CRM gets it
+  if (isRoofer(agent)) {
+    const inspection = { id: booking.id, starts_at: booking.starts_at, ends_at: booking.ends_at, name: input.name, email: input.email, phone: input.phone };
+    after(async () => {
+      await sendInspectionBooked(agent, inspection, answers).catch((e) => console.error("inspection email failed", e));
+      await sendToCrm(agent, inspection, answers).catch((e) => console.error("crm webhook failed", e));
+    });
+  }
 
   // Tell Meta a call was booked: Schedule counts it on its own, Lead feeds ad sets optimizing for LEAD (no-op until configured)
   const origin = new URL(req.url).origin;

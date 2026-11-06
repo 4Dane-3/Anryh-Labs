@@ -1,11 +1,12 @@
 import "server-only";
-import { checkCopy } from "@/lib/migz/guardrails";
+import { checkCopyFor } from "@/lib/migz/guardrails";
+import type { Vertical } from "@/lib/verticals";
 import { callModel, jsonOf, planTier, textOf, type Budget, type CreateMessage } from "@/lib/migz/router";
 
 // The clerk: Haiku's paperwork. A second, semantic compliance check on new ad copy (after the regex
 // rules), and the plain-language wording for the activity feed and Slack.
 
-type Ctx = { agentId: string; runId: string | null; budget: Budget; createMessage: CreateMessage };
+type Ctx = { agentId: string; runId: string | null; budget: Budget; createMessage: CreateMessage; vertical?: Vertical };
 
 const COPY_SCHEMA = {
   type: "object",
@@ -19,9 +20,11 @@ const COPY_SCHEMA = {
 
 const COPY_SYSTEM = `You check life-insurance ad copy for Meta's Financial Products & Services rules and state insurance advertising rules before it runs. Flag only real problems: guarantees of approval, rates or savings; implying the reader is approved or qualifies; calling out personal attributes (age, health, finances, family status) in the second person; "lowest/cheapest" claims; implying a government program; anything misleading. Situational copy ("Your work policy ends when your job does.") is fine. Return ok=false only when there is a concrete problem, with one short issue per problem.`;
 
+const ROOFING_COPY_SYSTEM = `You check a roofing company's Meta ad copy before it runs. Flag only real problems: promising a free roof (only the inspection is free); covering, waiving or paying the insurance deductible; saying or implying the reader's roof is damaged; promising insurance will pay; financing, monthly payment or credit claims; fake storms, reviews, numbers or urgency; naming a customer or a street address; anything misleading. Offering a free inspection after a storm in the area is fine. Return ok=false only when there is a concrete problem, with one short issue per problem.`;
+
 /** Regex rules first (free, certain), then Haiku for what regex can't see. Null = fine. */
 export async function precheckCopy(texts: (string | null | undefined)[], ctx: Ctx) {
-  const rule = checkCopy(...texts);
+  const rule = checkCopyFor(ctx.vertical, ...texts);
   if (rule) return rule;
   const plan = planTier("copy_check", ctx.budget);
   const clean = texts.filter((t): t is string => !!t && t.trim().length > 0);
@@ -35,7 +38,7 @@ export async function precheckCopy(texts: (string | null | undefined)[], ctx: Ct
     params: {
       max_tokens: 600,
       output_config: { effort: "low", format: { type: "json_schema", schema: COPY_SCHEMA } },
-      system: [{ type: "text", text: COPY_SYSTEM, cache_control: { type: "ephemeral" } }],
+      system: [{ type: "text", text: ctx.vertical === "roofing" ? ROOFING_COPY_SYSTEM : COPY_SYSTEM, cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: clean.map((t) => `- ${t}`).join("\n") }],
     },
   });

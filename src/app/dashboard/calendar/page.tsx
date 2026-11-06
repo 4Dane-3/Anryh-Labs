@@ -1,4 +1,5 @@
 import { DateTime } from "luxon";
+import { isRoofer } from "@/lib/verticals";
 import { requireAgent } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { getIntakeQuestions } from "@/lib/booking/data";
@@ -67,7 +68,7 @@ export default async function CalendarPage({
         <>
         {callsDue.length > 0 && (
           <div className="mb-4">
-            <OutcomeList rows={callsDue} timezone={agent.timezone} title="How did your calls go?" />
+            <OutcomeList rows={callsDue} timezone={agent.timezone} title={isRoofer(agent) ? "How did your inspections go?" : "How did your calls go?"} roof={isRoofer(agent)} />
           </div>
         )}
         <WeekCalendar

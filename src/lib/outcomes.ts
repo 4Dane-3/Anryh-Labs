@@ -3,7 +3,7 @@
 // scores ads on it and Meta hears about it. Pure (client-safe): the dashboard, the Slack ask, the review and
 // the tests all use these words and rules.
 
-export type CallOutcome = "showed_up" | "no_show" | "quoted" | "sold" | "not_interested";
+export type CallOutcome = "showed_up" | "no_show" | "quoted" | "sold" | "not_interested" | "not_homeowner";
 export type LeadOutcome = "reached" | "not_reached" | "booked" | "sold" | "not_interested";
 export type OutcomeKind = "call" | "lead";
 export type MetaOutcomeEvent = "ShowedUp" | "Contact" | "Purchase" | "NotInterested";
@@ -15,6 +15,10 @@ export const CALL_OUTCOMES: { key: CallOutcome; label: string }[] = [
   { key: "sold", label: "Sold" },
   { key: "not_interested", label: "Not interested" },
 ];
+
+/** Roofers' inspections add "Not a homeowner" (a renter booked, so there's nothing to sell); it counts like a no-show. */
+export const NOT_HOMEOWNER = { key: "not_homeowner" as CallOutcome, label: "Not a homeowner" };
+export const callOutcomesFor = (roof: boolean | undefined) => (roof ? [...CALL_OUTCOMES, NOT_HOMEOWNER] : CALL_OUTCOMES);
 
 export const LEAD_OUTCOMES: { key: LeadOutcome; label: string }[] = [
   { key: "reached", label: "Reached" },
@@ -31,7 +35,7 @@ export const LEAD_OUTCOMES: { key: LeadOutcome; label: string }[] = [
 export const startsFollowUps = (kind: OutcomeKind, outcome: string) => kind === "lead" && outcome === "not_reached";
 
 /** Answers that mean it went nowhere (shown in red). */
-export const badOutcome = (o: string | null | undefined) => o === "no_show" || o === "not_reached" || o === "not_interested";
+export const badOutcome = (o: string | null | undefined) => o === "no_show" || o === "not_reached" || o === "not_interested" || o === "not_homeowner";
 
 // ---------- Client status ----------
 
@@ -47,9 +51,9 @@ export const isClientStatus = (v: unknown): v is ClientStatus => CLIENT_STATUSES
 /** The status an outcome moves a client to: a sale makes them current, a no makes them not interested. */
 export const statusForOutcome = (o: string): ClientStatus | null => (o === "sold" ? "current" : o === "not_interested" ? "not_interested" : null);
 
-export const isCallOutcome = (v: unknown): v is CallOutcome => CALL_OUTCOMES.some((o) => o.key === v);
+export const isCallOutcome = (v: unknown): v is CallOutcome => callOutcomesFor(true).some((o) => o.key === v);
 export const isLeadOutcome = (v: unknown): v is LeadOutcome => LEAD_OUTCOMES.some((o) => o.key === v);
-export const outcomeLabel = (kind: OutcomeKind, o: string) => (kind === "call" ? CALL_OUTCOMES : LEAD_OUTCOMES).find((x) => x.key === o)?.label ?? o;
+export const outcomeLabel = (kind: OutcomeKind, o: string) => (kind === "call" ? callOutcomesFor(true) : LEAD_OUTCOMES).find((x) => x.key === o)?.label ?? o;
 
 /** Quoted and sold calls showed up too, and so did one who said no on the call. */
 export const showedUp = (o: string | null | undefined) => o === "showed_up" || o === "quoted" || o === "sold" || o === "not_interested";

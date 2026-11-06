@@ -1,4 +1,5 @@
 import "server-only";
+import { isRoofer } from "@/lib/verticals";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
 import { cleanFocus } from "@/lib/migz/topics";
@@ -48,14 +49,17 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
   const batch = openBatch ?? pastBatches[0] ?? null;
   const creativeCount = creatives.count ?? 0;
 
+  const roof = isRoofer(agent);
   const profileMissing = !agent.full_name || agent.full_name.trim().length < 2
-    ? "Add your name."
+    ? roof ? "Add your company name." : "Add your name."
+    : roof
+      ? !agent.bio ? "Write a short intro so homeowners know who's coming." : null
     : !agent.licensed_states.length
       ? "Choose the states you're licensed in."
       : !agent.bio
         ? "Write a short bio so people know who they're booking with."
         : null;
-  const businessMissing = !agent.agency_name
+  const businessMissing = !agent.agency_name && !roof
     ? "Tell us the agency or IMO you write through."
     : !agent.call_phone
       ? "Add the phone number leads should reach you on."
@@ -70,7 +74,7 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
     ? "Choose where your ads send people."
     : agent.booking_choice === "own"
       ? agent.own_booking_url ? null : "Add the link to your booking page."
-      : (hours.count ?? 0) === 0 ? "Set the hours you take calls." : null;
+      : (hours.count ?? 0) === 0 ? (roof ? "Set the hours your crews inspect." : "Set the hours you take calls.") : null;
   const slackMissing = agent.slack_user_id ? null : "Connect Slack so Migz can tell you about new leads.";
   // The planned campaign sets what the funds step needs: two weeks of its ad spend plus any paid videos
   const planned = batch && batch.status !== "ended" && batch.status !== "canceled" ? batch : null;
@@ -79,6 +83,7 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
         dailyCents: planned.daily_cents,
         intent: isIntentLevel(agent.intent_level) ? agent.intent_level : DEFAULT_INTENT,
         tier: isVideoTier(agent.video_tier) ? agent.video_tier : DEFAULT_VIDEO_TIER,
+        vertical: roof ? "roofing" : "insurance",
       }).neededCents
     : null;
   const fundsNeeded = neededCents ? { cents: neededCents, recommendedCents: roundUpToFundsStep(neededCents) } : null;
@@ -92,7 +97,7 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
       : null;
   // Agents who finished setup before the setup fee existed count as paid
   const setupFeeMissing = agent.setup_fee_paid_at || agent.onboarding_completed_at ? null : `Pay the one-time $${(SETUP_FEE_CENTS / 100).toLocaleString("en-US")} setup fee.`;
-  const planMissing = !cleanFocus(agent.ad_focus).length || !batch ? "Answer a few quick questions and pick a daily budget." : null;
+  const planMissing = !cleanFocus(agent.ad_focus).length || !batch ? "Answer a few quick questions and pick a daily budget." : roof && !agent.service_area ? "Add where your crews work (your service area)." : null;
   const mode = agent.creative_mode ?? null;
   const creativesMissing = !mode
     ? "Choose how you want your ads' videos and images made."
@@ -108,7 +113,7 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
     { key: "setup_fee", required: true, missing: setupFeeMissing, done: !setupFeeMissing },
     { key: "profile", required: true, missing: profileMissing, done: !profileMissing },
     { key: "page", required: true, missing: pageMissing, done: !pageMissing },
-    { key: "slack", required: true, missing: slackMissing, done: !slackMissing },
+    { key: "slack", required: !roof, missing: slackMissing, done: !slackMissing }, // roofers hear about inspections by email
     { key: "plan", required: true, missing: planMissing, done: !planMissing },
     { key: "funds", required: true, missing: fundsMissing, done: !fundsMissing },
     { key: "creatives", required: true, missing: creativesMissing, done: !creativesMissing },

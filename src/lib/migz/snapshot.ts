@@ -1,4 +1,5 @@
 import "server-only";
+import { areaLabel, roofingAges } from "@/lib/verticals";
 import { DateTime } from "luxon";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
@@ -261,6 +262,7 @@ export async function buildSnapshot(agent: Agent) {
     states: agent.licensed_states ?? [],
     intent: isIntentLevel(agent.intent_level) ? agent.intent_level : DEFAULT_INTENT,
     dailyCents: agent.daily_budget_cents,
+    vertical: agent.vertical === "roofing" ? "roofing" : "insurance",
   });
   const targetCostCents: Record<string, number> = {};
   const targetSource: Record<string, "yours" | "plan"> = {};
@@ -399,8 +401,14 @@ export async function buildSnapshot(agent: Agent) {
       : "none yet",
     agent: {
       name: agent.full_name,
-      licensed_states: agent.licensed_states,
-      free_call_minutes: agent.slot_minutes, // the free consultation every ad offers ("free 15-minute call")
+      ...(agent.vertical === "roofing"
+        ? {
+            business: "roofing company: every ad offers a free roof inspection; booked_calls count booked inspections",
+            service_area: `homeowners ${areaLabel(agent)}, ages ${roofingAges(cleanAnswers(agent.campaign_answers)).min}–${roofingAges(cleanAnswers(agent.campaign_answers)).max === 65 ? "65+" : roofingAges(cleanAnswers(agent.campaign_answers)).max}`,
+            inspections_at_once: agent.crews ?? 1,
+            free_inspection_minutes: agent.slot_minutes,
+          }
+        : { licensed_states: agent.licensed_states, free_call_minutes: agent.slot_minutes }), // the free consultation every ad offers ("free 15-minute call")
       daily_budget_cap: `$${(agent.daily_budget_cents / 100).toFixed(2)}`,
       // A running batch's budget is set aside from the balance, so it's funded through the batch's last day
       balance: batch

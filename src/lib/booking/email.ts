@@ -3,6 +3,7 @@ import { IANAZone } from "luxon";
 import type { Agent } from "@/lib/booking/data";
 import { confirmationEmail } from "@/lib/booking/confirmation-email";
 import { bookingIcs } from "@/lib/booking/ics";
+import { isRoofer as agentIsRoofer } from "@/lib/verticals";
 import { leadEmail, sequenceEmail, type LeadEmailInput } from "@/lib/booking/lead-email";
 import type { SequenceEmail, SequenceKey } from "@/lib/email-sequences";
 import { landingUrl, leadEmailSender, partnerPageUrl, partnerPhoto, prepareUrl } from "@/lib/booking/sites";
@@ -24,8 +25,11 @@ export async function sendBookingConfirmation(input: {
   prospect: { name: string; email: string; phone: string };
   timezone?: unknown; // the prospect's browser timezone, when the page sent it
   pageUrl?: unknown;
+  /** A roofer's inspection address, from the booking's answers. */
+  address?: string | null;
 }) {
   if (!bookingEmailReady()) return { skipped: true as const };
+  const roof = agentIsRoofer(input.agent) ? { address: input.address ?? null, license: input.agent.company_license ?? null } : null;
   const { agent, booking, prospect } = input;
   const timezone = typeof input.timezone === "string" && IANAZone.isValidZone(input.timezone) ? input.timezone : agent.timezone;
   const partner = partnerPageUrl(input.pageUrl);
@@ -38,6 +42,7 @@ export async function sendBookingConfirmation(input: {
     calendarUrl: `${appUrl()}/api/bookings/ics?token=${booking.token}`,
     prepareUrl: prepareUrl(agent.slug, booking.token, appUrl()), // on the partner site when the agent has one
     bookedOn: new URL(partner ?? appUrl()).hostname.replace(/^www\./, ""),
+    roof,
   });
 
   const res = await fetch("https://api.resend.com/emails", {
@@ -55,7 +60,7 @@ export async function sendBookingConfirmation(input: {
       subject: email.subject,
       html: email.html,
       text: email.text,
-      attachments: [{ filename: "call.ics", content: Buffer.from(bookingIcs(booking, agent.full_name)).toString("base64") }],
+      attachments: [{ filename: roof ? "inspection.ics" : "call.ics", content: Buffer.from(bookingIcs(booking, agent.full_name, roof)).toString("base64") }],
       // Keeps Gmail from folding two bookings' emails into one thread
       headers: { "X-Entity-Ref-ID": booking.id },
     }),
