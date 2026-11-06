@@ -70,7 +70,9 @@ export default async function OverviewPage() {
 
   const costPerCall = leads ? Math.round(spend / leads) : null;
   // Where the money stands: a running batch has its own budget set aside; otherwise how long the balance lasts
-  const money = activeBatch
+  const money = agent.funds_used_up
+    ? ` Your ad funds are used up, so your ads end${activeBatch?.ends_on ? ` on ${DateTime.fromISO(activeBatch.ends_on).toFormat("LLL d")}` : " with this batch"}.`
+    : activeBatch
     ? ` Your running batch has ${usd(activeBatch.budget_cents)} set aside.`
     : daysLeft === 0
       ? " Your ad balance is empty: add funds so your ads keep running."
@@ -149,7 +151,9 @@ export default async function OverviewPage() {
               value: usd(balance),
               hint: agent.ads_paused
                 ? "Ads are paused"
-                : activeBatch
+                : agent.funds_used_up
+                  ? "No funds left"
+                  : activeBatch
                   ? `Plus ${usd(activeBatch.budget_cents)} set aside for your running batch`
                   : daysLeft !== null
                     ? `About ${daysLeft} day${daysLeft === 1 ? "" : "s"} at ${usd(agent.daily_budget_cents)}/day`
@@ -227,6 +231,7 @@ export default async function OverviewPage() {
             past={pastBatches}
             timezone={agent.timezone}
             balanceCents={balance}
+            fundsUsedUp={!!agent.funds_used_up}
           />
         </Panel>
       </div>

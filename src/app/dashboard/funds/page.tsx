@@ -85,6 +85,8 @@ export default async function FundsPage({ searchParams }: { searchParams: Promis
             <p className="mt-2 text-[13px] text-fg-muted">
               {agent.ads_paused
                 ? "Your ads are paused."
+                : agent.funds_used_up
+                  ? `Your ad funds are used up. Add funds to run more ads${batch?.ends_on ? `; your current ads end on ${batch.ends_on}` : ""}.`
                 : batch
                   ? `Free to use. This week's cycle has its ${usd(batch.budget_cents)} set aside; what it doesn't spend comes back here when it ends on ${batch.ends_on}. The next cycle starts from this balance, so keep at least ${usd(batch.budget_cents)} here to keep your campaign rolling.`
                   : daysLeft !== null
