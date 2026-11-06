@@ -18,6 +18,36 @@ import { PRICING_SUMMARY } from "@/lib/pricing";
 import { absoluteUrl } from "@/lib/site";
 import "@/components/site/content.css";
 
+const VERTICALS = [
+  {
+    name: "roofing companies",
+    goal: "booked free roof inspections",
+    lead: "ads reach homeowners around your service area and book them straight into your crews’ calendar.",
+    points: [
+      "radius targeting: homeowners within 10 to 40 miles of you",
+      "booking page asks the address, homeowner, roof issue and roof age",
+      "books two inspections at once if you run two crews",
+      "an email per inspection with a postcard and door hanger for that street",
+      "a reminder the morning of, and each booking sent to your crm",
+      "ads never promise a free roof or to cover a deductible",
+    ],
+    start: ["$3,000 setup, paid up front", "at least $2,000 in meta ad spend for the first month"],
+  },
+  {
+    name: "life insurance agents",
+    goal: "booked calls and leads",
+    lead: "ads reach people shopping for coverage in the states you’re licensed in and put them on a call with you.",
+    points: [
+      "final expense, whole life, mortgage protection, term and more",
+      "an instant form or your booking page, your choice",
+      "a slack ping the moment a lead comes in",
+      "follow-up emails when you tap tried to call",
+      "runs inside meta’s rules for financial products ads",
+    ],
+    start: null,
+  },
+];
+
 export default function Home() {
   return (
     <SiteShell>
@@ -31,7 +61,7 @@ export default function Home() {
             logo: absoluteUrl("/anryh-labs-logo.png"),
             email: "anryhlabs@gmail.com",
             description:
-              "anryh labs makes migz ai, an ai media buyer that runs meta (facebook and instagram) ads for independent life insurance agents.",
+              "anryh labs makes migz ai, an ai media buyer that runs meta (facebook and instagram) ads for roofing companies and independent life insurance agents.",
           },
           { "@context": "https://schema.org", "@type": "WebSite", name: "anryh labs", url: absoluteUrl() },
           faqLd(HOME_FAQS),
@@ -47,11 +77,38 @@ export default function Home() {
               what is migz ai?
             </h2>
             <p className="cx-answer">
-              migz ai is an ai media buyer for independent life insurance agents, made by anryh labs. it runs your whole meta
-              (facebook and instagram) ad campaign for final expense, whole life, mortgage protection, term life and more: it makes
-              the ads, sends people to a lead form or your booking page, tells you on slack the moment a lead comes in, and reads
-              the numbers every day to fix what holds results back.
+              migz ai is an ai media buyer for <b>roofing companies</b> and <b>independent life insurance agents</b>, made by
+              anryh labs. it runs your whole meta (facebook and instagram) ad campaign: it makes the ads, sends people to your
+              booking page, tells you the moment someone books, and reads the numbers every day to fix what holds results back.
             </p>
+          </section>
+
+          <section className="sb-sec" id="who" aria-labelledby="who-h">
+            <h2 className="sb-h2" id="who-h" data-reveal>
+              who we run meta ads for.
+            </h2>
+            <ul className="cx-verts">
+              {VERTICALS.map((v) => (
+                <li key={v.name}>
+                  <small>{v.goal}</small>
+                  <b>{v.name}</b>
+                  <p>{v.lead}</p>
+                  <ul>
+                    {v.points.map((p) => (
+                      <li key={p}>{p}</li>
+                    ))}
+                  </ul>
+                  {v.start && (
+                    <div className="cx-verts__start">
+                      <small>to start</small>
+                      {v.start.map((s) => (
+                        <strong key={s}>{s}</strong>
+                      ))}
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
           </section>
 
           <section className="sb-sec" aria-labelledby="board-h">
@@ -74,7 +131,7 @@ export default function Home() {
 
           <section className="sb-sec" aria-labelledby="calls">
             <h2 className="sb-h2" id="calls" data-reveal>
-              calls, not clicks.
+              bookings, not clicks.
             </h2>
             <div className="calls">
               <SignalChain />
@@ -137,10 +194,14 @@ export default function Home() {
 
           <section className="sb-sec" id="pricing" aria-labelledby="pricing-h">
             <h2 className="sb-h2" id="pricing-h" data-reveal>
-              simple pricing. no monthly fee.
+              simple pricing.
             </h2>
+            <p className="sb-note" style={{ marginBottom: 12 }}>
+              <b>roofing companies:</b> a $3,000 setup, paid up front, and at least $2,000 in meta ad spend for the first
+              month.
+            </p>
             <p className="sb-note" style={{ marginBottom: 24 }}>
-              {PRICING_SUMMARY}
+              <b>life insurance agents:</b> {PRICING_SUMMARY}
             </p>
             <PricingTiers />
             <PricingExample />
@@ -168,7 +229,7 @@ export default function Home() {
             <a href={DEMO_MAILTO} className="sb-cta">
               reach out
             </a>
-            <p className="sb-invite">invite only. tell us your state and monthly ad budget and we’ll reply.</p>
+            <p className="sb-invite">invite only. tell us your trade, your area and your monthly ad budget and we’ll reply.</p>
           </section>
         </div>
       </main>

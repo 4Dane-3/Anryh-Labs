@@ -29,7 +29,7 @@ export function SiteFooter() {
           anryh labs
         </p>
         <div className="sb-foot__row">
-          <p>© {new Date().getFullYear()} anryh labs. ai ad automation for insurance agents.</p>
+          <p>© {new Date().getFullYear()} anryh labs. ai meta ads automation and booking.</p>
           <nav aria-label="footer">
             <Link href="/pricing" className="sb-link">
               pricing

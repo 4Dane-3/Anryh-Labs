@@ -1,4 +1,4 @@
-import { ALSO_INCLUDED, COVERED, EXAMPLE_FUNDS, HOW_IT_ADDS_UP, MIN_FUNDS, NOT_COVERED, SETUP_FEE, TIERS, feeFor, pct, sliceLabel, usd } from "@/lib/pricing";
+import { ALSO_INCLUDED, COVERED, EXAMPLE_FUNDS, HOW_IT_ADDS_UP, MIN_FUNDS, NOT_COVERED, ROOFING_MIN_FIRST_MONTH_AD_SPEND, ROOFING_SETUP_FEE, SETUP_FEE, TIERS, feeFor, pct, sliceLabel, usd } from "@/lib/pricing";
 import "@/components/site/content.css";
 
 /** The rate for each slice of the amount added, with what the amount costs in all once it reaches the end of that slice. */
@@ -69,11 +69,19 @@ export function PricingExample() {
 export function PricingCovers() {
   return (
     <div className="cx-covers">
-      <div className="cx-setup">
-        <p className="cx-setup__fee">{usd(SETUP_FEE)}</p>
-        <p>
-          one-time setup. no monthly fee, no contract. the minimum ad funds are {usd(MIN_FUNDS)}, and the percentage is kept from what you add, so the rest is your ad budget.
-        </p>
+      <div className="cx-setups">
+        <div className="cx-setup">
+          <p className="cx-setup__who">roofing companies</p>
+          <p className="cx-setup__fee">{usd(ROOFING_SETUP_FEE)}</p>
+          <p>one-time setup, paid up front. you also need at least {usd(ROOFING_MIN_FIRST_MONTH_AD_SPEND)} in meta ad spend for the first month.</p>
+        </div>
+        <div className="cx-setup">
+          <p className="cx-setup__who">life insurance agents</p>
+          <p className="cx-setup__fee">{usd(SETUP_FEE)}</p>
+          <p>
+            one-time setup. no monthly fee, no contract. the minimum ad funds are {usd(MIN_FUNDS)}, and the percentage is kept from what you add, so the rest is your ad budget.
+          </p>
+        </div>
       </div>
       <div>
         <h3>the percentage covers</h3>

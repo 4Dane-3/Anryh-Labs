@@ -7,7 +7,7 @@ import { DEMO_MAILTO } from "@/lib/contact";
 
 const FEATURES = [
   { icon: Activity, text: "reads your meta numbers all day" },
-  { icon: Shuffle, text: "moves budget to what books calls" },
+  { icon: Shuffle, text: "moves budget to what gets booked" },
   { icon: PauseCircle, text: "pauses ads that aren’t working" },
   { icon: Clapperboard, text: "makes new images and videos" },
   { icon: MessageSquare, text: "sends you a slack summary at 8am" },
@@ -66,20 +66,20 @@ export function GlassHero() {
         </div>
         <div className="gh-card">
           <div className="gh-card__top">
-            <b>“protect their peace” image</b>
+            <b>“storm season roof check” video</b>
             <span>
-              <i className="gh-dot" /> paused
+              <i className="gh-dot gh-dot--good" /> winning
             </span>
           </div>
           <div className="gh-card__row">
             <div>
-              <small>spent</small>
-              <strong>$38</strong>
+              <small>cost per inspection</small>
+              <strong>$41</strong>
             </div>
-            <span className="gh-chip">4 days</span>
+            <span className="gh-chip">+$15/day</span>
             <div className="gh-card__end">
-              <small>booked</small>
-              <strong>0</strong>
+              <small>budget</small>
+              <strong>$60/day</strong>
             </div>
           </div>
           <Ticks seed={3.1} />
@@ -91,7 +91,7 @@ export function GlassHero() {
         <div className="gh-copy">
           <h1 className="gh-h1" id="gh-title">
             <span>ai meta ads automation</span>
-            <span>for insurance agents</span>
+            <span>and booking</span>
           </h1>
           <p className="gh-lead">
             migz ai runs your whole meta campaign automatically. it reads the analytics all day, works out what is holding
@@ -116,7 +116,7 @@ export function GlassHero() {
           </li>
         ))}
       </ul>
-      <p className="gh-invite">invite only, while we onboard agents one at a time.</p>
+      <p className="gh-invite">invite only, while we onboard roofers and agents one at a time.</p>
     </section>
   );
 }

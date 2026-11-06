@@ -79,3 +79,8 @@ export const HOW_IT_ADDS_UP = (() => {
 export const PRICING_SUMMARY =
   `no monthly fee. there is a one-time ${usd(SETUP_FEE)} setup fee, then we keep a percentage of the ad funds you add: ${RATES_IN_WORDS}. ` +
   `${HOW_IT_ADDS_UP} the minimum is ${usd(MIN_FUNDS)}. the percentage covers operations, creative generation and automation, so there are no extra charges for the ads migz ai makes or the work of running them. the rest of what you add is your ad budget.`;
+
+// Roofing companies: a flat setup paid up front, and a minimum first month of Meta ad spend.
+export const ROOFING_SETUP_FEE = 3000;
+export const ROOFING_MIN_FIRST_MONTH_AD_SPEND = 2000;
+export const ROOFING_PRICING_SUMMARY = `a one-time ${usd(ROOFING_SETUP_FEE)} setup, paid up front, and at least ${usd(ROOFING_MIN_FIRST_MONTH_AD_SPEND)} in meta ad spend for the first month.`;
