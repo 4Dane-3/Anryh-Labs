@@ -206,12 +206,12 @@ export async function ensureBatchSetAside(agent: Agent) {
   return batch ? setAsideBatch(agent, batch) : false;
 }
 
-/** When a batch ends, what it didn't spend goes back to the balance (only if its money was set aside). */
-async function returnUnspent(agent: Agent, batch: Batch, spentCents: number) {
+/** When a batch ends, what it didn't spend goes back to the balance (only if its money was set aside). Returns the cents that actually went back (0 when nothing did, e.g. a return line already exists). */
+async function returnUnspent(agent: Agent, batch: Batch, spentCents: number): Promise<number> {
   const { data: setAside } = await supabaseAdmin.from("wallet_transactions").select("id").eq("external_id", setAsideId(batch.id)).maybeSingle();
-  if (!setAside) return;
+  if (!setAside) return 0;
   const back = batch.budget_cents - spentCents;
-  if (back === 0) return;
+  if (back === 0) return 0;
   const { error } = await supabaseAdmin.from("wallet_transactions").insert({
     agent_id: agent.id,
     kind: back > 0 ? "refund" : "adjustment",
@@ -221,6 +221,7 @@ async function returnUnspent(agent: Agent, batch: Batch, spentCents: number) {
     external_id: returnId(batch.id),
   });
   if (error && error.code !== "23505") console.error("returning the batch's unspent money failed", error);
+  return error ? 0 : Math.max(0, back);
 }
 
 /** If Meta can't be read for this long after a batch's last day, it closes on the spend it has. */
@@ -253,8 +254,8 @@ export async function closeEndedBatch(agent: Agent) {
     .eq("status", "active")
     .select("id");
   if (closed?.length) {
-    await returnUnspent(agent, batch, r.spentCents);
-    await notifyBatchEnded(agent, { budgetCents: batch.budget_cents, spentCents: r.spentCents, bookedCalls: r.bookedCalls });
+    const returnedCents = await returnUnspent(agent, batch, r.spentCents);
+    await notifyBatchEnded(agent, { budgetCents: batch.budget_cents, spentCents: r.spentCents, bookedCalls: r.bookedCalls, returnedCents });
   }
   return { ...batch, status: "ended" as const, result };
 }

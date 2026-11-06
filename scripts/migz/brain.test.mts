@@ -444,6 +444,9 @@ assert.match(JSON.stringify(exploreMsg.blocks), /Exploration \(\$20\/day\).*\$50
 const setupMsg = sb.batchSetupMessage({ budgetCents: 28_000, days: 14, campaigns: ["Final expense", "Policy review"], perCampaignCents: 1000, states: ["IL", "OH"], endsOn: "2026-11-04", auto: false, dashboardUrl: "u" });
 assert.match(setupMsg.text, /Your \$280 campaign batch is set up/); assert.match(JSON.stringify(setupMsg.blocks), /Ask me first is on/);
 assert.match(sb.batchEndedMessage({ budgetCents: 28_000, spentCents: 25_000, bookedCalls: 10, dashboardUrl: "u" }).text, /10 booked calls from \$250/);
+// Nothing returned to the balance: the message does not say money stays there
+assert.doesNotMatch(JSON.stringify(sb.batchEndedMessage({ budgetCents: 28_000, spentCents: 25_000, bookedCalls: 10, returnedCents: 0, dashboardUrl: "u" }).blocks), /stays in your balance/);
+assert.match(JSON.stringify(sb.batchEndedMessage({ budgetCents: 28_000, spentCents: 25_000, bookedCalls: 10, returnedCents: 3_000, dashboardUrl: "u" }).blocks), /\$30 stays in your balance/);
 ok("Slack: sent-to-Meta preview (page, copy, both carousel cards, Book now), then Meta approved / not approved with the reason, escaped copy, review summary with approvals link, batch set up / ended; silent when nothing happened");
 
 // Facebook vs Instagram: focus only on clear booked-call evidence
