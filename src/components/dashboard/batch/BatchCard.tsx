@@ -39,6 +39,7 @@ export function BatchCard({
   past,
   timezone,
   balanceCents,
+  fundsUsedUp = false,
 }: {
   active: Batch | null;
   planned: Batch | null;
@@ -47,6 +48,8 @@ export function BatchCard({
   timezone: string;
   /** The free ad balance, which Keep going draws the next batch from. */
   balanceCents: number;
+  /** All ad funds are used: show no batch money as set aside or left. */
+  fundsUsedUp?: boolean;
 }) {
   const ended = past.filter((b) => b.status === "ended").slice(0, 3);
   // Keep going, on the running batch or waiting on funds after one that just ended
@@ -61,18 +64,24 @@ export function BatchCard({
         <div className="space-y-4 px-5 py-4">
           <div>
             <div className="flex items-baseline justify-between gap-3">
-              <p className="text-3xl font-semibold tracking-tight tabular-nums">{whole(active.budget_cents)}</p>
+              <p className="text-3xl font-semibold tracking-tight tabular-nums">{fundsUsedUp ? "Funds used up" : whole(active.budget_cents)}</p>
               <p className="text-[13px] text-fg-muted">
                 Day {Math.min(progress.day, active.days)} of {active.days}
                 {progress.daysLeft !== null && ` · ${progress.daysLeft} left`}
               </p>
             </div>
-            <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/[0.07]" aria-hidden="true">
-              <div className="h-full rounded-full bg-brand" style={{ width: `${Math.min(100, (progress.spentCents / active.budget_cents) * 100)}%` }} />
-            </div>
-            <p className="mt-2 text-[13px] text-fg-muted">
-              {whole(progress.spentCents)} spent of {whole(active.budget_cents)} · {whole(active.daily_cents)}/day
-            </p>
+            {fundsUsedUp ? (
+              <p className="mt-2 text-[13px] text-fg-muted">Your ads end {range(active, timezone).split(" – ").pop()}. Add funds to run more.</p>
+            ) : (
+              <>
+                <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/[0.07]" aria-hidden="true">
+                  <div className="h-full rounded-full bg-brand" style={{ width: `${Math.min(100, (progress.spentCents / active.budget_cents) * 100)}%` }} />
+                </div>
+                <p className="mt-2 text-[13px] text-fg-muted">
+                  {whole(progress.spentCents)} spent of {whole(active.budget_cents)} · {whole(active.daily_cents)}/day
+                </p>
+              </>
+            )}
           </div>
           <dl className="grid grid-cols-2 gap-3 text-[13px]">
             <div className="rounded-lg bg-white/[0.03] px-3 py-2">
@@ -89,7 +98,7 @@ export function BatchCard({
             <p className="mt-0.5 text-[13px] text-fg-muted">{listCampaignTopics(topicsOf(active))}</p>
           </div>
           {active.reason && <p className="border-t border-line pt-3 text-[12px] text-fg-faint">Why this plan: {active.reason}</p>}
-          <KeepGoing on={active.renew} {...keepNote(active, balanceCents, timezone, Math.max(0, active.budget_cents - progress.spentCents))} />
+          {!fundsUsedUp && <KeepGoing on={active.renew} {...keepNote(active, balanceCents, timezone, Math.max(0, active.budget_cents - progress.spentCents))} />}
         </div>
       ) : planned ? (
         <div className="px-5 py-4 text-[13px] text-fg-muted">

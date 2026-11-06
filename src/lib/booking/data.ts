@@ -31,6 +31,7 @@ export type Agent = {
   user_id: string | null;
   daily_budget_cents: number;
   ads_paused: boolean;
+  funds_used_up?: boolean; // all ad funds are used: the dashboard shows no batch money left (missing before its migration)
   meta_ad_account_id: string | null;
   meta_page_id: string | null;
   meta_instagram_id: string | null;
