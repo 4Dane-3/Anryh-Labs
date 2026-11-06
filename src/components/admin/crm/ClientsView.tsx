@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { DateTime } from "luxon";
 import { ChevronLeft, ChevronRight, Download, FileUp, Pencil, Plus, Search, Trash2, UserPlus } from "lucide-react";
 import { deleteClient, moveColumn, setClientField } from "@/app/admin/crm/actions";
-import { CLIENT_STATUSES, STATUS_LABEL, type ClientStatus, type CrmClient, type CrmColumn, type CrmSettings } from "@/lib/crm/types";
+import { CLIENT_STATUSES, clientLabel, STATUS_LABEL, type ClientStatus, type CrmClient, type CrmColumn, type CrmSettings } from "@/lib/crm/types";
 import { Button, EmptyState, inputClass, Panel } from "@/components/dashboard/ui";
 import { CustomCell } from "@/components/admin/crm/CustomCell";
 import { ColumnEditor } from "@/components/admin/crm/ColumnEditor";
@@ -53,7 +53,7 @@ export function ClientsView({ clients, columns, settings }: { clients: CrmClient
       }
       if (!needle) return true;
       return (
-        c.name.toLowerCase().includes(needle) ||
+        c.name?.toLowerCase().includes(needle) ||
         c.email?.includes(needle) ||
         c.company?.toLowerCase().includes(needle) ||
         (digits.length >= 3 && c.phone?.replace(/\D/g, "").includes(digits)) ||
@@ -63,7 +63,7 @@ export function ClientsView({ clients, columns, settings }: { clients: CrmClient
   }, [clients, q, status, filterCol, statusOverride]);
 
   const exportCsv = () => {
-    const head = ["Name", "Email", "Phone", "Company", "Status", ...columns.map((c) => c.label), "Added"];
+    const head = ["Contact", "Email", "Phone", "Company", "Status", ...columns.map((c) => c.label), "Added"];
     const lines = shown.map((c) => [c.name, c.email, c.phone, c.company, STATUS_LABEL[c.status], ...columns.map((col) => c.custom[col.id]), c.created_at.slice(0, 10)].map(csvEscape).join(","));
     const blob = new Blob([[head.map(csvEscape).join(","), ...lines].join("\r\n")], { type: "text/csv" });
     const a = document.createElement("a");
@@ -193,7 +193,7 @@ export function ClientsView({ clients, columns, settings }: { clients: CrmClient
                       className="size-3.5 accent-[var(--color-brand)]"
                     />
                   </th>
-                  <th className="px-3 py-2.5 font-normal">Name</th>
+                  <th className="px-3 py-2.5 font-normal">Client</th>
                   <th className="px-3 py-2.5 font-normal">Email</th>
                   <th className="px-3 py-2.5 font-normal">Phone</th>
                   <th className="px-3 py-2.5 font-normal">Company</th>
@@ -236,7 +236,7 @@ export function ClientsView({ clients, columns, settings }: { clients: CrmClient
                       <td className="px-4 py-1.5">
                         <input
                           type="checkbox"
-                          aria-label={`Select ${c.name}`}
+                          aria-label={`Select ${clientLabel(c)}`}
                           checked={selected.has(c.id)}
                           onChange={(e) => {
                             const next = new Set(selected);
@@ -249,7 +249,7 @@ export function ClientsView({ clients, columns, settings }: { clients: CrmClient
                       </td>
                       <td className="px-3 py-1.5">
                         <Link href={`/admin/clients/${c.id}`} className="font-medium text-fg hover:text-brand">
-                          {c.name}
+                          {clientLabel(c)}
                         </Link>
                       </td>
                       <td className="max-w-[220px] truncate px-3 py-1.5 text-fg-muted">{c.email ?? <span className="text-fg-faint">—</span>}</td>
@@ -257,7 +257,7 @@ export function ClientsView({ clients, columns, settings }: { clients: CrmClient
                       <td className="max-w-[180px] truncate px-3 py-1.5 text-fg-muted">{c.company ?? <span className="text-fg-faint">—</span>}</td>
                       <td className="px-3 py-1.5">
                         <select
-                          aria-label={`Status of ${c.name}`}
+                          aria-label={`Status of ${clientLabel(c)}`}
                           value={st}
                           onChange={(e) => {
                             const v = e.target.value as ClientStatus;

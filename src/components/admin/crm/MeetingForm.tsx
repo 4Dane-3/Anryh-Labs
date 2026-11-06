@@ -5,12 +5,12 @@ import { useRouter } from "next/navigation";
 import { DateTime } from "luxon";
 import { Ban, Copy, Send, Trash2 } from "lucide-react";
 import { cancelMeeting, deleteMeeting, saveMeeting } from "@/app/admin/crm/actions";
-import type { CrmMeeting, CrmSettings } from "@/lib/crm/types";
+import { clientLabel, type ClientRef, type CrmMeeting, type CrmSettings } from "@/lib/crm/types";
 import { Button, inputClass, Label } from "@/components/dashboard/ui";
 import { MeetingBadge, Modal, TIMEZONES } from "@/components/admin/crm/shared";
 import { cn } from "@/lib/utils";
 
-export type ClientOption = { id: string; name: string; email: string | null };
+export type ClientOption = ClientRef;
 
 type Props = {
   open: boolean;
@@ -25,7 +25,7 @@ type Props = {
 };
 
 export function MeetingForm(props: Props) {
-  const title = props.meeting ? "Meeting" : `New meeting${props.client ? ` with ${props.client.name}` : ""}`;
+  const title = props.meeting ? "Meeting" : `New meeting${props.client ? ` with ${clientLabel(props.client)}` : ""}`;
   return (
     <Modal open={props.open} onClose={props.onClose} title={title} wide>
       {props.open && <Form key={props.meeting?.id ?? props.defaultStart ?? "new"} {...props} />}
@@ -62,7 +62,7 @@ function Form({ onClose, settings, zoom, clients, client, meeting, defaultStart,
     start_(async () => {
       setError(null);
       setNote(null);
-      const r = await saveMeeting({ id: meeting?.id, ...f, title: f.title || `Meeting with ${picked?.name ?? "client"}`, minutes: Number(f.minutes), send });
+      const r = await saveMeeting({ id: meeting?.id, ...f, title: f.title || `Meeting with ${(picked ? clientLabel(picked) : null) ?? "client"}`, minutes: Number(f.minutes), send });
       if (!r.ok) return setError(r.error);
       router.refresh();
       if (r.message && send) {
@@ -96,20 +96,20 @@ function Form({ onClose, settings, zoom, clients, client, meeting, defaultStart,
               <option value="">Pick a client…</option>
               {clients.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.name}
+                  {clientLabel(c)}
                   {c.email ? ` · ${c.email}` : " · no email"}
                 </option>
               ))}
             </select>
           ) : (
             <p className="py-2 text-sm text-fg">
-              {picked?.name ?? "—"} <span className="text-fg-faint">{picked?.email ?? "no email"}</span>
+              {(picked ? clientLabel(picked) : null) ?? "—"} <span className="text-fg-faint">{picked?.email ?? "no email"}</span>
             </p>
           )}
         </div>
         <div>
           <Label htmlFor="m-title">Title</Label>
-          <input id="m-title" className={inputClass} value={f.title} onChange={set("title")} placeholder={`Meeting with ${picked?.name ?? "client"}`} maxLength={200} />
+          <input id="m-title" className={inputClass} value={f.title} onChange={set("title")} placeholder={`Meeting with ${(picked ? clientLabel(picked) : null) ?? "client"}`} maxLength={200} />
         </div>
         <div className="grid grid-cols-[1fr_auto_auto] gap-2 sm:col-span-2">
           <div>

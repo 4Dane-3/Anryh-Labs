@@ -22,7 +22,7 @@ export type SendOutcome = { sent: true; to: string } | { logged: true; reason: s
 export async function sendMeetingEmail(input: {
   kind: InviteKind;
   meeting: CrmMeeting;
-  client: { name: string; email: string };
+  client: { name: string | null; email: string };
   settings: CrmSettings;
 }): Promise<SendOutcome> {
   const { meeting, client, settings, kind } = input;

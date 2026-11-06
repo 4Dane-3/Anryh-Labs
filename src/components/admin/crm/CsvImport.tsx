@@ -11,18 +11,22 @@ import { Modal } from "@/components/admin/crm/shared";
 import { cn } from "@/lib/utils";
 
 const BUILT_IN = [
-  ["name", "Full name"],
-  ["first", "First name"],
-  ["last", "Last name"],
+  ["company", "Company"],
+  ["name", "Contact: full name (who you speak to)"],
+  ["first", "Contact: first name"],
+  ["last", "Contact: last name"],
   ["email", "Email"],
   ["phone", "Phone"],
-  ["company", "Company"],
   ["status", "Status (lead, contacted, meeting, client, lost)"],
   ["note", "Note (added to the notes thread)"],
 ] as const;
 
 type Target = "" | (typeof BUILT_IN)[number][0] | `col:${string}` | "new";
 const CHUNK = 1000;
+/** Row numbers and ids from the source sheet, which aren't worth keeping */
+const SKIP_HEADER = /^(#|no\.?|num(ber)?|row|id|s\.?\s?no\.?)?$/i;
+/** "City (if listed)" → "City" */
+const columnName = (h: string, i: number) => h.replace(/\s*\([^)]*\)\s*$/, "").trim() || h.trim() || `Column ${i + 1}`;
 const MAX_ROWS = 20_000;
 
 /** Upload a CSV, map its columns to client fields (or custom columns), and import. */
@@ -41,7 +45,7 @@ function Importer({ columns, onClose }: { columns: CrmColumn[]; onClose: () => v
   const [map, setMap] = useState<Target[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
-  const [result, setResult] = useState<{ imported: number; duplicates: number; invalid: number } | null>(null);
+  const [result, setResult] = useState<{ imported: number; duplicates: number; invalid: number; cleaned: number } | null>(null);
   const [pending, start] = useTransition();
 
   const headers = rows[0] ?? [];
@@ -59,16 +63,20 @@ function Importer({ columns, onClose }: { columns: CrmColumn[]; onClose: () => v
     const used = new Set<string>();
     setMap(
       parsed[0].map((h) => {
-        const col = columns.find((c) => c.label.toLowerCase() === h.trim().toLowerCase());
-        const t: Target = col ? `col:${col.id}` : (guessField(h) ?? "");
-        if (!t || used.has(t)) return "";
+        // Row numbers ("#") are left out; anything not recognised becomes a new column by default
+        if (SKIP_HEADER.test(h.trim())) return "";
+        const col = columns.find((c) => c.label.toLowerCase() === h.trim().toLowerCase() || c.label.toLowerCase() === columnName(h, 0).toLowerCase());
+        const t: Target = col ? `col:${col.id}` : (guessField(h) ?? "new");
+        if (!t) return "";
+        if (t === "new") return t;
+        if (used.has(t)) return "";
         used.add(t);
         return t;
       }),
     );
   };
 
-  const hasName = map.includes("name") || map.includes("first") || map.includes("last");
+  const hasName = map.includes("name") || map.includes("first") || map.includes("last") || map.includes("company");
 
   const run = () =>
     start(async () => {
@@ -81,7 +89,7 @@ function Importer({ columns, onClose }: { columns: CrmColumn[]; onClose: () => v
         const values = [...new Set(body.map((r) => (r[i] ?? "").trim()).filter(Boolean))];
         const asSelect = values.length > 0 && values.length <= 8 && body.length >= values.length * 2;
         const colors: OptionColor[] = ["neutral", "accent", "good", "bad"];
-        const r = await saveColumn({ label: headers[i].trim() || `Column ${i + 1}`, type: asSelect ? "select" : "text", options: asSelect ? values.map((v, k) => ({ value: v, color: colors[k % 4] })) : [] });
+        const r = await saveColumn({ label: columnName(headers[i], i), type: asSelect ? "select" : "text", options: asSelect ? values.map((v, k) => ({ value: v, color: colors[k % 4] })) : [] });
         if (!r.ok) return setError(`Couldn't add the “${headers[i]}” column: ${r.error}`);
         finalMap[i] = `col:${r.column.id}`;
       }
@@ -96,7 +104,7 @@ function Importer({ columns, onClose }: { columns: CrmColumn[]; onClose: () => v
         });
         return { name: get("name") || [get("first"), get("last")].filter(Boolean).join(" "), email: get("email"), phone: get("phone"), company: get("company"), status: get("status"), note: get("note"), custom };
       });
-      const total = { imported: 0, duplicates: 0, invalid: 0 };
+      const total = { imported: 0, duplicates: 0, invalid: 0, cleaned: 0 };
       for (let i = 0; i < out.length; i += CHUNK) {
         setProgress(`Importing ${Math.min(i + CHUNK, out.length).toLocaleString()} of ${out.length.toLocaleString()}…`);
         const r = await importClients(out.slice(i, i + CHUNK));
@@ -107,6 +115,7 @@ function Importer({ columns, onClose }: { columns: CrmColumn[]; onClose: () => v
         total.imported += r.imported;
         total.duplicates += r.duplicates;
         total.invalid += r.invalid;
+        total.cleaned += r.cleaned;
       }
       setProgress(null);
       setResult(total);
@@ -116,12 +125,23 @@ function Importer({ columns, onClose }: { columns: CrmColumn[]; onClose: () => v
   if (result)
     return (
       <div className="space-y-4">
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           <Count label="Imported" value={result.imported} tone="good" />
-          <Count label="Skipped: already in your list" value={result.duplicates} />
-          <Count label="Skipped: no name or bad email" value={result.invalid} tone={result.invalid ? "bad" : undefined} />
+          <Count label="Skipped: duplicates" value={result.duplicates} />
+          <Count label="Skipped: no company or name" value={result.invalid} tone={result.invalid ? "bad" : undefined} />
         </div>
-        <p className="text-[13px] text-fg-muted">Duplicates are matched by email and by phone number, against your list and within the file.</p>
+        <p className="text-[13px] text-fg-muted">
+          Duplicates are matched by email and by phone number (or by company and name when a row has neither), against your list and within the file.
+          {result.cleaned > 0 && (
+            <>
+              {" "}
+              <span className="text-fg">
+                {result.cleaned.toLocaleString()} row{result.cleaned === 1 ? " had a phone or email that isn't one" : "s had a phone or email that isn't one"} (like &ldquo;Not verified&rdquo;)
+              </span>
+              : imported with that field blank and the original value in a note.
+            </>
+          )}
+        </p>
         <div className="flex justify-end">
           <Button variant="primary" onClick={onClose}>
             Done
@@ -154,7 +174,7 @@ function Importer({ columns, onClose }: { columns: CrmColumn[]; onClose: () => v
   return (
     <div className="space-y-4">
       <p className="text-[13px] text-fg-muted">
-        <span className="font-medium text-fg">{file}</span> · {body.length.toLocaleString()} row{body.length === 1 ? "" : "s"}. Match each CSV column to a field. &ldquo;New column&rdquo; adds it to your table.
+        <span className="font-medium text-fg">{file}</span> · {body.length.toLocaleString()} row{body.length === 1 ? "" : "s"}. Match each CSV column to a field. A company or a contact name is enough; &ldquo;Create column&rdquo; adds the rest to your table.
       </p>
       <div className="max-h-[50vh] overflow-y-auto rounded-xl border border-line">
         <table className="w-full text-left text-[13px]">
@@ -195,7 +215,7 @@ function Importer({ columns, onClose }: { columns: CrmColumn[]; onClose: () => v
                           {c.label}
                         </option>
                       ))}
-                      <option value="new">New column: “{h.trim() || `Column ${i + 1}`}”</option>
+                      <option value="new">Create column “{columnName(h, i)}”</option>
                     </optgroup>
                   </select>
                 </td>
@@ -204,7 +224,7 @@ function Importer({ columns, onClose }: { columns: CrmColumn[]; onClose: () => v
           </tbody>
         </table>
       </div>
-      {!hasName && <p className="text-[13px] text-brand">Match a name column (full name, or first and last) to import.</p>}
+      {!hasName && <p className="text-[13px] text-brand">Match a Company or Contact column to import.</p>}
       {error && <p className="text-[13px] text-bad">{error}</p>}
       <div className="flex items-center justify-between gap-2">
         <Button variant="ghost" onClick={() => { setFile(null); setRows([]); }}>

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getMeetingByToken, getSettings } from "@/lib/crm/data";
 import { whenText } from "@/lib/crm/invite-email";
+import { clientFirstName, clientLabel } from "@/lib/crm/types";
 import { respondToMeeting } from "./actions";
 import { SubmitButton } from "./SubmitButton";
 
@@ -16,7 +17,7 @@ export default async function MeetingPage({ params }: { params: Promise<{ token:
   const [m, settings] = await Promise.all([getMeetingByToken(token), getSettings()]);
   if (!m) notFound();
   const w = whenText(m);
-  const first = m.client.name.trim().split(/\s+/)[0];
+  const first = clientFirstName(m.client) ?? clientLabel(m.client);
   const past = new Date(m.ends_at) < new Date();
   const confirm = respondToMeeting.bind(null, token, "confirm");
   const decline = respondToMeeting.bind(null, token, "decline");
