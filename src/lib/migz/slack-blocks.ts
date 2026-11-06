@@ -213,9 +213,10 @@ export function reviewSummaryMessage(input: {
 }
 
 /** A batch finished: what it spent and booked, and a nudge to start the next one. */
-export function batchEndedMessage(input: { budgetCents: number; spentCents: number; bookedCalls: number; dashboardUrl: string }): SlackMessage {
+/** `returnedCents` is what actually went back to the balance; the message only mentions money that did. */
+export function batchEndedMessage(input: { budgetCents: number; spentCents: number; bookedCalls: number; returnedCents?: number; dashboardUrl: string }): SlackMessage {
   const per = input.bookedCalls ? ` (${usd(Math.round(input.spentCents / input.bookedCalls))} each)` : "";
-  const left = Math.max(0, input.budgetCents - input.spentCents);
+  const left = Math.max(0, input.returnedCents ?? input.budgetCents - input.spentCents);
   return {
     text: `Your campaign batch ended: ${input.bookedCalls} booked call${input.bookedCalls === 1 ? "" : "s"} from ${usd(input.spentCents)}`,
     blocks: [

@@ -50,7 +50,7 @@ export async function notifyBatchRenewBlocked(agent: Recipient, input: { reason:
   return send(agent, batchRenewBlockedMessage({ ...input, dashboardUrl: appUrl() }));
 }
 
-export async function notifyBatchEnded(agent: Recipient, input: { budgetCents: number; spentCents: number; bookedCalls: number }) {
+export async function notifyBatchEnded(agent: Recipient, input: { budgetCents: number; spentCents: number; bookedCalls: number; returnedCents?: number }) {
   return send(agent, batchEndedMessage({ ...input, dashboardUrl: appUrl() }));
 }
 
