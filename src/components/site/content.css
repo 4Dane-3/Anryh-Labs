@@ -153,6 +153,16 @@
   border-radius: 20px;
   padding: 24px 22px;
 }
+.cx-setups {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+.cx-setup p.cx-setup__who {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--cx-mute, currentColor);
+}
 .cx-setup p.cx-setup__fee {
   margin: 0 0 8px;
   font-size: clamp(40px, 4.4vw, 64px);
@@ -398,4 +408,92 @@
   color: var(--cx-ink, inherit);
   text-decoration: underline;
   text-underline-offset: 0.2em;
+}
+
+/* ---------- who we run ads for ---------- */
+
+.cx-verts {
+  --cx-card: rgb(255 255 255 / 0.1);
+  --cx-line: rgb(255 255 255 / 0.28);
+  --cx-ink: var(--sb-ink, #fff);
+  --cx-soft: var(--sb-ink2, rgb(255 255 255 / 0.84));
+  --cx-mute: var(--sb-muted, rgb(255 255 255 / 0.66));
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.cx-verts > li {
+  background: var(--cx-card);
+  border: 1px solid var(--cx-line);
+  border-radius: 20px;
+  padding: 22px 22px 20px;
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+  color: var(--cx-soft);
+}
+.cx-verts small {
+  display: block;
+  font-size: 13px;
+  color: var(--cx-mute);
+}
+.cx-verts b {
+  display: block;
+  margin-top: 4px;
+  font-size: clamp(22px, 2vw, 28px);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  color: var(--cx-ink);
+}
+.cx-verts p {
+  margin: 10px 0 0;
+  font-size: 15px;
+  line-height: 1.5;
+}
+.cx-verts ul {
+  margin: 14px 0 0;
+  padding: 14px 0 0;
+  border-top: 1px solid var(--cx-line);
+  list-style: none;
+  display: grid;
+  gap: 8px;
+  font-size: 14px;
+  line-height: 1.4;
+}
+.cx-verts ul li {
+  position: relative;
+  padding-left: 16px;
+}
+.cx-verts ul li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.55em;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--cx-ink);
+}
+@media (max-width: 760px) {
+  .cx-verts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.cx-verts__start {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--cx-line);
+  background: rgb(255 255 255 / 0.08);
+  display: grid;
+  gap: 4px;
+}
+.cx-verts__start strong {
+  color: var(--cx-ink);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.35;
 }

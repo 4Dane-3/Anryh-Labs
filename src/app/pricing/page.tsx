@@ -4,14 +4,14 @@ import { FaqList } from "@/components/site/FaqList";
 import { FeeCalculator } from "@/components/site/FeeCalculator";
 import { JsonLd, breadcrumbLd, faqLd } from "@/components/site/JsonLd";
 import { PricingCovers, PricingExample, PricingTiers } from "@/components/site/PricingBlock";
-import { PRICING_SUMMARY, SETUP_FEE, TIERS, pct, sliceLabel } from "@/lib/pricing";
+import { PRICING_SUMMARY, ROOFING_PRICING_SUMMARY, ROOFING_SETUP_FEE, SETUP_FEE, TIERS, pct, sliceLabel } from "@/lib/pricing";
 import { PRICING_FAQS } from "@/lib/seo/faqs";
 import { absoluteUrl, pageMeta } from "@/lib/site";
 
 export const metadata: Metadata = pageMeta({
-  title: "pricing · anryh labs · ai meta ads for life insurance agents",
+  title: "pricing · anryh labs · ai meta ads automation and booking",
   description:
-    "anryh labs pricing: a one-time $750 setup fee, no monthly fee, then 25% down to 12% of the ad funds you add. covers operations, creative generation and automation.",
+    "anryh labs pricing: roofing companies pay a $3,000 setup up front plus at least $2,000 in meta ad spend the first month. life insurance agents pay a one-time $750 setup fee, no monthly fee, then 20% down to 12% of the ad funds they add.",
   path: "/pricing",
 });
 
@@ -30,7 +30,8 @@ export default function PricingPage() {
             url: absoluteUrl("/pricing"),
             description: PRICING_SUMMARY,
             offers: [
-              { "@type": "Offer", name: "one-time setup", price: String(SETUP_FEE), priceCurrency: "USD" },
+              { "@type": "Offer", name: "roofing companies: one-time setup, paid up front", price: String(ROOFING_SETUP_FEE), priceCurrency: "USD", description: ROOFING_PRICING_SUMMARY },
+              { "@type": "Offer", name: "life insurance agents: one-time setup", price: String(SETUP_FEE), priceCurrency: "USD" },
               ...TIERS.map((t, i) => ({
                 "@type": "Offer",
                 name: `management fee: ${pct(t.rate)} of ${sliceLabel(i)}`,
@@ -50,10 +51,13 @@ export default function PricingPage() {
       <Crumbs items={[{ name: "home", href: "/" }, { name: "pricing" }]} />
       <H1>pricing</H1>
       <p className="cx-answer">
-        <b>the short answer:</b> {PRICING_SUMMARY}
+        <b>roofing companies:</b> {ROOFING_PRICING_SUMMARY}
+      </p>
+      <p className="cx-answer" style={{ marginTop: 12 }}>
+        <b>life insurance agents:</b> {PRICING_SUMMARY}
       </p>
 
-      <H2 id="rates">how the percentage works</H2>
+      <H2 id="rates">how the percentage works (life insurance agents)</H2>
       <p>
         it&apos;s a flat 20% until you&apos;ve added $20,000 in total. the moment your total passes $20,000, the fee drops to 12% on everything you add after
         that. the first $20,000 always stays at 20%. the fee is kept from each amount you add, and the rest is your ad budget.
