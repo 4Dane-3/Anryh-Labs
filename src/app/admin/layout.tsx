@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { isAnryhAdmin } from "@/lib/auth";
+import { AdminNav } from "@/components/admin/AdminNav";
 
 export const maxDuration = 60;
 
@@ -12,5 +13,8 @@ export const metadata: Metadata = {
 // Anryh Labs staff only (ANRYH_ADMIN_EMAILS). Everyone else gets a plain 404.
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   if (!(await isAnryhAdmin())) notFound();
-  return <div className="min-h-screen bg-ink text-fg antialiased [color-scheme:dark]">{children}</div>;
+  return <div className="min-h-screen bg-ink text-fg antialiased [color-scheme:dark]">
+      <AdminNav />
+      {children}
+    </div>;
 }
