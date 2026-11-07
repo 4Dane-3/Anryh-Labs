@@ -619,6 +619,23 @@ assert.deepEqual(local(generateSlots(oneDay, [], cfg(60, 30), mon)), ["9:00 AM",
 const busy10 = [{ start: new Date(generateSlots(oneDay, [], cfg(15, 60), mon)[1]), end: new Date(Date.parse(generateSlots(oneDay, [], cfg(15, 60), mon)[1]) + 15 * 60_000) }];
 assert.deepEqual(local(generateSlots(oneDay, busy10, cfg(15, 60), mon)), ["9:00 AM", "11:00 AM"], "a booked 15-min call takes only its own hour slot");
 
+// Two crews: each keeps its own travel buffer, and a booking only goes to a crew that has it
+{
+  const { crewSlots } = await import("@/lib/booking/slots");
+  const insp = { ...cfg(60, 60), bufferMinutes: 60 }; // hour-long inspections, an hour of travel between them
+  const [nine, ten, eleven] = generateSlots(oneDay, [], insp, mon);
+  const crew1At9 = [{ start: new Date(nine), end: new Date(Date.parse(nine) + 3_600_000), crew: 1 }];
+  const two = crewSlots(oneDay, crew1At9, insp, 2, mon);
+  assert.deepEqual(two.free, [nine, ten, eleven], "crew 2 is free all morning, so every time stays open");
+  assert.deepEqual(two.crewsFreeAt(ten), [2], "10:00 is right after crew 1's 9:00 with no travel time: only crew 2 takes it");
+  assert.deepEqual(two.crewsFreeAt(eleven), [1, 2], "11:00 leaves crew 1 its hour of travel");
+  assert.deepEqual(two.crewsFreeAt(nine), [2]);
+  const one = crewSlots(oneDay, crew1At9, insp, 1, mon);
+  assert.deepEqual(one.free, generateSlots(oneDay, crew1At9, insp, mon), "one crew: the same times as before");
+  assert.deepEqual([one.crewsFreeAt(ten), one.crewsFreeAt(eleven)], [[], [1]]);
+  ok("two crews: open while either is free, and each booking lands on a crew with its travel buffer");
+}
+
 // Research shift: rotates the agent's topics and the angles; web search every other cycle
 const { nextAssignment, ANGLES } = await import("@/lib/migz/research");
 const r0 = nextAssignment(["final_expense", "whole_life"], 0), r1 = nextAssignment(["final_expense", "whole_life"], 1), r2 = nextAssignment(["final_expense", "whole_life"], 2);
@@ -1701,8 +1718,9 @@ ok("booked-call guarantee: 30 days from launch; 8 booked calls (12 at $75/day or
   assert.equal(v.isRoofer({ vertical: null }), false, "missing before the migration: insurance");
   assert.equal(v.radiusMiles({ service_radius_miles: 80 }), 50, "Meta's radius limit");
   assert.equal(v.radiusMiles({}), 15, "default radius");
-  assert.deepEqual(v.roofingAges(null), { min: 30, max: 65 }, "homeowners 30 to 65+ by default");
-  assert.deepEqual(v.roofingAges({ ageMin: 25, ageMax: 90 }), { min: 25, max: 65 }, "65 is Meta's top age (65+)");
+  assert.equal(v.radiusMiles({ service_radius_miles: 10 }), 15, "Housing's smallest radius is 15 miles");
+  assert.ok(v.RADIUS_CHOICES.every((r) => r >= 15), "no radius choice under Housing's minimum");
+  assert.deepEqual(v.roofingAges(), { min: 18, max: 65 }, "Housing: every adult, 18 to 65+");
   assert.equal(v.areaLabel({ service_area: "Plano, TX", service_radius_miles: 25 }), "within 25 miles of Plano, TX");
 
   // Roofing ad rules
@@ -1773,6 +1791,6 @@ ok("booked-call guarantee: 30 days from launch; 8 booked calls (12 at $75/day or
   assert.deepEqual(oc.metaEventsFor("call", "not_homeowner"), []);
   assert.equal(oc.outcomeLabel("call", "not_homeowner"), "Not a homeowner");
 }
-ok("roofing: radius and ages (no special category), roofing ad rules (no free roof, deductibles, implied damage or financing), a roofing prompt with no insurance rules left, roofing topics, angles and costs, booking page only, address and homeowner asked before booking, street-only postcards, the roofer's email and CRM payload, and Not a homeowner");
+ok("roofing: a 15+ mile radius and every adult (Housing category), roofing ad rules (no free roof, deductibles, implied damage or financing), a roofing prompt with no insurance rules left, roofing topics, angles and costs, booking page only, address and homeowner asked before booking, street-only postcards, the roofer's email and CRM payload, and Not a homeowner");
 
 console.log(`\nALL ${n} UNIT GROUPS PASSED`);

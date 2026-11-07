@@ -58,14 +58,6 @@ export type CampaignStart = {
   area?: RoofingInitial | null;
 };
 
-/** Ages a roofer's ads target (Meta's top age, 65, means 65 and over). */
-const ROOF_AGE_PRESETS = [
-  { min: 30, max: 65, label: "30–65+", detail: "Most homeowners (recommended)" },
-  { min: 35, max: 65, label: "35–65+", detail: "Established homeowners" },
-  { min: 25, max: 65, label: "25–65+", detail: "Include first-time buyers" },
-  { min: 45, max: 65, label: "45–65+", detail: "Older homes and roofs" },
-] as const;
-
 type Result = { ok: true } | { ok: false; error: string };
 
 export const RUN_MODES = [
@@ -181,7 +173,7 @@ export function CampaignFlow({
   const choice: CampaignChoice = { answers: a, states: roof ? [area.state] : states, intentLevel: intent, videoTier: tier, dailyCents: daily, autoRun: askRunMode ? autoRun : undefined, renew, area: roof ? area : null };
 
   const dailyOk = daily >= MIN_CAMPAIGN_DAILY_CENTS && daily <= MAX_CAMPAIGN_DAILY_CENTS;
-  const ageLabel = a.ageMin === null && a.ageMax === null ? (roof ? "30–65+" : "Any adult") : `${a.ageMin ?? 18}–${roof && (a.ageMax ?? 65) >= 65 ? "65+" : a.ageMax ?? "90"}`;
+  const ageLabel = roof ? "Every adult" : a.ageMin === null && a.ageMax === null ? "Any adult" : `${a.ageMin ?? 18}–${a.ageMax ?? "90"}`;
 
   const allScreens: { key: string; q: string; help?: string; skip?: () => void; valid?: boolean; body: React.ReactNode }[] = [
     {
@@ -218,18 +210,16 @@ export function CampaignFlow({
     },
     {
       key: "ages",
-      q: roof ? "Which ages should your ads reach?" : "What ages do you write?",
-      help: roof
-        ? "Roofing ads can target ages directly. Most homeowners are 30 and up; younger renters can't book a roof."
-        : "Meta doesn't let insurance ads target by age, so Migz says it in the ads instead (\"for people 50–85\"). The right people answer, the rest scroll on.",
+      q: "What ages do you write?",
+      help: "Meta doesn't let insurance ads target by age, so Migz says it in the ads instead (\"for people 50–85\"). The right people answer, the rest scroll on.",
       skip: () => setA((c) => ({ ...c, ageMin: null, ageMax: null })),
       body: (
         <div className="space-y-3">
           <div className="grid gap-2 sm:grid-cols-2">
-            {(roof ? ROOF_AGE_PRESETS : AGE_PRESETS).map((p) => (
+            {AGE_PRESETS.map((p) => (
               <Tile key={p.label} on={a.ageMin === p.min && a.ageMax === p.max} onClick={() => setA((c) => ({ ...c, ageMin: p.min, ageMax: p.max }))} title={p.label} detail={p.detail} />
             ))}
-            {!roof && <Tile on={a.ageMin === null && a.ageMax === null} onClick={() => setA((c) => ({ ...c, ageMin: null, ageMax: null }))} title="Any adult" detail="No age in the ads." />}
+            <Tile on={a.ageMin === null && a.ageMax === null} onClick={() => setA((c) => ({ ...c, ageMin: null, ageMax: null }))} title="Any adult" detail="No age in the ads." />
           </div>
           <div className="flex flex-wrap items-center gap-2 text-[13px] text-fg-muted">
             Or exactly:
@@ -440,8 +430,9 @@ export function CampaignFlow({
     },
   ];
 
-  // Roofers: a service area instead of states, and none of the insurance questions or instant forms
-  const ROOF_SKIPS = ["states", "premium", "underwriting", "health", "contact", "intent"];
+  // Roofers: a service area instead of states, no ages (Meta's Housing category reaches every adult), and none of
+  // the insurance questions or instant forms
+  const ROOF_SKIPS = ["states", "ages", "premium", "underwriting", "health", "contact", "intent"];
   const screens = allScreens.filter((s) => (roof ? !ROOF_SKIPS.includes(s.key) : s.key !== "area"));
   const screen = screens[step];
   const last = step === screens.length - 1;

@@ -1,6 +1,6 @@
 import { after } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { crewsOf, getAgentBySlug, getIntakeQuestions, getOpenSlots } from "@/lib/booking/data";
+import { crewsOf, getAgentBySlug, getIntakeQuestions, getSlotBoard } from "@/lib/booking/data";
 import { parseAnswers, parseBooking } from "@/lib/booking/validate";
 import { missingRequired, preBookingQuestions, type IntakeAnswers } from "@/lib/booking/questions";
 import { consentTextFor } from "@/lib/booking/constants";
@@ -43,7 +43,7 @@ export async function POST(req: Request) {
   }
 
   // Only accept times that are genuinely open right now (never trust the client's clock or list)
-  const open = await getOpenSlots(agent);
+  const { open, crewsFreeAt } = await getSlotBoard(agent);
   if (!open.includes(input.startsAt)) {
     return Response.json(
       { error: "That time was just taken. Please pick another." },
@@ -54,8 +54,12 @@ export async function POST(req: Request) {
   const startsAt = new Date(input.startsAt);
   const endsAt = new Date(startsAt.getTime() + agent.slot_minutes * 60_000);
 
-  // One booking per crew per time: try each crew in turn (the database refuses an overlap on the same crew)
+  // One booking per crew per time, and only on a crew that's free here counting the buffer (travel time) around
+  // its other inspections: a crew with a booking ending right at this time isn't one. The database refuses an
+  // overlap on the same crew, so a crew taken a moment ago falls through to the next free one.
   const crews = crewsOf(agent);
+  const order = crews === 1 ? [1] : crewsFreeAt(input.startsAt);
+  if (!order.length) return Response.json({ error: "That time was just taken. Please pick another." }, { status: 409 });
   const insert = (crew: number) =>
     supabaseAdmin
       .from("bookings")
@@ -72,8 +76,8 @@ export async function POST(req: Request) {
       })
       .select("id, token, starts_at, ends_at")
       .single();
-  let { data: booking, error } = await insert(1);
-  for (let crew = 2; crew <= crews && error?.code === "23P01"; crew++) ({ data: booking, error } = await insert(crew));
+  let { data: booking, error } = await insert(order[0]);
+  for (let i = 1; i < order.length && error?.code === "23P01"; i++) ({ data: booking, error } = await insert(order[i]));
 
   if (error || !booking) {
     // 23P01 = exclusion violation: someone else booked the same slot a moment ago

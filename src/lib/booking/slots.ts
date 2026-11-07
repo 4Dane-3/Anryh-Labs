@@ -79,6 +79,26 @@ export function generateSlots(
     .map((ms) => new Date(ms).toISOString());
 }
 
+/**
+ * Open times for an account with one or more crews (a roofer with 2 crews takes 2 inspections at once): a time
+ * is free while any crew is free there, each crew keeping the buffer (travel time) around its own bookings.
+ * `crewsFreeAt` says which crews (1-based) that is for a time, so a booking goes to one of them.
+ */
+export function crewSlots(
+  rules: AvailabilityRule[],
+  busy: (BusyRange & { crew?: number })[],
+  config: SlotConfig,
+  crews: number,
+  now: Date = new Date(),
+): { free: string[]; crewsFreeAt: (time: string) => number[] } {
+  const n = Math.max(1, crews);
+  const perCrew = Array.from({ length: n }, (_, i) =>
+    new Set(generateSlots(rules, n === 1 ? busy : busy.filter((b) => (b.crew ?? 1) === i + 1), config, now)),
+  );
+  const free = n === 1 ? [...perCrew[0]] : [...new Set(perCrew.flatMap((s) => [...s]))].sort();
+  return { free, crewsFreeAt: (time) => perCrew.flatMap((s, i) => (s.has(time) ? [i + 1] : [])) };
+}
+
 // Ghost bookings (an agent setting): hold back a share of open times in the next two weeks so the
 // calendar looks like a busy agent's. A held time looks exactly like a taken one: it simply isn't
 // offered. Nothing is invented beyond that (no names, no "booked" labels), nothing is stored, and the

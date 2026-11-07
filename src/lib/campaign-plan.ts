@@ -227,7 +227,6 @@ const PRODUCT_COST: Partial<Record<TopicKey, number>> = { final_expense: 1, mort
 export function costAdjustments(a: CampaignAnswers, states: string[], vertical: Vertical = "insurance") {
   const notes: { text: string; factor: number }[] = [];
   if (vertical === "roofing") {
-    if (a.ageMin !== null && a.ageMax !== null && a.ageMax - a.ageMin < 20) notes.push({ factor: 1.15, text: "A narrow age range makes each inspection cost more." });
     if (a.languages.includes("es")) notes.push({ factor: 0.9, text: "Spanish-language ads usually cost less per result." });
     return { factor: notes.reduce((f, n) => f * n.factor, 1), notes };
   }

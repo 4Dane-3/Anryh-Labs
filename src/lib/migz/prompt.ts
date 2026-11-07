@@ -94,7 +94,7 @@ const ROOFING_LINES: [string, string][] = [
   ],
   [
     "- Campaigns run under Meta's Financial Products & Services special ad category",
-    "- Roofing campaigns run with no special ad category: ads reach homeowners living within the company's service radius (service_area in the snapshot), at the ages the roofer chose (30 to 65+ by default). The audience is set; better creative is the biggest lever you have. Never write about financing, monthly payments or credit: that can put the ads under Meta's Financial category and take the radius and age targeting away.",
+    "- Roofing campaigns run under Meta's Housing special ad category (roofing is home repair): ads reach every adult living within the company's service radius (service_area in the snapshot, 15 miles or more), with no age, gender or ZIP targeting. The audience is set; better creative is the biggest lever you have. Speak to homeowners in the words, never by age, family or anyone's background. Never write about financing, monthly payments or credit: that adds Meta's Financial category on top.",
   ],
   [
     "- Who the agent writes (agent.campaign_answers)",

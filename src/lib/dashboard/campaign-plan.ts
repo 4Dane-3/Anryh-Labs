@@ -1,5 +1,5 @@
 import "server-only";
-import { DEFAULT_RADIUS_MILES, isRoofer } from "@/lib/verticals";
+import { isRoofer, radiusMiles } from "@/lib/verticals";
 import { DateTime } from "luxon";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
@@ -219,7 +219,7 @@ export async function getCampaignStart(agent: Agent): Promise<{ initial: Campaig
         ? {
             service_area: agent.service_area ?? "",
             state: agent.licensed_states?.[0] ?? "",
-            radius: agent.service_radius_miles ?? DEFAULT_RADIUS_MILES,
+            radius: radiusMiles(agent),
             crews: agent.crews ?? 1,
             license: agent.company_license ?? "",
             crm_webhook_url: agent.crm_webhook_url ?? "",

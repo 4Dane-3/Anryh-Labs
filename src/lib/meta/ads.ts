@@ -2,9 +2,10 @@ import "server-only";
 import { graph, graphAll, MetaApiError } from "@/lib/meta/graph";
 import { ENHANCEMENTS_OFF, enhancementsOn, enhancementsOptOut, refusedFeature } from "@/lib/meta/enhancements";
 
-// The Marketing API operations Migz uses. Every campaign is created under the Financial Products &
-// Services special ad category (required in the US for insurance), which rules out age, gender and ZIP
-// targeting: targeting is licensed states only. Roofers run with no special category, a radius and ages.
+// The Marketing API operations Migz uses. Every campaign is created under a special ad category, which rules
+// out age, gender and ZIP targeting. Insurance runs under Financial Products & Services (required in the US),
+// targeting licensed states only. Roofing is home repair, so it runs under Housing: a radius of 15 miles or
+// more around the service area, every adult.
 
 export type Placement =
   | "facebook_feed"
@@ -90,7 +91,7 @@ export async function stateRegionKeys(states: string[]) {
 
 /**
  * Where an ad set's ads run. Insurance: the agent's licensed states (under the Financial category, no age or
- * radius). Roofing: a radius around the roofer's service area, at the ages they chose (no special category).
+ * radius). Roofing: a radius around the roofer's service area (under Housing, so ages are always 18 to 65+).
  */
 export type AdGeo =
   | { kind: "states"; states: string[] }
@@ -148,15 +149,16 @@ export async function geoTargeting(geo: AdGeo) {
   return { geo_locations: { regions }, age_min: 18 };
 }
 
-/** Campaigns for roofers run with no special ad category; insurance runs under Financial Products & Services. */
-export async function createCampaign(account: string, name: string, opts: { specialCategory?: boolean } = {}) {
-  const special = opts.specialCategory ?? true;
+export type SpecialAdCategory = "FINANCIAL_PRODUCTS_SERVICES" | "HOUSING";
+
+/** Insurance campaigns run under Financial Products & Services, roofers' under Housing (home repair). */
+export async function createCampaign(account: string, name: string, opts: { category?: SpecialAdCategory } = {}) {
   const res = await graph<{ id: string }>("POST", `${account}/campaigns`, {
     name,
     objective: "OUTCOME_LEADS",
     status: "PAUSED", // activated after its first ad set and ads exist
-    special_ad_categories: special ? ["FINANCIAL_PRODUCTS_SERVICES"] : [],
-    ...(special ? { special_ad_category_country: ["US"] } : {}),
+    special_ad_categories: [opts.category ?? "FINANCIAL_PRODUCTS_SERVICES"],
+    special_ad_category_country: ["US"],
     is_adset_budget_sharing_enabled: false,
   });
   return res.id;
