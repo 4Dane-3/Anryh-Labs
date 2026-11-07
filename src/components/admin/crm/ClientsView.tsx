@@ -26,6 +26,7 @@ function csvEscape(v: unknown) {
 export function ClientsView({ clients, columns, settings }: { clients: CrmClient[]; columns: CrmColumn[]; settings: CrmSettings }) {
   const router = useRouter();
   const [q, setQ] = useState("");
+  const [now] = useState(() => Date.now());
   const [status, setStatus] = useState<ClientStatus | "all">("all");
   const [filterCol, setFilterCol] = useState<{ id: string; value: string } | null>(null);
   const [limit, setLimit] = useState(PAGE);
@@ -286,7 +287,7 @@ export function ClientsView({ clients, columns, settings }: { clients: CrmClient
                         {c.next_meeting ? (
                           <span className="flex items-center gap-2">
                             <span className="text-fg-muted">{DateTime.fromISO(c.next_meeting.starts_at).setZone(settings.timezone).toFormat("LLL d, h:mm a")}</span>
-                            <MeetingBadge status={c.next_meeting.status} />
+                            <MeetingBadge meeting={c.next_meeting} timezone={settings.timezone} now={now} />
                           </span>
                         ) : (
                           <span className="text-fg-faint">—</span>

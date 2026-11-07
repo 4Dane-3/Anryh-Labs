@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { Badge } from "@/components/dashboard/ui";
-import { STATUS_LABEL, type ClientStatus, type CrmColumn, type CustomValue, type MeetingStatus, type OptionColor } from "@/lib/crm/types";
+import { meetingPhase, STATUS_LABEL, type ClientStatus, type CrmColumn, type CustomValue, type MeetingOutcome, type MeetingPhase, type MeetingStatus, type OptionColor } from "@/lib/crm/types";
 import { cn } from "@/lib/utils";
 
 export const STATUS_TONE: Record<ClientStatus, OptionColor> = { lead: "neutral", contacted: "neutral", meeting: "accent", client: "good", lost: "bad" };
@@ -16,8 +16,42 @@ export function StatusBadge({ status }: { status: ClientStatus }) {
 export const MEETING_LABEL: Record<MeetingStatus, string> = { draft: "Draft", invited: "Invited", confirmed: "Confirmed", cancelled: "Cancelled" };
 export const MEETING_TONE: Record<MeetingStatus, OptionColor> = { draft: "neutral", invited: "accent", confirmed: "good", cancelled: "bad" };
 
-export function MeetingBadge({ status }: { status: MeetingStatus }) {
-  return <Badge tone={MEETING_TONE[status]}>{MEETING_LABEL[status]}</Badge>;
+export const PHASE_LABEL: Record<MeetingPhase, string> = {
+  draft: "Draft",
+  unconfirmed: "Unconfirmed",
+  call: "Call to confirm",
+  confirmed: "Confirmed",
+  cancelled: "Cancelled",
+  needs_outcome: "What happened?",
+  showed: "Showed",
+  no_show: "No-show",
+  rescheduled: "Rescheduled",
+};
+export const PHASE_TONE: Record<MeetingPhase, OptionColor> = {
+  draft: "neutral",
+  unconfirmed: "accent",
+  call: "bad",
+  confirmed: "good",
+  cancelled: "bad",
+  needs_outcome: "accent",
+  showed: "good",
+  no_show: "bad",
+  rescheduled: "neutral",
+};
+
+/** A meeting's status as staff see it: confirmed, unconfirmed, call to confirm, showed, no-show… */
+export function MeetingBadge({ meeting, timezone, now }: { meeting: { status: MeetingStatus; starts_at: string; outcome?: MeetingOutcome | null }; timezone: string; now: number }) {
+  const phase = meetingPhase(meeting, now, timezone);
+  return <Badge tone={PHASE_TONE[phase]}>{PHASE_LABEL[phase]}</Badge>;
+}
+
+/** "Today", "Tomorrow", "2 days overdue", "Fri, Nov 14" for a yyyy-MM-dd due date. */
+export function dueLabel(dueOn: string, today: string) {
+  const days = Math.round((Date.parse(`${dueOn}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000);
+  if (days === 0) return "Today";
+  if (days === 1) return "Tomorrow";
+  if (days < 0) return days === -1 ? "Yesterday" : `${-days} days overdue`;
+  return new Date(`${dueOn}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
 }
 
 /** Dot colour classes per tone, for calendar chips. */

@@ -8,6 +8,7 @@ import { cancelMeeting, deleteMeeting, saveMeeting } from "@/app/admin/crm/actio
 import { clientLabel, type ClientRef, type CrmMeeting, type CrmSettings } from "@/lib/crm/types";
 import { Button, inputClass, Label } from "@/components/dashboard/ui";
 import { MeetingBadge, Modal, TIMEZONES } from "@/components/admin/crm/shared";
+import { OutcomeDialog } from "@/components/admin/crm/OutcomeDialog";
 import { cn } from "@/lib/utils";
 
 export type ClientOption = ClientRef;
@@ -56,6 +57,9 @@ function Form({ onClose, settings, zoom, clients, client, meeting, defaultStart,
   const picked = client ?? clients?.find((c) => c.id === f.clientId);
   const zones = useMemo(() => (TIMEZONES.includes(f.timezone) ? TIMEZONES : [f.timezone, ...TIMEZONES]), [f.timezone]);
   const live = meeting && meeting.status !== "cancelled";
+  const [now] = useState(() => Date.now());
+  const [outcomeOpen, setOutcomeOpen] = useState(false);
+  const canMark = !!meeting && meeting.status !== "cancelled" && meeting.status !== "draft" && Date.parse(meeting.starts_at) <= now;
   const confirmLink = meeting ? `${appUrl}/meet/${meeting.token}` : null;
 
   const submit = (send: boolean) =>
@@ -73,13 +77,23 @@ function Form({ onClose, settings, zoom, clients, client, meeting, defaultStart,
 
   return (
     <div className="space-y-4">
+      {meeting && canMark && <OutcomeDialog open={outcomeOpen} meetingId={meeting.id} label={picked ? clientLabel(picked) : "them"} onClose={() => setOutcomeOpen(false)} />}
       {meeting && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-line bg-white/[0.03] px-3 py-2 text-[12px] text-fg-muted">
-          <MeetingBadge status={meeting.status} />
+          <MeetingBadge meeting={meeting} timezone={settings.timezone} now={now} />
           {meeting.invited_at && <span>invited {DateTime.fromISO(meeting.invited_at).toRelative()}</span>}
           {meeting.confirmed_at && <span className="text-good">confirmed {DateTime.fromISO(meeting.confirmed_at).toRelative()}</span>}
           {meeting.cancelled_at && <span className="text-bad">cancelled by {meeting.cancelled_by === "client" ? "the client" : "you"} {DateTime.fromISO(meeting.cancelled_at).toRelative()}</span>}
-          {meeting.reminder_sent_at && <span>reminder sent</span>}
+          {meeting.nudge_sent_at && <span>nudge sent</span>}
+          {meeting.reminder_sent_at && <span>day-before reminder sent</span>}
+          {meeting.hour_reminder_sent_at && <span>hour-before reminder sent</span>}
+          {meeting.rebook_sent_at && <span>rebook email sent</span>}
+          {meeting.reschedule_requested_at && <span className="text-brand">asked for a new time {DateTime.fromISO(meeting.reschedule_requested_at).toRelative()}</span>}
+          {canMark && (
+            <button type="button" onClick={() => setOutcomeOpen(true)} className="rounded-md border border-brand/40 px-2 py-0.5 text-fg hover:bg-brand/10">
+              {meeting.outcome ? "Change what happened" : "Mark what happened"}
+            </button>
+          )}
           {confirmLink && (
             <button type="button" onClick={() => navigator.clipboard.writeText(confirmLink)} className="ml-auto flex items-center gap-1 hover:text-fg" title={confirmLink}>
               <Copy className="size-3" /> Copy confirm link

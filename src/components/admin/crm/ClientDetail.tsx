@@ -6,24 +6,28 @@ import { useRouter } from "next/navigation";
 import { DateTime } from "luxon";
 import { ArrowLeft, CalendarPlus, Mail, Pencil, Phone, Trash2, Video } from "lucide-react";
 import { addNote, deleteClient, deleteNote, setClientField } from "@/app/admin/crm/actions";
-import { CLIENT_STATUSES, clientLabel, STATUS_LABEL, type ClientStatus, type CrmClient, type CrmColumn, type CrmMeeting, type CrmNote, type CrmSettings } from "@/lib/crm/types";
+import { CLIENT_STATUSES, clientLabel, meetingPhase, STATUS_LABEL, type ClientStatus, type CrmClient, type CrmColumn, type CrmMeeting, type CrmNote, type CrmSettings, type CrmTask } from "@/lib/crm/types";
 import { Button, EmptyState, inputClass, Panel, PanelHeader } from "@/components/dashboard/ui";
 import { CustomCell } from "@/components/admin/crm/CustomCell";
 import { ClientForm } from "@/components/admin/crm/ClientForm";
 import { ColumnEditor } from "@/components/admin/crm/ColumnEditor";
 import { MeetingForm } from "@/components/admin/crm/MeetingForm";
+import { OutcomeDialog } from "@/components/admin/crm/OutcomeDialog";
+import { ClientTasks } from "@/components/admin/crm/Tasks";
 import { MeetingBadge, selectClass, STATUS_TONE } from "@/components/admin/crm/shared";
 import { cn } from "@/lib/utils";
 
 const TONE_TEXT = { neutral: "text-fg", accent: "text-brand", good: "text-good", bad: "text-bad" } as const;
 
-export function ClientDetail({ client, notes, meetings, columns, settings, zoom, appUrl }: { client: CrmClient; notes: CrmNote[]; meetings: CrmMeeting[]; columns: CrmColumn[]; settings: CrmSettings; zoom: boolean; appUrl: string }) {
+export function ClientDetail({ client, notes, meetings, tasks, columns, settings, zoom, appUrl }: { client: CrmClient; notes: CrmNote[]; meetings: CrmMeeting[]; tasks: CrmTask[]; columns: CrmColumn[]; settings: CrmSettings; zoom: boolean; appUrl: string }) {
   const router = useRouter();
   const [modal, setModal] = useState<null | "edit" | "meeting" | "column">(null);
   const [openMeeting, setOpenMeeting] = useState<CrmMeeting | null>(null);
   const [status, setStatus] = useState<ClientStatus>(client.status);
   const [pending, start] = useTransition();
   const [now] = useState(() => Date.now());
+  const [outcomeFor, setOutcomeFor] = useState<CrmMeeting | null>(null);
+  const callToday = meetings.find((m) => meetingPhase(m, now, settings.timezone) === "call");
   const upcoming = meetings.filter((m) => Date.parse(m.ends_at) >= now).reverse();
   const past = meetings.filter((m) => Date.parse(m.ends_at) < now);
   const fmt = (iso: string, zone: string) => DateTime.fromISO(iso).setZone(zone);
@@ -51,6 +55,11 @@ export function ClientDetail({ client, notes, meetings, columns, settings, zoom,
                 <a href={`tel:${client.phone}`} className="inline-flex items-center gap-1 font-mono text-[12px] hover:text-fg">
                   <Phone className="size-3.5" /> {client.phone}
                 </a>
+              )}
+              {callToday && (
+                <button onClick={() => setOpenMeeting(callToday)} className="rounded-full bg-bad/15 px-2 py-0.5 text-[12px] font-medium text-bad hover:bg-bad/25">
+                  Call to confirm today&apos;s meeting
+                </button>
               )}
               <span className="font-mono text-[11px] text-fg-faint">added {fmt(client.created_at, settings.timezone).toFormat("LLL d, yyyy")}{client.source === "csv" ? " from a CSV" : ""}</span>
             </p>
@@ -129,9 +138,10 @@ export function ClientDetail({ client, notes, meetings, columns, settings, zoom,
                 {[...upcoming, ...past].map((m) => {
                   const s = fmt(m.starts_at, settings.timezone);
                   const isPast = Date.parse(m.ends_at) < now;
+                  const needsOutcome = meetingPhase(m, now, settings.timezone) === "needs_outcome";
                   return (
-                    <li key={m.id}>
-                      <button onClick={() => setOpenMeeting(m)} className={cn("flex w-full items-start gap-3 px-5 py-3 text-left hover:bg-white/[0.02]", isPast && "opacity-60")}>
+                    <li key={m.id} className="relative">
+                      <button onClick={() => setOpenMeeting(m)} className={cn("flex w-full items-start gap-3 px-5 py-3 text-left hover:bg-white/[0.02]", isPast && !needsOutcome && "opacity-60")}>
                         <div className="w-12 shrink-0 text-center">
                           <p className="font-mono text-[10px] uppercase text-fg-faint">{s.toFormat("LLL")}</p>
                           <p className="text-lg font-semibold leading-tight">{s.toFormat("d")}</p>
@@ -143,8 +153,15 @@ export function ClientDetail({ client, notes, meetings, columns, settings, zoom,
                             {m.meeting_url && <Video className="size-3" />}
                           </p>
                         </div>
-                        <MeetingBadge status={m.status} />
+                        <MeetingBadge meeting={m} timezone={settings.timezone} now={now} />
                       </button>
+                      {needsOutcome && (
+                        <div className="-mt-1 px-5 pb-3 pl-[80px]">
+                          <Button size="sm" variant="ghost" onClick={() => setOutcomeFor(m)}>
+                            Mark what happened
+                          </Button>
+                        </div>
+                      )}
                     </li>
                   );
                 })}
@@ -153,9 +170,13 @@ export function ClientDetail({ client, notes, meetings, columns, settings, zoom,
           </Panel>
         </div>
 
-        <Notes clientId={client.id} notes={notes} timezone={settings.timezone} />
+        <div className="space-y-6">
+          <ClientTasks clientId={client.id} tasks={tasks} timezone={settings.timezone} />
+          <Notes clientId={client.id} notes={notes} timezone={settings.timezone} />
+        </div>
       </div>
 
+      {outcomeFor && <OutcomeDialog open meetingId={outcomeFor.id} label={clientLabel(client)} onClose={() => setOutcomeFor(null)} />}
       <ClientForm open={modal === "edit"} onClose={() => setModal(null)} client={client} />
       <ColumnEditor open={modal === "column"} onClose={() => { setModal(null); router.refresh(); }} />
       <MeetingForm open={modal === "meeting" || !!openMeeting} onClose={() => { setModal(null); setOpenMeeting(null); }} settings={settings} zoom={zoom} client={opt} meeting={openMeeting} appUrl={appUrl} />
