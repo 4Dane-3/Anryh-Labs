@@ -1,11 +1,12 @@
 import { DateTime } from "luxon";
 import { clientFirstName } from "@/lib/crm/types";
 
-// The CRM's emails to a client: the meeting invite (with a big Confirm button), the reminder the day
-// before, and the cancellation. Pure: subject, HTML and text; email.ts sends them. Table layout and inline
+// The CRM's emails to a client: the meeting invite (with a big Confirm button), a nudge when it sits
+// unconfirmed, the reminder the day before and the hour before, the cancellation, and the rebook email
+// after a no-show. Pure: subject, HTML and text; email.ts sends them. Table layout and inline
 // styles like the booking confirmation email, white and slate.
 
-export type InviteKind = "invite" | "update" | "reminder" | "cancel";
+export type InviteKind = "invite" | "update" | "reminder" | "cancel" | "nudge" | "hour" | "rebook";
 
 export type InviteInput = {
   kind: InviteKind;
@@ -35,26 +36,42 @@ export function inviteEmail(input: InviteInput) {
   const first = clientFirstName(input.client) ?? "there";
   const w = whenText(m);
   const confirmed = m.status === "confirmed";
-  const subject =
-    kind === "cancel"
-      ? `Cancelled: ${m.title} · ${w.short}`
-      : kind === "reminder"
-        ? `Reminder: ${m.title} · ${w.short}`
-        : kind === "update"
-          ? `Updated: ${m.title} · ${w.short}`
-          : `${m.title} · ${w.short} · please confirm`;
+  const startTime = DateTime.fromISO(m.starts_at).setZone(m.timezone).toFormat("h:mm a");
+  const when = `${m.title} · ${w.short}`;
+  const subject = {
+    invite: `${when} · please confirm`,
+    update: `Updated: ${when}`,
+    reminder: `Reminder: ${when}`,
+    nudge: `Did this reach you? ${when}`,
+    hour: `Starting at ${startTime}: ${m.title}`,
+    cancel: `Cancelled: ${when}`,
+    rebook: "Sorry we missed each other: let's find another time",
+  }[kind];
 
-  const heading =
-    kind === "cancel" ? "This meeting is cancelled." : kind === "reminder" ? (confirmed ? "See you soon." : "Can you still make it?") : kind === "update" ? "Your meeting has changed." : "You're invited.";
-  const lead =
-    kind === "cancel"
-      ? `Hi ${first}, ${input.from} cancelled the meeting below. Reply to this email if you'd like to find another time.`
-      : kind === "reminder"
-        ? confirmed
-          ? `Hi ${first}, a reminder about your meeting with ${input.from}.`
-          : `Hi ${first}, your meeting with ${input.from} is coming up. Press confirm so we know you'll be there.`
-        : `Hi ${first}, ${input.from} would like to meet with you. Press confirm to lock in the time.`;
-  const showConfirm = kind !== "cancel" && !confirmed;
+  const heading = {
+    invite: "You're invited.",
+    update: "Your meeting has changed.",
+    reminder: confirmed ? "See you soon." : "Can you still make it?",
+    nudge: "Just checking this reached you.",
+    hour: `We're on at ${startTime}.`,
+    cancel: "This meeting is cancelled.",
+    rebook: "Looks like we missed each other.",
+  }[kind];
+
+  const lead = {
+    invite: `Hi ${first}, ${input.from} would like to meet with you. Press confirm to lock in the time.`,
+    update: `Hi ${first}, ${input.from} would like to meet with you. Press confirm to lock in the time.`,
+    reminder: confirmed
+      ? `Hi ${first}, a reminder about your meeting with ${input.from}.`
+      : `Hi ${first}, your meeting with ${input.from} is coming up. Press confirm so we know you'll be there.`,
+    nudge: `Hi ${first}, tap Confirm so ${input.from} knows ${w.day} at ${startTime} still works for you.`,
+    hour: `Hi ${first}, here's the link for your meeting with ${input.from}. Running late? Just reply to this email.`,
+    cancel: `Hi ${first}, ${input.from} cancelled the meeting below. Reply to this email if you'd like to find another time.`,
+    rebook: `Hi ${first}, we were set to meet ${w.short}. No worries, it happens. Pick another time that works for you and ${input.from} will set it up.`,
+  }[kind];
+  // Past the meeting (hour reminder, rebook) there's nothing to confirm; the other emails ask until they do
+  const showConfirm = (kind === "invite" || kind === "update" || kind === "reminder" || kind === "nudge") && !confirmed;
+  const past = kind === "rebook";
   const preheader = `${w.day}, ${w.time}.${showConfirm ? " Press confirm to lock it in." : ""}`;
 
   const button = (href: string, label: string, primary: boolean) =>
@@ -79,8 +96,8 @@ export function inviteEmail(input: InviteInput) {
 
   const rows = [
     row("When", `<div style="font:600 17px/1.35 ${FONT};color:${INK};">${esc(w.day)}</div><div style="font:400 15px/1.4 ${FONT};color:${BODY};">${esc(w.time)}</div>`, !where && !m.description),
-    where && kind !== "cancel" ? row("Where", where, !m.description) : "",
-    m.description && kind !== "cancel" ? row("About", `<div style="font:400 15px/1.5 ${FONT};color:${BODY};">${nl2br(m.description)}</div>`, true) : "",
+    where && kind !== "cancel" && !past ? row("Where", where, !m.description || kind === "hour") : "",
+    m.description && kind !== "cancel" && !past && kind !== "hour" ? row("About", `<div style="font:400 15px/1.5 ${FONT};color:${BODY};">${nl2br(m.description)}</div>`, true) : "",
   ].join("");
 
   const actions = showConfirm
@@ -90,9 +107,18 @@ export function inviteEmail(input: InviteInput) {
             <p style="margin:14px 0 0;font:400 14px/1.55 ${FONT};color:${MUTED};">Can&rsquo;t make it? <a href="${esc(input.confirmUrl)}" style="color:${MUTED};">Let ${esc(input.from)} know</a> or reply to this email. The calendar invite is attached.</p>
           </td>
         </tr>`
-    : kind !== "cancel"
-      ? `<tr><td style="padding:22px 28px 0;"><p style="margin:0;font:400 14px/1.55 ${FONT};color:${MUTED};">You confirmed this meeting. Need to change it? Reply to this email.</p></td></tr>`
-      : "";
+    : kind === "rebook"
+      ? `<tr>
+          <td style="padding:24px 28px 0;">
+            ${button(input.confirmUrl, "Pick another time", true)}
+            <p style="margin:14px 0 0;font:400 14px/1.55 ${FONT};color:${MUTED};">Or just reply to this email with a few times that suit you.</p>
+          </td>
+        </tr>`
+      : kind === "hour"
+        ? `${m.meeting_url ? `<tr><td style="padding:24px 28px 0;">${button(m.meeting_url, "Join the meeting", true)}</td></tr>` : ""}<tr><td style="padding:16px 28px 0;"><p style="margin:0;font:400 14px/1.55 ${FONT};color:${MUTED};">Running late or can&rsquo;t make it? Reply to this email.</p></td></tr>`
+        : kind !== "cancel"
+          ? `<tr><td style="padding:22px 28px 0;"><p style="margin:0;font:400 14px/1.55 ${FONT};color:${MUTED};">You confirmed this meeting. Need to change it? Reply to this email.</p></td></tr>`
+          : "";
 
   const html = `<!doctype html>
 <html lang="en">
@@ -143,12 +169,13 @@ export function inviteEmail(input: InviteInput) {
     "",
     m.title,
     `When: ${w.day}, ${w.time}`,
-    m.meeting_url && kind !== "cancel" ? `Join: ${m.meeting_url}` : "",
-    m.meeting_details && kind !== "cancel" ? m.meeting_details : "",
-    m.description && kind !== "cancel" ? `\n${m.description}` : "",
+    m.meeting_url && kind !== "cancel" && !past ? `Join: ${m.meeting_url}` : "",
+    m.meeting_details && kind !== "cancel" && !past ? m.meeting_details : "",
+    m.description && kind !== "cancel" && !past && kind !== "hour" ? `\n${m.description}` : "",
     "",
     showConfirm ? `Confirm you'll be there: ${input.confirmUrl}` : "",
-    "Need to change it? Reply to this email.",
+    past ? `Pick another time: ${input.confirmUrl}` : "",
+    kind === "hour" ? "Running late or can't make it? Reply to this email." : past ? "Or reply with a few times that suit you." : "Need to change it? Reply to this email.",
   ]
     .filter((l, i, a) => l !== "" || a[i - 1] !== "")
     .join("\n");

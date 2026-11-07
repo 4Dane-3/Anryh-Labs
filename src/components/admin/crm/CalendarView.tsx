@@ -4,10 +4,10 @@ import { useState } from "react";
 import Link from "next/link";
 import { DateTime } from "luxon";
 import { CalendarPlus, ChevronLeft, ChevronRight, Settings2 } from "lucide-react";
-import { clientLabel, type CalendarMeeting, type CrmSettings } from "@/lib/crm/types";
+import { clientLabel, meetingPhase, type CalendarMeeting, type CrmSettings, type MeetingPhase } from "@/lib/crm/types";
 import { Button, Panel } from "@/components/dashboard/ui";
 import { MeetingForm, type ClientOption } from "@/components/admin/crm/MeetingForm";
-import { MEETING_LABEL, MEETING_TONE, TONE_DOT } from "@/components/admin/crm/shared";
+import { PHASE_LABEL, PHASE_TONE, TONE_DOT } from "@/components/admin/crm/shared";
 import { CrmSettingsForm } from "@/components/admin/crm/CrmSettingsForm";
 import { cn } from "@/lib/utils";
 
@@ -17,6 +17,9 @@ const CHIP = {
   good: "border-good/30 bg-good/10 text-fg",
   bad: "border-bad/20 bg-bad/5 text-fg-faint line-through",
 } as const;
+
+/** A meeting with its status as staff see it (confirmed, call to confirm, no-show…) */
+type Shown = CalendarMeeting & { phase: MeetingPhase };
 
 const HOURS = Array.from({ length: 15 }, (_, i) => i + 7); // 7am–9pm
 const HOUR_PX = 48;
@@ -28,16 +31,18 @@ export function CalendarView({ view, anchor, meetings, clients, settings, zoom, 
   const [open, setOpen] = useState<CalendarMeeting | null>(null);
   const [newAt, setNewAt] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [now] = useState(() => Date.now());
 
   const step = view === "month" ? { months: 1 } : { weeks: 1 };
   const href = (d: DateTime, v = view) => `/admin/calendar?view=${v}&d=${d.toISODate()}`;
   const title = view === "month" ? a.toFormat("LLLL yyyy") : `${weekStart(a).toFormat("LLL d")} – ${weekStart(a).plus({ days: 6 }).toFormat(weekStart(a).month === weekStart(a).plus({ days: 6 }).month ? "d, yyyy" : "LLL d, yyyy")}`;
-  const byDay = new Map<string, CalendarMeeting[]>();
-  for (const m of meetings) {
+  const shown: Shown[] = meetings.map((m) => ({ ...m, phase: meetingPhase(m, now, tz) }));
+  const byDay = new Map<string, Shown[]>();
+  for (const m of shown) {
     const k = DateTime.fromISO(m.starts_at).setZone(tz).toISODate()!;
     byDay.set(k, [...(byDay.get(k) ?? []), m]);
   }
-  const counts = meetings.reduce<Record<string, number>>((acc, m) => ({ ...acc, [m.status]: (acc[m.status] ?? 0) + 1 }), {});
+  const counts = shown.reduce<Record<string, number>>((acc, m) => ({ ...acc, [m.phase]: (acc[m.phase] ?? 0) + 1 }), {});
 
   return (
     <div className="space-y-4">
@@ -72,11 +77,13 @@ export function CalendarView({ view, anchor, meetings, clients, settings, zoom, 
       </div>
 
       <div className="flex flex-wrap gap-x-4 gap-y-1 font-mono text-[11px] text-fg-faint">
-        {(["invited", "confirmed", "draft", "cancelled"] as const).map((s) => (
-          <span key={s} className="flex items-center gap-1.5">
-            <span className={cn("size-2 rounded-full", TONE_DOT[MEETING_TONE[s]])} /> {MEETING_LABEL[s]} {counts[s] ?? 0}
-          </span>
-        ))}
+        {(["confirmed", "unconfirmed", "call", "needs_outcome", "showed", "no_show", "rescheduled", "draft", "cancelled"] as const)
+          .filter((s) => counts[s] || s === "confirmed" || s === "unconfirmed")
+          .map((s) => (
+            <span key={s} className="flex items-center gap-1.5">
+              <span className={cn("size-2 rounded-full", TONE_DOT[PHASE_TONE[s]])} /> {PHASE_LABEL[s]} {counts[s] ?? 0}
+            </span>
+          ))}
         <span className="ml-auto">times in {tz.replace(/_/g, " ")}</span>
       </div>
 
@@ -94,7 +101,7 @@ export function CalendarView({ view, anchor, meetings, clients, settings, zoom, 
 
 const weekStart = (d: DateTime) => d.startOf("day").minus({ days: d.weekday % 7 }); // Sunday
 
-function Chip({ m, tz, onOpen }: { m: CalendarMeeting; tz: string; onOpen: (m: CalendarMeeting) => void }) {
+function Chip({ m, tz, onOpen }: { m: Shown; tz: string; onOpen: (m: CalendarMeeting) => void }) {
   const s = DateTime.fromISO(m.starts_at).setZone(tz);
   return (
     <button
@@ -102,17 +109,17 @@ function Chip({ m, tz, onOpen }: { m: CalendarMeeting; tz: string; onOpen: (m: C
         e.stopPropagation();
         onOpen(m);
       }}
-      title={`${m.title} · ${clientLabel(m.client)} · ${MEETING_LABEL[m.status]}`}
-      className={cn("flex w-full items-center gap-1 truncate rounded border px-1.5 py-0.5 text-left text-[11px] hover:brightness-125", CHIP[MEETING_TONE[m.status]])}
+      title={`${m.title} · ${clientLabel(m.client)} · ${PHASE_LABEL[m.phase]}`}
+      className={cn("flex w-full items-center gap-1 truncate rounded border px-1.5 py-0.5 text-left text-[11px] hover:brightness-125", CHIP[PHASE_TONE[m.phase]])}
     >
-      <span className={cn("size-1.5 shrink-0 rounded-full", TONE_DOT[MEETING_TONE[m.status]])} />
+      <span className={cn("size-1.5 shrink-0 rounded-full", TONE_DOT[PHASE_TONE[m.phase]])} />
       <span className="font-mono text-fg-faint no-underline">{s.toFormat(s.minute ? "h:mm" : "h")}{s.toFormat("a").toLowerCase()[0]}</span>
       <span className="truncate">{clientLabel(m.client)}</span>
     </button>
   );
 }
 
-function MonthGrid({ anchor, today, byDay, tz, onOpen, onNew }: { anchor: DateTime; today: DateTime; byDay: Map<string, CalendarMeeting[]>; tz: string; onOpen: (m: CalendarMeeting) => void; onNew: (d: DateTime) => void }) {
+function MonthGrid({ anchor, today, byDay, tz, onOpen, onNew }: { anchor: DateTime; today: DateTime; byDay: Map<string, Shown[]>; tz: string; onOpen: (m: CalendarMeeting) => void; onNew: (d: DateTime) => void }) {
   const first = weekStart(anchor.startOf("month"));
   const weeks = Math.ceil((Math.round(anchor.startOf("month").diff(first, "days").days) + anchor.daysInMonth!) / 7);
   const days = Array.from({ length: weeks * 7 }, (_, i) => first.plus({ days: i }));
@@ -158,7 +165,7 @@ function MonthGrid({ anchor, today, byDay, tz, onOpen, onNew }: { anchor: DateTi
   );
 }
 
-function WeekGrid({ anchor, today, byDay, tz, onOpen, onNew }: { anchor: DateTime; today: DateTime; byDay: Map<string, CalendarMeeting[]>; tz: string; onOpen: (m: CalendarMeeting) => void; onNew: (d: DateTime) => void }) {
+function WeekGrid({ anchor, today, byDay, tz, onOpen, onNew }: { anchor: DateTime; today: DateTime; byDay: Map<string, Shown[]>; tz: string; onOpen: (m: CalendarMeeting) => void; onNew: (d: DateTime) => void }) {
   const start = weekStart(anchor);
   const days = Array.from({ length: 7 }, (_, i) => start.plus({ days: i }));
   return (
@@ -198,11 +205,11 @@ function WeekGrid({ anchor, today, byDay, tz, onOpen, onNew }: { anchor: DateTim
                       key={m.id}
                       onClick={() => onOpen(m)}
                       style={{ top, height }}
-                      className={cn("absolute inset-x-1 overflow-hidden rounded-md border px-1.5 py-1 text-left text-[11px] leading-tight hover:brightness-125", CHIP[MEETING_TONE[m.status]])}
+                      className={cn("absolute inset-x-1 overflow-hidden rounded-md border px-1.5 py-1 text-left text-[11px] leading-tight hover:brightness-125", CHIP[PHASE_TONE[m.phase]])}
                     >
                       <p className="truncate font-medium">{clientLabel(m.client)}</p>
                       <p className="truncate font-mono text-[10px] text-fg-faint">
-                        {s.toFormat("h:mm")}–{e.toFormat("h:mm a")} · {MEETING_LABEL[m.status]}
+                        {s.toFormat("h:mm")}–{e.toFormat("h:mm a")} · {PHASE_LABEL[m.phase]}
                       </p>
                     </button>
                   );

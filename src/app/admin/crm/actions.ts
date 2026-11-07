@@ -12,6 +12,11 @@ import { deleteZoomMeeting, upsertZoomMeeting, zoomReady } from "@/lib/crm/zoom"
 import {
   CLIENT_STATUSES,
   clientLabel,
+  dayIn,
+  MEETING_OUTCOMES,
+  NEXT_STEPS,
+  type MeetingOutcome,
+  type NextStep,
   COLUMN_TYPES,
   OPTION_COLORS,
   type ClientStatus,
@@ -361,8 +366,10 @@ export async function saveMeeting(input: MeetingInput): Promise<Result<{ id: str
     zoom_meeting_id: zoomId,
     // A new time needs a fresh confirmation, and a fresh reminder
     ...(previous && timeChanged && previous.status === "confirmed" ? { status: "invited", confirmed_at: null } : {}),
-    ...(previous && timeChanged ? { reminder_sent_at: null } : {}),
-    ...(previous && input.send ? { sequence: previous.sequence + 1 } : {}),
+    // A new time gets fresh reminders, and moving a past meeting to a new time clears what happened at it
+    ...(previous && timeChanged ? { reminder_sent_at: null, hour_reminder_sent_at: null, nudge_sent_at: null, outcome: null, outcome_at: null, rebook_sent_at: null, reschedule_requested_at: null } : {}),
+    // Each invite or update that goes out gets its own nudge if it sits unconfirmed
+    ...(previous && input.send ? { sequence: previous.sequence + 1, nudge_sent_at: null } : {}),
   };
   const res = previous
     ? await supabaseAdmin.from("crm_meetings").update(row).eq("id", previous.id).select("*").single()
@@ -378,7 +385,7 @@ export async function saveMeeting(input: MeetingInput): Promise<Result<{ id: str
       const settings = await getSettings();
       const kind = previous && previous.invited_at && previous.status !== "cancelled" ? "update" : "invite";
       if (meeting.status === "draft" || meeting.status === "cancelled") {
-        const upd = await supabaseAdmin.from("crm_meetings").update({ status: "invited", cancelled_at: null, cancelled_by: null, confirmed_at: null, reminder_sent_at: null }).eq("id", meeting.id).select("*").single();
+        const upd = await supabaseAdmin.from("crm_meetings").update({ status: "invited", cancelled_at: null, cancelled_by: null, confirmed_at: null, reminder_sent_at: null, hour_reminder_sent_at: null, nudge_sent_at: null }).eq("id", meeting.id).select("*").single();
         if (upd.data) meeting = upd.data as CrmMeeting;
       }
       const outcome = await sendMeetingEmail({ kind, meeting, client: { name: client.name, email: client.email! }, settings });
@@ -424,6 +431,99 @@ export async function deleteMeeting(id: string): Promise<Result> {
   if (!(await staff())) return { ok: false, error: "Staff only." };
   const { data } = await supabaseAdmin.from("crm_meetings").delete().eq("id", id).select("client_id, zoom_meeting_id").maybeSingle();
   if (data?.zoom_meeting_id && zoomReady()) await deleteZoomMeeting(data.zoom_meeting_id).catch(() => {});
+  refresh(data?.client_id);
+  return { ok: true };
+}
+
+// ---------- Outcomes ----------
+
+/**
+ * What happened at a meeting, once it has started. A no-show emails the client a link to pick another
+ * time and makes a "Call" task for today; a meeting they showed up to makes a task for the next step
+ * (and, after "Follow up", optional check-in tasks; those are never emailed automatically).
+ */
+export async function markOutcome(input: { meetingId: string; outcome: string; nextStep?: string; checkIns?: number[] }): Promise<Result> {
+  const who = await staff();
+  if (!who) return { ok: false, error: "Staff only." };
+  if (!(MEETING_OUTCOMES as readonly string[]).includes(input.outcome)) return { ok: false, error: "Pick what happened." };
+  const outcome = input.outcome as MeetingOutcome;
+  const nextStep = input.nextStep && input.nextStep in NEXT_STEPS ? (input.nextStep as NextStep) : null;
+  if (outcome === "showed" && !nextStep) return { ok: false, error: "Pick the next step." };
+
+  const { data } = await supabaseAdmin.from("crm_meetings").select("*, client:crm_clients(id, name, company, email, status)").eq("id", input.meetingId).maybeSingle();
+  if (!data) return { ok: false, error: "That meeting is gone." };
+  const m = data as CrmMeeting & { client: { id: string; name: string | null; company: string | null; email: string | null; status: ClientStatus } };
+  if (m.status === "cancelled") return { ok: false, error: "That meeting was cancelled." };
+  if (Date.parse(m.starts_at) > Date.now()) return { ok: false, error: "That meeting hasn't started yet." };
+
+  const { error } = await supabaseAdmin.from("crm_meetings").update({ outcome, outcome_at: new Date().toISOString() }).eq("id", m.id);
+  if (error) return { ok: false, error: "Couldn't save that." };
+
+  const settings = await getSettings();
+  const today = dayIn(settings.timezone, Date.now());
+  const label = clientLabel(m.client);
+  const tasks: { title: string; due_on: string }[] = [];
+  let message = "Saved.";
+
+  if (outcome === "no_show") {
+    tasks.push({ title: `Call ${label}`, due_on: today });
+    if (m.client.email && !m.rebook_sent_at) {
+      try {
+        const outcomeEmail = await sendMeetingEmail({ kind: "rebook", meeting: m, client: { name: m.client.name, email: m.client.email }, settings });
+        await supabaseAdmin.from("crm_meetings").update({ rebook_sent_at: new Date().toISOString() }).eq("id", m.id);
+        message = `Marked as a no-show. ${describeOutcome(outcomeEmail, "Rebook email")} A "Call" task is on today's list.`;
+      } catch (e) {
+        message = `Marked as a no-show, but the rebook email didn't send: ${e instanceof Error ? e.message : "unknown error"}`;
+      }
+    } else message = `Marked as a no-show. ${m.client.email ? "" : "They have no email, so no rebook email went out. "}A "Call" task is on today's list.`;
+  } else if (outcome === "showed" && nextStep) {
+    if (nextStep === "proposal") tasks.push({ title: `Send proposal to ${label}`, due_on: today });
+    if (nextStep === "follow_up") {
+      tasks.push({ title: `Follow up with ${label}`, due_on: dayIn(settings.timezone, Date.now(), 1) });
+      for (const d of [...new Set(input.checkIns ?? [])].filter((d) => [2, 5, 10].includes(d))) tasks.push({ title: `Check in with ${label}`, due_on: dayIn(settings.timezone, Date.now(), d) });
+    }
+    if (nextStep === "won") tasks.push({ title: `Kick off with ${label}`, due_on: today });
+    if (nextStep === "lost") tasks.push({ title: `Note why ${label} said no`, due_on: today });
+    const status: ClientStatus | null = nextStep === "won" ? "client" : nextStep === "lost" ? "lost" : null;
+    if (status && status !== m.client.status) await supabaseAdmin.from("crm_clients").update({ status, updated_at: new Date().toISOString() }).eq("id", m.client.id);
+    message = `Saved. ${tasks.length === 1 ? "A task was" : `${tasks.length} tasks were`} added.`;
+  } else if (outcome === "rescheduled") {
+    message = "Marked as rescheduled. Schedule the new time from the client's page.";
+  }
+
+  if (tasks.length) await supabaseAdmin.from("crm_tasks").insert(tasks.map((t) => ({ ...t, client_id: m.client.id, meeting_id: m.id, created_by: who })));
+  refresh(m.client.id);
+  return { ok: true, message };
+}
+
+// ---------- Tasks ----------
+
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+export async function addTask(input: { clientId: string; title: string; dueOn: string; meetingId?: string | null }): Promise<Result> {
+  const who = await staff();
+  if (!who) return { ok: false, error: "Staff only." };
+  if (!isUuid(input.clientId)) return { ok: false, error: "Pick a client." };
+  const title = clean(input.title);
+  if (!title) return { ok: false, error: "Say what needs doing." };
+  if (!DAY.test(input.dueOn) || !DateTime.fromISO(input.dueOn).isValid) return { ok: false, error: "Pick a due date." };
+  const { error } = await supabaseAdmin.from("crm_tasks").insert({ client_id: input.clientId, title, due_on: input.dueOn, meeting_id: input.meetingId && isUuid(input.meetingId) ? input.meetingId : null, created_by: who });
+  if (error) return { ok: false, error: "Couldn't add that task." };
+  refresh(input.clientId);
+  return { ok: true };
+}
+
+export async function setTaskDone(id: string, done: boolean): Promise<Result> {
+  if (!(await staff())) return { ok: false, error: "Staff only." };
+  const { data, error } = await supabaseAdmin.from("crm_tasks").update({ done_at: done ? new Date().toISOString() : null }).eq("id", id).select("client_id").maybeSingle();
+  if (error || !data) return { ok: false, error: "Couldn't update that task." };
+  refresh(data.client_id);
+  return { ok: true };
+}
+
+export async function deleteTask(id: string): Promise<Result> {
+  if (!(await staff())) return { ok: false, error: "Staff only." };
+  const { data } = await supabaseAdmin.from("crm_tasks").delete().eq("id", id).select("client_id").maybeSingle();
   refresh(data?.client_id);
   return { ok: true };
 }

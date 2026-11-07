@@ -27,7 +27,9 @@ export async function sendMeetingEmail(input: {
 }): Promise<SendOutcome> {
   const { meeting, client, settings, kind } = input;
   const email = inviteEmail({ kind, from: settings.from_name, client, meeting, confirmUrl: confirmUrl(meeting.token) });
-  const ics = meetingIcs(meeting, { name: settings.from_name, email: settings.reply_to }, kind === "cancel" ? "CANCEL" : "PUBLISH");
+  // The calendar file goes with the emails about a meeting that's still ahead; the rebook email is about a
+  // missed one, so it has none
+  const ics = kind === "rebook" ? null : meetingIcs(meeting, { name: settings.from_name, email: settings.reply_to }, kind === "cancel" ? "CANCEL" : "PUBLISH");
 
   const live = process.env.NODE_ENV === "production" || process.env.CRM_EMAIL_LIVE === "1";
   const testTo = process.env.CRM_EMAIL_TEST_TO?.trim();
@@ -53,7 +55,7 @@ export async function sendMeetingEmail(input: {
       subject: live ? email.subject : `[test → ${client.email}] ${email.subject}`,
       html: email.html,
       text: email.text,
-      attachments: [{ filename: kind === "cancel" ? "cancelled.ics" : "invite.ics", content: Buffer.from(ics).toString("base64"), content_type: "text/calendar" }],
+      ...(ics ? { attachments: [{ filename: kind === "cancel" ? "cancelled.ics" : "invite.ics", content: Buffer.from(ics).toString("base64"), content_type: "text/calendar" }] } : {}),
       headers: { "X-Entity-Ref-ID": `${meeting.id}-${kind}` },
     }),
     signal: AbortSignal.timeout(15_000),

@@ -21,11 +21,17 @@ export default async function MeetingPage({ params }: { params: Promise<{ token:
   const past = new Date(m.ends_at) < new Date();
   const confirm = respondToMeeting.bind(null, token, "confirm");
   const decline = respondToMeeting.bind(null, token, "decline");
+  const reschedule = respondToMeeting.bind(null, token, "reschedule");
+  const missed = m.outcome === "no_show";
 
   const state =
     m.status === "cancelled"
       ? { title: "This meeting is cancelled.", body: m.cancelled_by === "client" ? `Thanks for letting us know. ${settings.from_name} will reach out to find another time.` : `${settings.from_name} cancelled this meeting. Reply to the invite email to find another time.` }
-      : past
+      : missed
+        ? m.reschedule_requested_at
+          ? { title: `Thanks, ${first}.`, body: `${settings.from_name} will reach out to find a new time that works.` }
+          : { title: "Looks like we missed each other.", body: `No worries, it happens. Ask for another time and ${settings.from_name} will reach out to set it up.` }
+        : past
         ? { title: "This meeting has passed.", body: `Reply to the invite email if you'd like to meet again.` }
         : m.status === "confirmed"
           ? { title: `Thanks, ${first}. You're confirmed.`, body: `${settings.from_name} will see you then. The calendar invite is attached to the email we sent.` }
@@ -56,6 +62,15 @@ export default async function MeetingPage({ params }: { params: Promise<{ token:
             </div>
           )}
         </div>
+
+        {missed && !m.reschedule_requested_at && (
+          <form action={reschedule} className="mt-6">
+            <SubmitButton pendingLabel="One moment…" className="w-full rounded-full bg-slate-900 px-5 py-3.5 text-[15px] font-semibold text-white transition hover:bg-slate-800 active:scale-[0.99]">
+              Ask for another time
+            </SubmitButton>
+            <p className="mt-3 text-center text-sm text-slate-500">Or reply to the email with a few times that suit you.</p>
+          </form>
+        )}
 
         {m.status !== "cancelled" && !past && (
           <div className="mt-6 space-y-3">
