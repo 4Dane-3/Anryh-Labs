@@ -67,7 +67,7 @@ export function inviteEmail(input: InviteInput) {
     nudge: `Hi ${first}, tap Confirm so ${input.from} knows ${w.day} at ${startTime} still works for you.`,
     hour: `Hi ${first}, here's the link for your meeting with ${input.from}. Running late? Just reply to this email.`,
     cancel: `Hi ${first}, ${input.from} cancelled the meeting below. Reply to this email if you'd like to find another time.`,
-    rebook: `Hi ${first}, we were set to meet ${w.short}. No worries, it happens. Pick another time that works for you and ${input.from} will set it up.`,
+    rebook: `Hi ${first}, we were set to meet ${w.short}. No worries, it happens. Ask for another time and ${input.from} will reach out to set it up.`,
   }[kind];
   // Past the meeting (hour reminder, rebook) there's nothing to confirm; the other emails ask until they do
   const showConfirm = (kind === "invite" || kind === "update" || kind === "reminder" || kind === "nudge") && !confirmed;
@@ -110,7 +110,7 @@ export function inviteEmail(input: InviteInput) {
     : kind === "rebook"
       ? `<tr>
           <td style="padding:24px 28px 0;">
-            ${button(input.confirmUrl, "Pick another time", true)}
+            ${button(input.confirmUrl, "Ask for another time", true)}
             <p style="margin:14px 0 0;font:400 14px/1.55 ${FONT};color:${MUTED};">Or just reply to this email with a few times that suit you.</p>
           </td>
         </tr>`
@@ -174,7 +174,7 @@ export function inviteEmail(input: InviteInput) {
     m.description && kind !== "cancel" && !past && kind !== "hour" ? `\n${m.description}` : "",
     "",
     showConfirm ? `Confirm you'll be there: ${input.confirmUrl}` : "",
-    past ? `Pick another time: ${input.confirmUrl}` : "",
+    past ? `Ask for another time: ${input.confirmUrl}` : "",
     kind === "hour" ? "Running late or can't make it? Reply to this email." : past ? "Or reply with a few times that suit you." : "Need to change it? Reply to this email.",
   ]
     .filter((l, i, a) => l !== "" || a[i - 1] !== "")

@@ -9,7 +9,7 @@ alter table public.crm_meetings
   add column if not exists outcome text check (outcome in ('showed', 'no_show', 'rescheduled')),
   add column if not exists outcome_at timestamptz,
   add column if not exists rebook_sent_at timestamptz,
-  -- The client pressed "Pick another time" on their /meet page after a no-show
+  -- The client pressed "Ask for another time" on their /meet page after a no-show
   add column if not exists reschedule_requested_at timestamptz;
 
 create table if not exists public.crm_tasks (
