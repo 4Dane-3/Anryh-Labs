@@ -4,7 +4,48 @@ import { isAnryhAdmin } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { usPhone, displayPhone } from "@/lib/booking/call";
 import { dialLead, inspectionHours, isDoNotCall, type VoiceAccount } from "@/lib/voice/dial";
-import { voiceConfigured } from "@/lib/voice/elevenlabs";
+import { checkinConfigured, voiceConfigured } from "@/lib/voice/elevenlabs";
+import { placeDemoCheckin } from "@/lib/roofing/checkin";
+import type { Agent } from "@/lib/booking/data";
+
+export type DemoCheckinInput = {
+  accountId: string;
+  phone: string;
+  name: string; // the customer's full name
+  email: string; // optional: Emma reads it back, or asks for one
+  address: string;
+  company: string;
+  rewardDollars: string; // blank = $100
+  goal: string; // blank = 5
+};
+
+/** Emma's post-job check-in, placed now to the number you type. See placeDemoCheckin. */
+export async function placeDemoCheckinCall(input: DemoCheckinInput): Promise<Result> {
+  if (!(await isAnryhAdmin())) return { ok: false, error: "Staff only." };
+  if (!checkinConfigured()) return { ok: false, error: "The check-in agent isn't set up yet: set ELEVENLABS_CHECKIN_AGENT_ID (plus the API key, phone number ID and webhook secret)." };
+  const phone = usPhone(input.phone);
+  if (!phone) return { ok: false, error: "Enter a US phone number with its area code." };
+  if (await isDoNotCall(phone)) return { ok: false, error: "That number is on the do-not-call list." };
+  const name = input.name.trim().slice(0, 80);
+  if (!name) return { ok: false, error: "Add the customer's name." };
+  const company = input.company.trim().slice(0, 80);
+  if (!company) return { ok: false, error: "Add the company name Emma should use." };
+  const email = input.email.trim().toLowerCase();
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, error: "That email doesn't look right. Leave it blank and Emma will ask for one." };
+  const dollars = input.rewardDollars.trim() === "" ? 100 : Number(input.rewardDollars.replace(/[$,\s]/g, ""));
+  if (!Number.isFinite(dollars) || dollars < 0 || dollars > 1000) return { ok: false, error: "Enter a gift card amount between $0 and $1,000." };
+  const goal = input.goal.trim() === "" ? 5 : Number(input.goal);
+  if (!Number.isInteger(goal) || goal < 1 || goal > 20) return { ok: false, error: "Referrals needed should be 1 to 20." };
+
+  const { data: agent } = await supabaseAdmin.from("agents").select("*").eq("id", input.accountId).maybeSingle();
+  if (!agent) return { ok: false, error: "Pick the account the demo job goes on." };
+
+  const result = await placeDemoCheckin(agent as Agent, { phone, name, email: email || null, address: input.address.trim(), company, rewardCents: Math.round(dollars * 100), goal });
+  if (!result.ok) return { ok: false, error: `The call didn't start: ${result.error}` };
+  return result.simulated
+    ? { ok: true, simulated: true, message: `Simulated, nothing was dialed (outside production the app only dials VOICE_TEST_NUMBER, and only with VOICE_LIVE_CALLS=1).` }
+    : { ok: true, simulated: false, message: `Emma is calling ${displayPhone(phone)} for the check-in now.` };
+}
 
 export type DemoCallInput = {
   accountId: string;

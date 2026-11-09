@@ -136,6 +136,44 @@
   }
 }
 
+/* Admin: the same glass, warmer. A dark ember base with red and amber fields drifting behind the flutes. */
+.gb--ember {
+  background: linear-gradient(180deg, #1d0f0c 0%, #26120e 55%, #2e1610 100%);
+}
+.gb--ember .gb__field {
+  opacity: 0.5;
+}
+.gb--ember .gb__field--a {
+  background: radial-gradient(closest-side, #e0262b 0%, rgb(224 38 43 / 0.55) 45%, transparent 100%);
+}
+.gb--ember .gb__field--b {
+  background: radial-gradient(closest-side, #ffb020 0%, rgb(255 176 32 / 0.5) 50%, transparent 100%);
+}
+.gb--ember .gb__field--c {
+  background: radial-gradient(closest-side, #ff5a1f 0%, rgb(255 90 31 / 0.45) 50%, transparent 100%);
+}
+.gb--ember .gb__field--d {
+  background: radial-gradient(closest-side, #ffd166 0%, rgb(255 209 102 / 0.4) 50%, transparent 100%);
+}
+.gb--ember .gb__figure {
+  opacity: 0.6;
+  background: radial-gradient(closest-side, rgb(40 6 4 / 0.9) 0%, rgb(40 6 4 / 0.4) 55%, transparent 100%);
+}
+.gb--ember .gb__flutes {
+  opacity: 0.5;
+}
+
+/* Admin's tokens: deep orange where the agent dashboard uses lime, and warm glass panels */
+.admin-theme {
+  --t-ink: #1d0f0c;
+  --t-ink-raised: rgb(56 30 24 / 0.55);
+  --t-ink-high: rgb(255 236 228 / 0.1);
+  --t-brand: #ff6a13;
+  --t-brand-fg: #1e0a00;
+  --t-fg-muted: #d6c4bd;
+  --t-fg-faint: #a08a82;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .gb__field,
   .gb__figure {

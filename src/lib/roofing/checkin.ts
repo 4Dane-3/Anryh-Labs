@@ -184,6 +184,62 @@ async function dialCheckin(agent: Agent, job: JobRow, attempt: number) {
   return result;
 }
 
+/**
+ * A staff-triggered demo of the check-in call: makes a finished job on the chosen account (three days ago, marked
+ * done now) so the check-in tools work, then the check-in agent calls the number right away. The referral email
+ * it sends during the call is real and goes to the email given on the call, under the account's name.
+ */
+export async function placeDemoCheckin(
+  agent: Agent,
+  input: { phone: string; name: string; email: string | null; address: string; company: string; rewardCents: number; goal: number },
+) {
+  const startsAt = DateTime.now().minus({ days: 3 }).set({ second: Math.floor(Math.random() * 59), millisecond: 0 });
+  const now = new Date();
+  const { data: job, error } = await supabaseAdmin
+    .from("bookings")
+    .insert({
+      agent_id: agent.id,
+      starts_at: startsAt.toISO(),
+      ends_at: startsAt.plus({ minutes: agent.slot_minutes || 60 }).toISO(),
+      name: input.name,
+      email: input.email,
+      phone: input.phone,
+      consent_text: "Demo check-in call placed by Anryh Labs staff. The person asked for this call.",
+      job_done_at: now.toISOString(),
+      referral_token: randomUUID(),
+      checkin_status: "calling",
+      checkin_attempts: 1,
+    })
+    .select("id")
+    .single();
+  if (error || !job) {
+    console.error("[checkin] demo job insert failed", error);
+    return { ok: false as const, error: "Couldn't create the demo job." };
+  }
+  const vars = checkinVariables(
+    { id: job.id, name: input.name, email: input.email, address: input.address || null },
+    { full_name: input.company, referral_reward_cents: input.rewardCents, referral_goal: input.goal },
+  );
+  const requestedAt = new Date();
+  const result = await placeOutboundCall(input.phone, vars, { agentId: voiceConfig().checkinAgentId });
+  await supabaseAdmin.from("voice_calls").insert({
+    kind: "checkin",
+    job_booking_id: job.id,
+    agent_id: agent.id,
+    attempt: 1,
+    reason: "checkin",
+    to_number: input.phone,
+    requested_at: requestedAt.toISOString(),
+    api_returned_at: new Date().toISOString(),
+    conversation_id: result.ok ? result.conversationId : null,
+    call_sid: result.ok ? result.callSid : null,
+    status: result.ok ? "dialing" : "failed_to_start",
+    failure_reason: result.ok ? null : result.error.slice(0, 500),
+  });
+  if (!result.ok) await supabaseAdmin.from("bookings").update({ checkin_status: "failed" }).eq("id", job.id);
+  return result;
+}
+
 /** Check-in calls that are due, claimed so two cron runs never call twice. Rechecks consent, toggle and the clock. */
 export async function placeDueCheckins(limit = 20) {
   const { data: due, error } = await supabaseAdmin.from("bookings").select("id").eq("checkin_status", "scheduled").lte("checkin_next_call_at", new Date().toISOString()).order("checkin_next_call_at").limit(limit);

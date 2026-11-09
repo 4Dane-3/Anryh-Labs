@@ -1,3 +1,4 @@
+import { PageHead } from "@/components/admin/AdminShell";
 import { DateTime } from "luxon";
 import { getClientOptions, getMeetingsBetween, getSettings } from "@/lib/crm/data";
 import { appUrl } from "@/lib/crm/email";
@@ -21,10 +22,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
   const [{ ready, meetings }, clients] = await Promise.all([getMeetingsBetween(from.toUTC().toISO()!, to.toUTC().toISO()!), getClientOptions()]);
   return (
     <div className="mx-auto w-full max-w-7xl space-y-6 px-4 pb-16 pt-6 sm:px-8">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Calendar</h1>
-        <p className="mt-1 max-w-xl text-sm text-fg-muted">Meetings with your clients. Each invite has a Confirm button; you&apos;ll see here who confirmed.</p>
-      </header>
+      <PageHead eyebrow="Sales" title="Calendar" description={<>Meetings with your clients. Each invite has a Confirm button; you&apos;ll see here who confirmed.</>} />
       {ready ? <CalendarView view={view} anchor={anchor.toISODate()!} meetings={meetings} clients={clients} settings={settings} zoom={zoomReady()} appUrl={appUrl()} /> : <NeedsMigration />}
     </div>
   );
