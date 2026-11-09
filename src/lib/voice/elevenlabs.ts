@@ -9,13 +9,20 @@ import "server-only";
 
 const API = "https://api.elevenlabs.io";
 
+/** "agent_abc", even when what was pasted is "agent_abc/agent?branchId=…" or a whole URL from the ElevenLabs address bar. */
+export function cleanElevenLabsId(raw: string | undefined, prefix: "agent_" | "phnum_") {
+  const v = (raw ?? "").trim();
+  const m = v.match(new RegExp(`${prefix}[A-Za-z0-9]+`));
+  return m ? m[0] : v;
+}
+
 export const voiceConfig = () => ({
   apiKey: process.env.ELEVENLABS_API_KEY ?? "",
-  agentId: process.env.ELEVENLABS_AGENT_ID ?? "",
-  phoneNumberId: process.env.ELEVENLABS_PHONE_NUMBER_ID ?? "",
+  agentId: cleanElevenLabsId(process.env.ELEVENLABS_AGENT_ID, "agent_"),
+  phoneNumberId: cleanElevenLabsId(process.env.ELEVENLABS_PHONE_NUMBER_ID, "phnum_"),
   webhookSecret: process.env.ELEVENLABS_WEBHOOK_SECRET ?? "",
   // The post-job check-in agent (its own prompt and tools), on the same phone number
-  checkinAgentId: process.env.ELEVENLABS_CHECKIN_AGENT_ID ?? "",
+  checkinAgentId: cleanElevenLabsId(process.env.ELEVENLABS_CHECKIN_AGENT_ID, "agent_"),
 });
 
 /** Everything the voice agent needs is set (the per-account toggle is checked separately). */
