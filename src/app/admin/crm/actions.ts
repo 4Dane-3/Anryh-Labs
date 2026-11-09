@@ -46,6 +46,11 @@ const clean = (v: unknown, max = 200) => (typeof v === "string" ? v.trim().slice
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const isUuid = (s: unknown): s is string => typeof s === "string" && /^[0-9a-f-]{36}$/i.test(s);
 
+/** Ends a client's follow-up emails (a meeting got set, they became a client, or were marked lost). No-op before the migration. */
+async function stopFollowUps(clientId: string, reason: string) {
+  await supabaseAdmin.from("crm_followups").update({ status: "stopped", stop_reason: reason, next_send_at: null, updated_at: new Date().toISOString() }).eq("client_id", clientId).in("status", ["active", "paused"]);
+}
+
 function dupeError(e: { code?: string; message?: string }) {
   if (e.code !== "23505") return null;
   return /phone/.test(e.message ?? "") ? "A client with that phone number already exists." : "A client with that email already exists.";
@@ -111,6 +116,8 @@ export async function setClientField(clientId: string, field: string, value: unk
     if (!(CLIENT_STATUSES as readonly string[]).includes(String(value))) return { ok: false, error: "Unknown status." };
     const { error } = await supabaseAdmin.from("crm_clients").update({ status: value, updated_at: new Date().toISOString() }).eq("id", clientId);
     if (error) return { ok: false, error: "Couldn't save that." };
+    const why = { meeting: "They have a meeting", client: "They're a client now", lost: "Marked lost" }[String(value)];
+    if (why) await stopFollowUps(clientId, why);
     refresh(clientId);
     return { ok: true };
   }
@@ -378,6 +385,7 @@ export async function saveMeeting(input: MeetingInput): Promise<Result<{ id: str
   let meeting = res.data as CrmMeeting;
 
   if (client.status === "lead" || client.status === "contacted") await supabaseAdmin.from("crm_clients").update({ status: "meeting" }).eq("id", client.id);
+  await stopFollowUps(client.id, "They have a meeting");
 
   let message = previous ? "Meeting saved." : "Meeting saved as a draft.";
   if (input.send) {

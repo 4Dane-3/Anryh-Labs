@@ -64,6 +64,52 @@ export async function sendMeetingEmail(input: {
   return { sent: true, to };
 }
 
+export const unsubscribeUrl = (token: string) => `${appUrl()}/unsubscribe/${token}`;
+
+/**
+ * A follow-up email (offer and process recap). Same rules as the meeting emails: logged in dev unless
+ * CRM_EMAIL_TEST_TO or CRM_EMAIL_LIVE=1. Carries one-click unsubscribe headers.
+ */
+export async function sendFollowUpEmail(input: {
+  clientId: string;
+  step: number;
+  to: string;
+  token: string;
+  email: { subject: string; html: string; text: string };
+  settings: CrmSettings;
+}): Promise<SendOutcome> {
+  const { email, settings } = input;
+  const live = process.env.NODE_ENV === "production" || process.env.CRM_EMAIL_LIVE === "1";
+  const testTo = process.env.CRM_EMAIL_TEST_TO?.trim();
+  if (!live && !testTo) {
+    console.info(`[crm follow-up: logged, not sent] #${input.step} → ${input.to}\n  Subject: ${email.subject}\n${email.text.replace(/^/gm, "  | ")}`);
+    return { logged: true, reason: "Dev: the email was logged to the server console, not sent. Set CRM_EMAIL_TEST_TO to send it to yourself." };
+  }
+  if (!crmEmailReady()) return { skipped: true, reason: "Email isn't set up: add RESEND_API_KEY and BOOKING_EMAIL_FROM." };
+  const to = live ? input.to : testTo!;
+  const unsub = `${appUrl()}/api/crm/unsubscribe?t=${input.token}`;
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+      "Idempotency-Key": `crm-followup/${input.clientId}/${input.step}`,
+    },
+    body: JSON.stringify({
+      from: `${settings.from_name.replace(/[<>"]/g, "")} <${process.env.BOOKING_EMAIL_FROM}>`,
+      to: [to],
+      ...(settings.reply_to ? { reply_to: settings.reply_to } : {}),
+      subject: live ? email.subject : `[test → ${input.to}] ${email.subject}`,
+      html: email.html,
+      text: email.text,
+      headers: { "X-Entity-Ref-ID": `${input.clientId}-followup-${input.step}`, "List-Unsubscribe": `<${unsub}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
+    }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!res.ok) throw new Error(`Resend ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  return { sent: true, to };
+}
+
 export function describeOutcome(o: SendOutcome, verb = "Invite") {
   if ("sent" in o) return `${verb} emailed to ${o.to}.`;
   return o.reason;

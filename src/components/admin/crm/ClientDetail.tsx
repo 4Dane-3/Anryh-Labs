@@ -14,12 +14,14 @@ import { ColumnEditor } from "@/components/admin/crm/ColumnEditor";
 import { MeetingForm } from "@/components/admin/crm/MeetingForm";
 import { OutcomeDialog } from "@/components/admin/crm/OutcomeDialog";
 import { ClientTasks } from "@/components/admin/crm/Tasks";
+import { FollowUpPanel } from "@/components/admin/crm/FollowUps";
+import type { CrmFollowUp, CrmFollowUpEmail, FollowUpCopy } from "@/lib/crm/followups";
 import { MeetingBadge, selectClass, STATUS_TONE } from "@/components/admin/crm/shared";
 import { cn } from "@/lib/utils";
 
 const TONE_TEXT = { neutral: "text-fg", accent: "text-brand", good: "text-good", bad: "text-bad" } as const;
 
-export function ClientDetail({ client, notes, meetings, tasks, columns, settings, zoom, appUrl }: { client: CrmClient; notes: CrmNote[]; meetings: CrmMeeting[]; tasks: CrmTask[]; columns: CrmColumn[]; settings: CrmSettings; zoom: boolean; appUrl: string }) {
+export function ClientDetail({ client, notes, meetings, tasks, columns, settings, zoom, appUrl, followUp, followUpEmails, followUpCopy }: { client: CrmClient; notes: CrmNote[]; meetings: CrmMeeting[]; tasks: CrmTask[]; columns: CrmColumn[]; settings: CrmSettings; zoom: boolean; appUrl: string; followUp: CrmFollowUp | null; followUpEmails: CrmFollowUpEmail[]; followUpCopy: FollowUpCopy & { ready: boolean } }) {
   const router = useRouter();
   const [modal, setModal] = useState<null | "edit" | "meeting" | "column">(null);
   const [openMeeting, setOpenMeeting] = useState<CrmMeeting | null>(null);
@@ -51,6 +53,7 @@ export function ClientDetail({ client, notes, meetings, tasks, columns, settings
                   <Mail className="size-3.5" /> {client.email}
                 </a>
               )}
+              {client.unsubscribed_at && <span className="rounded-full bg-bad/15 px-2 py-0.5 text-[12px] font-medium text-bad">Unsubscribed</span>}
               {client.phone && (
                 <a href={`tel:${client.phone}`} className="inline-flex items-center gap-1 font-mono text-[12px] hover:text-fg">
                   <Phone className="size-3.5" /> {client.phone}
@@ -171,6 +174,7 @@ export function ClientDetail({ client, notes, meetings, tasks, columns, settings
         </div>
 
         <div className="space-y-6">
+          <FollowUpPanel client={client} followUp={followUp} emails={followUpEmails} hasUpcomingMeeting={upcoming.some((m) => m.status !== "cancelled")} copy={followUpCopy} timezone={settings.timezone} />
           <ClientTasks clientId={client.id} tasks={tasks} timezone={settings.timezone} />
           <Notes clientId={client.id} notes={notes} timezone={settings.timezone} />
         </div>
