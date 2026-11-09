@@ -1,14 +1,14 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import Link from "next/link";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { DateTime } from "luxon";
-import { ArrowUpRight, BellRing, BrainCircuit, Check, RefreshCw, ShieldCheck } from "lucide-react";
+import { ArrowUpRight, BellRing, BrainCircuit, Check, RefreshCw } from "lucide-react";
 import type { AdminAlert, AdminOverview, AdminAgentRow } from "@/lib/admin/types";
 import type { Severity } from "@/lib/admin/issues";
 import { resolveAlert, scanNow, setAgentModelBudget } from "@/app/admin/actions";
 import { TIER } from "@/components/dashboard/brain/model";
+import { OVERVIEW_SECTIONS, PageHead, SectionNav } from "@/components/admin/AdminShell";
 import { PageAnalyticsPanel } from "@/components/admin/PageAnalytics";
 import { AffiliatesPanel } from "@/components/admin/AffiliatesPanel";
 import type { AdminAffiliates } from "@/lib/referrals";
@@ -368,37 +368,35 @@ export function AdminView({ initial, affiliates }: { initial: AdminOverview; aff
   };
 
   return (
-    <div className="mx-auto w-full max-w-7xl space-y-6 px-4 pb-16 pt-6 sm:px-8 lg:pt-10">
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="flex items-center gap-1.5 font-mono text-[11px] text-brand">
-            <ShieldCheck className="size-3.5" /> Anryh Labs staff
-          </p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight">Admin</h1>
-          <p className="mt-1 max-w-xl text-sm text-fg-muted">Every agent&apos;s account at a glance, what Migz is doing right now, and anything failing or paused.</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="flex items-center gap-1.5 font-mono text-[11px] text-fg-faint">
-            <span className="size-1.5 animate-pulse rounded-full bg-good" /> live · updated {age}s ago
-          </span>
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={pending}
-            onClick={() =>
-              start(async () => {
-                setNote(null);
-                const r = await scanNow();
-                setNote(r.ok ? r.message ?? "Done." : r.error);
-                await refresh();
-              })
-            }
-          >
-            <RefreshCw className={cn("size-3.5", pending && "animate-spin")} /> {pending ? "Scanning…" : "Scan now"}
-          </Button>
-          <Link href="/dashboard" className="text-[13px] text-fg-muted hover:text-fg">My dashboard</Link>
-        </div>
-      </header>
+    <div className="mx-auto w-full max-w-7xl space-y-6 px-4 pb-16 pt-6 sm:px-8">
+      <PageHead
+        eyebrow="Anryh Labs staff"
+        title="Overview"
+        description="Every agent's account at a glance, what Migz is doing right now, and anything failing or paused."
+        action={
+          <div className="flex items-center gap-3">
+            <span className="flex items-center gap-1.5 font-mono text-[11px] text-fg-faint">
+              <span className="size-1.5 animate-pulse rounded-full bg-good" /> live · updated {age}s ago
+            </span>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={pending}
+              onClick={() =>
+                start(async () => {
+                  setNote(null);
+                  const r = await scanNow();
+                  setNote(r.ok ? r.message ?? "Done." : r.error);
+                  await refresh();
+                })
+              }
+            >
+              <RefreshCw className={cn("size-3.5", pending && "animate-spin")} /> {pending ? "Scanning…" : "Scan now"}
+            </Button>
+          </div>
+        }
+      />
+      <SectionNav sections={OVERVIEW_SECTIONS} />
       {note && <p className="font-mono text-[12px] text-fg-muted">{note}</p>}
 
       <div className={cn("grid grid-cols-2 gap-3", data.speedToLead?.calls ? "lg:grid-cols-6" : "lg:grid-cols-5")}>
@@ -410,18 +408,18 @@ export function AdminView({ initial, affiliates }: { initial: AdminOverview; aff
         {!!data.speedToLead?.calls && <SpeedToLeadStat s={data.speedToLead} />}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[1.6fr_1fr]">
+      <div id="alerts" className="grid scroll-mt-32 gap-6 lg:grid-cols-[1.6fr_1fr]">
         <AlertsPanel data={data} now={now} onResolved={(id) => setData((d) => ({ ...d, open: d.open.filter((a) => a.id !== id) }))} />
         <ActivityPanel data={data} now={now} />
       </div>
 
-      <AgentsPanel data={data} now={now} />
+      <div id="agents" className="scroll-mt-32"><AgentsPanel data={data} now={now} /></div>
 
-      <AffiliatesPanel data={affiliates} />
+      <div id="affiliates" className="scroll-mt-32"><AffiliatesPanel data={affiliates} /></div>
 
-      <PageAnalyticsPanel agents={data.agents.map((x) => ({ id: x.id, name: x.name, slug: x.slug }))} />
+      <div id="analytics" className="scroll-mt-32"><PageAnalyticsPanel agents={data.agents.map((x) => ({ id: x.id, name: x.name, slug: x.slug }))} /></div>
 
-      <AccountsPanel data={data} />
+      <div id="accounts" className="scroll-mt-32"><AccountsPanel data={data} /></div>
     </div>
   );
 }
