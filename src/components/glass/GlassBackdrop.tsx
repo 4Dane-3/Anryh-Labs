@@ -1,7 +1,7 @@
 import "./glass.css";
 
-/** The fixed, slowly moving colour backdrop behind fluted glass. "bright" for the site, "dim" for the dashboard, "ember" for admin. */
-export function GlassBackdrop({ tone = "bright" }: { tone?: "bright" | "dim" | "ember" }) {
+/** The fixed, slowly moving colour backdrop behind fluted glass. "bright" for the site, "dim" for the dashboard, "admin" for admin. */
+export function GlassBackdrop({ tone = "bright" }: { tone?: "bright" | "dim" | "admin" }) {
   return (
     <div className={`gb gb--${tone}`} aria-hidden="true">
       <div className="gb__field gb__field--c" />

@@ -12,12 +12,12 @@ export const metadata: Metadata = {
 };
 
 // Anryh Labs staff only (ANRYH_ADMIN_EMAILS). Everyone else gets a plain 404.
-// The same frosted glass as the agent dashboard, in deep orange over a red and amber backdrop (.admin-theme).
+// The same frosted glass as the agent dashboard, in deep orange over a lime and blue backdrop (.admin-theme).
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   if (!(await isAnryhAdmin())) notFound();
   return (
     <div className="admin-theme relative min-h-screen bg-ink text-fg antialiased [color-scheme:dark]">
-      <GlassBackdrop tone="ember" />
+      <GlassBackdrop tone="admin" />
       <AdminTopBar />
       <main className="relative">{children}</main>
     </div>

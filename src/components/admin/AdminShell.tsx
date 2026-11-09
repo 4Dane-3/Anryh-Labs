@@ -95,9 +95,9 @@ function MenuSheet({ onClose }: { onClose: () => void }) {
 
   return (
     <>
-      <motion.div className="fixed inset-0 z-40 bg-[#140806]/55" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} />
+      <motion.div className="fixed inset-0 z-40 bg-[#060c10]/55" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} />
       <motion.aside
-        className="fixed inset-y-3 right-3 z-50 flex w-[min(340px,calc(100vw-24px))] flex-col rounded-[26px] border border-white/20 bg-[rgb(40_24_20/0.85)] p-3 backdrop-blur-2xl"
+        className="fixed inset-y-3 right-3 z-50 flex w-[min(340px,calc(100vw-24px))] flex-col rounded-[26px] border border-white/20 bg-[rgb(18_28_34/0.85)] p-3 backdrop-blur-2xl"
         initial={{ x: "110%" }}
         animate={{ x: 0 }}
         exit={{ x: "110%" }}
@@ -194,7 +194,7 @@ export function AdminTopBar() {
     <header className="sticky top-0 z-30">
       <div
         aria-hidden="true"
-        className={cn("absolute inset-0 -z-10 border-b transition-[background-color,border-color] duration-300", scrolled ? "border-white/10 bg-[rgb(36_20_16/0.6)] backdrop-blur-xl" : "border-transparent")}
+        className={cn("absolute inset-0 -z-10 border-b transition-[background-color,border-color] duration-300", scrolled ? "border-white/10 bg-[rgb(14_24_30/0.6)] backdrop-blur-xl" : "border-transparent")}
       />
       <div className="mx-auto grid max-w-7xl grid-cols-[1fr_auto] items-center gap-3 px-4 py-3 sm:px-8 lg:grid-cols-[1fr_auto_1fr]">
         <Link href="/admin" className="flex items-center gap-2.5 justify-self-start text-[17px] font-semibold tracking-tight text-fg">
@@ -275,7 +275,7 @@ export function SectionNav({ sections }: { sections: Place[] }) {
 
   return (
     <div className="sticky top-[68px] z-20 -mx-1 overflow-x-auto px-1 py-1 [scrollbar-width:none]">
-      <div className="inline-flex gap-1 rounded-2xl border border-white/15 bg-[rgb(36_20_16/0.45)] p-1 backdrop-blur-xl">
+      <div className="inline-flex gap-1 rounded-2xl border border-white/15 bg-[rgb(14_24_30/0.45)] p-1 backdrop-blur-xl">
         {sections.map(({ href, label, icon: Icon }) => {
           const id = href.split("#")[1];
           const on = current === id;
