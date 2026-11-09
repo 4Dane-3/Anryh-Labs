@@ -193,25 +193,30 @@ export async function placeDemoCheckin(
   agent: Agent,
   input: { phone: string; name: string; email: string | null; address: string; company: string; rewardCents: number; goal: number },
 ) {
-  const startsAt = DateTime.now().minus({ days: 3 }).set({ second: Math.floor(Math.random() * 59), millisecond: 0 });
   const now = new Date();
-  const { data: job, error } = await supabaseAdmin
-    .from("bookings")
-    .insert({
-      agent_id: agent.id,
-      starts_at: startsAt.toISO(),
-      ends_at: startsAt.plus({ minutes: agent.slot_minutes || 60 }).toISO(),
-      name: input.name,
-      email: input.email,
-      phone: input.phone,
-      consent_text: "Demo check-in call placed by Anryh Labs staff. The person asked for this call.",
-      job_done_at: now.toISOString(),
-      referral_token: randomUUID(),
-      checkin_status: "calling",
-      checkin_attempts: 1,
-    })
-    .select("id")
-    .single();
+  // A past slot nobody will see; bookings can't overlap on a crew, so a taken one moves back a day and tries again
+  const insert = (daysAgo: number) => {
+    const startsAt = DateTime.now().minus({ days: daysAgo }).set({ second: Math.floor(Math.random() * 59), millisecond: 0 });
+    return supabaseAdmin
+      .from("bookings")
+      .insert({
+        agent_id: agent.id,
+        starts_at: startsAt.toISO(),
+        ends_at: startsAt.plus({ minutes: agent.slot_minutes || 60 }).toISO(),
+        name: input.name,
+        email: input.email ?? "", // the column is required; Emma asks for one when it's empty
+        phone: input.phone,
+        consent_text: "Demo check-in call placed by Anryh Labs staff. The person asked for this call.",
+        job_done_at: now.toISOString(),
+        referral_token: randomUUID(),
+        checkin_status: "calling",
+        checkin_attempts: 1,
+      })
+      .select("id")
+      .single();
+  };
+  let { data: job, error } = await insert(3);
+  for (let d = 4; d < 10 && error?.code === "23P01"; d++) ({ data: job, error } = await insert(d));
   if (error || !job) {
     console.error("[checkin] demo job insert failed", error);
     return { ok: false as const, error: "Couldn't create the demo job." };
