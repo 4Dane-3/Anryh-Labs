@@ -36,8 +36,11 @@ export type CrmClient = {
   source: "manual" | "csv";
   created_at: string;
   updated_at: string;
+  unsubscribed_at?: string | null; // pressed Unsubscribe on a follow-up email (migration 20261206000000)
+  email_token?: string; // the unsubscribe link's key
   // computed by the list query
   next_meeting?: { starts_at: string; status: MeetingStatus; outcome: MeetingOutcome | null } | null;
+  followup?: { status: "active" | "paused"; cadence: "daily" | "every_2_days" | "twice_monthly"; next_send_at: string | null } | null;
 };
 
 export type CrmNote = { id: number; client_id: string; body: string; author: string; created_at: string };

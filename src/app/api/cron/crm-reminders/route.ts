@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import { getSettings } from "@/lib/crm/data";
 import { sendMeetingEmail } from "@/lib/crm/email";
 import type { InviteKind } from "@/lib/crm/invite-email";
+import { runDueFollowUps } from "@/lib/crm/followup-send";
 import type { CrmMeeting, CrmSettings } from "@/lib/crm/types";
 
 export const maxDuration = 60;
@@ -75,13 +76,19 @@ export async function GET(req: Request) {
   if (!isCronRequest(req)) return new Response("Unauthorized", { status: 401 });
   const now = Date.now();
   const settings = await getSettings();
-  const out: Record<string, { due: number; sent: number } | { error: string }> = {};
+  const out: Record<string, { due: number; sent: number; skipped?: string } | { error: string }> = {};
   for (const job of JOBS) {
     try {
       out[job.kind] = await runJob(job, now, settings);
     } catch (e) {
       out[job.kind] = { error: e instanceof Error ? e.message : String(e) };
     }
+  }
+  // Follow-up emails (offer and process recap) that are due
+  try {
+    out.followups = await runDueFollowUps();
+  } catch (e) {
+    out.followups = { error: e instanceof Error ? e.message : String(e) };
   }
   return Response.json(out);
 }

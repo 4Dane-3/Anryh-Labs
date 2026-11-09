@@ -1,6 +1,7 @@
 import "server-only";
 import { DateTime } from "luxon";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { DEFAULT_CTA_LABEL, DEFAULT_OFFER, DEFAULT_PROCESS, type CrmFollowUp, type CrmFollowUpEmail, type FollowUpCopy } from "@/lib/crm/followups";
 import { dayIn, DEFAULT_SETTINGS, type CalendarMeeting, type CrmTask, type DueTask, type ClientRef, type CrmClient, type CrmColumn, type CrmMeeting, type CrmNote, type CrmSettings } from "@/lib/crm/types";
 
 // Reads for the admin CRM. Every caller has already checked isAnryhAdmin(); these use the service role.
@@ -13,23 +14,47 @@ export async function getSettings(): Promise<CrmSettings> {
   return { ...DEFAULT_SETTINGS, ...(data ?? {}) };
 }
 
+/** What the follow-up emails say. Read on its own so the meeting settings still load before the migration runs. */
+export async function getFollowUpCopy(): Promise<FollowUpCopy & { ready: boolean }> {
+  const { data, error } = await supabaseAdmin.from("crm_settings").select("followup_offer, followup_process, followup_cta_url, followup_cta_label, postal_address").eq("id", true).maybeSingle();
+  return {
+    ready: !error,
+    offer: data?.followup_offer?.trim() || DEFAULT_OFFER,
+    process: data?.followup_process?.trim() || DEFAULT_PROCESS,
+    ctaUrl: data?.followup_cta_url?.trim() || null,
+    ctaLabel: data?.followup_cta_label?.trim() || DEFAULT_CTA_LABEL,
+    postalAddress: data?.postal_address?.trim() || null,
+  };
+}
+
+/** A client's follow-up sequence and the emails it has sent (null/[] before the migration or when none). */
+export async function getClientFollowUp(clientId: string): Promise<{ followUp: CrmFollowUp | null; emails: CrmFollowUpEmail[] }> {
+  const [f, e] = await Promise.all([
+    supabaseAdmin.from("crm_followups").select("*").eq("client_id", clientId).maybeSingle(),
+    supabaseAdmin.from("crm_followup_emails").select("*").eq("client_id", clientId).order("sent_at", { ascending: false }).limit(50),
+  ]);
+  return { followUp: (f.data ?? null) as CrmFollowUp | null, emails: (e.data ?? []) as CrmFollowUpEmail[] };
+}
+
 export async function getColumns(): Promise<CrmColumn[]> {
   const { data } = await supabaseAdmin.from("crm_columns").select("id, label, type, options, position").order("position").order("created_at");
   return (data ?? []) as CrmColumn[];
 }
 
 export async function getClientsPage(): Promise<{ ready: boolean; clients: CrmClient[]; columns: CrmColumn[]; settings: CrmSettings }> {
-  const [clientsRes, columns, settings, meetingsRes] = await Promise.all([
+  const [clientsRes, columns, settings, meetingsRes, followRes] = await Promise.all([
     supabaseAdmin.from("crm_clients").select("*").order("created_at", { ascending: false }).limit(5000),
     getColumns(),
     getSettings(),
     supabaseAdmin.from("crm_meetings").select("client_id, starts_at, status, outcome").gte("starts_at", new Date().toISOString()).neq("status", "cancelled").order("starts_at"),
+    supabaseAdmin.from("crm_followups").select("client_id, status, cadence, next_send_at").in("status", ["active", "paused"]),
   ]);
   if (missingTable(clientsRes.error)) return { ready: false, clients: [], columns: [], settings };
   if (clientsRes.error) throw new Error(clientsRes.error.message);
   const next = new Map<string, NonNullable<CrmClient["next_meeting"]>>();
   for (const m of meetingsRes.data ?? []) if (!next.has(m.client_id)) next.set(m.client_id, { starts_at: m.starts_at, status: m.status, outcome: m.outcome });
-  const clients = (clientsRes.data as CrmClient[]).map((c) => ({ ...c, next_meeting: next.get(c.id) ?? null }));
+  const follow = new Map((followRes.data ?? []).map((f) => [f.client_id as string, f as NonNullable<CrmClient["followup"]>]));
+  const clients = (clientsRes.data as CrmClient[]).map((c) => ({ ...c, next_meeting: next.get(c.id) ?? null, followup: follow.get(c.id) ?? null }));
   return { ready: true, clients, columns, settings };
 }
 

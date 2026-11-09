@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { DateTime } from "luxon";
-import { ChevronLeft, ChevronRight, Download, FileUp, Pencil, Plus, Search, Trash2, UserPlus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, FileUp, Mail, Pencil, Plus, Search, Trash2, UserPlus } from "lucide-react";
 import { deleteClient, moveColumn, setClientField } from "@/app/admin/crm/actions";
 import { CLIENT_STATUSES, clientLabel, STATUS_LABEL, type ClientStatus, type CrmClient, type CrmColumn, type CrmSettings } from "@/lib/crm/types";
 import { Button, EmptyState, inputClass, Panel } from "@/components/dashboard/ui";
@@ -13,6 +13,8 @@ import { ColumnEditor } from "@/components/admin/crm/ColumnEditor";
 import { CsvImport } from "@/components/admin/crm/CsvImport";
 import { ClientForm } from "@/components/admin/crm/ClientForm";
 import { MeetingBadge, selectClass, STATUS_TONE } from "@/components/admin/crm/shared";
+import { BulkFollowUp, FollowUpCopyForm } from "@/components/admin/crm/FollowUps";
+import { CADENCES, type FollowUpCopy } from "@/lib/crm/followups";
 import { cn } from "@/lib/utils";
 
 const TONE_TEXT = { neutral: "text-fg-muted", accent: "text-brand", good: "text-good", bad: "text-bad" } as const;
@@ -23,7 +25,7 @@ function csvEscape(v: unknown) {
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-export function ClientsView({ clients, columns, settings }: { clients: CrmClient[]; columns: CrmColumn[]; settings: CrmSettings }) {
+export function ClientsView({ clients, columns, settings, followUpCopy }: { clients: CrmClient[]; columns: CrmColumn[]; settings: CrmSettings; followUpCopy: FollowUpCopy }) {
   const router = useRouter();
   const [q, setQ] = useState("");
   const [now] = useState(() => Date.now());
@@ -31,7 +33,8 @@ export function ClientsView({ clients, columns, settings }: { clients: CrmClient
   const [filterCol, setFilterCol] = useState<{ id: string; value: string } | null>(null);
   const [limit, setLimit] = useState(PAGE);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [modal, setModal] = useState<null | "add" | "import" | "column">(null);
+  const [modal, setModal] = useState<null | "add" | "import" | "column" | "followup" | "copy">(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [editCol, setEditCol] = useState<CrmColumn | null>(null);
   const [pending, start] = useTransition();
   const [statusOverride, setStatusOverride] = useState<Record<string, ClientStatus>>({});
@@ -109,6 +112,9 @@ export function ClientsView({ clients, columns, settings }: { clients: CrmClient
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" variant="ghost" onClick={() => setModal("copy")}>
+            <Mail /> Follow-up email
+          </Button>
           <Button size="sm" variant="ghost" onClick={exportCsv} disabled={!shown.length}>
             <Download /> Export
           </Button>
@@ -142,6 +148,9 @@ export function ClientsView({ clients, columns, settings }: { clients: CrmClient
       {selected.size > 0 && (
         <div className="flex items-center gap-3 rounded-lg border border-line bg-ink-raised px-4 py-2 text-[13px]">
           <span>{selected.size} selected</span>
+          <Button size="sm" variant="secondary" onClick={() => setModal("followup")}>
+            <Mail /> Start follow-ups
+          </Button>
           <Button
             size="sm"
             variant="danger"
@@ -160,6 +169,13 @@ export function ClientsView({ clients, columns, settings }: { clients: CrmClient
           <button className="text-fg-muted hover:text-fg" onClick={() => setSelected(new Set())}>
             Clear
           </button>
+        </div>
+      )}
+
+      {notice && (
+        <div className="flex items-start justify-between gap-3 rounded-lg border border-good/30 bg-good/10 px-4 py-2 text-[13px] text-fg">
+          <span>{notice}</span>
+          <button className="text-fg-muted hover:text-fg" onClick={() => setNotice(null)}>Dismiss</button>
         </div>
       )}
 
@@ -252,6 +268,11 @@ export function ClientsView({ clients, columns, settings }: { clients: CrmClient
                         <Link href={`/admin/clients/${c.id}`} className="font-medium text-fg hover:text-brand">
                           {clientLabel(c)}
                         </Link>
+                        {c.followup && (
+                          <span title={`Follow-ups ${c.followup.status === "paused" ? "paused" : `on, ${CADENCES[c.followup.cadence].label.toLowerCase()}`}`} className={cn("ml-1.5 inline-flex translate-y-[2px]", c.followup.status === "paused" ? "text-fg-faint" : "text-brand")}>
+                            <Mail className="size-3.5" />
+                          </span>
+                        )}
                       </td>
                       <td className="max-w-[220px] truncate px-3 py-1.5 text-fg-muted">{c.email ?? <span className="text-fg-faint">—</span>}</td>
                       <td className="whitespace-nowrap px-3 py-1.5 font-mono text-[12px] text-fg-muted">{c.phone ?? <span className="text-fg-faint">—</span>}</td>
@@ -316,6 +337,18 @@ export function ClientsView({ clients, columns, settings }: { clients: CrmClient
 
       <ClientForm open={modal === "add"} onClose={() => setModal(null)} />
       <CsvImport open={modal === "import"} onClose={() => setModal(null)} columns={columns} />
+      {followUpCopy && <FollowUpCopyForm open={modal === "copy"} onClose={() => setModal(null)} copy={followUpCopy} />}
+      <BulkFollowUp
+        open={modal === "followup"}
+        onClose={() => setModal(null)}
+        clientIds={[...selected]}
+        onDone={(m) => {
+          setModal(null);
+          setSelected(new Set());
+          setNotice(m);
+          router.refresh();
+        }}
+      />
       <ColumnEditor open={modal === "column" || !!editCol} column={editCol} onClose={() => { setModal(null); setEditCol(null); router.refresh(); }} />
     </div>
   );
