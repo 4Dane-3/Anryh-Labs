@@ -51,8 +51,14 @@ export function newBookingMessage(
   ].join("\n");
 }
 
-export function newQuoteMessage(p: { name: string; phone: string; coverage: string | null; bestTime: string | null }) {
-  const wants = [p.coverage && `Interested in: ${p.coverage}`, p.bestTime && `Best time to call: ${p.bestTime.toLowerCase()}`].filter(Boolean);
+export function newQuoteMessage(p: { name: string; phone: string; coverage: string | null; bestTime: string | null; address?: string | null; city?: string | null; roofIssue?: string | null; voice?: string | null }) {
+  const wants = [
+    p.coverage && `Interested in: ${p.coverage}`,
+    p.roofIssue && `Roof: ${esc(p.roofIssue)}`,
+    (p.address || p.city) && `Where: ${esc([p.address, p.city].filter(Boolean).join(", "))}`,
+    p.bestTime && `Best time to call: ${p.bestTime.toLowerCase()}`,
+    p.voice,
+  ].filter(Boolean);
   return [
     `:telephone_receiver: *New quote request* — call them back soon, quote requests go cold within hours`,
     `*${esc(p.name)}* · ${formatPhone(p.phone)}`,

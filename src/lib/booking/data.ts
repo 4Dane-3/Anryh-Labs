@@ -100,6 +100,17 @@ export type Agent = {
   crews?: number; // inspections a roofer can take at the same time (1 or 2)
   crm_webhook_url?: string | null; // each booking is POSTed here
   company_license?: string | null; // contractor license on the page and postcards
+  // Speed to lead (missing before its migration; lib/voice)
+  voice_agent?: boolean; // the AI voice agent calls new leads within seconds
+  meta_lead_form_ai_consent?: boolean; // the instant form's consent covers AI-voice calls (forms made before it don't)
+  checkin_calls?: boolean; // post-job check-in calls on (missing before 20261203000000)
+  referral_reward_cents?: number; // the referral gift card, in cents (default 10000)
+  referral_goal?: number; // referrals that earn it (default 5)
+  referral_intro_email?: boolean; // one plain email to each referred person
+  mailing_address?: string | null; // the business's postal address, required in marketing email
+  job_webhook_token?: string; // the secret for /api/jobs/completed
+  google_review_url?: string | null; // the roofer's Google review link, in the check-in email (missing before 20261204000000)
+  job_rules?: unknown; // "Jobs we take" (lib/roofing/job-rules), null = everything; missing before 20261205000000
 };
 
 export type Booking = {

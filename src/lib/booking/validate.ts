@@ -1,5 +1,5 @@
 import { isHidden, MAX_LENGTH, type IntakeAnswers, type IntakeQuestion } from "@/lib/booking/questions";
-import { QUOTE_BEST_TIME, QUOTE_COVERAGE } from "@/lib/booking/constants";
+import { QUOTE_BEST_TIME, QUOTE_COVERAGE, ROOF_ISSUES } from "@/lib/booking/constants";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
@@ -71,6 +71,12 @@ export type QuoteInput = {
   coverage: string | null;
   bestTime: string | null;
   attribution: Record<string, string>;
+  // A roofer's form: where the roof is and what's wrong with it (all optional)
+  address: string | null;
+  city: string | null;
+  roofIssue: string | null;
+  /** The visitor's IANA time zone from the browser, so the voice agent calls 8am–8pm their time */
+  timezone: string | null;
 };
 
 /** A "Get a free quote" request: name and phone are required, the two picks are optional and must be ours. */
@@ -101,6 +107,10 @@ export function parseQuote(
       coverage: (QUOTE_COVERAGE as readonly string[]).includes(coverage) ? coverage : null,
       bestTime: (QUOTE_BEST_TIME as readonly string[]).includes(bestTime) ? bestTime : null,
       attribution: parseAttribution(b.attribution),
+      address: str(b.address, 200) || null,
+      city: str(b.city, 80) || null,
+      roofIssue: (ROOF_ISSUES as readonly string[]).includes(str(b.roofIssue, 40)) ? str(b.roofIssue, 40) : null,
+      timezone: str(b.timezone, 64) || null,
     },
   };
 }

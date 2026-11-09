@@ -9,6 +9,7 @@ const TABS = [
   { href: "/admin", label: "Overview" },
   { href: "/admin/clients", label: "Clients" },
   { href: "/admin/calendar", label: "Calendar" },
+  { href: "/admin/demo-call", label: "Demo call" },
 ];
 
 /** Switches between the admin overview and the CRM (clients, calendar). */

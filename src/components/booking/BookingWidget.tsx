@@ -74,6 +74,7 @@ export function BookingWidget({
   const [picked, setPicked] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notFit, setNotFit] = useState<string | null>(null);
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -213,6 +214,13 @@ export function BookingWidget({
         return;
       }
 
+      // "Not the right fit" (the roofer's rules): a polite stop, nothing to retry
+      if (data.notFit) {
+        setNotFit(data.error);
+        t("booking_error", { status: 422 });
+        setSubmitting(false);
+        return;
+      }
       setError(data.error ?? "Something went wrong. Please try again.");
       t("booking_error", { status: res.status });
       if (res.status === 409) {
@@ -224,6 +232,15 @@ export function BookingWidget({
       setError("Something went wrong. Please try again.");
     }
     setSubmitting(false);
+  }
+
+  if (notFit) {
+    return (
+      <div className="rounded-xl bg-slate-50 p-5 text-sm text-slate-700 ring-1 ring-slate-200" role="status">
+        <p className="font-semibold text-slate-900">We&apos;re not the right fit for this one</p>
+        <p className="mt-1">{notFit}</p>
+      </div>
+    );
   }
 
   if (slots === null || !tz) {

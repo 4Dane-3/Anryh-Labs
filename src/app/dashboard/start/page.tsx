@@ -10,6 +10,7 @@ import { displayPhone } from "@/lib/booking/call";
 import { landingUrl } from "@/lib/booking/sites";
 import { META_BUSINESS_ID } from "@/lib/meta/access";
 import { topUpDefaults } from "@/lib/auto-top-up";
+import { rulesOf } from "@/lib/roofing/fit";
 
 export const dynamic = "force-dynamic";
 
@@ -103,6 +104,7 @@ export default async function StartPage({ searchParams }: { searchParams: Promis
               }
             : null
         }
+        jobRules={rulesOf(agent)}
         migzMode={agent.migz_mode_chosen_at ? (agent.migz_mode === "auto" ? "auto" : "approve") : null}
       />
     </>

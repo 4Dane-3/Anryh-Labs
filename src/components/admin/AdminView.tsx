@@ -53,6 +53,18 @@ function useOverview(initial: AdminOverview) {
   return { data, setData, now };
 }
 
+const secs = (ms: number | null) => (ms == null ? "–" : ms < 10_000 ? `${(ms / 1000).toFixed(1)}s` : ms < 120_000 ? `${Math.round(ms / 1000)}s` : `${Math.round(ms / 60_000)}m`);
+
+/** Median submit → the voice agent's call request, with time to answer and Meta's delay underneath. */
+function SpeedToLeadStat({ s }: { s: NonNullable<AdminOverview["speedToLead"]> }) {
+  const sub = [
+    s.submitToAnswerMs != null && `answered in ${secs(s.submitToAnswerMs)}`,
+    s.metaDelayMs != null && `Meta adds ${secs(s.metaDelayMs)}`,
+    `${s.calls} calls, 30 days`,
+  ].filter(Boolean).join(" · ");
+  return <Stat label="Speed to lead (median)" value={secs(s.submitToRequestMs)} tone={s.submitToRequestMs != null && s.submitToRequestMs > 5000 ? "bad" : undefined} sub={sub} />;
+}
+
 function Stat({ label, value, sub, tone }: { label: string; value: React.ReactNode; sub?: React.ReactNode; tone?: "bad" | "accent" }) {
   return (
     <div className="min-w-0 rounded-lg border border-line bg-ink-raised px-4 py-3">
@@ -389,12 +401,13 @@ export function AdminView({ initial, affiliates }: { initial: AdminOverview; aff
       </header>
       {note && <p className="font-mono text-[12px] text-fg-muted">{note}</p>}
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <div className={cn("grid grid-cols-2 gap-3", data.speedToLead?.calls ? "lg:grid-cols-6" : "lg:grid-cols-5")}>
         <Stat label="Critical" value={critical} tone={critical ? "bad" : undefined} sub={critical ? "needs you now" : "none open"} />
         <Stat label="Warnings" value={warn} tone={warn ? "accent" : undefined} sub={`${data.open.length - critical - warn} info`} />
         <Stat label="Agents" value={data.agents.length} sub={`${data.totals.runningBatches} with a running batch`} />
         <Stat label="Spent today, all accounts" value={usd(data.totals.spendTodayCents)} sub={data.totals.budgetTodayCents ? `of ${usd(data.totals.budgetTodayCents)} daily budgets` : "no live ad sets"} />
         <Stat label="Migz working now" value={data.totals.working} sub={data.totals.working ? "accounts with a step running" : "all idle"} />
+        {!!data.speedToLead?.calls && <SpeedToLeadStat s={data.speedToLead} />}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1.6fr_1fr]">

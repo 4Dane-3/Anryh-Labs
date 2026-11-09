@@ -18,6 +18,8 @@ import { TARGET_HIGH, TARGET_LOW } from "@/lib/guarantee";
 import { usd } from "@/lib/dashboard/format";
 import { cleanFocus, TOPICS } from "@/lib/migz/topics";
 import { cn } from "@/lib/utils";
+import { JobRulesForm } from "@/components/dashboard/JobRules";
+import type { JobRules } from "@/lib/roofing/job-rules";
 import { BookingStep, BusinessStep, MetaStep, MigzModeStep, SlackStep, type Business } from "@/components/dashboard/start/RequirementSteps";
 
 type StepState = { key: string; done: boolean; missing: string | null };
@@ -52,6 +54,7 @@ type Props = {
   slack: { current: string; inviteUrl: string | null };
   migzMode: "auto" | "approve" | null; // null until chosen here
   autoTopUp: AutoTopUpState | null; // null without Stripe
+  jobRules?: JobRules | null; // a roofer's "Jobs we take" (null = none saved)
 };
 
 const TITLES: Record<string, { title: string; blurb: string }> = {
@@ -64,6 +67,7 @@ const TITLES: Record<string, { title: string; blurb: string }> = {
   plan: { title: "Plan your first campaign", blurb: "A few quick questions and a daily budget. Migz sets how long it runs and makes the ads." },
   funds: { title: "Add funds", blurb: `Money for your Meta ads, in ${usd(FUNDS_STEP_CENTS)} steps. Campaigns roll week to week while your balance covers them.` },
   creatives: { title: "Videos and images", blurb: "Let Migz make your ads' videos and photos, or bring your own." },
+  rules: { title: "Jobs you take", blurb: "Which jobs you want, so your assistant and booking page only book the right ones." },
   mode: { title: "How Migz runs your ads", blurb: "On its own within your budget, or asking you before every new ad and change." },
 };
 
@@ -74,6 +78,7 @@ const ROOF_TITLES: Record<string, { title: string; blurb: string }> = {
   page: { title: "Your booking page", blurb: "Where homeowners book a free inspection, and the hours your crews inspect." },
   slack: { title: "Slack (optional)", blurb: "New inspections also come to your email. Connect Slack if you'd like them there too." },
   plan: { title: "Plan your first campaign", blurb: "What your ads lead with, where you work and a daily budget. Migz makes the ads." },
+  rules: { title: "Jobs you take (optional)", blurb: "Replacements, repairs, roof types, claims, homeowners only. Your assistant and booking page follow it; skip it and every lead gets through." },
 };
 
 function StepShell({
@@ -251,14 +256,16 @@ function CreativesStep({ mode, count, onSaved }: { mode: Props["creativeMode"]; 
 export function StartWizard(props: Props) {
   const router = useRouter();
   const roof = props.plan.start.vertical === "roofing";
-  const doneCount = props.steps.filter((s) => s.done).length;
-  const firstTodo = props.steps.find((s) => !s.done)?.key ?? null;
+  // "Jobs you take" is optional for roofers: it never counts toward launching
+  const counted = props.steps.filter((s) => s.key !== "rules");
+  const doneCount = counted.filter((s) => s.done).length;
+  const firstTodo = props.steps.find((s) => !s.done && s.key !== "rules")?.key ?? null;
   const [open, setOpen] = useState<string | null>(firstTodo);
   const [launching, startLaunch] = useTransition();
   const [launchError, setLaunchError] = useState<string | null>(null);
 
   const stateOf = (k: string) => props.steps.find((s) => s.key === k)!;
-  const ready = doneCount === props.steps.length;
+  const ready = doneCount === counted.length;
   const advance = (from: string) => {
     // After finishing a step, open the next unfinished one
     const order = props.steps.map((s) => s.key);
@@ -293,11 +300,11 @@ export function StartWizard(props: Props) {
     <div className="max-w-3xl space-y-3">
       <div className="mb-6">
         <div className="mb-2 flex items-baseline justify-between text-[13px]">
-          <span className="text-fg-muted">{props.completed ? "Your campaign is set up." : `${doneCount} of ${props.steps.length} steps done`}</span>
+          <span className="text-fg-muted">{props.completed ? "Your campaign is set up." : `${doneCount} of ${counted.length} steps done`}</span>
           {!props.completed && <span className="text-fg-faint">About 15 minutes</span>}
         </div>
         <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.07]">
-          <motion.div className="h-full rounded-full bg-brand" initial={{ width: 0 }} animate={{ width: `${(doneCount / props.steps.length) * 100}%` }} transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }} />
+          <motion.div className="h-full rounded-full bg-brand" initial={{ width: 0 }} animate={{ width: `${(doneCount / counted.length) * 100}%` }} transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }} />
         </div>
       </div>
 
@@ -329,7 +336,13 @@ export function StartWizard(props: Props) {
         <PlanStep plan={props.plan} balanceCents={props.balanceCents} onSaved={() => advance("plan")} />
       </StepShell>
 
-      <StepShell roof={roof} index={8} stepKey="funds" done={stateOf("funds").done} summary={summaries.funds} open={open === "funds"} onToggle={() => setOpen(open === "funds" ? null : "funds")}>
+      {roof && (
+        <StepShell roof index={8} stepKey="rules" done={stateOf("rules").done} summary="Saved" open={open === "rules"} onToggle={() => setOpen(open === "rules" ? null : "rules")}>
+          <JobRulesForm initial={props.jobRules ?? null} onSaved={() => advance("rules")} />
+        </StepShell>
+      )}
+
+      <StepShell roof={roof} index={roof ? 9 : 8} stepKey="funds" done={stateOf("funds").done} summary={summaries.funds} open={open === "funds"} onToggle={() => setOpen(open === "funds" ? null : "funds")}>
         <div className="-mx-5 -my-5">
           <div className="border-b border-line px-5 py-4">
             <p className="text-[13px] text-fg-muted">Available balance</p>
@@ -363,11 +376,11 @@ export function StartWizard(props: Props) {
         </div>
       </StepShell>
 
-      <StepShell roof={roof} index={9} stepKey="creatives" done={stateOf("creatives").done} summary={summaries.creatives} open={open === "creatives"} onToggle={() => setOpen(open === "creatives" ? null : "creatives")}>
+      <StepShell roof={roof} index={roof ? 10 : 9} stepKey="creatives" done={stateOf("creatives").done} summary={summaries.creatives} open={open === "creatives"} onToggle={() => setOpen(open === "creatives" ? null : "creatives")}>
         <CreativesStep mode={props.creativeMode} count={props.creativeCount} onSaved={() => advance("creatives")} />
       </StepShell>
 
-      <StepShell roof={roof} index={10} stepKey="mode" done={stateOf("mode").done} summary={summaries.mode} open={open === "mode"} onToggle={() => setOpen(open === "mode" ? null : "mode")}>
+      <StepShell roof={roof} index={roof ? 11 : 10} stepKey="mode" done={stateOf("mode").done} summary={summaries.mode} open={open === "mode"} onToggle={() => setOpen(open === "mode" ? null : "mode")}>
         <MigzModeStep current={props.migzMode} onSaved={() => advance("mode")} />
       </StepShell>
 

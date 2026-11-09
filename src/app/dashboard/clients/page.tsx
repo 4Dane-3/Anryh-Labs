@@ -5,6 +5,9 @@ import { ClientsTable } from "@/components/dashboard/ClientsTable";
 import { getClients } from "@/lib/dashboard/clients";
 import { leadEmailSender } from "@/lib/booking/sites";
 import { sequencesFor } from "@/lib/email-sequences";
+import { isRoofer } from "@/lib/verticals";
+import { rulesOf } from "@/lib/roofing/fit";
+import { describeRules } from "@/lib/roofing/job-rules";
 
 export default async function ClientsPage({ searchParams }: { searchParams: Promise<{ id?: string }> }) {
   const agent = await requireSetUpAgent();
@@ -28,7 +31,7 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
         title="Clients"
         description="Everyone who reached you: leads from Migz (instant forms, quote requests, booked calls) and personal clients you add yourself. Open someone to log your calls, add notes, and mark them sold or not interested. Migz and Meta learn from what you mark on Migz leads."
       />
-      <ClientsTable clients={clients} timezone={agent.timezone} initialKey={initialKey} questionOrder={questions.map((q) => q.key)} emailing={emailing} />
+      <ClientsTable clients={clients} timezone={agent.timezone} initialKey={initialKey} questionOrder={questions.map((q) => q.key)} emailing={emailing} ruleLines={isRoofer(agent) ? describeRules(rulesOf(agent)) : undefined} />
     </>
   );
 }

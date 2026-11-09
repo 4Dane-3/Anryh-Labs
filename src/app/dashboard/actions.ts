@@ -50,9 +50,11 @@ import { sendSlackMessage } from "@/lib/slack";
 import { isRoofer, MAX_RADIUS_MILES, MIN_RADIUS_MILES } from "@/lib/verticals";
 import { ROOFING_TOPIC_KEYS } from "@/lib/migz/topics";
 import { crmPayload, validWebhookUrl } from "@/lib/roofing/notify";
+import { markJobDone } from "@/lib/roofing/checkin";
 import { radiusCenter } from "@/lib/meta/ads";
 import { STATE_CODES } from "@/lib/campaign-plan";
 import type { Agent } from "@/lib/booking/data";
+import { cleanRules } from "@/lib/roofing/job-rules";
 import { recheck, type ActionPayload } from "@/lib/migz/tools";
 import { STEP_TITLES, type IntakeQuestion, type QuestionKind } from "@/lib/booking/questions";
 import { DEFAULT_INTENT, DEFAULT_VIDEO_TIER, isIntentLevel, isVideoTier, VIDEO_TIERS, type IntentLevel, type VideoTier } from "@/lib/ad-options";
@@ -823,6 +825,94 @@ export async function setGhostBookings(on: boolean): Promise<Result> {
   if (error) return fail(error.code === "42703" ? "Ghost bookings aren't set up yet." : "Couldn't save that.");
   revalidatePath("/dashboard/settings");
   revalidatePath(`/${agent.slug}`);
+  return { ok: true };
+}
+
+/** Speed to lead: the AI voice agent calls each new lead within seconds (8am–8pm their time) and books them. */
+export async function setVoiceAgent(on: boolean): Promise<Result> {
+  const agent = await requireAgent();
+  const { error } = await supabaseAdmin.from("agents").update({ voice_agent: !!on }).eq("id", agent.id);
+  if (error) return fail(error.code === "42703" ? "The voice agent isn't set up yet." : "Couldn't save that.");
+  revalidatePath("/dashboard/settings");
+  revalidatePath(`/${agent.slug}`);
+  return { ok: true };
+}
+
+// ---------- Jobs, check-ins and referrals (roofers) ----------
+
+/** "Job done" on a booked inspection: the check-in call is scheduled (about 2 hours out), or the referral email goes. */
+export async function jobDone(bookingId: string): Promise<{ ok: true; status: "scheduled" | "email_only"; callAt: string | null; reason: string | null } | { ok: false; error: string }> {
+  const agent = await requireAgent();
+  if (!isRoofer(agent)) return { ok: false, error: "Only for roofing accounts." };
+  const res = await markJobDone(agent, clean(bookingId, 40), "dashboard");
+  if (!res.ok) return { ok: false, error: res.error };
+  revalidatePath("/dashboard", "layout");
+  return { ok: true, status: res.status, callAt: res.callAt, reason: res.reason };
+}
+
+/** Check-in calls and the referral reward, from Settings. */
+export async function saveCheckinSettings(input: { on: boolean; rewardDollars: number; goal: number; introEmail: boolean; mailingAddress: string; googleReviewUrl: string }): Promise<Result> {
+  const agent = await requireAgent();
+  if (!isRoofer(agent)) return fail("Only for roofing accounts.");
+  const reward = Math.round(Number(input.rewardDollars) * 100);
+  const goal = Math.round(Number(input.goal));
+  if (!Number.isFinite(reward) || reward < 0 || reward > 100000) return fail("The reward is $0 to $1,000.");
+  if (!Number.isInteger(goal) || goal < 1 || goal > 10) return fail("Referrals needed is 1 to 10.");
+  const mailing = clean(input.mailingAddress, 300);
+  if (input.introEmail && !mailing) return fail("Add your business mailing address first: the law requires it in marketing email.");
+  const review = clean(input.googleReviewUrl, 500);
+  if (review && !/^https:\/\/[^\s/]+\.[^\s/]+/i.test(review)) return fail("The Google review link should start with https://");
+  const { error } = await supabaseAdmin
+    .from("agents")
+    .update({
+      checkin_calls: !!input.on,
+      referral_reward_cents: reward,
+      referral_goal: goal,
+      referral_intro_email: !!input.introEmail,
+      mailing_address: mailing || null,
+      // Before 20261204000000 the column doesn't exist: only written when there's a link, or the column is there
+      ...(review || "google_review_url" in agent ? { google_review_url: review || null } : {}),
+    })
+    .eq("id", agent.id);
+  if (error) return fail(error.code === "42703" ? "Check-in calls aren't set up yet (migrations 20261203000000 and 20261204000000)." : "Couldn't save that.");
+  revalidatePath("/dashboard/settings");
+  return { ok: true };
+}
+
+/** "Jobs we take" (lib/roofing/job-rules). null clears them: every lead gets through again. */
+export async function saveJobRules(input: unknown): Promise<Result> {
+  const agent = await requireAgent();
+  if (!isRoofer(agent)) return fail("Only for roofing accounts.");
+  const rules = input == null ? null : cleanRules(input);
+  if (input != null && !rules) return fail("Couldn't read those choices.");
+  const { error } = await supabaseAdmin.from("agents").update({ job_rules: rules }).eq("id", agent.id);
+  if (error) return fail(error.code === "42703" ? "Job rules aren't set up yet (migration 20261205000000)." : "Couldn't save that.");
+  revalidatePath("/dashboard/settings");
+  revalidatePath("/dashboard/start");
+  return { ok: true };
+}
+
+/** A referral's status, as the roofer works through them by hand. */
+export async function setReferralStatus(referralId: string, status: string): Promise<Result> {
+  const agent = await requireAgent();
+  if (!["new", "contacted", "booked", "not_interested"].includes(status)) return fail("Unknown status.");
+  const { error } = await supabaseAdmin.from("customer_referrals").update({ status }).eq("id", clean(referralId, 40)).eq("agent_id", agent.id);
+  if (error) return fail("Couldn't save that.");
+  revalidatePath("/dashboard/referrals");
+  return { ok: true };
+}
+
+/** "Sent" on a gift card owed (or undo). */
+export async function setGiftCardSent(bookingId: string, sent: boolean): Promise<Result> {
+  const agent = await requireAgent();
+  const { error } = await supabaseAdmin
+    .from("bookings")
+    .update({ gift_card_sent_at: sent ? new Date().toISOString() : null })
+    .eq("id", clean(bookingId, 40))
+    .eq("agent_id", agent.id)
+    .not("gift_card_owed_at", "is", null);
+  if (error) return fail("Couldn't save that.");
+  revalidatePath("/dashboard/referrals");
   return { ok: true };
 }
 
