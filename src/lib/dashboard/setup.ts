@@ -14,7 +14,7 @@ import { getOpenBatch, getRecentBatches, type Batch } from "@/lib/dashboard/batc
 // account first, the setup fee, then the rest. Until the first campaign starts, the rest of the dashboard
 // stays locked (requireSetUpAgent).
 
-export type StepKey = "business" | "meta" | "setup_fee" | "profile" | "page" | "slack" | "funds" | "plan" | "creatives" | "mode";
+export type StepKey = "business" | "meta" | "setup_fee" | "profile" | "page" | "slack" | "funds" | "plan" | "rules" | "creatives" | "mode";
 
 export type Step = {
   key: StepKey;
@@ -115,6 +115,8 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
     { key: "page", required: true, missing: pageMissing, done: !pageMissing },
     { key: "slack", required: !roof, missing: slackMissing, done: !slackMissing }, // roofers hear about inspections by email
     { key: "plan", required: true, missing: planMissing, done: !planMissing },
+    // Roofers only, never blocks launching: what jobs they take (nothing saved = every lead gets through)
+    ...(roof ? [{ key: "rules" as const, required: false, missing: agent.job_rules ? null : "Tell us which jobs you take.", done: !!agent.job_rules }] : []),
     { key: "funds", required: true, missing: fundsMissing, done: !fundsMissing },
     { key: "creatives", required: true, missing: creativesMissing, done: !creativesMissing },
     { key: "mode", required: true, missing: modeMissing, done: !modeMissing },

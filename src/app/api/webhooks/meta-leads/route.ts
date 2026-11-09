@@ -4,6 +4,9 @@ import type { Agent } from "@/lib/booking/data";
 import { receiveLead } from "@/lib/migz/leads";
 
 export const maxDuration = 60;
+// Next to Supabase and ElevenLabs/Twilio (US East): a form lead's voice call is requested from here
+export const runtime = "nodejs";
+export const preferredRegion = "iad1";
 
 // Meta's leadgen webhook: an instant-form lead was submitted on an agent's Page. Subscribe the app's Page
 // webhook to the "leadgen" field with META_WEBHOOK_VERIFY_TOKEN as the verify token. The payload only
@@ -30,6 +33,8 @@ function validSignature(raw: string, header: string | null) {
 type Change = { field?: string; value?: { leadgen_id?: string; page_id?: string; form_id?: string } };
 
 export async function POST(req: Request) {
+  // When Meta delivered it: received_at - the lead's created_time is Meta's delay, before any of ours
+  const receivedAt = new Date();
   const raw = await req.text();
   if (!validSignature(raw, req.headers.get("x-hub-signature-256"))) return new Response("Forbidden", { status: 403 });
   const body = JSON.parse(raw || "{}") as { entry?: { changes?: Change[] }[] };
@@ -47,7 +52,7 @@ export async function POST(req: Request) {
     }
     if (!agent) continue;
     try {
-      if (await receiveLead(agent, v.leadgen_id)) saved++;
+      if (await receiveLead(agent, v.leadgen_id, receivedAt)) saved++;
     } catch (e) {
       // 200 anyway: Meta retries failures for hours, and the sync's poll will pick this lead up
       console.error("saving a form lead failed", e);

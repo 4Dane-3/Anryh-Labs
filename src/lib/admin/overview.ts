@@ -7,6 +7,7 @@ import { getActiveBatch, getBatchProgress } from "@/lib/dashboard/batches";
 import { getBalanceCents, getLiveAdCount } from "@/lib/dashboard/queries";
 import { getLiveStats } from "@/lib/migz/live";
 import { integrations } from "@/lib/integrations";
+import { getSpeedToLead } from "@/lib/voice/stats";
 import type { AdminAlert, AdminOverview, AdminAgentRow } from "@/lib/admin/types";
 
 // Everything the admin dashboard shows, read live: every agent's state (today's numbers straight from
@@ -112,10 +113,14 @@ export async function getAdminOverview(): Promise<AdminOverview> {
   const working = new Map<string, string>();
   for (const e of events ?? []) if (!e.finished_at && new Date(e.started_at).getTime() > fresh && !working.has(e.agent_id)) working.set(e.agent_id, e.summary);
 
-  const rows = await Promise.all(list.map((a) => agentRow(a, open, working.get(a.id) ?? null, callsBy.get(a.id) ?? [])));
+  const [rows, speedToLead] = await Promise.all([
+    Promise.all(list.map((a) => agentRow(a, open, working.get(a.id) ?? null, callsBy.get(a.id) ?? []))),
+    getSpeedToLead().catch(() => null),
+  ]);
   return {
     at: new Date().toISOString(),
     alertsReady: !openRes.error,
+    speedToLead,
     services: SERVICES.map((s) => ({ ...s, on: integrations[s.key] })),
     agents: rows,
     open,

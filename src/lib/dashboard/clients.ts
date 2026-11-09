@@ -39,12 +39,23 @@ export type Client = {
   /** Which ad (or other source) brought them. */
   cameFrom: string;
   notes: string | null;
-  call: { startsAt: string; endsAt: string; status: string; bookedAt: string; answers: IntakeAnswers | null; intakeCompleted: boolean } | null;
+  call: {
+    startsAt: string;
+    endsAt: string;
+    status: string;
+    bookedAt: string;
+    answers: IntakeAnswers | null;
+    intakeCompleted: boolean;
+    /** A roofer's finished job and its check-in call (null before the check-in migration, or not done yet). */
+    job?: { doneAt: string; checkin: string | null; nextCallAt: string | null; rating: number | null; feedback: string | null; referralEmailAt: string | null } | null;
+  } | null;
   triedEmailSentAt: string | null;
   /** False when what came in as their phone isn't a number (someone typed "." into the form): email only. */
   phoneGiven: boolean;
   /** Their automated emails: which sequence and how many have gone (null when none started). */
   emailSequence: { key: SequenceKey; sent: number } | null;
+  /** A roofer's "Jobs we take" verdict for this lead or booking (null before 20261205000000, or no rules). */
+  fit: { status: "fit" | "not_fit" | "unsure"; reasons: string[]; flags: string[]; urgent: boolean } | null;
   /** The latest thing that happened, for sorting the list. */
   lastAt: string;
 };
@@ -71,6 +82,8 @@ type LeadRow = {
   personal_source: string | null;
   email_sequence?: SequenceKey | null;
   sequence_sent?: number;
+  fit_status?: string | null;
+  fit_detail?: { reasons?: string[]; flags?: string[]; urgent?: boolean } | null;
 };
 
 type BookingRow = {
@@ -90,6 +103,14 @@ type BookingRow = {
   tried_email_sent_at: string | null;
   email_sequence?: SequenceKey | null;
   sequence_sent?: number;
+  fit_status?: string | null;
+  fit_detail?: { reasons?: string[]; flags?: string[]; urgent?: boolean } | null;
+  job_done_at?: string | null;
+  checkin_status?: string | null;
+  checkin_next_call_at?: string | null;
+  checkin_rating?: number | null;
+  checkin_feedback?: string | null;
+  referral_email_sent_at?: string | null;
   intake_responses: { answers: IntakeAnswers; completed_at: string | null } | { answers: IntakeAnswers; completed_at: string | null }[] | null;
 };
 
@@ -100,12 +121,21 @@ const BOOKING_FIELDS =
 
 // The automated-email columns, read when their migration has run
 const SEQUENCE_FIELDS = ", email_sequence, sequence_sent";
+// A roofer's finished job and its check-in call (20261203000000_job_checkin_referrals.sql)
+// How a lead or booking fit a roofer's "Jobs we take" rules (20261205000000_job_rules.sql)
+const FIT_FIELDS = ", fit_status, fit_detail";
+const JOB_FIELDS = ", job_done_at, checkin_status, checkin_next_call_at, checkin_rating, checkin_feedback, referral_email_sent_at";
 
 /** A phone number someone could actually be called on: a real US number ("." or (000) 000-0000 isn't). */
 export const phoneGiven = (p: string | null | undefined) => !!usPhone(p ?? "");
 /** A record's sequence, unless it's a finished pre-sequence one (marked 99 by the migration). */
 const sequenceOf = (r: { email_sequence?: SequenceKey | null; sequence_sent?: number }) =>
   r.email_sequence && (r.sequence_sent ?? 0) < 99 ? { key: r.email_sequence, sent: r.sequence_sent ?? 0 } : null;
+
+const fitOf = (r: { fit_status?: string | null; fit_detail?: { reasons?: string[]; flags?: string[]; urgent?: boolean } | null }): Client["fit"] =>
+  r.fit_status === "fit" || r.fit_status === "not_fit" || r.fit_status === "unsure"
+    ? { status: r.fit_status, reasons: r.fit_detail?.reasons ?? [], flags: r.fit_detail?.flags ?? [], urgent: !!r.fit_detail?.urgent }
+    : null;
 
 const phoneKey = (p: string | null | undefined) => (p ?? "").replace(/\D/g, "").slice(-10) || null;
 const emailKey = (e: string | null | undefined) => e?.trim().toLowerCase() || null;
@@ -132,14 +162,15 @@ function cameFrom(attribution: Record<string, string> | null, adNames: Map<strin
 
 /** Everyone who reached the agent, newest activity first. */
 export async function getClients(agentId: string): Promise<Client[]> {
-  const load = (extra: string) =>
+  const load = (extra: string, bookingExtra = "") =>
     Promise.all([
       supabaseAdmin.from("quote_requests").select(LEAD_FIELDS + extra).eq("agent_id", agentId).order("created_at", { ascending: false }).limit(500),
-      supabaseAdmin.from("bookings").select(BOOKING_FIELDS + extra).eq("agent_id", agentId).order("created_at", { ascending: false }).limit(500),
+      supabaseAdmin.from("bookings").select(BOOKING_FIELDS + extra + bookingExtra).eq("agent_id", agentId).order("created_at", { ascending: false }).limit(500),
     ]);
-  let [leadsRes, bookingsRes] = await load(SEQUENCE_FIELDS);
-  // Before the automated-emails migration: the list without them
-  if (leadsRes.error?.code === "42703" || bookingsRes.error?.code === "42703") [leadsRes, bookingsRes] = await load("");
+  // Each migration's columns are read once it has run: try everything, then drop the newest groups until it loads
+  const attempts: [string, string][] = [[SEQUENCE_FIELDS + FIT_FIELDS, JOB_FIELDS], [SEQUENCE_FIELDS + FIT_FIELDS, ""], [SEQUENCE_FIELDS, JOB_FIELDS], [SEQUENCE_FIELDS, ""], ["", ""]];
+  let [leadsRes, bookingsRes] = await load(...attempts[0]);
+  for (let i = 1; i < attempts.length && (leadsRes.error?.code === "42703" || bookingsRes.error?.code === "42703"); i++) [leadsRes, bookingsRes] = await load(...attempts[i]);
   const activityRes = await supabaseAdmin.from("client_activities").select("subject_kind, subject_id, at").eq("agent_id", agentId).order("at", { ascending: false }).limit(3000);
   if (leadsRes.error || bookingsRes.error) return [];
   const leads = (leadsRes.data ?? []) as unknown as LeadRow[];
@@ -196,10 +227,14 @@ export async function getClients(agentId: string): Promise<Client[]> {
         bookedAt: b.created_at,
         answers: intake?.answers && Object.keys(intake.answers).length ? intake.answers : null,
         intakeCompleted: !!intake?.completed_at,
+        job: b.job_done_at
+          ? { doneAt: b.job_done_at, checkin: b.checkin_status ?? null, nextCallAt: b.checkin_next_call_at ?? null, rating: b.checkin_rating ?? null, feedback: b.checkin_feedback ?? null, referralEmailAt: b.referral_email_sent_at ?? null }
+          : null,
       },
       triedEmailSentAt: b.tried_email_sent_at ?? lead?.tried_email_sent_at ?? null,
       phoneGiven: phoneGiven(b.phone),
       emailSequence: sequenceOf(b) ?? (lead ? sequenceOf(lead) : null),
+      fit: fitOf(b) ?? (lead ? fitOf(lead) : null),
       lastAt: latest(b.created_at, lead?.created_at, ...subjects.map((s) => lastAt.get(`${s.kind}:${s.id}`))),
     });
   }
@@ -227,6 +262,7 @@ export async function getClients(agentId: string): Promise<Client[]> {
       triedEmailSentAt: l.tried_email_sent_at,
       phoneGiven: phoneGiven(l.phone),
       emailSequence: sequenceOf(l),
+      fit: fitOf(l),
       lastAt: latest(l.created_at, lastAt.get(`lead:${l.id}`)),
     });
   }

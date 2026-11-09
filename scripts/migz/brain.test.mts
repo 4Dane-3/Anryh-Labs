@@ -1099,7 +1099,7 @@ ok("ad finder: overnight window, every topic and platform, only ads with evidenc
 const { parseQuote } = await import("@/lib/booking/validate");
 const q1 = parseQuote({ slug: "miguel-cruz", name: " Ana Ruiz ", phone: "(312) 555-0199", coverage: "Final expense", bestTime: "Evening", consent: true, attribution: { utm_content: "plan-ahead", "bad key!": "x" } });
 assert.ok(q1.ok);
-assert.deepEqual(q1.data, { slug: "miguel-cruz", name: "Ana Ruiz", phone: "+13125550199", coverage: "Final expense", bestTime: "Evening", attribution: { utm_content: "plan-ahead" } });
+assert.deepEqual(q1.data, { slug: "miguel-cruz", name: "Ana Ruiz", phone: "+13125550199", coverage: "Final expense", bestTime: "Evening", address: null, city: null, roofIssue: null, timezone: null, attribution: { utm_content: "plan-ahead" } });
 const q2 = parseQuote({ name: "Ana", phone: "3125550199", coverage: "Annuity", bestTime: "3am", consent: true });
 assert.ok(q2.ok && q2.data.coverage === null && q2.data.bestTime === null, "picks outside our lists are dropped, not rejected");
 const q3 = parseQuote({ name: "Ana", phone: "555-0199", consent: true });

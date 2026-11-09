@@ -5,6 +5,7 @@ import type { Agent } from "@/lib/booking/data";
 import { ROOFING_ADDRESS_KEY, ROOFING_HOMEOWNER_KEY, type IntakeAnswers } from "@/lib/booking/questions";
 import { displayPhone, streetOf } from "@/lib/roofing/print";
 import { isRoofer } from "@/lib/verticals";
+import { describeRules, fitLabel, hasRules, type FitResult, type JobRules } from "@/lib/roofing/job-rules";
 
 // What a roofer hears about their bookings: an email the moment an inspection is booked (the homeowner, the
 // address, what's wrong, and that street's postcard and door hanger to print), a morning-of email listing the
@@ -21,7 +22,8 @@ const answer = (answers: IntakeAnswers | null | undefined, key: string) => answe
 export const printUrl = (bookingId: string) => `${appUrl()}/print/${bookingId}`;
 const mapsUrl = (address: string) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
 
-async function resend(body: Record<string, unknown>, idempotencyKey: string) {
+/** Sends through Resend (pass `from` / `reply_to` in the body to override). No-op until Resend is set up. */
+export async function resend(body: Record<string, unknown>, idempotencyKey: string) {
   if (!process.env.RESEND_API_KEY || !process.env.BOOKING_EMAIL_FROM) return { skipped: true as const };
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -34,7 +36,9 @@ async function resend(body: Record<string, unknown>, idempotencyKey: string) {
 }
 
 /** The new-inspection email to the roofer (pure, for the tests). */
-export function inspectionEmail(agent: Pick<Agent, "full_name" | "timezone">, booking: InspectionBooking, answers: IntakeAnswers | null) {
+export type FitInfo = { fit: Pick<FitResult, "verdict" | "reasons" | "flags" | "urgent">; rules: JobRules | null };
+
+export function inspectionEmail(agent: Pick<Agent, "full_name" | "timezone">, booking: InspectionBooking, answers: IntakeAnswers | null, fitInfo?: FitInfo) {
   const start = DateTime.fromISO(booking.starts_at).setZone(agent.timezone);
   const when = `${start.toFormat("cccc, LLL d")} at ${start.toFormat("h:mm a")}`;
   const address = answer(answers, ROOFING_ADDRESS_KEY);
@@ -49,6 +53,14 @@ export function inspectionEmail(agent: Pick<Agent, "full_name" | "timezone">, bo
     ["Owns the home", owner ?? "Not answered"],
     ["The roof", [answer(answers, "roof_issue"), answer(answers, "roof_age") && `${answer(answers, "roof_age")} old`].filter(Boolean).join(" · ") || "Not answered"],
   ];
+  // How they fit the roofer's "Jobs we take" rules, and the rules themselves (only when the roofer has set some)
+  if (fitInfo && (hasRules(fitInfo.rules) || fitInfo.fit.urgent)) {
+    const { fit, rules } = fitInfo;
+    if (fit.urgent) rows.push(["Active leak", "Water is coming in and you take same-day leak calls. Call them first."]);
+    const detail = fit.verdict === "fit" ? fitLabel("fit") : `${fitLabel(fit.verdict)}: ${[...fit.reasons, ...fit.flags].join("; ")}`;
+    if (hasRules(rules)) rows.push(["Your job rules", detail ?? ""], ["Rules set", describeRules(rules).join(" · ")]);
+    else if (fit.flags.length) rows.push(["Check", fit.flags.join(" · ")]);
+  }
   const subject = `New inspection: ${street ?? booking.name}, ${start.toFormat("ccc LLL d, h:mm a")}`;
   const print = printUrl(booking.id);
   const html = `<!doctype html><html><body style="margin:0;background:#f8fafc;padding:24px 12px;font-family:${FONT};color:#0f172a;">
@@ -70,9 +82,9 @@ ${address ? `&nbsp; <a href="${esc(mapsUrl(address))}" style="font:500 14px/1 ${
 }
 
 /** Emails the roofer about a new inspection. No-op until Resend is set up. */
-export async function sendInspectionBooked(agent: Agent, booking: InspectionBooking, answers: IntakeAnswers | null) {
+export async function sendInspectionBooked(agent: Agent, booking: InspectionBooking, answers: IntakeAnswers | null, fitInfo?: FitInfo) {
   if (!isRoofer(agent)) return { skipped: true as const };
-  const email = inspectionEmail(agent, booking, answers);
+  const email = inspectionEmail(agent, booking, answers, fitInfo);
   return resend({ to: [agent.business_email || agent.email], subject: email.subject, html: email.html, text: email.text }, `inspection-booked/${booking.id}`);
 }
 

@@ -38,7 +38,7 @@ function nextLine(c: Client, timezone: string, now: number) {
   return { text: `${c.lastAt === c.cameInAt ? "Came in" : "Last activity"} ${DateTime.fromISO(c.lastAt, { zone: timezone }).toRelative()}`, strong: false };
 }
 
-export function ClientsTable({ clients, timezone, initialKey, questionOrder, emailing }: { clients: Client[]; timezone: string; initialKey: string | null; questionOrder: string[]; emailing: Emailing }) {
+export function ClientsTable({ clients, timezone, initialKey, questionOrder, emailing, ruleLines }: { clients: Client[]; timezone: string; initialKey: string | null; questionOrder: string[]; emailing: Emailing; ruleLines?: string[] }) {
   const router = useRouter();
   const [filter, setFilter] = useState<Filter>("prospect");
   const [origin, setOrigin] = useState<Origin>("all");
@@ -183,7 +183,7 @@ export function ClientsTable({ clients, timezone, initialKey, questionOrder, ema
         )}
       </Panel>
 
-      <ClientCard client={selected} timezone={timezone} questionOrder={questionOrder} emailing={emailing} onClose={close} />
+      <ClientCard client={selected} timezone={timezone} questionOrder={questionOrder} emailing={emailing} rules={ruleLines} onClose={close} />
       <AddClient
         open={adding}
         onClose={closeAdd}

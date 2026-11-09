@@ -1,17 +1,21 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CheckCircle2, ChevronDown, Loader2 } from "lucide-react";
-import { QUOTE_BEST_TIME, QUOTE_CONSENT_TEXT, QUOTE_COVERAGE } from "@/lib/booking/constants";
+import { CheckCircle2, ChevronDown, Loader2, PhoneCall } from "lucide-react";
+import { QUOTE_BEST_TIME, QUOTE_COVERAGE, ROOF_ISSUES, quoteConsentTextFor } from "@/lib/booking/constants";
 import { track, trackOnce } from "@/lib/booking/track";
 import { collectAttribution, inputClass } from "@/components/booking/BookingWidget";
+
+type Voice = { status: "calling"; from: string | null } | { status: "scheduled"; from: string | null; at: string; label: string } | null;
 
 /**
  * "Not ready to pick a time? Get a free quote": a lighter step under the calendar for visitors who'd leave
  * otherwise. Name and phone, the agent calls back. Folded by default so picking a time stays the main path;
  * with `openForAds` (Migz's call, from the funnel) it starts open for visitors who came from an ad.
+ * A roofer's (`roof`, shown when their voice agent is on) asks where the home is and what's wrong with the
+ * roof instead, and the voice agent calls within seconds to book the inspection.
  */
-export function QuoteForm({ slug, firstName, preview, openForAds = false }: { slug: string; firstName: string; preview: boolean; openForAds?: boolean }) {
+export function QuoteForm({ slug, firstName, preview, openForAds = false, roof = false }: { slug: string; firstName: string; preview: boolean; openForAds?: boolean; roof?: boolean }) {
   const [open, setOpen] = useState(false);
   useEffect(() => {
     if (!openForAds) return;
@@ -21,17 +25,35 @@ export function QuoteForm({ slug, firstName, preview, openForAds = false }: { sl
     // eslint-disable-next-line react-hooks/set-state-in-effect -- the URL is only readable after hydration
     if (fromAd) setOpen(true);
   }, [openForAds]);
-  const [form, setForm] = useState({ name: "", phone: "", coverage: "", bestTime: "", consent: false, company: "" });
+  const [form, setForm] = useState({ name: "", phone: "", coverage: "", bestTime: "", address: "", city: "", roofIssue: "", consent: false, company: "" });
+  const [voice, setVoice] = useState<Voice>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
+
+  if (sent && voice) {
+    const from = voice.from ? ` from ${voice.from}` : "";
+    return (
+      <div className="mt-5 flex gap-3 rounded-xl bg-blue-50 p-4 text-sm text-slate-700 ring-1 ring-blue-100" role="status">
+        <PhoneCall className="size-5 shrink-0 text-blue-700" />
+        <p>
+          <span className="block font-semibold text-slate-900">
+            {voice.status === "calling" ? `We're calling you now${from}.` : `We'll call you at ${voice.label}${from}.`}
+          </span>
+          {voice.status === "calling"
+            ? `It's ${firstName}'s AI assistant. It takes a couple of minutes and can book your ${roof ? "inspection" : "call"} right then.`
+            : `We only call between 8am and 8pm your time. Rather not wait? Pick a time above and it's set.`}
+        </p>
+      </div>
+    );
+  }
 
   if (sent) {
     return (
       <div className="mt-5 flex gap-3 rounded-xl bg-blue-50 p-4 text-sm text-slate-700 ring-1 ring-blue-100" role="status">
         <CheckCircle2 className="size-5 shrink-0 text-blue-700" />
         <p>
-          <span className="block font-semibold text-slate-900">Got it. {firstName} will call you{form.bestTime ? ` in the ${form.bestTime.toLowerCase()}` : " soon"}.</span>
+          <span className="block font-semibold text-slate-900">Got it. {roof ? "We'll" : `${firstName} will`} call you{form.bestTime ? ` in the ${form.bestTime.toLowerCase()}` : " soon"}.</span>
           Rather not wait? Pick a time above and it&apos;s set.
         </p>
       </div>
@@ -49,7 +71,7 @@ export function QuoteForm({ slug, firstName, preview, openForAds = false }: { sl
           }}
           className="inline-flex items-center gap-1 text-sm font-medium text-blue-700 hover:text-blue-800"
         >
-          Not ready to pick a time? Get a free quote <ChevronDown className="size-4" />
+          {roof ? "Rather talk first? We'll call you right now" : "Not ready to pick a time? Get a free quote"} <ChevronDown className="size-4" />
         </button>
       </div>
     );
@@ -64,11 +86,12 @@ export function QuoteForm({ slug, firstName, preview, openForAds = false }: { sl
       const res = await fetch("/api/quotes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slug, ...form, attribution: collectAttribution() }),
+        body: JSON.stringify({ slug, ...form, timezone: browserTimezone(), attribution: collectAttribution() }),
       });
       const data = await res.json();
       if (res.ok) {
         track("quote_submit", { coverage: form.coverage || null });
+        setVoice(data.voice ?? null);
         setSent(true);
         return;
       }
@@ -87,8 +110,8 @@ export function QuoteForm({ slug, firstName, preview, openForAds = false }: { sl
   return (
     <form onSubmit={onSubmit} className="mt-5 space-y-4 border-t border-slate-100 pt-4">
       <div>
-        <h3 className="font-semibold">Get a free quote</h3>
-        <p className="text-sm text-slate-500">Leave your number and {firstName} will call you with options.</p>
+        <h3 className="font-semibold">{roof ? "Get a call about your free inspection" : "Get a free quote"}</h3>
+        <p className="text-sm text-slate-500">{roof ? "Leave your number and we'll call you in seconds to set up your inspection." : `Leave your number and ${firstName} will call you with options.`}</p>
       </div>
       <div>
         <label htmlFor="quote-name" className="mb-1 block text-sm font-medium text-slate-700">Full name</label>
@@ -98,6 +121,29 @@ export function QuoteForm({ slug, firstName, preview, openForAds = false }: { sl
         <label htmlFor="quote-phone" className="mb-1 block text-sm font-medium text-slate-700">Phone number</label>
         <input id="quote-phone" type="tel" required autoComplete="tel" className={inputClass} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
       </div>
+      {roof ? (
+        <>
+          <div>
+            <label htmlFor="quote-address" className="mb-1 block text-sm font-medium text-slate-700">Street address <span className="font-normal text-slate-400">(optional)</span></label>
+            <input id="quote-address" autoComplete="street-address" className={inputClass} value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
+          </div>
+          <div>
+            <label htmlFor="quote-city" className="mb-1 block text-sm font-medium text-slate-700">City <span className="font-normal text-slate-400">(optional)</span></label>
+            <input id="quote-city" autoComplete="address-level2" className={inputClass} value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} />
+          </div>
+          <fieldset>
+            <legend className="mb-1.5 text-sm font-medium text-slate-700">What&apos;s going on with the roof? <span className="font-normal text-slate-400">(optional)</span></legend>
+            <div className="flex flex-wrap gap-2">
+              {ROOF_ISSUES.map((c) => (
+                <button key={c} type="button" aria-pressed={form.roofIssue === c} className={chip(form.roofIssue === c)} onClick={() => setForm({ ...form, roofIssue: form.roofIssue === c ? "" : c })}>
+                  {c}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+        </>
+      ) : (
+        <>
       <fieldset>
         <legend className="mb-1.5 text-sm font-medium text-slate-700">What are you looking for? <span className="font-normal text-slate-400">(optional)</span></legend>
         <div className="flex flex-wrap gap-2">
@@ -119,6 +165,9 @@ export function QuoteForm({ slug, firstName, preview, openForAds = false }: { sl
         </div>
       </fieldset>
 
+        </>
+      )}
+
       {/* honeypot: hidden from people, irresistible to bots */}
       <input
         type="text"
@@ -133,7 +182,7 @@ export function QuoteForm({ slug, firstName, preview, openForAds = false }: { sl
 
       <label className="flex items-start gap-2.5 text-xs leading-relaxed text-slate-500">
         <input type="checkbox" required className="mt-0.5 size-4 shrink-0 accent-blue-700" checked={form.consent} onChange={(e) => setForm({ ...form, consent: e.target.checked })} />
-        <span>{QUOTE_CONSENT_TEXT}</span>
+        <span>{quoteConsentTextFor(roof)}</span>
       </label>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
@@ -143,8 +192,16 @@ export function QuoteForm({ slug, firstName, preview, openForAds = false }: { sl
         disabled={submitting || preview}
         className="flex h-12 w-full items-center justify-center rounded-lg border border-blue-700 bg-white text-base font-semibold text-blue-700 transition-colors hover:bg-blue-50 disabled:opacity-60"
       >
-        {submitting ? <Loader2 className="size-4 animate-spin" /> : preview ? "Quotes are off in preview" : "Get my free quote"}
+        {submitting ? <Loader2 className="size-4 animate-spin" /> : preview ? "Quotes are off in preview" : roof ? "Call me now" : "Get my free quote"}
       </button>
     </form>
   );
+}
+
+function browserTimezone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  } catch {
+    return null;
+  }
 }

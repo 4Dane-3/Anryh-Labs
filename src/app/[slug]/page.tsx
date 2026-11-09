@@ -14,6 +14,9 @@ import { DEFAULT_TITLE } from "@/lib/campaign";
 import { pageFont } from "@/lib/booking/page-fonts";
 import { partnerPage } from "@/lib/booking/sites";
 import { areaLabel, isRoofer } from "@/lib/verticals";
+import { voiceOnFor } from "@/lib/voice/dial";
+import { withRuleQuestions } from "@/lib/roofing/job-rules";
+import { rulesOf } from "@/lib/roofing/fit";
 
 export const dynamic = "force-dynamic";
 
@@ -195,12 +198,16 @@ export default async function AgentPage({ params, searchParams }: Props) {
               slug={agent.slug}
               firstName={firstName}
               preview={preview}
-              questions={preBookingQuestions(questions, requiredSteps)}
+              questions={preBookingQuestions(isRoofer(agent) ? withRuleQuestions(questions, rulesOf(agent)) : questions, requiredSteps)}
               requiredSteps={requiredSteps}
               meeting={meeting}
             />
             {!roof && agent.quote_mode !== "off" && (
               <QuoteForm slug={agent.slug} firstName={firstName} preview={preview} openForAds={agent.quote_mode === "open_for_ads"} />
+            )}
+            {/* Roofers get the "we'll call you now" form only with the voice agent on: it calls in seconds and books the inspection */}
+            {roof && voiceOnFor(agent) && agent.quote_mode !== "off" && (
+              <QuoteForm slug={agent.slug} firstName={firstName} preview={preview} openForAds={agent.quote_mode === "open_for_ads"} roof />
             )}
           </div>
         </aside>

@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { setCallButton, setGhostBookings, setMigzMode, updateSettings } from "@/app/dashboard/actions";
+import { setCallButton, setGhostBookings, setMigzMode, setVoiceAgent, updateSettings } from "@/app/dashboard/actions";
 import Link from "next/link";
 import { displayPhone } from "@/lib/booking/call";
 import { Button, Label, Panel, PanelHeader, Switch, inputClass } from "@/components/dashboard/ui";
@@ -214,6 +214,41 @@ export function GhostBookingsForm({ on }: { on: boolean }) {
           {error && <p className="mt-1 text-[13px] text-bad">{error}</p>}
         </div>
         <Switch checked={value} onChange={toggle} label="Ghost bookings" disabled={pending} />
+      </div>
+    </Panel>
+  );
+}
+
+/** Speed to lead: the AI voice agent calls new leads within seconds. `ready` is false until ElevenLabs is set up. */
+export function VoiceAgentForm({ on, ready, roof }: { on: boolean; ready: boolean; roof: boolean }) {
+  const router = useRouter();
+  const [value, setValue] = useState(on);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+  const toggle = (next: boolean) =>
+    startTransition(async () => {
+      setValue(next);
+      setError(null);
+      const res = await setVoiceAgent(next);
+      if (!res.ok) {
+        setValue(!next);
+        setError(res.error);
+      }
+      router.refresh();
+    });
+  return (
+    <Panel>
+      <div className="flex items-start justify-between gap-4 px-5 py-4">
+        <div>
+          <h2 className="text-sm font-semibold text-fg">AI voice agent: call new leads in seconds</h2>
+          <p className="mt-0.5 text-[13px] text-fg-muted">
+            Your AI assistant calls each new {roof ? "inspection request" : "quote request and instant-form lead"} within seconds, says it&apos;s an AI and that the call may be recorded, asks a few qualifying questions and books them on your calendar. Calls go out 8am to 8pm in the lead&apos;s time zone (later ones at 8am), a missed call is tried again after 2 minutes and the next day, and anyone who asks is never called again.
+            {roof && " Your booking page also gets a \"We'll call you right now\" option."}
+          </p>
+          {!ready && <p className="mt-1 text-[13px] text-fg-muted">Not available yet: the voice line is still being set up.</p>}
+          {error && <p className="mt-1 text-[13px] text-bad">{error}</p>}
+        </div>
+        <Switch checked={value} onChange={toggle} label="AI voice agent" disabled={pending || (!ready && !value)} />
       </div>
     </Panel>
   );

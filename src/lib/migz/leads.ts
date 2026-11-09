@@ -3,7 +3,9 @@ import { DateTime } from "luxon";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
 import { usPhone } from "@/lib/booking/call";
-import { QUOTE_CONSENT_TEXT } from "@/lib/booking/constants";
+import { LEGACY_QUOTE_CONSENT_TEXT, QUOTE_CONSENT_TEXT } from "@/lib/booking/constants";
+import { dialLead, inspectionHours, isDoNotCall, planColumns, planFirstCall, voiceOnFor } from "@/lib/voice/dial";
+import { voiceConfigured } from "@/lib/voice/elevenlabs";
 import { sendFormLeadEmail } from "@/lib/booking/email";
 import { newFormLeadMessage } from "@/lib/booking/format";
 import { landingUrl } from "@/lib/booking/sites";
@@ -22,7 +24,10 @@ import { DEFAULT_INTENT, isIntentLevel } from "@/lib/ad-options";
 // Slack; if the lead later books a call, Meta is told on the lead (a CRM conversion).
 
 // Form leads also get an email with the booking link, so their consent names email too
-export const FORM_CONSENT_TEXT = `${QUOTE_CONSENT_TEXT.replace("by phone and text", "by phone, text and email")} By submitting, you ask to be called back about life insurance.`;
+const formConsent = (quote: string) => `${quote.replace("by phone and text", "by phone, text and email")} By submitting, you ask to be called back about life insurance.`;
+export const FORM_CONSENT_TEXT = formConsent(QUOTE_CONSENT_TEXT);
+/** What forms made before AI-voice consent show (their leads are never called by the voice agent) */
+const LEGACY_FORM_CONSENT_TEXT = formConsent(LEGACY_QUOTE_CONSENT_TEXT);
 
 /** Roofers never run instant forms: an inspection needs an address and a time, which the booking page asks for. */
 export const wantsInstantForms = (agent: Pick<Agent, "intent_level" | "vertical">) =>
@@ -48,6 +53,9 @@ export async function ensureLeadForm(agent: Agent): Promise<string | null> {
       agentName: agent.full_name,
     });
     await supabaseAdmin.from("agents").update({ meta_lead_form_id: id, lead_form_blocked: null }).eq("id", agent.id);
+    // Its consent names AI-voice calls (a separate update: the column is missing before the voice migration)
+    await supabaseAdmin.from("agents").update({ meta_lead_form_ai_consent: true }).eq("id", agent.id);
+    agent.meta_lead_form_ai_consent = true;
     agent.meta_lead_form_id = id;
     agent.lead_form_blocked = null;
     return id;
@@ -64,13 +72,25 @@ export async function ensureLeadForm(agent: Agent): Promise<string | null> {
 
 const field = (lead: MetaLead, ...names: string[]) => lead.field_data.find((f) => names.includes(f.name))?.values?.[0]?.trim() ?? "";
 
-/** Saves one form lead as a call-back and tells the agent. Returns false when it was already saved. */
-export async function saveFormLead(agent: Agent, lead: MetaLead) {
+/**
+ * Saves one form lead as a call-back and tells the agent. Returns false when it was already saved. When the
+ * voice agent is on, its call is requested right after the insert, before anything else. `receivedAt` is when
+ * the webhook arrived (null from the backstop poll), so Meta's delay (received - created_time) is on the lead.
+ */
+export async function saveFormLead(agent: Agent, lead: MetaLead, opts: { receivedAt?: Date | null; hours?: Promise<string> } = {}) {
   const name = field(lead, "full_name", "first_name") || "Instant form lead";
   const phone = usPhone(field(lead, "phone_number", "phone"));
   const email = field(lead, "email") || null;
   const coverageKey = field(lead, "coverage");
   const coverage = coverageKey in TOPICS ? TOPICS[coverageKey as keyof typeof TOPICS].label : coverageKey || null;
+  const city = field(lead, "city") || null;
+  const aiConsent = !!agent.meta_lead_form_ai_consent;
+  // The voice agent calls form leads whose form's consent covers AI calls, fresh from the webhook (a lead the
+  // backstop poll finds a day later isn't "speed to lead"; the agent calls those themselves)
+  const createdAt = new Date(lead.created_time);
+  const fresh = !!opts.receivedAt || Date.now() - createdAt.getTime() < 60 * 60_000;
+  const voiceOn = aiConsent && fresh && voiceOnFor(agent);
+  const plan = voiceOn ? planFirstCall({ on: true, phone, doNotCall: phone ? await isDoNotCall(phone) : false, tz: agent.timezone }) : ({ kind: "off" } as const);
   const { data, error } = await supabaseAdmin
     .from("quote_requests")
     .insert({
@@ -81,18 +101,44 @@ export async function saveFormLead(agent: Agent, lead: MetaLead) {
       phone: phone ?? field(lead, "phone_number", "phone").slice(0, 30),
       email,
       coverage,
-      consent_text: FORM_CONSENT_TEXT,
+      consent_text: aiConsent ? FORM_CONSENT_TEXT : LEGACY_FORM_CONSENT_TEXT,
       consented_at: lead.created_time,
       created_at: lead.created_time,
       meta_lead_id: lead.id,
       meta_form_id: lead.form_id ?? null,
       meta_ad_id: lead.ad_id ?? null,
       attribution: { utm_source: "meta", utm_medium: "instant_form", ...(lead.ad_id ? { utm_content: lead.ad_id } : {}) },
+      ...(voiceConfigured() && opts.receivedAt ? { received_at: opts.receivedAt.toISOString() } : {}),
+      ...(voiceOn ? { city: city?.slice(0, 80) ?? null, ...planColumns(plan, agent.timezone) } : {}),
     })
     .select("id")
     .single();
+  if (data && plan.kind === "now" && phone) {
+    // The dial starts now; the Slack ping and email below run while it's in flight
+    const call = (async () =>
+      dialLead({
+        account: agent,
+        lead: { id: data.id, name, phone, city, coverage, source: "instant_form" },
+        attempt: 1,
+        reason: "instant",
+        hours: await (opts.hours ?? inspectionHours(agent.id)),
+        tz: agent.timezone,
+        submittedAt: createdAt,
+      }))().catch((e) => console.error("[voice] dial failed", e));
+    try {
+      return await finishFormLead(agent, lead, data.id, { name, phone, email, coverage });
+    } finally {
+      await call;
+    }
+  }
   if (error?.code === "23505") return false;
   if (error || !data) throw new Error(`Couldn't save the form lead: ${error?.message}`);
+  return finishFormLead(agent, lead, data.id, { name, phone, email, coverage });
+}
+
+async function finishFormLead(agent: Agent, lead: MetaLead, id: string, p: { name: string; phone: string | null; email: string | null; coverage: string | null }) {
+  const { name, phone, email, coverage } = p;
+  const data = { id };
   if (agent.slack_user_id) {
     const text = newFormLeadMessage({ name, phone, email, coverage });
     await sendSlackMessage(agent.slack_user_id, text, leadPingBlocks(text, "lead", data.id)).catch((e) => console.error("slack notify failed", e));
@@ -110,9 +156,11 @@ export async function saveFormLead(agent: Agent, lead: MetaLead) {
 }
 
 /** One lead from the webhook: fetched from Meta (the webhook only carries its id) and saved. */
-export async function receiveLead(agent: Agent, leadId: string) {
+export async function receiveLead(agent: Agent, leadId: string, receivedAt: Date = new Date()) {
   if (!agent.meta_page_id) return false;
-  return saveFormLead(agent, await getLead(agent.meta_page_id, leadId));
+  // The account's hours (for the voice agent) are read while Meta is fetched, not after
+  const hours = voiceOnFor(agent) ? inspectionHours(agent.id).catch(() => "") : undefined;
+  return saveFormLead(agent, await getLead(agent.meta_page_id, leadId), { receivedAt, hours });
 }
 
 /** The backstop: the form's leads from the last 3 days, saving any the webhook missed. */

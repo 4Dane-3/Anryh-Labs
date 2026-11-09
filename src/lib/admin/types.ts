@@ -1,3 +1,4 @@
+import type { SpeedToLead } from "@/lib/voice/stats";
 // Client-safe shapes for the admin dashboard (the queries live in overview.ts, which is server-only).
 import type { Severity } from "@/lib/admin/issues";
 import type { BrainEvent } from "@/lib/migz/brain-types";
@@ -57,4 +58,6 @@ export type AdminOverview = {
   recent: AdminAlert[];
   activity: { id: number; agentName: string; agentSlug: string | null; step: string; tier: BrainEvent["tier"]; summary: string; at: string; open: boolean }[];
   totals: { spendTodayCents: number; budgetTodayCents: number; runningBatches: number; working: number };
+  /** The voice agent's speed to lead, last 30 days (null before its migration) */
+  speedToLead?: SpeedToLead | null;
 };

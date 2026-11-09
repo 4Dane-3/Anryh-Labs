@@ -2,6 +2,9 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import { getAgentBySlug, getIntakeQuestions } from "@/lib/booking/data";
 import { preBookingQuestions } from "@/lib/booking/questions";
 import { callButtonShows, displayPhone } from "@/lib/booking/call";
+import { isRoofer } from "@/lib/verticals";
+import { withRuleQuestions } from "@/lib/roofing/job-rules";
+import { rulesOf } from "@/lib/roofing/fit";
 
 // What an agent's booking page shows, for sites that host it themselves (see lib/booking/sites.ts):
 // testimonials, the questions asked before booking, the quote option and the call button. Public: the
@@ -28,7 +31,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ slug: s
       licenseNumber: agent.license_number,
       slotMinutes: agent.slot_minutes ?? 30,
       testimonials: (testimonials ?? []).map((t) => ({ id: t.id, name: t.author_name, detail: t.author_detail, quote: t.quote, rating: t.rating === null ? null : Number(t.rating) })),
-      questions: preBookingQuestions(questions, requiredSteps),
+      questions: preBookingQuestions(isRoofer(agent) ? withRuleQuestions(questions, rulesOf(agent)) : questions, requiredSteps),
       requiredSteps,
       quoteMode: agent.quote_mode ?? "folded",
       // null until the agent sets it (the host site then shows its own list); [] when they chose to show none

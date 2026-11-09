@@ -32,6 +32,8 @@ import Link from "next/link";
 import { addActivity, cancelBooking, changeClientStatus, editActivity, loadClientActivity, reachOut, removeActivity, saveNotesFor, tapClient } from "@/app/dashboard/actions";
 import type { SequenceKey } from "@/lib/email-sequences";
 import { Chips, FollowUpMark, Premium } from "@/components/dashboard/OutcomeAsk";
+import { JobDoneSection } from "@/components/dashboard/Referrals";
+import { fitLabel } from "@/lib/roofing/job-rules";
 import { Badge, Button, inputClass } from "@/components/dashboard/ui";
 import { cn } from "@/lib/utils";
 
@@ -210,7 +212,7 @@ function EntryForm({
 
 const SEQUENCE_NAME: Record<SequenceKey, string> = { tried_call: "after a missed call", emailed: "after your email" };
 
-function CardBody({ client, timezone, questionOrder, emailing, onClose }: { client: Client; timezone: string; questionOrder: string[]; emailing: Emailing; onClose: () => void }) {
+function CardBody({ client, timezone, questionOrder, emailing, rules, onClose }: { client: Client; timezone: string; questionOrder: string[]; emailing: Emailing; rules?: string[]; onClose: () => void }) {
   const router = useRouter();
   const [status, setStatus] = useState(client.status);
   const [outcome, setOutcome] = useState(client.outcome);
@@ -442,6 +444,36 @@ function CardBody({ client, timezone, questionOrder, emailing, onClose }: { clie
           </div>
         </section>
 
+        {/* A roofer's "Jobs we take": did this lead fit, and why not (or what to check) */}
+        {client.fit && (
+          <section>
+            <SectionTitle>Fit for your jobs</SectionTitle>
+            <div className="space-y-2 text-[13px]">
+              <p className={client.fit.status === "not_fit" ? "font-medium text-bad" : client.fit.status === "unsure" ? "font-medium text-fg" : "font-medium text-good"}>
+                {fitLabel(client.fit.status)}
+                {client.fit.urgent && " · Active leak, call first"}
+              </p>
+              {client.fit.reasons.length > 0 && (
+                <ul className="list-disc space-y-0.5 pl-5 text-fg-muted">
+                  {client.fit.reasons.map((r) => <li key={r}>{r}</li>)}
+                </ul>
+              )}
+              {client.fit.flags.length > 0 && (
+                <ul className="list-disc space-y-0.5 pl-5 text-fg-muted">
+                  {client.fit.flags.map((r) => <li key={r}>Check: {r}</li>)}
+                </ul>
+              )}
+              {client.fit.status === "not_fit" && <p className="text-fg-faint">They were told politely you&apos;re not the right fit and weren&apos;t booked.</p>}
+              {rules && rules.length > 0 && <p className="text-fg-faint">Your rules: {rules.join(" · ")}</p>}
+            </div>
+          </section>
+        )}
+
+        {/* A roofer's finished job: Job done starts the check-in call and the referral offer */}
+        {client.kind === "call" && call && call.status === "confirmed" && questionOrder.includes("property_address") && (
+          <JobDoneSection bookingId={client.id} job={call.job} timezone={timezone} past={new Date(call.startsAt) < new Date()} />
+        )}
+
         <section>
           <SectionTitle>Details</SectionTitle>
           <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-[13px]">
@@ -612,7 +644,7 @@ function CardBody({ client, timezone, questionOrder, emailing, onClose }: { clie
   );
 }
 
-export function ClientCard({ client, timezone, questionOrder, emailing, onClose }: { client: Client | null; timezone: string; questionOrder: string[]; emailing: Emailing; onClose: () => void }) {
+export function ClientCard({ client, timezone, questionOrder, emailing, rules, onClose }: { client: Client | null; timezone: string; questionOrder: string[]; emailing: Emailing; rules?: string[]; onClose: () => void }) {
   useEffect(() => {
     if (!client) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -635,7 +667,7 @@ export function ClientCard({ client, timezone, questionOrder, emailing, onClose 
             exit={{ x: "100%" }}
             transition={{ type: "spring", stiffness: 380, damping: 40 }}
           >
-            <CardBody client={client} timezone={timezone} questionOrder={questionOrder} emailing={emailing} onClose={onClose} />
+            <CardBody client={client} timezone={timezone} questionOrder={questionOrder} emailing={emailing} rules={rules} onClose={onClose} />
           </motion.aside>
         </>
       )}
