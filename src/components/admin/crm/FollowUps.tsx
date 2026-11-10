@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { DateTime } from "luxon";
 import { Eye, Mail, Pause, Play, Send, Settings2, Square } from "lucide-react";
 import { changeFollowUp, previewFollowUp, saveFollowUpCopy, sendFollowUpNow, setFollowUpState, startFollowUps } from "@/app/admin/crm/followup-actions";
-import { blockedReason, CADENCES, type Cadence, type CrmFollowUp, type CrmFollowUpEmail, type FollowUpCopy } from "@/lib/crm/followups";
+import { blockedReason, CADENCES, isOngoing, type Cadence, type CrmFollowUp, type CrmFollowUpEmail, type FollowUpCopy } from "@/lib/crm/followups";
 import type { CrmClient } from "@/lib/crm/types";
 import { Badge, Button, inputClass, Label, Panel, PanelHeader } from "@/components/dashboard/ui";
 import { Modal } from "@/components/admin/crm/shared";
@@ -20,7 +20,7 @@ function StartFields({ cadence, setCadence, max, setMax, now, setNow, many }: { 
     <div className="space-y-3">
       <div>
         <Label>How often</Label>
-        <div className="grid grid-cols-3 gap-1.5">
+        <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
           {CADENCE_KEYS.map((k) => (
             <button
               key={k}
@@ -32,12 +32,16 @@ function StartFields({ cadence, setCadence, max, setMax, now, setNow, many }: { 
             </button>
           ))}
         </div>
-        <p className="mt-1 text-[12px] text-fg-faint">Emails go out at 9:00 AM on weekdays. A weekend send moves to Monday.</p>
+        <p className="mt-1 text-[12px] text-fg-faint">
+          {isOngoing(cadence) ? "One email a month, with no end, until they unsubscribe or you stop it. Good for someone who went with another company: they'll remember you." : "Emails go out at 9:00 AM on weekdays. A weekend send moves to Monday."}
+        </p>
       </div>
-      <div className="grid grid-cols-[110px_1fr] items-center gap-3">
-        <Label htmlFor="fu-max" className="mb-0">Emails in total</Label>
-        <input id="fu-max" type="number" min={1} max={30} className={cn(inputClass, "w-24")} value={max} onChange={(e) => setMax(Number(e.target.value))} />
-      </div>
+      {!isOngoing(cadence) && (
+        <div className="grid grid-cols-[110px_1fr] items-center gap-3">
+          <Label htmlFor="fu-max" className="mb-0">Emails in total</Label>
+          <input id="fu-max" type="number" min={1} max={30} className={cn(inputClass, "w-24")} value={max} onChange={(e) => setMax(Number(e.target.value))} />
+        </div>
+      )}
       <label className="flex items-center gap-2 text-[13px] text-fg-muted">
         <input type="checkbox" checked={now} onChange={(e) => setNow(e.target.checked)} className="size-3.5 accent-[var(--color-brand)]" />
         {many ? "Send the first emails now (within 15 minutes)" : "Send the first email now"}
@@ -56,7 +60,9 @@ export function FollowUpPanel({ client, followUp, emails, hasUpcomingMeeting, co
   const [now, setNow] = useState(true);
   const [preview, setPreview] = useState(false);
   const [editCopy, setEditCopy] = useState(false);
-  const blocked = blockedReason(client, hasUpcomingMeeting);
+  // Can anything run (the retainer is the most permissive), and can the chosen cadence?
+  const blockedAll = blockedReason(client, hasUpcomingMeeting, "monthly");
+  const blocked = blockedReason(client, hasUpcomingMeeting, followUp && (followUp.status === "active" || followUp.status === "paused") ? followUp.cadence : cadence);
   const live = followUp && (followUp.status === "active" || followUp.status === "paused");
   const fmt = (iso: string) => DateTime.fromISO(iso).setZone(timezone).toFormat("ccc, LLL d · h:mm a");
   const act = (fn: () => Promise<{ ok: true; message?: string } | { ok: false; error: string }>) =>
@@ -90,7 +96,7 @@ export function FollowUpPanel({ client, followUp, emails, hasUpcomingMeeting, co
             <Badge tone={STATUS_BADGE[followUp.status].tone}>{STATUS_BADGE[followUp.status].label}</Badge>
             <span className="text-fg">{CADENCES[followUp.cadence].label}</span>
             <span className="text-fg-muted">
-              {followUp.sent_count} of {followUp.max_emails} sent
+              {isOngoing(followUp.cadence) ? `${followUp.sent_count} sent · until they opt out` : `${followUp.sent_count} of ${followUp.max_emails} sent`}
             </span>
             {followUp.status === "active" && followUp.next_send_at && <span className="text-fg-muted">· next {fmt(followUp.next_send_at)}</span>}
             {followUp.stop_reason && followUp.status !== "active" && <span className="text-fg-faint">· {followUp.stop_reason}</span>}
@@ -110,10 +116,12 @@ export function FollowUpPanel({ client, followUp, emails, hasUpcomingMeeting, co
                   ))}
                 </select>
               </div>
-              <div>
-                <Label htmlFor="fu-max2">Emails in total</Label>
-                <input id="fu-max2" type="number" min={1} max={30} className={cn(inputClass, "w-24")} value={max} onChange={(e) => setMax(Number(e.target.value))} />
-              </div>
+              {!isOngoing(cadence) && (
+                <div>
+                  <Label htmlFor="fu-max2">Emails in total</Label>
+                  <input id="fu-max2" type="number" min={1} max={30} className={cn(inputClass, "w-24")} value={max} onChange={(e) => setMax(Number(e.target.value))} />
+                </div>
+              )}
               {(cadence !== followUp!.cadence || max !== followUp!.max_emails) && (
                 <Button size="sm" variant="secondary" disabled={pending} onClick={() => act(() => changeFollowUp(client.id, { cadence, maxEmails: max }))}>
                   Save
@@ -141,12 +149,13 @@ export function FollowUpPanel({ client, followUp, emails, hasUpcomingMeeting, co
             </div>
             <p className="text-[12px] text-fg-faint">Stops on its own when they unsubscribe, get a meeting, or you mark them a client or lost. If they reply, press Stop.</p>
           </>
-        ) : blocked ? (
-          <p className="text-fg-muted">Follow-ups can&apos;t start: {blocked.toLowerCase()}.</p>
+        ) : blockedAll ? (
+          <p className="text-fg-muted">Follow-ups can&apos;t start: {blockedAll.toLowerCase()}.</p>
         ) : (
           <>
             <StartFields cadence={cadence} setCadence={setCadence} max={max} setMax={setMax} now={now} setNow={setNow} />
-            <Button size="sm" variant="primary" disabled={pending || !copy.ready} onClick={() => act(() => startFollowUps({ clientIds: [client.id], cadence, maxEmails: max, sendFirstNow: now }))}>
+            {blocked && <p className="text-[13px] text-bad">{blocked}.</p>}
+            <Button size="sm" variant="primary" disabled={pending || !copy.ready || !!blocked} onClick={() => act(() => startFollowUps({ clientIds: [client.id], cadence, maxEmails: max, sendFirstNow: now }))}>
               <Mail /> {pending ? "Starting…" : followUp ? "Start again" : "Start follow-ups"}
             </Button>
           </>
@@ -172,14 +181,14 @@ export function FollowUpPanel({ client, followUp, emails, hasUpcomingMeeting, co
           </div>
         )}
       </div>
-      <PreviewModal open={preview} onClose={() => setPreview(false)} clientId={client.id} total={followUp?.max_emails ?? max} startStep={Math.min((followUp?.sent_count ?? 0) + 1, followUp?.max_emails ?? max)} />
+      <PreviewModal open={preview} onClose={() => setPreview(false)} clientId={client.id} cadence={followUp?.cadence ?? cadence} total={isOngoing(followUp?.cadence ?? cadence) ? 4 : followUp?.max_emails ?? max} startStep={isOngoing(followUp?.cadence ?? cadence) ? ((followUp?.sent_count ?? 0) % 4) + 1 : Math.min((followUp?.sent_count ?? 0) + 1, followUp?.max_emails ?? max)} />
       <FollowUpCopyForm open={editCopy} onClose={() => setEditCopy(false)} copy={copy} />
     </Panel>
   );
 }
 
 /** The email as it'll look, step by step (each opens differently; the last asks whether to keep in touch). */
-export function PreviewModal({ open, onClose, clientId, total, startStep = 1, copy }: { open: boolean; onClose: () => void; clientId?: string; total: number; startStep?: number; copy?: { offer: string; process: string; ctaUrl: string; ctaLabel: string; postalAddress: string } }) {
+export function PreviewModal({ open, onClose, clientId, total, startStep = 1, copy, cadence }: { open: boolean; onClose: () => void; clientId?: string; total: number; startStep?: number; cadence?: Cadence; copy?: { offer: string; process: string; ctaUrl: string; ctaLabel: string; postalAddress: string } }) {
   const [step, setStep] = useState(startStep);
   const [mail, setMail] = useState<{ subject: string; html: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -187,7 +196,7 @@ export function PreviewModal({ open, onClose, clientId, total, startStep = 1, co
   useEffect(() => {
     if (!open) return;
     let live = true;
-    previewFollowUp({ clientId, step, total, copy }).then((r) => {
+    previewFollowUp({ clientId, step, total, copy, cadence }).then((r) => {
       if (!live) return;
       if (r.ok) setMail({ subject: r.subject, html: r.html });
       else setError(r.error);
@@ -196,16 +205,16 @@ export function PreviewModal({ open, onClose, clientId, total, startStep = 1, co
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, step, total, clientId, copyKey]);
+  }, [open, step, total, clientId, copyKey, cadence]);
   return (
     <Modal open={open} onClose={onClose} title="Follow-up email preview" wide>
       <div className="mb-3 flex flex-wrap items-center gap-1.5">
         {Array.from({ length: Math.min(total, 10) }, (_, i) => i + 1).map((n) => (
           <button key={n} onClick={() => setStep(n)} className={cn("rounded-full border px-2.5 py-0.5 text-[12px]", n === step ? "border-brand/60 bg-brand/10 text-fg" : "border-line text-fg-muted hover:text-fg")}>
-            #{n}
+            {cadence && isOngoing(cadence) ? `Month ${n}` : `#${n}`}
           </button>
         ))}
-        {total > 10 && <span className="text-[12px] text-fg-faint">…{total} in all</span>}
+        {cadence && isOngoing(cadence) ? <span className="text-[12px] text-fg-faint">then it repeats, every month</span> : total > 10 && <span className="text-[12px] text-fg-faint">…{total} in all</span>}
       </div>
       {error ? (
         <p className="text-[13px] text-bad">{error}</p>
@@ -302,7 +311,7 @@ export function BulkFollowUp({ open, onClose, clientIds, onDone }: { open: boole
     <Modal open={open} onClose={onClose} title={`Start follow-ups for ${clientIds.length} client${clientIds.length === 1 ? "" : "s"}`}>
       <div className="space-y-4">
         <StartFields cadence={cadence} setCadence={setCadence} max={max} setMax={setMax} now={now} setNow={setNow} many />
-        <p className="text-[12px] text-fg-faint">Anyone with no email, who unsubscribed, has a meeting, or is a client or lost is skipped. Starting again restarts a client&apos;s sequence from email #1.</p>
+        <p className="text-[12px] text-fg-faint">Anyone with no email, who unsubscribed, has a meeting coming up, or is a client is skipped; lost clients only get the Monthly retainer. Starting again restarts a client&apos;s sequence from email #1.</p>
         {error && <p className="text-[13px] text-bad">{error}</p>}
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose}>

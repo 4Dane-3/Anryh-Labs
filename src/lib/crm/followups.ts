@@ -5,11 +5,15 @@ import { clientFirstName } from "@/lib/crm/types";
 // shared by the server actions, the cron and the preview. Sending is in email.ts.
 
 export const CADENCES = {
-  daily: { label: "Daily", days: 1 },
-  every_2_days: { label: "Every 48 hours", days: 2 },
-  twice_monthly: { label: "Twice a month", days: 15 },
+  daily: { label: "Daily", days: 1, months: 0 },
+  every_2_days: { label: "Every 48 hours", days: 2, months: 0 },
+  twice_monthly: { label: "Twice a month", days: 15, months: 0 },
+  // No end: one a month until they unsubscribe or staff stop it (a prospect who went with someone else)
+  monthly: { label: "Monthly retainer", days: 0, months: 1 },
 } as const;
 export type Cadence = keyof typeof CADENCES;
+/** A cadence that runs until the client opts out or staff stop it, ignoring the email count. */
+export const isOngoing = (c: Cadence) => c === "monthly";
 export const isCadence = (v: unknown): v is Cadence => typeof v === "string" && v in CADENCES;
 
 export type FollowUpStatus = "active" | "paused" | "stopped" | "finished";
@@ -56,7 +60,7 @@ export const SEND_HOUR = 9;
  * to Monday when it lands on a weekend.
  */
 export function nextSendAt(from: Date | number, cadence: Cadence, zone: string): Date {
-  let d = DateTime.fromMillis(+from, { zone }).plus({ days: CADENCES[cadence].days }).set({ hour: SEND_HOUR, minute: 0, second: 0, millisecond: 0 });
+  let d = DateTime.fromMillis(+from, { zone }).plus({ days: CADENCES[cadence].days, months: CADENCES[cadence].months }).set({ hour: SEND_HOUR, minute: 0, second: 0, millisecond: 0 });
   while (d.weekday > 5) d = d.plus({ days: 1 });
   return d.toJSDate();
 }
@@ -70,12 +74,14 @@ export function firstMorning(now: Date | number, zone: string): Date {
 }
 
 /** Why a sequence can't (or shouldn't) send to this client right now, or null when it can. */
-export function blockedReason(c: { email: string | null; status: string; unsubscribed_at?: string | null }, hasUpcomingMeeting = false): string | null {
+export function blockedReason(c: { email: string | null; status: string; unsubscribed_at?: string | null }, hasUpcomingMeeting = false, cadence?: Cadence): string | null {
   if (!c.email) return "No email address";
   if (c.unsubscribed_at) return "They unsubscribed";
   if (c.status === "client") return "They're a client now";
-  if (c.status === "lost") return "Marked lost";
-  if (c.status === "meeting" || hasUpcomingMeeting) return "They have a meeting";
+  // Someone who went with another company is exactly who the monthly retainer is for
+  if (c.status === "lost" && !(cadence && isOngoing(cadence))) return "Marked lost (only the Monthly retainer can run)";
+  // A meeting still ahead; once it's passed, follow-ups can run again
+  if (hasUpcomingMeeting) return "They have a meeting coming up";
   return null;
 }
 
@@ -101,6 +107,29 @@ const STEPS = [
     subject: (co: string) => `Still looking for more jobs at ${co}?`,
     heading: "Still a fit?",
     lead: (first: string) => `Hi ${first}, checking in. If more booked inspections would help this season, here's where we'd start.`,
+  },
+];
+// The monthly retainer: a lighter "still here when you need us" note, rotating, never a last one
+const MONTHLY = [
+  {
+    subject: (co: string) => `Your monthly check-in from us, ${co}`,
+    heading: "Still here when you need us",
+    lead: (first: string, from: string) => `Hi ${first}, a quick monthly note from ${from}. No pressure; here's what we do, in case it's useful now or down the road.`,
+  },
+  {
+    subject: () => "Is your calendar as full as you want it?",
+    heading: "A quick monthly check",
+    lead: (first: string) => `Hi ${first}, if your current marketing isn't filling the calendar with inspections the way you'd like, we're an easy switch, and the guarantee below takes the risk off you.`,
+  },
+  {
+    subject: () => "8 booked inspections in 30 days, or no fee",
+    heading: "Our guarantee still stands",
+    lead: (first: string) => `Hi ${first}, a reminder of the offer: if we don't book 8 inspections that fit your rules in your first 30 days, you don't pay our fee.`,
+  },
+  {
+    subject: (co: string) => `How's the season going at ${co}?`,
+    heading: "Checking in",
+    lead: (first: string) => `Hi ${first}, hope the season's going well. If you ever want a second opinion on your ads or a backup plan for leads, here's how we work.`,
   },
 ];
 const LAST = {
@@ -136,6 +165,7 @@ export function processSteps(process: string) {
 export function followUpEmail(input: {
   step: number;
   total: number;
+  cadence?: Cadence;
   from: string;
   client: { name: string | null; company: string | null };
   copy: FollowUpCopy;
@@ -144,11 +174,13 @@ export function followUpEmail(input: {
   const { step, total, from, copy } = input;
   const first = clientFirstName(input.client) ?? "there";
   const co = input.client.company?.trim() || "your team";
-  const s = step >= total && total > 1 ? LAST : STEPS[(step - 1) % STEPS.length];
+  const s = input.cadence && isOngoing(input.cadence) ? MONTHLY[(step - 1) % MONTHLY.length] : step >= total && total > 1 ? LAST : STEPS[(step - 1) % STEPS.length];
   const subject = s.subject(co);
   const lead = s.lead(first, from);
   const steps = processSteps(copy.process);
   const offerParas = copy.offer.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  const monthly = !!input.cadence && isOngoing(input.cadence);
+  const ask = monthly ? "Whenever the timing's right, we'd love to talk." : "Would it make sense to talk this week?";
   const replyLine = copy.ctaUrl ? `Or just reply to this email with a good time.` : `Just reply to this email and we'll find a time.`;
 
   const html = `<!doctype html>
@@ -204,7 +236,7 @@ export function followUpEmail(input: {
         }
         <tr>
           <td style="padding:24px 28px 0;">
-            <p style="margin:0 0 16px;font:400 15px/1.6 ${FONT};color:${BODY};">Would it make sense to talk this week?</p>
+            <p style="margin:0 0 16px;font:400 15px/1.6 ${FONT};color:${BODY};">${esc(ask)}</p>
             ${copy.ctaUrl ? `<a href="${esc(copy.ctaUrl)}" style="display:inline-block;padding:14px 26px;border-radius:999px;font:600 15px/1 ${FONT};text-decoration:none;background:${INK};color:#ffffff;">${esc(copy.ctaLabel)}</a>` : ""}
             <p style="margin:14px 0 0;font:400 14px/1.55 ${FONT};color:${MUTED};">${esc(replyLine)}</p>
           </td>
@@ -212,7 +244,7 @@ export function followUpEmail(input: {
         <tr>
           <td style="padding:26px 28px 28px;">
             <div style="border-top:1px solid ${LINE};padding-top:18px;font:400 12px/1.6 ${FONT};color:#94a3b8;">
-              You&rsquo;re getting this because you&rsquo;ve been in touch with ${esc(from)}. <a href="${esc(input.unsubscribeUrl)}" style="color:#94a3b8;">Unsubscribe</a>${copy.postalAddress ? `<br />${esc(copy.postalAddress)}` : ""}
+              You&rsquo;re getting this because you&rsquo;ve been in touch with ${esc(from)}${monthly ? ", once a month" : ""}. <a href="${esc(input.unsubscribeUrl)}" style="color:#94a3b8;">Unsubscribe</a>${copy.postalAddress ? `<br />${esc(copy.postalAddress)}` : ""}
             </div>
           </td>
         </tr>
@@ -233,7 +265,7 @@ export function followUpEmail(input: {
     steps.length ? "HOW IT WORKS" : "",
     ...steps.map((st, i) => `${i + 1}. ${st.title}${st.body ? `: ${st.body}` : ""}`),
     "",
-    "Would it make sense to talk this week?",
+    ask,
     copy.ctaUrl ? `${copy.ctaLabel}: ${copy.ctaUrl}` : "",
     replyLine,
     "",

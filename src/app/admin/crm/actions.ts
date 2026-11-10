@@ -47,8 +47,10 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const isUuid = (s: unknown): s is string => typeof s === "string" && /^[0-9a-f-]{36}$/i.test(s);
 
 /** Ends a client's follow-up emails (a meeting got set, they became a client, or were marked lost). No-op before the migration. */
-async function stopFollowUps(clientId: string, reason: string) {
-  await supabaseAdmin.from("crm_followups").update({ status: "stopped", stop_reason: reason, next_send_at: null, updated_at: new Date().toISOString() }).eq("client_id", clientId).in("status", ["active", "paused"]);
+async function stopFollowUps(clientId: string, reason: string, keepMonthly = false) {
+  let q = supabaseAdmin.from("crm_followups").update({ status: "stopped", stop_reason: reason, next_send_at: null, updated_at: new Date().toISOString() }).eq("client_id", clientId).in("status", ["active", "paused"]);
+  if (keepMonthly) q = q.neq("cadence", "monthly");
+  await q;
 }
 
 function dupeError(e: { code?: string; message?: string }) {
@@ -116,8 +118,9 @@ export async function setClientField(clientId: string, field: string, value: unk
     if (!(CLIENT_STATUSES as readonly string[]).includes(String(value))) return { ok: false, error: "Unknown status." };
     const { error } = await supabaseAdmin.from("crm_clients").update({ status: value, updated_at: new Date().toISOString() }).eq("id", clientId);
     if (error) return { ok: false, error: "Couldn't save that." };
-    const why = { meeting: "They have a meeting", client: "They're a client now", lost: "Marked lost" }[String(value)];
-    if (why) await stopFollowUps(clientId, why);
+    // A client stops every sequence; lost stops all but the monthly retainer (that's who it's for)
+    if (value === "client") await stopFollowUps(clientId, "They're a client now");
+    if (value === "lost") await stopFollowUps(clientId, "Marked lost", true);
     refresh(clientId);
     return { ok: true };
   }
@@ -385,7 +388,7 @@ export async function saveMeeting(input: MeetingInput): Promise<Result<{ id: str
   let meeting = res.data as CrmMeeting;
 
   if (client.status === "lead" || client.status === "contacted") await supabaseAdmin.from("crm_clients").update({ status: "meeting" }).eq("id", client.id);
-  await stopFollowUps(client.id, "They have a meeting");
+  await stopFollowUps(client.id, "They have a meeting coming up");
 
   let message = previous ? "Meeting saved." : "Meeting saved as a draft.";
   if (input.send) {

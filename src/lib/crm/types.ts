@@ -40,7 +40,7 @@ export type CrmClient = {
   email_token?: string; // the unsubscribe link's key
   // computed by the list query
   next_meeting?: { starts_at: string; status: MeetingStatus; outcome: MeetingOutcome | null } | null;
-  followup?: { status: "active" | "paused"; cadence: "daily" | "every_2_days" | "twice_monthly"; next_send_at: string | null } | null;
+  followup?: { status: "active" | "paused"; cadence: "daily" | "every_2_days" | "twice_monthly" | "monthly"; next_send_at: string | null } | null;
 };
 
 export type CrmNote = { id: number; client_id: string; body: string; author: string; created_at: string };

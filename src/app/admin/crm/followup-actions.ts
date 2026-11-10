@@ -6,7 +6,7 @@ import { createSupabaseServer } from "@/lib/supabase-server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { getFollowUpCopy, getSettings } from "@/lib/crm/data";
 import { describeOutcome, unsubscribeUrl } from "@/lib/crm/email";
-import { blockedReason, CADENCES, firstMorning, followUpEmail, isCadence, nextSendAt, type Cadence } from "@/lib/crm/followups";
+import { blockedReason, CADENCES, firstMorning, followUpEmail, isCadence, isOngoing, nextSendAt, type Cadence } from "@/lib/crm/followups";
 import { sendNextFollowUp } from "@/lib/crm/followup-send";
 import type { CrmClient } from "@/lib/crm/types";
 
@@ -48,11 +48,11 @@ export async function startFollowUps(input: { clientIds: string[]; cadence: stri
   if (error) return { ok: false, error: "Couldn't read those clients." };
   const withMeeting = new Set((meetings ?? []).map((m) => m.client_id));
   const now = Date.now();
-  const ready = (clients as CrmClient[]).filter((c) => !blockedReason(c, withMeeting.has(c.id)));
+  const ready = (clients as CrmClient[]).filter((c) => !blockedReason(c, withMeeting.has(c.id), input.cadence as Cadence));
   const skipped = ids.length - ready.length;
   if (!ready.length) {
-    const why = clients?.length === 1 ? blockedReason(clients[0] as CrmClient, withMeeting.has(clients[0].id)) : null;
-    return { ok: false, error: why ? `Can't start: ${why.toLowerCase()}.` : "None of those clients can get follow-ups (no email, unsubscribed, a meeting set, or already a client or lost)." };
+    const why = clients?.length === 1 ? blockedReason(clients[0] as CrmClient, withMeeting.has(clients[0].id), input.cadence as Cadence) : null;
+    return { ok: false, error: why ? `Can't start: ${why.toLowerCase()}.` : "None of those clients can get follow-ups (no email, unsubscribed, a meeting coming up, already a client, or lost without the Monthly retainer)." };
   }
   const first = input.sendFirstNow ? new Date(now) : firstMorning(now, settings.timezone);
   const { error: upErr } = await supabaseAdmin.from("crm_followups").upsert(
@@ -73,13 +73,15 @@ export async function startFollowUps(input: { clientIds: string[]; cadence: stri
   if (migrationError(upErr)) return { ok: false, error: NEEDS_MIGRATION };
   if (upErr) return { ok: false, error: "Couldn't start the follow-ups." };
 
-  let message = `Follow-ups on for ${ready.length} client${ready.length === 1 ? "" : "s"}, ${CADENCES[input.cadence].label.toLowerCase()}, up to ${max} emails.`;
+  let message = isOngoing(input.cadence)
+    ? `Monthly retainer on for ${ready.length} client${ready.length === 1 ? "" : "s"}: one email a month until they unsubscribe or you stop it.`
+    : `Follow-ups on for ${ready.length} client${ready.length === 1 ? "" : "s"}, ${CADENCES[input.cadence].label.toLowerCase()}, up to ${max} emails.`;
   if (input.sendFirstNow && ready.length === 1) {
     const r = await sendNextFollowUp(ready[0].id);
-    message = r.ok ? `${describeOutcome(r.outcome, "First follow-up")} The next goes ${CADENCES[input.cadence].label.toLowerCase()}.` : `Follow-ups are on, but the first email didn't go: ${r.reason}`;
+    message = r.ok ? `${describeOutcome(r.outcome, "First follow-up")} The next goes ${isOngoing(input.cadence) ? "in a month" : CADENCES[input.cadence].label.toLowerCase()}.` : `Follow-ups are on, but the first email didn't go: ${r.reason}`;
   } else if (input.sendFirstNow) message += " The first emails go out within 15 minutes.";
   else message += " The first goes the next weekday at 9:00.";
-  if (skipped) message += ` Skipped ${skipped} (no email, unsubscribed, a meeting set, or already a client or lost).`;
+  if (skipped) message += ` Skipped ${skipped} (no email, unsubscribed, a meeting coming up, already a client, or lost without the Monthly retainer).`;
   ready.forEach((c) => refresh(c.id));
   return { ok: true, message, started: ready.length, skipped };
 }
@@ -117,7 +119,7 @@ export async function changeFollowUp(clientId: string, input: { cadence: string;
     const next = nextSendAt(Date.parse(f.last_sent_at), input.cadence, settings.timezone);
     update.next_send_at = (next.getTime() < Date.now() ? firstMorning(Date.now(), settings.timezone) : next).toISOString();
   }
-  if (max <= f.sent_count) Object.assign(update, { status: "finished", stop_reason: `All ${max} emails sent`, next_send_at: null });
+  if (!isOngoing(input.cadence) && max <= f.sent_count) Object.assign(update, { status: "finished", stop_reason: `All ${max} emails sent`, next_send_at: null });
   else if (f.status === "finished") Object.assign(update, { status: "active", stop_reason: null, next_send_at: (f.last_sent_at ? nextSendAt(Date.parse(f.last_sent_at), input.cadence, settings.timezone) : firstMorning(Date.now(), settings.timezone)).toISOString() });
   const { error } = await supabaseAdmin.from("crm_followups").update(update).eq("client_id", clientId);
   if (error) return { ok: false, error: "Couldn't save that." };
@@ -134,7 +136,7 @@ export async function sendFollowUpNow(clientId: string): Promise<Result> {
 }
 
 /** The email as it would go out: for a client (their name and company), or a sample. */
-export async function previewFollowUp(input: { clientId?: string | null; step: number; total: number; copy?: { offer: string; process: string; ctaUrl: string; ctaLabel: string; postalAddress: string } }): Promise<Result<{ subject: string; html: string }>> {
+export async function previewFollowUp(input: { clientId?: string | null; step: number; total: number; cadence?: string; copy?: { offer: string; process: string; ctaUrl: string; ctaLabel: string; postalAddress: string } }): Promise<Result<{ subject: string; html: string }>> {
   if (!(await staff())) return { ok: false, error: "Staff only." };
   const [settings, saved] = await Promise.all([getSettings(), getFollowUpCopy()]);
   let client = { name: "Alex Rivera", company: "Rivera Roofing" } as { name: string | null; company: string | null };
@@ -147,7 +149,7 @@ export async function previewFollowUp(input: { clientId?: string | null; step: n
     : saved;
   const step = Math.max(1, Math.min(30, Math.round(input.step)));
   const total = Math.max(step, Math.min(30, Math.round(input.total)));
-  const e = followUpEmail({ step, total, from: settings.from_name, client, copy, unsubscribeUrl: unsubscribeUrl("preview") });
+  const e = followUpEmail({ step, total, cadence: isCadence(input.cadence) ? input.cadence : undefined, from: settings.from_name, client, copy, unsubscribeUrl: unsubscribeUrl("preview") });
   return { ok: true, subject: e.subject, html: e.html };
 }
 
