@@ -2,7 +2,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { getFollowUpCopy, getSettings } from "@/lib/crm/data";
 import { sendFollowUpEmail, unsubscribeUrl, type SendOutcome } from "@/lib/crm/email";
-import { blockedReason, followUpEmail, nextSendAt, type CrmFollowUp } from "@/lib/crm/followups";
+import { blockedReason, followUpEmail, isOngoing, nextSendAt, type CrmFollowUp } from "@/lib/crm/followups";
 import type { CrmClient } from "@/lib/crm/types";
 
 // Sends a client's next follow-up email: used by the every-15-minutes cron (what's due) and by staff's
@@ -39,14 +39,14 @@ export async function sendNextFollowUp(clientId: string, opts: { due?: boolean }
   ]);
   const c = client as CrmClient | null;
   if (!c) return { ok: false, reason: "That client is gone." };
-  const blocked = blockedReason(c, (upcoming ?? []).length > 0);
+  const blocked = blockedReason(c, (upcoming ?? []).length > 0, f.cadence);
   if (blocked) {
     await stop(clientId, blocked);
     return { ok: false, reason: `Stopped: ${blocked.toLowerCase()}.` };
   }
 
   const step = f.sent_count + 1;
-  const email = followUpEmail({ step, total: f.max_emails, from: settings.from_name, client: c, copy, unsubscribeUrl: unsubscribeUrl(c.email_token!) });
+  const email = followUpEmail({ step, total: f.max_emails, cadence: f.cadence, from: settings.from_name, client: c, copy, unsubscribeUrl: unsubscribeUrl(c.email_token!) });
   let outcome: SendOutcome;
   try {
     outcome = await sendFollowUpEmail({ clientId, step, to: c.email!, token: c.email_token!, email, settings });
@@ -63,7 +63,7 @@ export async function sendNextFollowUp(clientId: string, opts: { due?: boolean }
   }
 
   await supabaseAdmin.from("crm_followup_emails").insert({ client_id: clientId, step, subject: email.subject, to_email: "sent" in outcome ? outcome.to : c.email!, outcome: "sent" in outcome ? "sent" : "logged" });
-  const done = step >= f.max_emails;
+  const done = !isOngoing(f.cadence) && step >= f.max_emails;
   await supabaseAdmin
     .from("crm_followups")
     .update({
