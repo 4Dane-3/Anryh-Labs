@@ -1,3 +1,4 @@
+import { feePlanOf } from "@/lib/campaign";
 import { requireAgent } from "@/lib/auth";
 import { CONTACT_EMAIL } from "@/lib/contact";
 import { integrations, migzReadyFor } from "@/lib/integrations";
@@ -11,19 +12,22 @@ import { landingUrl } from "@/lib/booking/sites";
 import { META_BUSINESS_ID } from "@/lib/meta/access";
 import { topUpDefaults } from "@/lib/auto-top-up";
 import { rulesOf } from "@/lib/roofing/fit";
+import { applyRooferDefaults } from "@/lib/roofing/autopilot-defaults";
 
 export const dynamic = "force-dynamic";
 
 // What Stripe's return links say, shown above the steps
 const RETURNS: Record<string, { text: string; good: boolean }> = {
   "setup_fee:paid": { text: "Setup fee paid, thank you. Step 3 ticks off as soon as Stripe confirms it, usually within a few seconds; refresh if it hasn't yet.", good: true },
-  "setup_fee:canceled": { text: "No payment was made. Pay the setup fee whenever you're ready: it's step 3.", good: false },
+  "setup_fee:subscribed": { text: "Migz AI is on, thank you. Step 3 ticks off as soon as Stripe confirms it, usually within a few seconds; refresh if it hasn't yet.", good: true },
+  "setup_fee:canceled": { text: "No payment was made. Finish step 3 whenever you're ready.", good: false },
   "deposit:success": { text: "Payment received. Your balance updates as soon as Stripe confirms it, usually within a few seconds; refresh if it hasn't yet.", good: true },
   "deposit:canceled": { text: "No payment was made. You can add funds whenever you're ready.", good: false },
 };
 
 export default async function StartPage({ searchParams }: { searchParams: Promise<{ setup_fee?: string; deposit?: string }> }) {
-  const [agent, query] = await Promise.all([requireAgent(), searchParams]);
+  const [signedIn, query] = await Promise.all([requireAgent(), searchParams]);
+  const agent = await applyRooferDefaults(signedIn);
   const [state, start, fundsAdded] = await Promise.all([getSetupState(agent), getCampaignStart(agent), getFundsAddedCents(agent.id)]);
   const back = RETURNS[query.setup_fee ? `setup_fee:${query.setup_fee}` : `deposit:${query.deposit}`];
 
@@ -96,10 +100,11 @@ export default async function StartPage({ searchParams }: { searchParams: Promis
             ? {
                 on: !!agent.auto_topup,
                 card: agent.auto_topup_card ?? null,
-                amountCents: agent.auto_topup_amount_cents ?? topUpDefaults(agent.daily_budget_cents).amountCents,
-                belowCents: agent.auto_topup_below_cents ?? topUpDefaults(agent.daily_budget_cents).belowCents,
+                amountCents: agent.auto_topup_amount_cents ?? topUpDefaults(agent.daily_budget_cents, feePlanOf(agent)).amountCents,
+                belowCents: agent.auto_topup_below_cents ?? topUpDefaults(agent.daily_budget_cents, feePlanOf(agent)).belowCents,
                 error: agent.auto_topup_error ?? null,
                 addedBeforeCents: fundsAdded,
+                plan: feePlanOf(agent),
                 dailyCents: start.initial.dailyCents,
               }
             : null

@@ -157,6 +157,11 @@ export function imageRequest(brief: ImageBrief): { path: string; body: Record<st
   };
 }
 
+/** One short clip brought to life from a photo; its shape follows the photo. */
+export async function submitClip(input: { imageUrl: string; prompt: string }, opts: SubmitOptions) {
+  return submit(process.env.HF_CLIP_PATH || "/kling-video/v2.5-turbo/pro/image-to-video", { image_url: input.imageUrl, prompt: input.prompt, duration: 5, cfg_scale: 0.5, negative_prompt: "talking, speaking, distorted face, extra fingers, text, watermark" }, opts);
+}
+
 /** Submits a still image with its text lines: 4:5, 9:16 or a 1:1 carousel card, all on the text-capable model. */
 export async function submitImage(brief: ImageBrief, opts: SubmitOptions) {
   const req = imageRequest(brief);

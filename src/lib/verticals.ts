@@ -71,6 +71,7 @@ export const ROOFING_BANNED: { pattern: RegExp; why: string }[] = [
   { pattern: /\bdeductible\b/i, why: "Never mention covering, waiving or paying the insurance deductible (illegal in many states)." },
   { pattern: /\b(your|this)\s+roof\s+(is|has|was)\s+(damaged|leaking|failing|unsafe)|\byou\s+have\s+(storm|hail|wind)\s+damage\b/i, why: "Never tell the viewer their roof is damaged; offer to check it." },
   { pattern: /\bfinanc(e|ing|ed)\b|\b0%\s*(apr|interest)\b|\bmonthly\s+payments?\b|\bno\s+money\s+down\b|\bcredit\b/i, why: "No financing, payment or credit claims: they can put the ads under Meta's Financial category." },
+  { pattern: /\b(seniors?|retirees?|young\s+(families|couples))\b|\bover\s+(50|55|60|65)\b(?!\s*(years|roofs|homes|jobs|reviews|five-star))|\b(50|55|60|65)\s*\+|\b(50|55|60|65)\s+and\s+(over|up|older)\b/i, why: "Call out the town or the house, never the person's age or family: roofing ads run in Meta's Housing category." },
   { pattern: /\binsurance\s+(will\s+)?(pay|cover)s?\b|\bwe\s+(deal|work)\s+with\s+your\s+insurance\s+(company\s+)?(so\s+)?you\s+(pay|don't)/i, why: "Never promise insurance will pay for the roof." },
 ];
 

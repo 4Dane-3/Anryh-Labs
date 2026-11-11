@@ -5,6 +5,8 @@
 // - Image: a lifestyle photo with 1-3 short lines of text (and an optional button) laid out on it.
 // - Carousel: 2 square cards people swipe through, each a photo with its own text and headline.
 
+import type { PresenterPlan } from "@/lib/migz/presenter-plan";
+
 export type CreativeBrief = {
   format?: "video"; // briefs stored before image ads existed have no format: they're videos
   concept: string; // one line: the angle, e.g. "Mortgage protection for new homeowners"
@@ -22,11 +24,13 @@ export type CreativeBrief = {
   setting?: string; // one real place the story stays in, e.g. "a real suburban home with a sunlit kitchen"
   mood?: string; // the emotional arc and what never appears, e.g. "grief turning into gratitude; hopeful, never dark"
   voiceover?: string | null; // off-screen narration over the footage (nobody on screen speaks)
+  presenter?: PresenterPlan; // the roofer on screen (presenter-plan.ts): built from clips and edited here, not from the shots above
   narrator?: "female" | "male"; // whose voice reads it (ElevenLabs; see narration.ts)
 };
 
 export type ImageBrief = {
   format: "image";
+  vertical?: "insurance" | "roofing"; // set by the system when the job is made
   concept: string;
   topic?: string;
   wave?: number;
@@ -92,6 +96,7 @@ export function cardBrief(brief: CarouselBrief, i: number): ImageBrief {
   return {
     format: "image",
     concept: brief.concept,
+    ...((brief as { vertical?: ImageBrief["vertical"] }).vertical ? { vertical: (brief as { vertical?: ImageBrief["vertical"] }).vertical } : {}),
     ...(brief.topic ? { topic: brief.topic } : {}),
     scene: card.scene,
     style: brief.style,
@@ -228,8 +233,8 @@ export function imagePrompt(brief: ImageBrief) {
   const button = brief.button_text ? clean(brief.button_text) : null;
 
   return [
-    `A ${clean(brief.style)} photo for a life insurance ad, ${brief.aspect_ratio === "1:1" ? "1:1 square" : `${brief.aspect_ratio} vertical`}. ${clean(brief.scene)}`,
-    "Genuine, candid expressions, unposed. The people fill the lower two-thirds of the frame; the upper third is open, softly blurred background, leaving clean space for text.",
+    `A ${clean(brief.style)} photo for a ${brief.vertical === "roofing" ? "local roofing company" : "life insurance"} ad, ${brief.aspect_ratio === "1:1" ? "1:1 square" : `${brief.aspect_ratio} vertical`}. ${clean(brief.scene)}`,
+    `${brief.vertical === "roofing" ? "A real, believable home, roof or crew at work." : "Genuine, candid expressions, unposed."} The ${brief.vertical === "roofing" ? "subject fills" : "people fill"} the lower two-thirds of the frame; the upper third is open, softly blurred background, leaving clean space for text.`,
     "",
     `In the upper third, centered, ${lines.length === 1 ? "one short line" : `${lines.length} short lines`} of clean, modern serif text in warm white with a subtle soft shadow for readability${lines.length > 1 ? ", stacked with even spacing" : ""}:`,
     ...lines.map((l) => `"${l}"`),

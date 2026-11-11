@@ -1,4 +1,4 @@
-import { depositFor, MAX_DEPOSIT_CENTS, MIN_TOP_UP_CENTS } from "@/lib/campaign";
+import { depositFor, MAX_DEPOSIT_CENTS, MIN_TOP_UP_CENTS, type FeePlan } from "@/lib/campaign";
 import { CYCLE_DAYS, FUNDS_STEP_CENTS, roundUpToFundsStep } from "@/lib/campaign-plan";
 
 // Auto top-up: the agent saves a card and picks an amount and a level; when their free ad balance drops below
@@ -14,10 +14,10 @@ export const MAX_BELOW_CENTS = 500_000;
 export const weekOfAds = (dailyCents: number) => dailyCents * CYCLE_DAYS;
 
 /** The defaults for an agent spending `dailyCents` a day: top up a week's worth whenever under a week is left. */
-export function topUpDefaults(dailyCents: number) {
+export function topUpDefaults(dailyCents: number, plan: FeePlan = "percent") {
   const week = weekOfAds(Math.max(dailyCents, 5000));
   return {
-    amountCents: Math.min(MAX_DEPOSIT_CENTS, Math.max(MIN_TOP_UP_CENTS, roundUpToFundsStep(depositFor(week)))),
+    amountCents: Math.min(MAX_DEPOSIT_CENTS, Math.max(MIN_TOP_UP_CENTS, roundUpToFundsStep(depositFor(week, 0, plan)))),
     belowCents: Math.min(MAX_BELOW_CENTS, Math.max(MIN_BELOW_CENTS, week)),
   };
 }

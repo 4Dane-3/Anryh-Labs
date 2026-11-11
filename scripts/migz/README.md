@@ -21,3 +21,9 @@ NODE_PATH=scripts/migz/stubs npx tsx --tsconfig ./tsconfig.json scripts/migz/pro
 Also `probe-shapes.mts` (same command) sends the operator (advisor + fallbacks), Haiku (JSON output, web search), Opus memo and Sonnet vision request shapes.
 
 `probe-tools.mts` sends three tiny real requests (a few tokens each, using `ANTHROPIC_API_KEY` from `.env.local`) with Migz's real tool list, to check the API accepts the tool schemas. Run it after adding or changing tools: Anthropic rejects a request when too many strict tool schemas are compiled together, and the simulated tests can't catch that.
+
+```bash
+NODE_PATH=scripts/migz/stubs TSX_TSCONFIG_PATH=./tsconfig.json node --import tsx scripts/migz/presenter.e2e.mts
+```
+
+`presenter.e2e.mts` is LIVE and costs a few dollars: the roofer "on camera" video with real Claude (script and hook rules), ElevenLabs (voice, transcript, sound effects, music), Higgsfield (b-roll) and HeyGen (lip sync, when `HEYGEN_API_KEY` is in `.env.local`; without it, the film path with a stand-in recording). It uses a throwaway roofing account and an AI-generated presenter, makes the video into that account's library only, saves the MP4 and frames to `e2e-output/` (git-ignored) and deletes the account afterwards.

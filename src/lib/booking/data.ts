@@ -57,6 +57,10 @@ export type Agent = {
   setup_fee_paid_at?: string | null; // the one-time setup fee (missing before its migration)
   required_intake_steps?: number[]; // steps whose questions must be answered before booking
   stripe_customer_id?: string | null; // saved from the first paid deposit
+  migz_plan?: "percent" | "subscription" | null; // "subscription": Migz AI by the month, no fee on ad funds
+  stripe_subscription_id?: string | null;
+  subscription_status?: string | null; // Stripe's: active, trialing, past_due, canceled, unpaid...
+  subscription_period_end?: string | null;
   page_font?: string; // booking page font key (see lib/booking/page-fonts.ts); missing before its migration
   ghost_bookings?: boolean; // hold back some open times so the calendar looks busy (missing before its migration)
   call_button?: boolean; // "Call now" on the booking page (missing before its migration)
@@ -109,6 +113,8 @@ export type Agent = {
   referral_intro_email?: boolean; // one plain email to each referred person
   mailing_address?: string | null; // the business's postal address, required in marketing email
   job_webhook_token?: string; // the secret for /api/jobs/completed
+  sms_phone?: string | null; // where Migz texts them (E.164); only used with sms_opt_in_at
+  sms_opt_in_at?: string | null; // when they agreed to texts
   video_approval?: boolean; // Migz's videos wait for the agent's OK before going to Meta (missing before 20261208000000)
   video_review_token?: string; // the private link to their video review page
   google_review_url?: string | null; // the roofer's Google review link, in the check-in email (missing before 20261204000000)

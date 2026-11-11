@@ -31,7 +31,7 @@ const VERTICALS = [
       "a reminder the morning of, and each booking sent to your crm",
       "ads never promise a free roof or to cover a deductible",
     ],
-    start: ["$3,000 setup, paid up front", "at least $2,000 in meta ad spend for the first month"],
+    start: ["$1,000/month for migz ai, no setup fee", "at least $2,000 in meta ad spend for the first month, all of it to your ads"],
   },
   {
     name: "life insurance agents",
@@ -197,7 +197,7 @@ export default function Home() {
               simple pricing.
             </h2>
             <p className="sb-note" style={{ marginBottom: 12 }}>
-              <b>roofing companies:</b> a $3,000 setup, paid up front, and at least $2,000 in meta ad spend for the first
+              <b>roofing companies:</b> $1,000 a month for migz ai with no setup fee, and at least $2,000 in meta ad spend for the first
               month.
             </p>
             <p className="sb-note" style={{ marginBottom: 24 }}>

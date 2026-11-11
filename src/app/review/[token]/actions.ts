@@ -29,5 +29,6 @@ export async function askForChanges(token: string, jobId: string, note: string):
   if (note.trim().length < 3) return { ok: false, error: "Tell us what to change." };
   const done = await requestVideoChanges(agent, jobId, note);
   revalidatePath(`/review/${token}`);
-  return done ? { ok: true, message: "Got it. This video won't run, you won't be charged for it, and we'll follow up." } : { ok: false, error: "This video was already handled." };
+  if (!done) return { ok: false, error: "This video was already handled." };
+  return { ok: true, message: done === "remaking" ? "Got it. Migz is remaking this video and will send you the new version." : "Got it. This video won't run, and someone from our team will follow up." };
 }

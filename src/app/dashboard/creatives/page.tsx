@@ -99,7 +99,7 @@ export default async function CreativesPage() {
           <NotConnected service="Meta">Upload now. Migz adds your files to your campaigns once your ad account is linked.</NotConnected>
         </div>
       )}
-      <VideoApprovals on={!!agent.video_approval} waiting={waiting ?? 0} reviewUrl={agent.video_review_token ? `/review/${agent.video_review_token}` : null} />
+      <VideoApprovals on={!!agent.video_approval} waiting={waiting ?? 0} reviewUrl={agent.video_review_token ? `/review/${agent.video_review_token}` : null} smsPhone={agent.sms_phone ?? ""} smsOn={!!agent.sms_opt_in_at} />
       <CreativesManager creatives={creatives} generating={generating} />
     </>
   );

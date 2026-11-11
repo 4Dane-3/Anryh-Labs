@@ -4,14 +4,14 @@ import { FaqList } from "@/components/site/FaqList";
 import { FeeCalculator } from "@/components/site/FeeCalculator";
 import { JsonLd, breadcrumbLd, faqLd } from "@/components/site/JsonLd";
 import { PricingCovers, PricingExample, PricingTiers } from "@/components/site/PricingBlock";
-import { PRICING_SUMMARY, ROOFING_PRICING_SUMMARY, ROOFING_SETUP_FEE, SETUP_FEE, TIERS, pct, sliceLabel } from "@/lib/pricing";
+import { PRICING_SUMMARY, ROOFING_MONTHLY, ROOFING_PRICING_SUMMARY, SETUP_FEE, TIERS, pct, sliceLabel } from "@/lib/pricing";
 import { PRICING_FAQS } from "@/lib/seo/faqs";
 import { absoluteUrl, pageMeta } from "@/lib/site";
 
 export const metadata: Metadata = pageMeta({
   title: "pricing · anryh labs · ai meta ads automation and booking",
   description:
-    "anryh labs pricing: roofing companies pay a $3,000 setup up front plus at least $2,000 in meta ad spend the first month. life insurance agents pay a one-time $750 setup fee, no monthly fee, then 20% down to 12% of the ad funds they add.",
+    "anryh labs pricing: roofing companies pay $1,000 a month for migz ai with no setup fee, plus at least $2,000 in meta ad spend the first month. life insurance agents pay a one-time $750 setup fee, no monthly fee, then 20% down to 12% of the ad funds they add.",
   path: "/pricing",
 });
 
@@ -30,7 +30,7 @@ export default function PricingPage() {
             url: absoluteUrl("/pricing"),
             description: PRICING_SUMMARY,
             offers: [
-              { "@type": "Offer", name: "roofing companies: one-time setup, paid up front", price: String(ROOFING_SETUP_FEE), priceCurrency: "USD", description: ROOFING_PRICING_SUMMARY },
+              { "@type": "Offer", name: "roofing companies: migz ai, monthly", price: String(ROOFING_MONTHLY), priceCurrency: "USD", description: ROOFING_PRICING_SUMMARY },
               { "@type": "Offer", name: "life insurance agents: one-time setup", price: String(SETUP_FEE), priceCurrency: "USD" },
               ...TIERS.map((t, i) => ({
                 "@type": "Offer",

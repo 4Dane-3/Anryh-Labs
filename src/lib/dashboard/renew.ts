@@ -10,6 +10,7 @@ import { activateBatch } from "@/lib/dashboard/start-batch";
 import { renewalGate, RENEW_WINDOW_DAYS } from "@/lib/renew-core";
 import { DEFAULT_INTENT, DEFAULT_VIDEO_TIER, isIntentLevel, isVideoTier } from "@/lib/ad-options";
 import { campaignMoney } from "@/lib/campaign-plan";
+import { feePlanOf } from "@/lib/campaign";
 import { autoTopUp } from "@/lib/dashboard/top-up";
 
 export type RenewOutcome = "renewed" | "waiting" | "stopped" | "none";
@@ -53,6 +54,7 @@ export async function renewForAgent(agent: Agent, now = new Date()): Promise<Ren
       hasMeta: migzReadyFor(agent),
       onboarded: !!agent.onboarding_completed_at,
       focusCount: cleanFocus(agent.ad_focus).length,
+      plan: feePlanOf(agent),
     },
     balanceCents: await getBalanceCents(agent.id),
     videoCents,
