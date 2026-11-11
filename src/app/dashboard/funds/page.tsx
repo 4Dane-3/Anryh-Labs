@@ -1,3 +1,4 @@
+import { feePlanOf } from "@/lib/campaign";
 import Link from "next/link";
 import { isRoofer } from "@/lib/verticals";
 import { DateTime } from "luxon";
@@ -33,7 +34,7 @@ export default async function FundsPage({ searchParams }: { searchParams: Promis
     getFundsAddedCents(agent.id),
     getGuarantee(agent).catch(() => null),
   ]);
-  const defaults = topUpDefaults(agent.daily_budget_cents);
+  const defaults = topUpDefaults(agent.daily_budget_cents, feePlanOf(agent));
   const daysLeft = agent.daily_budget_cents > 0 ? Math.floor(balance / agent.daily_budget_cents) : null;
 
   return (
@@ -94,7 +95,7 @@ export default async function FundsPage({ searchParams }: { searchParams: Promis
                     : null}
             </p>
           </div>
-          <AddFunds addedBeforeCents={fundsAdded} />
+          <AddFunds addedBeforeCents={fundsAdded} plan={feePlanOf(agent)} />
         </Panel>
 
         <Panel className="lg:col-span-2">
@@ -117,6 +118,7 @@ export default async function FundsPage({ searchParams }: { searchParams: Promis
               belowCents: agent.auto_topup_below_cents ?? defaults.belowCents,
               error: agent.auto_topup_error ?? null,
               addedBeforeCents: fundsAdded,
+                plan: feePlanOf(agent),
               dailyCents: agent.daily_budget_cents,
             }}
           />

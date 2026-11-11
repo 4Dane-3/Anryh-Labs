@@ -4,7 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
 import { cleanFocus } from "@/lib/migz/topics";
 import { getBalanceCents } from "@/lib/dashboard/queries";
-import { depositFor, MIN_AD_BALANCE_CENTS, MIN_DEPOSIT_CENTS, SETUP_FEE_CENTS } from "@/lib/campaign";
+import { depositFor, feePlanOf, MIGZ_MONTHLY_CENTS, MIN_AD_BALANCE_CENTS, MIN_DEPOSIT_CENTS, SETUP_FEE_CENTS } from "@/lib/campaign";
 import { campaignMoney, roundUpToFundsStep } from "@/lib/campaign-plan";
 import { DEFAULT_INTENT, DEFAULT_VIDEO_TIER, isIntentLevel, isVideoTier } from "@/lib/ad-options";
 import { getOpenBatch, getRecentBatches, type Batch } from "@/lib/dashboard/batches";
@@ -87,16 +87,23 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
       }).neededCents
     : null;
   const fundsNeeded = neededCents ? { cents: neededCents, recommendedCents: roundUpToFundsStep(neededCents) } : null;
+  // New roofers are on Migz AI by the month, so their ad funds carry no fee
+  const plan = feePlanOf(agent) === "subscription" || (roof && !agent.onboarding_completed_at) ? "subscription" : "percent";
   const money = (c: number) => `$${(c / 100).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
   const fundsMissing = fundsNeeded
     ? balanceCents < fundsNeeded.cents
-      ? `Your campaign needs ${money(fundsNeeded.cents)} in ad funds (we recommend ${money(fundsNeeded.recommendedCents)}). Add about ${money(roundUpToFundsStep(depositFor(fundsNeeded.recommendedCents - balanceCents)))} with the 20% fee.`
+      ? `Your campaign needs ${money(fundsNeeded.cents)} in ad funds (we recommend ${money(fundsNeeded.recommendedCents)}). Add about ${money(roundUpToFundsStep(depositFor(fundsNeeded.recommendedCents - balanceCents, 0, plan)))}${plan === "subscription" ? "; all of it goes to your ads" : " with the 20% fee"}.`
       : null
     : balanceCents < MIN_AD_BALANCE_CENTS
       ? `Add at least $${(MIN_DEPOSIT_CENTS / 100).toLocaleString("en-US")} (two weeks at $50/day). Plan your campaign first to see what it needs.`
       : null;
   // Agents who finished setup before the setup fee existed count as paid
-  const setupFeeMissing = agent.setup_fee_paid_at || agent.onboarding_completed_at ? null : `Pay the one-time $${(SETUP_FEE_CENTS / 100).toLocaleString("en-US")} setup fee.`;
+  // Roofers start Migz AI by the month instead (no setup fee); the same step tracks it
+  const setupFeeMissing = agent.setup_fee_paid_at || agent.onboarding_completed_at
+    ? null
+    : roof
+      ? `Start Migz AI: $${(MIGZ_MONTHLY_CENTS / 100).toLocaleString("en-US")} a month, no setup fee.`
+      : `Pay the one-time $${(SETUP_FEE_CENTS / 100).toLocaleString("en-US")} setup fee.`;
   const planMissing = !cleanFocus(agent.ad_focus).length || !batch ? "Answer a few quick questions and pick a daily budget." : roof && !agent.service_area ? "Add where your crews work (your service area)." : null;
   const mode = agent.creative_mode ?? null;
   const creativesMissing = !mode

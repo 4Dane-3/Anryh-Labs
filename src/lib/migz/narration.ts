@@ -79,10 +79,10 @@ function speakAs(key: string, voiceId: string, text: string) {
  * A short instrumental bed for the video (ElevenLabs Music): soft strings and piano that start quietly
  * and swell toward the end, so the closing seconds after the narrator aren't empty.
  */
-export async function composeMusic(mood: string | null | undefined, seconds: number): Promise<Buffer> {
+export async function composeMusic(mood: string | null | undefined, seconds: number, ownPrompt?: string): Promise<Buffer> {
   const key = process.env.ELEVENLABS_API_KEY;
   if (!key) throw new Error("ELEVENLABS_API_KEY is not set");
-  const prompt = [
+  const prompt = ownPrompt ?? [
     "Gentle, hopeful cinematic instrumental for a heartfelt family ad: soft strings (violins and cello) with warm piano.",
     "Starts very soft, builds slowly, and grows into a full, warm swell through the middle and second half.",
     "Slow tempo. No drums, no percussion, no vocals, no lyrics.",

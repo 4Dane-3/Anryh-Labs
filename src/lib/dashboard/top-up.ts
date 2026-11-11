@@ -2,7 +2,7 @@ import "server-only";
 import type Stripe from "stripe";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
-import { feeCents } from "@/lib/campaign";
+import { feeCents, feePlanOf } from "@/lib/campaign";
 import { COOLDOWN_HOURS, topUpDue } from "@/lib/auto-top-up";
 import { getBalanceCents, getFundsAddedCents } from "@/lib/dashboard/queries";
 import { recordAutoTopUp, stripe, stripeReady } from "@/lib/stripe";
@@ -55,7 +55,7 @@ export async function autoTopUp(agent: Agent, now = new Date()): Promise<TopUpRe
 
   const cents = agent.auto_topup_amount_cents!;
   const addedBefore = await getFundsAddedCents(agent.id);
-  const fee = feeCents(cents, addedBefore);
+  const fee = feeCents(cents, addedBefore, feePlanOf(agent));
   let pi: Stripe.PaymentIntent;
   try {
     pi = await stripe().paymentIntents.create(
@@ -66,7 +66,7 @@ export async function autoTopUp(agent: Agent, now = new Date()): Promise<TopUpRe
         payment_method: agent.stripe_payment_method_id!,
         off_session: true,
         confirm: true,
-        description: `Anryh Labs auto top-up: ${usd(cents - fee)} for Meta ads, ${usd(fee)} fee`,
+        description: fee ? `Anryh Labs auto top-up: ${usd(cents - fee)} for Meta ads, ${usd(fee)} fee` : `Anryh Labs auto top-up: ${usd(cents)} for Meta ads`,
         metadata: { agent_id: agent.id, kind: "ad_funds", auto: "1", deposit_cents: String(cents), fee_cents: String(fee), added_before_cents: String(addedBefore) },
       },
       { idempotencyKey: `auto-topup/${agent.id}/${claimAt}` },
@@ -88,7 +88,7 @@ export async function autoTopUp(agent: Agent, now = new Date()): Promise<TopUpRe
 
   if (pi.status === "succeeded") {
     await recordAutoTopUp(pi);
-    await tellAgent(agent, `:white_check_mark: Auto top-up: charged ${usd(cents)} to your ${agent.auto_topup_card ?? "saved card"}. ${usd(cents - fee)} went to your ad balance (the rest is the Anryh Labs fee), so your campaign keeps rolling.`);
+    await tellAgent(agent, `:white_check_mark: Auto top-up: charged ${usd(cents)} to your ${agent.auto_topup_card ?? "saved card"}. ${usd(cents - fee)} went to your ad balance${fee ? " (the rest is the Anryh Labs fee)" : ""}, so your campaign keeps rolling.`);
     return { charged: true, cents };
   }
   // A slower method (a bank debit) finishes later; the webhook records it when it succeeds

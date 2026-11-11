@@ -1,5 +1,5 @@
 import type Stripe from "stripe";
-import { reconcileRefunds, recordAutoTopUp, recordAutoTopUpFailure, recordAutoTopUpSetup, recordDeposit, recordDispute, recordSetupFee, stripe } from "@/lib/stripe";
+import { reconcileRefunds, recordAutoTopUp, recordAutoTopUpFailure, recordAutoTopUpSetup, recordDeposit, recordDispute, recordSetupFee, recordSubscriptionStart, stripe, syncSubscription } from "@/lib/stripe";
 
 // Stripe calls this when a Checkout payment completes. The signature is checked against
 // STRIPE_WEBHOOK_SECRET (each endpoint, test or live, has its own), so nobody else can add funds.
@@ -30,6 +30,16 @@ export async function POST(req: Request) {
         return Response.json({ error: "Couldn't save the card" }, { status: 500 });
       }
     }
+    // Migz AI by the month: the account moves to the subscription plan
+    if (kind === "migz_subscription") {
+      if (session.payment_status === "unpaid") return Response.json({ ok: true, pending: true });
+      try {
+        return Response.json({ ok: true, recorded: await recordSubscriptionStart(session) });
+      } catch (e) {
+        console.error("stripe subscription start failed", e);
+        return Response.json({ error: "Couldn't record the subscription" }, { status: 500 });
+      }
+    }
     if (kind !== "ad_funds" && kind !== "setup_fee") return Response.json({ ok: true, ignored: "not ours" });
     if (session.payment_status !== "paid") return Response.json({ ok: true, pending: true });
     try {
@@ -39,6 +49,16 @@ export async function POST(req: Request) {
       console.error(`stripe ${kind} failed`, e);
       // 500 makes Stripe retry later, which is what we want if the database hiccuped
       return Response.json({ error: "Couldn't record the payment" }, { status: 500 });
+    }
+  }
+
+  // The Migz AI subscription renewing, failing to charge, or ending
+  if (event.type === "customer.subscription.updated" || event.type === "customer.subscription.deleted") {
+    try {
+      return Response.json({ ok: true, recorded: await syncSubscription(event.data.object as Stripe.Subscription) });
+    } catch (e) {
+      console.error(`stripe ${event.type} failed`, e);
+      return Response.json({ error: "Couldn't record the subscription" }, { status: 500 });
     }
   }
 

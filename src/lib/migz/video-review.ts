@@ -5,9 +5,13 @@ import { sendSlackMessage } from "@/lib/slack";
 import { recordEventAlert } from "@/lib/admin/alerts";
 import { alertAdmin } from "@/lib/migz/slack";
 import { esc } from "@/lib/migz/slack-blocks";
-import { briefLabel, type AnyBrief } from "@/lib/migz/brief";
-import { advanceJobById, refundVideo } from "@/lib/migz/creative-jobs";
-import { reviewEmail, reviewSlack, shouldAsk, shouldNudge, type WaitingVideo } from "@/lib/migz/video-review-copy";
+import { briefLabel, type AnyBrief, type CreativeBrief } from "@/lib/migz/brief";
+import { advanceJobById, enqueueGeneration, refundVideo } from "@/lib/migz/creative-jobs";
+import { sendSms, smsReady } from "@/lib/migz/sms";
+import { reviseBrief } from "@/lib/migz/video-revise";
+import { MAX_REVISIONS } from "@/lib/migz/video-review-copy";
+import { verticalOf } from "@/lib/verticals";
+import { reviewEmail, reviewLine, reviewSlack, shouldAsk, shouldNudge, type WaitingVideo } from "@/lib/migz/video-review-copy";
 
 // Video approvals: a video Migz made waits at "awaiting_approval" until the agent approves it on their
 // private review page (/review/<token>). The cron asks by email and Slack, once per batch, and reminds once.
@@ -53,8 +57,14 @@ async function slackAgent(agent: Pick<Agent, "slack_user_id">, input: { count: n
 
 async function tell(agent: Agent, count: number, nudge: boolean, key: string) {
   const input = { count, url: reviewUrl(agent.video_review_token!), nudge };
-  const [emailed, slacked] = await Promise.all([emailAgent(agent, { ...input, key }).catch(() => false), slackAgent(agent, input)]);
-  return emailed || slacked;
+  const [emailed, slacked, texted] = await Promise.all([
+    emailAgent(agent, { ...input, key }).catch(() => false),
+    slackAgent(agent, input),
+    agent.sms_opt_in_at && agent.sms_phone && smsReady() && isLive()
+      ? sendSms(agent.sms_phone, `${reviewLine(count, nudge)} ${input.url} Reply APPROVE to approve ${count === 1 ? "it" : "them all"}.`).then(() => true).catch((e) => (console.error("video review text failed", e), false))
+      : Promise.resolve(false),
+  ]);
+  return emailed || slacked || texted;
 }
 
 /** The cron's part: asks about new videos (one message per batch) and reminds once about old ones. */
@@ -158,10 +168,11 @@ export async function approveVideos(agentId: string, jobIds: string[]) {
 }
 
 /**
- * The agent wants something changed: this video never goes live, its charge comes back (they only pay for
- * a video that runs), and staff get the note.
+ * The agent wants something changed: this video never goes live and its charge comes back (they only pay
+ * for a video that runs). Migz remakes it from the note and asks again, up to MAX_REVISIONS times; after that,
+ * or if the remake can't start, staff get the note.
  */
-export async function requestVideoChanges(agent: { id: string; slug: string }, jobId: string, note: string) {
+export async function requestVideoChanges(agent: { id: string; slug: string }, jobId: string, note: string): Promise<"remaking" | "staff" | false> {
   const clean = note.trim().slice(0, 1000);
   const now = new Date().toISOString();
   const { data } = await supabaseAdmin
@@ -170,11 +181,22 @@ export async function requestVideoChanges(agent: { id: string; slug: string }, j
     .eq("agent_id", agent.id)
     .eq("id", jobId)
     .eq("stage", "awaiting_approval")
-    .select("id, brief, creative_id")
+    .select("id, brief, creative_id, launch_adset_id, revision_count")
     .maybeSingle();
   if (!data) return false;
   if (data.creative_id) await supabaseAdmin.from("creatives").update({ status: "rejected", review_note: `Changes requested: ${clean}`.slice(0, 200) }).eq("id", data.creative_id);
   await refundVideo(jobId, "Refund: you asked for changes to this video").catch((e) => console.error("refunding the video failed", e));
-  await alertAdmin(`*Video changes requested* by \`${agent.slug}\` on "${esc(briefLabel(data.brief as AnyBrief)).slice(0, 120)}"\n>${esc(clean)}`).catch(() => {});
-  return true;
+  const count = (data.revision_count as number | null) ?? 0;
+  if (count < MAX_REVISIONS) {
+    try {
+      const { data: owner } = await supabaseAdmin.from("agents").select("vertical").eq("id", agent.id).single();
+      const brief = await reviseBrief(data.brief as CreativeBrief, clean, { agentId: agent.id, vertical: verticalOf(owner) });
+      await enqueueGeneration({ agentId: agent.id, brief, launchAdsetId: data.launch_adset_id as string | null, revisionCount: count + 1 });
+      return "remaking";
+    } catch (e) {
+      console.error("video remake failed", e);
+    }
+  }
+  await alertAdmin(`*Video changes need a person* for \`${agent.slug}\` on "${esc(briefLabel(data.brief as AnyBrief)).slice(0, 120)}"\n>${esc(clean)}`).catch(() => {});
+  return "staff";
 }

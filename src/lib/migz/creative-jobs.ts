@@ -3,7 +3,12 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { adLinkFor } from "@/lib/booking/sites";
 import type { Agent } from "@/lib/booking/data";
-import { getRequestStatus, submitImage, submitVideo, videoModel } from "@/lib/higgsfield";
+import { getRequestStatus, submitClip, submitImage, submitVideo, videoModel } from "@/lib/higgsfield";
+import { isRoofer } from "@/lib/verticals";
+import { brollShots } from "@/lib/migz/presenter-plan";
+import { assemblePresenter, speakScript } from "@/lib/migz/presenter-edit";
+import { getTalkingPhoto, heygenReady, submitTalkingPhoto } from "@/lib/heygen";
+import { cleanEdit, EDIT_TIMEOUT_MS, editWorkerReady, startEdit, takeFinishedEdit, type EditState } from "@/lib/edit/dispatch";
 import { createAd, createAdCreative, creativeEnhancementsOn, uploadImage, uploadVideo, videoState } from "@/lib/meta/ads";
 import { MetaApiError } from "@/lib/meta/graph";
 import { isTestMode } from "@/lib/migz/test-mode";
@@ -11,7 +16,7 @@ import { alertAdmin, alertCreativeFailed } from "@/lib/migz/slack";
 import { recordEventAlert } from "@/lib/admin/alerts";
 import { briefLabel, cardBrief, fitBrief, isCarouselBrief, isImageBrief, isVideoBrief, type AnyBrief, type CreativeBrief } from "@/lib/migz/brief";
 import { closeEvent, openEvent } from "@/lib/migz/events";
-import { narrateVideo } from "@/lib/migz/narration";
+import { narrateVideo, narratorVoices } from "@/lib/migz/narration";
 import { addLogoToImage, addLogoToVideo, DEFAULT_LOGO_CORNER, isLogoCorner, type LogoCorner } from "@/lib/migz/endcard";
 import { DEFAULT_VIDEO_TIER, isVideoTier, VIDEO_TIERS, type VideoTier } from "@/lib/ad-options";
 import { creativeMix, INCLUDED_VIDEOS, videoPriceFor } from "@/lib/campaign-plan";
@@ -46,9 +51,11 @@ type Job = {
   parts?: CardPart[] | null; // carousels: one generation per card
   video_charge_cents?: number; // what the agent was charged for this video (missing before its migration)
   approval_status?: "pending" | "approved" | "changes_requested" | null; // video approval (missing before its migration)
+  edit_state?: EditState | null; // the full edit on the render worker (missing before its migration)
 };
 
-type CardPart = { request_id: string; status_url: string; creative_id: string | null };
+// provider "heygen": the presenter's lip-synced talking video (request_id is HeyGen's video id); else Higgsfield
+type CardPart = { request_id: string; status_url: string; creative_id: string | null; video_url?: string | null; provider?: "heygen" };
 
 const kindOf = (brief: AnyBrief) => (isCarouselBrief(brief) ? "carousel" : isImageBrief(brief) ? "image" : "video");
 
@@ -99,12 +106,17 @@ export async function enqueueGeneration(input: {
   launchAdsetId?: string | null;
   actionId?: string | null;
   runId?: string | null;
+  revisionCount?: number; // how many times the client has had this video remade
 }) {
+  // Image prompts read differently for a roofer
+  const { data: owner } = await supabaseAdmin.from("agents").select("vertical").eq("id", input.agentId).maybeSingle();
+  if (!isVideoBrief(input.brief)) input = { ...input, brief: { ...input.brief, vertical: isRoofer(owner) ? "roofing" : "insurance" } as AnyBrief };
   const { data: job, error } = await supabaseAdmin
     .from("creative_jobs")
     .insert({
       agent_id: input.agentId,
       brief: input.brief,
+      ...(input.revisionCount ? { revision_count: input.revisionCount } : {}),
       parent_creative_id: input.parentCreativeId ?? null,
       launch_adset_id: input.launchAdsetId ?? null,
       action_id: input.actionId ?? null,
@@ -120,6 +132,33 @@ export async function enqueueGeneration(input: {
       : null;
     const opts = { idempotencyKey: job.id, webhookUrl };
     // A video's tier decides its model; a Seedance video is charged to the agent's ad funds before it starts
+    if (isVideoBrief(input.brief) && input.brief.presenter) {
+      // The owner talking (HeyGen: their photo speaking the script in their voice; none when they filmed it) and
+      // Higgsfield b-roll from their job photos; assembled once all are back
+      const plan = input.brief.presenter;
+      const parts: CardPart[] = [];
+      const sign = async (path: string) => {
+        const { data: signed } = await supabaseAdmin.storage.from("creatives").createSignedUrl(path, 6 * 3600);
+        if (!signed) throw new Error("Couldn't read a file for this video");
+        return signed.signedUrl;
+      };
+      if (plan.mode === "ai") {
+        if (!heygenReady()) throw new Error("The AI presenter isn't connected yet: HEYGEN_API_KEY is not set.");
+        const audio = await speakScript(plan.script, [...(plan.voice_id ? [plan.voice_id] : []), ...narratorVoices(plan.narrator ?? "male")]);
+        const audioPath = `presenter/${input.agentId}/${job.id}.mp3`;
+        const { error: upErr } = await supabaseAdmin.storage.from("creatives").upload(audioPath, audio, { contentType: "audio/mpeg", upsert: true });
+        if (upErr) throw new Error(`Couldn't store the voiceover: ${upErr.message}`);
+        const videoId = await submitTalkingPhoto({ imageUrl: await sign(plan.photo_paths.at(-1)!), audioUrl: await sign(audioPath), title: `Presenter ${job.id}` });
+        parts.push({ request_id: videoId, status_url: "", creative_id: null, provider: "heygen" });
+      }
+      for (const [i, shot] of brollShots(plan.job_paths).entries()) {
+        const r = await submitClip({ imageUrl: await sign(shot.path), prompt: shot.prompt }, { ...opts, idempotencyKey: `${job.id}-${i}` });
+        parts.push({ request_id: r.requestId, status_url: r.statusUrl, creative_id: null });
+      }
+      await update(job.id, parts.length ? { provider_request_id: parts[0].request_id, status_url: parts[0].status_url, parts } : { parts: [] });
+      await openJobEvent({ id: job.id, agent_id: input.agentId, event_id: null } as Job, { step: "drafting", tier: "higgsfield", summary: `Making a presenter video: ${briefLabel(input.brief)}`.slice(0, 200) }, input.runId ?? null);
+      return job.id as string;
+    }
     const tier = isVideoBrief(input.brief) ? await chargeForVideo(input.agentId, job.id, input.brief, input.launchAdsetId ?? null) : DEFAULT_VIDEO_TIER;
     if (isCarouselBrief(input.brief)) {
       // Each card is its own square still; the job is "generated" once every card is back
@@ -293,11 +332,11 @@ async function agentLogo(agentId: string): Promise<{ logo: Buffer; corner: LogoC
 }
 
 /** Copies a finished generation into our Storage (Higgsfield only keeps outputs ~7 days). */
-async function storeGenerated(job: Job, mediaUrl: string, card?: { index: number; parentId: string | null }) {
+async function storeGenerated(job: Job, mediaUrl: string | null, card?: { index: number; parentId: string | null }, made?: Buffer) {
   const image = !isVideoBrief(job.brief);
-  const res = await fetch(mediaUrl);
-  if (!res.ok) throw new Error(`Couldn't download the generated ${image ? "image" : "video"} (${res.status})`);
-  let bytes: Buffer = Buffer.from(await res.arrayBuffer());
+  const res = made ? null : await fetch(mediaUrl!);
+  if (res && !res.ok) throw new Error(`Couldn't download the generated ${image ? "image" : "video"} (${res.status})`);
+  let bytes: Buffer = made ?? Buffer.from(await res!.arrayBuffer());
 
   // The video model doesn't voice the narrator: speak the voiceover and lay it over the finished video.
   // If that fails the video is kept without narration (never lose a paid generation) and staff are told.
@@ -332,7 +371,7 @@ async function storeGenerated(job: Job, mediaUrl: string, card?: { index: number
     await recordEventAlert({ agentId: job.agent_id, key: `logo_failed:${job.id}`, severity: "warn", title: "Logo failed", detail: `The creative was kept without its logo: ${reason}` });
   }
 
-  const headerType = stampedImage ? "image/png" : (res.headers.get("content-type")?.split(";")[0].trim() ?? "");
+  const headerType = stampedImage ? "image/png" : (res?.headers.get("content-type")?.split(";")[0].trim() ?? "");
   const mime = image ? (IMAGE_TYPES[headerType] ? headerType : "image/png") : "video/mp4";
   const path = `${job.agent_id}/migz/${job.id}${card ? `-${card.index}` : ""}.${image ? IMAGE_TYPES[mime] : "mp4"}`;
 
@@ -520,6 +559,70 @@ async function advance(job: Job) {
       await closeJobEvent(job, `Made a carousel: ${briefLabel(job.brief)}`.slice(0, 200));
     }
 
+    if (job.stage === "generating" && isVideoBrief(job.brief) && job.brief.presenter) {
+      const parts = job.parts ?? [];
+      let waiting = false;
+      for (const [i, part] of parts.entries()) {
+        if (part.video_url) continue;
+        if (part.provider === "heygen") {
+          const talk = await getTalkingPhoto(part.request_id);
+          if (talk.status === "pending" || talk.status === "processing") {
+            waiting = true;
+            continue;
+          }
+          if (talk.status !== "completed" || !talk.videoUrl) throw new Error(`The talking video failed${talk.error ? `: ${talk.error}` : ""}`);
+          part.video_url = talk.videoUrl;
+          await update(job.id, { parts });
+          continue;
+        }
+        const status = await getRequestStatus(part.status_url);
+        if (status.status === "queued" || status.status === "in_progress") {
+          waiting = true;
+          continue;
+        }
+        if (status.status !== "completed" || !status.videoUrl) throw new Error(`Presenter clip ${i + 1}: generation ${status.status}${status.error ? `: ${status.error}` : ""}`);
+        part.video_url = status.videoUrl;
+        await update(job.id, { parts });
+      }
+      if (waiting) {
+        if (job.attempts + 1 >= MAX_ATTEMPTS) throw new Error("Generation took too long");
+        await update(job.id, { attempts: job.attempts + 1 });
+        return "waiting";
+      }
+      const media = {
+        talkingUrl: parts.find((p) => p.provider === "heygen")?.video_url ?? null,
+        broll: parts.filter((p) => p.provider !== "heygen").map((p) => p.video_url!),
+      };
+      // The full edit (HyperFrames, on the render worker) when it's connected; the simple edit otherwise, or when
+      // the full edit can't pass its checks, fails, or takes too long
+      let edited: Buffer | null = null;
+      const state = job.edit_state ?? null;
+      if (state?.status === "done") edited = await takeFinishedEdit(job.id);
+      else if (state?.status === "rendering" && Date.now() - new Date(state.started_at).getTime() < EDIT_TIMEOUT_MS) {
+        if (job.attempts + 1 >= MAX_ATTEMPTS) throw new Error("The edit took too long");
+        await update(job.id, { attempts: job.attempts + 1 });
+        return "waiting";
+      } else if (!state && editWorkerReady()) {
+        const agent = await loadAgent(job.agent_id);
+        const r = await startEdit(job, job.brief.presenter, media, agent.full_name).catch((e) => ({ started: false as const, reason: e instanceof Error ? e.message : String(e) }));
+        if (r.started) {
+          await update(job.id, { edit_state: { status: "rendering", started_at: new Date().toISOString(), plan_checks: r.checks } satisfies EditState });
+          return "waiting";
+        }
+        await update(job.id, { edit_state: { status: "failed", started_at: new Date().toISOString(), error: r.reason } satisfies EditState });
+        await alertAdmin(`Presenter video ${job.id}: the full edit didn't start (${r.reason}). Using the simple edit.`).catch(() => {});
+      } else if (state?.status === "rendering") {
+        await update(job.id, { edit_state: { ...state, status: "failed", error: "The render worker didn't finish in time" } });
+        await alertAdmin(`Presenter video ${job.id}: the render worker didn't finish in time. Using the simple edit.`).catch(() => {});
+      }
+      if (!edited) edited = await assemblePresenter(job.brief.presenter, media);
+      await cleanEdit(job.id).catch(() => {});
+      const creativeId = await storeGenerated(job, null, undefined, edited);
+      job = { ...job, stage: "stored", creative_id: creativeId };
+      await update(job.id, { stage: "stored", creative_id: creativeId, attempts: 0 });
+      await closeJobEvent(job, `Made a presenter video: ${briefLabel(job.brief)}`.slice(0, 200));
+    }
+
     if (job.stage === "generating") {
       if (!job.status_url) throw new Error("Job has no Higgsfield status URL");
       const status = await getRequestStatus(job.status_url);
@@ -546,7 +649,7 @@ async function advance(job: Job) {
       if (!job.launch_adset_id) return "stored"; // library only
       const agent = await loadAgent(job.agent_id);
       // A video Migz made waits for the agent's OK before anything reaches Meta (their own uploads don't)
-      if (agent.video_approval && isVideoBrief(job.brief) && job.provider_request_id && !job.approval_status) {
+      if (agent.video_approval && isVideoBrief(job.brief) && (job.provider_request_id || job.brief.presenter) && !job.approval_status) {
         await update(job.id, { stage: "awaiting_approval", approval_status: "pending", approval_ready_at: new Date().toISOString() });
         return "awaiting_approval";
       }

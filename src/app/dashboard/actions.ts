@@ -15,7 +15,7 @@ import { defaultCreateMessage, monthlyBudget } from "@/lib/migz/router";
 import { traitSwipe } from "@/lib/migz/team/scout";
 import type { TopicKey } from "@/lib/migz/topics";
 import { PAGE_FONT_KEYS } from "@/lib/booking/page-font-keys";
-import { MAX_DEPOSIT_CENTS, MIN_TOP_UP_CENTS, minDepositFor } from "@/lib/campaign";
+import { feePlanOf, MAX_DEPOSIT_CENTS, MIN_TOP_UP_CENTS, minDepositFor } from "@/lib/campaign";
 import { CONTACT_EMAIL } from "@/lib/contact";
 import { dailyBatch } from "@/lib/batch";
 import { closeEndedBatch, getActiveBatch, getBatchHistory, getOpenBatch } from "@/lib/dashboard/batches";
@@ -40,7 +40,7 @@ import { cleanSequence, SEQUENCES, sequencesFor, type Sequence } from "@/lib/ema
 import { campaignMoney, cleanAnswers, MAX_CAMPAIGN_DAILY_CENTS, MIN_CAMPAIGN_DAILY_CENTS, type CampaignAnswers, type CampaignPlan } from "@/lib/campaign-plan";
 import { activateBatch } from "@/lib/dashboard/start-batch";
 import { getBalanceCents, getFundsAddedCents } from "@/lib/dashboard/queries";
-import { checkoutReturnBase, createAutoTopUpSetup, createDepositCheckout, createSetupFeeCheckout, stripe } from "@/lib/stripe";
+import { checkoutReturnBase, createAutoTopUpSetup, createDepositCheckout, createSetupFeeCheckout, createSubscriptionCheckout, stripe } from "@/lib/stripe";
 import { cleanTopUp, topUpConsent } from "@/lib/auto-top-up";
 import { startGuarantee } from "@/lib/dashboard/guarantee";
 import { setupBlockers } from "@/lib/dashboard/setup";
@@ -192,7 +192,7 @@ export async function startDeposit(cents: number): Promise<{ ok: true; url: stri
   if (!Number.isInteger(cents) || cents < minCents || cents > MAX_DEPOSIT_CENTS)
     return { ok: false, error: `${minCents > MIN_TOP_UP_CENTS ? "Your first deposit starts your campaign with two weeks of ads, so it" : "A deposit"} must be between $${(minCents / 100).toLocaleString("en-US")} and $${(MAX_DEPOSIT_CENTS / 100).toLocaleString("en-US")}.` };
   // Agents who finished setup before the setup fee existed count as paid
-  if (!agent.setup_fee_paid_at && !agent.onboarding_completed_at) return { ok: false, error: "Pay the setup fee first: it's step 1 in Start here." };
+  if (!agent.setup_fee_paid_at && !agent.onboarding_completed_at) return { ok: false, error: isRoofer(agent) ? "Start Migz AI first: it's in Start here." : "Pay the setup fee first: it's step 1 in Start here." };
   if (!integrations.stripe)
     return { ok: false, error: "Payments aren't connected yet, so funds can't be added. This will work once Stripe is set up." };
   try {
@@ -205,6 +205,7 @@ export async function startDeposit(cents: number): Promise<{ ok: true; url: stri
       returnTo: agent.onboarding_completed_at ? "funds" : "start",
       appUrl: checkoutReturnBase(),
       customerId: agent.stripe_customer_id ?? null,
+      plan: feePlanOf(agent),
     });
     return { ok: true, url };
   } catch (e) {
@@ -279,11 +280,13 @@ export async function removeAutoTopUpCard(): Promise<Result> {
 /** Starts a Stripe Checkout session for the one-time setup fee (step 1 of Start here). */
 export async function startSetupFee(): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
   const agent = await requireAgent();
-  if (agent.setup_fee_paid_at || agent.onboarding_completed_at) return { ok: false, error: "Your setup fee is already paid." };
+  if (agent.setup_fee_paid_at || agent.onboarding_completed_at) return { ok: false, error: isRoofer(agent) ? "Migz AI is already on." : "Your setup fee is already paid." };
   if (!integrations.stripe)
     return { ok: false, error: `Payments aren't connected yet. Email ${CONTACT_EMAIL} and we'll take the setup fee another way.` };
   try {
-    const url = await createSetupFeeCheckout({ agentId: agent.id, email: agent.email, appUrl: checkoutReturnBase(), customerId: agent.stripe_customer_id ?? null });
+    // Roofers pay for Migz AI by the month, with no setup fee
+    const input = { agentId: agent.id, email: agent.email, appUrl: checkoutReturnBase(), customerId: agent.stripe_customer_id ?? null };
+    const url = isRoofer(agent) ? await createSubscriptionCheckout(input) : await createSetupFeeCheckout(input);
     return { ok: true, url };
   } catch (e) {
     console.error("stripe setup fee checkout failed", e);

@@ -44,19 +44,27 @@ export const minDepositFor = (addedBeforeCents: number) => (addedBeforeCents > 0
 /** The one-time setup fee a new agent pays in Start here before anything else (not ad funds: it never touches the balance). */
 export const SETUP_FEE_CENTS = 75_000;
 
+// Roofers pay for Migz AI by the month instead: no setup fee, and every dollar they add goes to their ads.
+export const MIGZ_MONTHLY_CENTS = 100_000;
+export type FeePlan = "percent" | "subscription";
+/** How an agent pays us: the monthly Migz AI subscription, or the percentage of what they add. */
+export const feePlanOf = (agent: { migz_plan?: string | null } | null | undefined): FeePlan => (agent?.migz_plan === "subscription" ? "subscription" : "percent");
+
 /** The fee on a deposit, given what the agent had added before it (every earlier deposit, in cents). */
-export function feeCents(depositCents: number, addedBeforeCents = 0) {
+export function feeCents(depositCents: number, addedBeforeCents = 0, plan: FeePlan = "percent") {
+  if (plan === "subscription") return 0;
   const atFullRate = Math.max(0, Math.min(depositCents, LOW_FEE_AFTER_CENTS - addedBeforeCents));
   return Math.round(atFullRate * FEE_RATE + (depositCents - atFullRate) * LOW_FEE_RATE);
 }
 
 /** What a deposit adds to the ad balance after the fee. */
-export function adSpendCents(depositCents: number, addedBeforeCents = 0) {
-  return depositCents - feeCents(depositCents, addedBeforeCents);
+export function adSpendCents(depositCents: number, addedBeforeCents = 0, plan: FeePlan = "percent") {
+  return depositCents - feeCents(depositCents, addedBeforeCents, plan);
 }
 
 /** The deposit needed for a given amount of ad spend (in whole dollars, rounded up). */
-export function depositFor(adCents: number, addedBeforeCents = 0) {
+export function depositFor(adCents: number, addedBeforeCents = 0, plan: FeePlan = "percent") {
+  if (plan === "subscription") return Math.ceil(adCents / 100) * 100;
   const roomAtFullRate = Math.max(0, LOW_FEE_AFTER_CENTS - addedBeforeCents);
   const adAtFullRate = roomAtFullRate * (1 - FEE_RATE);
   const deposit = adCents <= adAtFullRate ? adCents / (1 - FEE_RATE) : roomAtFullRate + (adCents - adAtFullRate) / (1 - LOW_FEE_RATE);
@@ -64,7 +72,8 @@ export function depositFor(adCents: number, addedBeforeCents = 0) {
 }
 
 /** "20%", "12%", or both when the deposit crosses the line: how the fee on a deposit is described to the agent. */
-export function feeLabel(depositCents: number, addedBeforeCents = 0) {
+export function feeLabel(depositCents: number, addedBeforeCents = 0, plan: FeePlan = "percent") {
+  if (plan === "subscription") return "no fee on the Migz AI plan";
   const room = LOW_FEE_AFTER_CENTS - addedBeforeCents;
   if (depositCents <= room) return `${FEE_RATE * 100}%`;
   if (room <= 0) return `${LOW_FEE_RATE * 100}%`;

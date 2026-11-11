@@ -1,4 +1,4 @@
-import { ALSO_INCLUDED, COVERED, EXAMPLE_FUNDS, HOW_IT_ADDS_UP, MIN_FUNDS, NOT_COVERED, ROOFING_MIN_FIRST_MONTH_AD_SPEND, ROOFING_SETUP_FEE, SETUP_FEE, TIERS, feeFor, pct, sliceLabel, usd } from "@/lib/pricing";
+import { ALSO_INCLUDED, COVERED, EXAMPLE_FUNDS, HOW_IT_ADDS_UP, MIN_FUNDS, NOT_COVERED, ROOFING_MIN_FIRST_MONTH_AD_SPEND, ROOFING_MONTHLY, SETUP_FEE, TIERS, feeFor, pct, sliceLabel, usd } from "@/lib/pricing";
 import "@/components/site/content.css";
 
 /** The rate for each slice of the amount added, with what the amount costs in all once it reaches the end of that slice. */
@@ -72,8 +72,8 @@ export function PricingCovers() {
       <div className="cx-setups">
         <div className="cx-setup">
           <p className="cx-setup__who">roofing companies</p>
-          <p className="cx-setup__fee">{usd(ROOFING_SETUP_FEE)}</p>
-          <p>one-time setup, paid up front. you also need at least {usd(ROOFING_MIN_FIRST_MONTH_AD_SPEND)} in meta ad spend for the first month.</p>
+          <p className="cx-setup__fee">{usd(ROOFING_MONTHLY)}/month</p>
+          <p>migz ai, with no setup fee and no contract. ad spend is separate (at least {usd(ROOFING_MIN_FIRST_MONTH_AD_SPEND)} the first month), and all of it goes to your ads.</p>
         </div>
         <div className="cx-setup">
           <p className="cx-setup__who">life insurance agents</p>

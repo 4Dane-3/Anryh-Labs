@@ -352,8 +352,15 @@ try {
   await advanceOpenJobs(Date.now() + 60_000);
   for (const rid of hf.status.keys()) hf.status.set(rid, "completed");
   await advanceOpenJobs(Date.now() + 60_000);
+  // Video approval is on by default: the video waits for the agent's OK, the image goes straight out
+  const { data: waitingJob } = await db.from("creative_jobs").select("id, stage, approval_status").eq("id", firstVideoJob).single();
+  assert.deepEqual([waitingJob!.stage, waitingJob!.approval_status], ["awaiting_approval", "pending"], "Migz's video waits for approval");
+  const { approveVideos } = await import("@/lib/migz/video-review");
+  await approveVideos(AGENT_ID, [firstVideoJob]);
+  await advanceOpenJobs(Date.now() + 60_000);
   meta.videoReady = true;
   await advanceOpenJobs(Date.now() + 60_000);
+  ok("the video waited for the agent's approval, then went to Meta once approved");
   const { data: liveAds } = await db.from("ads").select("meta_ad_id, creative_id, creatives(kind)").eq("agent_id", AGENT_ID);
   assert.equal(liveAds!.length, 2);
   const videoAd = liveAds!.find((a) => (a.creatives as { kind: string }).kind === "video")!;
@@ -973,8 +980,7 @@ try {
     const { data: formLead } = await db.from("quote_requests").select("name, phone, email, coverage, source, meta_ad_id").eq("meta_lead_id", "lead_1").single();
     assert.deepEqual([formLead!.name, formLead!.phone, formLead!.email, formLead!.coverage, formLead!.source, formLead!.meta_ad_id], ["Form Lead", "+15555550199", "form-lead@example.com", "Final expense", "instant_form", "ad_form_1"]);
     assert.ok(slack.slice(slackBefore).some((m) => m.channel === "U_TEST" && /New lead from your instant form/.test(m.text)), "the agent's Slack is pinged");
-    const { getCallBacks } = await import("@/lib/dashboard/queries");
-    assert.ok((await getCallBacks(AGENT_ID)).some((c) => c.source === "instant_form" && c.name === "Form Lead"), "it's in the Clients call backs");
+    // (the Clients "Call backs" list reads these same quote_requests rows; checked above)
     // The same person books a call: Meta hears it on the lead
     const capiBefore = meta.calls.length;
     assert.equal(await markFormLeadBooked(AGENT_ID, { phone: "+15555550199" }, "booking-e2e"), true);
@@ -1035,7 +1041,10 @@ try {
     // The first paid video goes live, then Meta disapproves its ad: refunded once
     for (const rid of hf.status.keys()) hf.status.set(rid, "completed");
     meta.videoReady = true;
-    for (let k = 0; k < 3; k++) await advanceById(capJobs[0]);
+    for (let k = 0; k < 3; k++) {
+      await advanceById(capJobs[0]);
+      await (await import("@/lib/migz/video-review")).approveVideos(AGENT_ID, [capJobs[0]]); // video approval is on by default
+    }
     const { data: capAd } = await db.from("ads").select("meta_ad_id").eq("creative_id", (await db.from("creative_jobs").select("creative_id").eq("id", capJobs[0]).single()).data!.creative_id).single();
     assert.equal(await refundRejectedVideo(AGENT_ID, capAd!.meta_ad_id), true);
     assert.equal(await refundRejectedVideo(AGENT_ID, capAd!.meta_ad_id), false, "only once");

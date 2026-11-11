@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowUpRight, Check, Loader2 } from "lucide-react";
 import { launchCampaign, saveBatchPlan, setCreativeMode, startSetupFee } from "@/app/dashboard/actions";
-import { SETUP_FEE_CENTS } from "@/lib/campaign";
+import { MIGZ_MONTHLY_CENTS, SETUP_FEE_CENTS } from "@/lib/campaign";
 import { CampaignFlow, type CampaignStart } from "@/components/dashboard/start/CampaignFlow";
 import { listCampaignTopics, type CampaignSlot } from "@/lib/batch";
 import { AddFunds } from "@/components/dashboard/FundsControls";
@@ -74,6 +74,7 @@ const TITLES: Record<string, { title: string; blurb: string }> = {
 /** What changes for a roofing company. */
 const ROOF_TITLES: Record<string, { title: string; blurb: string }> = {
   business: { title: "Your business", blurb: "Your business email and the number homeowners reach you on." },
+  setup_fee: { title: `Migz AI: ${usd(MIGZ_MONTHLY_CENTS, { cents: false })}/month`, blurb: "No setup fee, cancel anytime. Every dollar of ad funds you add goes to your ads." },
   profile: { title: "Your company", blurb: "Your company name, logo or photo and a short intro. Homeowners see this before they book." },
   page: { title: "Your booking page", blurb: "Where homeowners book a free inspection, and the hours your crews inspect." },
   slack: { title: "Slack (optional)", blurb: "New inspections also come to your email. Connect Slack if you'd like them there too." },
@@ -134,8 +135,8 @@ function StepShell({
   );
 }
 
-/** Step 3: the one-time setup fee, paid on Stripe's page. The step turns done when Stripe confirms it. */
-function SetupFeeStep({ stripeConnected, contactEmail }: { stripeConnected: boolean; contactEmail: string }) {
+/** Step 3: the one-time setup fee (roofers: the Migz AI subscription), paid on Stripe's page. Done when Stripe confirms it. */
+function SetupFeeStep({ stripeConnected, contactEmail, roof }: { stripeConnected: boolean; contactEmail: string; roof: boolean }) {
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const pay = () =>
@@ -147,18 +148,31 @@ function SetupFeeStep({ stripeConnected, contactEmail }: { stripeConnected: bool
     });
   return (
     <div className="space-y-4">
-      <ul className="space-y-1.5 text-[13px] text-fg-muted">
-        <li>· Your Meta ad account, page and lead form connected and checked</li>
-        <li>· Your first campaign planned and built, with its ads made for you</li>
-        <li>· Your booking page and calendar ready for calls</li>
-      </ul>
-      <p className="text-[13px] text-fg-muted">
-        Paid once. After this, the only cost is the fee on the ad funds you add (20%, then 12% once you&apos;ve added $20,000 in all).
-      </p>
+      {roof ? (
+        <>
+          <ul className="space-y-1.5 text-[13px] text-fg-muted">
+            <li>· Migz AI runs your Meta ads every day: campaigns, budgets and new ads</li>
+            <li>· Video ads with real hooks, your towns and your certifications, sent to you for approval</li>
+            <li>· Your booking page, inspection reminders and a summary every 3 days</li>
+          </ul>
+          <p className="text-[13px] text-fg-muted">{usd(MIGZ_MONTHLY_CENTS, { cents: false })} a month, billed today and monthly after. No setup fee, no contract. Your ad spend is separate, and all of it goes to your ads.</p>
+        </>
+      ) : (
+        <>
+          <ul className="space-y-1.5 text-[13px] text-fg-muted">
+            <li>· Your Meta ad account, page and lead form connected and checked</li>
+            <li>· Your first campaign planned and built, with its ads made for you</li>
+            <li>· Your booking page and calendar ready for calls</li>
+          </ul>
+          <p className="text-[13px] text-fg-muted">
+            Paid once. After this, the only cost is the fee on the ad funds you add (20%, then 12% once you&apos;ve added $20,000 in all).
+          </p>
+        </>
+      )}
       {stripeConnected ? (
         <Button className="bg-[#ff7a1a] text-white hover:bg-[#ff7a1a]/90" disabled={pending} onClick={pay}>
           {pending ? <Loader2 className="animate-spin" /> : null}
-          Pay {usd(SETUP_FEE_CENTS, { cents: false })} setup fee
+          {roof ? `Start Migz AI, ${usd(MIGZ_MONTHLY_CENTS, { cents: false })}/month` : `Pay ${usd(SETUP_FEE_CENTS, { cents: false })} setup fee`}
         </Button>
       ) : (
         <p className="text-[13px] text-fg-muted">
@@ -285,7 +299,7 @@ export function StartWizard(props: Props) {
     business: roof ? props.business.business_email || "Saved" : props.business.agency_name,
     meta: props.meta.linked ? `Ad account ${props.meta.linked.adAccount}` : "",
     slack: "Connected",
-    setup_fee: props.setupFeePaidAt ? `Paid ${new Date(props.setupFeePaidAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : "",
+    setup_fee: props.setupFeePaidAt ? `${roof ? "Started" : "Paid"} ${new Date(props.setupFeePaidAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : "",
     profile: props.profile.full_name,
     page: props.booking.choice === "own" ? `Your own page: ${props.booking.ownUrl.replace(/^https?:\/\//, "")}` : `Live at /${props.slug}`,
     funds: `${usd(props.balanceCents, { cents: true })} available`,
@@ -317,7 +331,7 @@ export function StartWizard(props: Props) {
       </StepShell>
 
       <StepShell roof={roof} index={3} stepKey="setup_fee" done={stateOf("setup_fee").done} summary={summaries.setup_fee} open={open === "setup_fee"} onToggle={() => setOpen(open === "setup_fee" ? null : "setup_fee")}>
-        <SetupFeeStep stripeConnected={props.stripeConnected} contactEmail={props.contactEmail} />
+        <SetupFeeStep stripeConnected={props.stripeConnected} contactEmail={props.contactEmail} roof={roof} />
       </StepShell>
 
       <StepShell roof={roof} index={4} stepKey="profile" done={stateOf("profile").done} summary={summaries.profile} open={open === "profile"} onToggle={() => setOpen(open === "profile" ? null : "profile")}>
@@ -358,7 +372,7 @@ export function StartWizard(props: Props) {
               open, and get {TARGET_LOW} booked calls ({TARGET_HIGH} at $75/day or more), or we credit back your Anryh Labs fee.
             </p>
           </div>
-          <AddFunds addedBeforeCents={props.fundsAddedCents} />
+          <AddFunds addedBeforeCents={props.fundsAddedCents} plan={roof ? "subscription" : "percent"} />
           {props.autoTopUp && (
             <div className="border-t border-line [&>section]:rounded-none [&>section]:border-0 [&>section]:bg-transparent [&>section]:shadow-none">
               <AutoTopUp state={props.autoTopUp} />

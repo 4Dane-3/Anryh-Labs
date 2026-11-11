@@ -391,6 +391,11 @@ export async function buildSnapshot(agent: Agent) {
   // A Seedance tier's longer videos only when the free balance covers one; otherwise it's made on Standard (15s)
   const videoSeconds = balance >= VIDEO_TIERS[videoTierNow].priceCents ? VIDEO_TIERS[videoTierNow].seconds : VIDEO_TIERS.standard.seconds;
 
+  // What the roofer told us is true about them: the only certification and offer ads may name
+  const facts = agent.vertical === "roofing"
+    ? (await supabaseAdmin.from("agent_presenters").select("offer, badge, towns").eq("agent_id", agent.id).maybeSingle()).data as { offer: string | null; badge: string | null; towns: string[] } | null
+    : null;
+
   const forModel = {
     migz_notebook: notebook,
     market_research_ideas: researchIdeas.length
@@ -405,6 +410,9 @@ export async function buildSnapshot(agent: Agent) {
         ? {
             business: "roofing company: every ad offers a free roof inspection; booked_calls count booked inspections",
             service_area: `homeowners ${areaLabel(agent)}, every adult ${roofingAges().min}–65+ (Meta's Housing category: no age targeting)`,
+            towns_to_call_out: facts?.towns.length ? facts.towns : "the service area's town",
+            certification: facts?.badge || "none given: never name a certification or manufacturer program",
+            real_offer: facts?.offer || "none given: the free inspection is the only offer",
             inspections_at_once: agent.crews ?? 1,
             free_inspection_minutes: agent.slot_minutes,
           }

@@ -2,6 +2,7 @@
 
 export const WAIT_FOR_BATCH_MS = 60 * 60_000; // hold the first video up to an hour so a batch arrives as one message
 export const NUDGE_AFTER_MS = 48 * 3_600_000;
+export const MAX_REVISIONS = 2; // automatic remakes of one video before a person looks at it
 
 export type WaitingVideo = { approval_ready_at: string | null; approval_requested_at: string | null; approval_nudged_at: string | null };
 

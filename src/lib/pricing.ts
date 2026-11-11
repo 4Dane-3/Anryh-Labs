@@ -5,7 +5,7 @@
 // (the first $20,000 always stays at 20%). The dashboard charges the same way (src/lib/campaign.ts); keep the
 // two in step. A one-time setup fee comes first.
 
-import { MIN_DEPOSIT_CENTS, SETUP_FEE_CENTS } from "@/lib/campaign";
+import { MIGZ_MONTHLY_CENTS, MIN_DEPOSIT_CENTS, SETUP_FEE_CENTS } from "@/lib/campaign";
 
 export const SETUP_FEE = SETUP_FEE_CENTS / 100;
 export const MIN_FUNDS = MIN_DEPOSIT_CENTS / 100;
@@ -80,7 +80,9 @@ export const PRICING_SUMMARY =
   `no monthly fee. there is a one-time ${usd(SETUP_FEE)} setup fee, then we keep a percentage of the ad funds you add: ${RATES_IN_WORDS}. ` +
   `${HOW_IT_ADDS_UP} the minimum is ${usd(MIN_FUNDS)}. the percentage covers operations, creative generation and automation, so there are no extra charges for the ads migz ai makes or the work of running them. the rest of what you add is your ad budget.`;
 
-// Roofing companies: a flat setup paid up front, and a minimum first month of Meta ad spend.
-export const ROOFING_SETUP_FEE = 3000;
+// Roofing companies: Migz AI by the month, no setup fee; ad spend is separate and carries no fee. The dashboard
+// bills the same (MIGZ_MONTHLY_CENTS in src/lib/campaign.ts).
+export const ROOFING_MONTHLY = MIGZ_MONTHLY_CENTS / 100;
+export const ROOFING_SETUP_FEE = 0;
 export const ROOFING_MIN_FIRST_MONTH_AD_SPEND = 2000;
-export const ROOFING_PRICING_SUMMARY = `a one-time ${usd(ROOFING_SETUP_FEE)} setup, paid up front, and at least ${usd(ROOFING_MIN_FIRST_MONTH_AD_SPEND)} in meta ad spend for the first month.`;
+export const ROOFING_PRICING_SUMMARY = `${usd(ROOFING_MONTHLY)} a month for migz ai, with no setup fee and no contract. your meta ad spend is separate (we recommend at least ${usd(ROOFING_MIN_FIRST_MONTH_AD_SPEND)} for the first month), and all of it goes to your ads.`;

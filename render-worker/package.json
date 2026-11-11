@@ -1,0 +1,15 @@
+{
+  "name": "migz-render-worker",
+  "private": true,
+  "type": "module",
+  "description": "Renders Migz's edited video ads: tight cut and grade (ffmpeg), the HyperFrames composition, the sound mix and the quality checks.",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node server.mjs",
+    "render": "node render.mjs"
+  },
+  "dependencies": {
+    "@hyperframes/producer": "0.9.34",
+    "gsap": "3.14.2"
+  }
+}

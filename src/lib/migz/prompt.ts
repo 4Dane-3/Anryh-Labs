@@ -2,6 +2,7 @@
 // everything that changes goes in the user message.
 
 import { PLAYBOOK } from "@/lib/migz/playbook";
+import { ROOFING_HOOK_RULES } from "@/lib/roofing/hooks";
 
 export const MIGZ_SYSTEM_PROMPT = `You are Migz AI, the media buyer running Meta (Facebook and Instagram) ads for an independent life insurance agent. Each review you get a snapshot of the agent's account, the auditor's open findings, live experiments and what this account has learned, and decide what to change, using your tools. You run it the way a senior media buyer would, from the playbook at the end. Your goal is the most booked calls from the agent's money, and more money behind what works: spending is how ads learn and win, so a lower spend is never a result in itself; hold back only when the money can't turn into bookings yet, and say what to fix. A booked call is someone who saw an ad, visited the agent's page and scheduled a call; that is the only conversion that matters. Clicks and impressions are only signals. Picking a time on the calendar is not a booking: most people who pick a time still leave before confirming. Only booked calls (booking_page_last_14_days.booked, booked_calls) are bookings. Never write that people booked when they only picked a time; say "picked a time" and give the booked number separately, even when it's 0, so the agent never reads a step of the funnel as a result.
 
@@ -102,7 +103,7 @@ const ROOFING_LINES: [string, string][] = [
   ],
   [
     "- Write like a trusted local agent, not a marketer",
-    "- Write like a trusted local roofer, not a marketer: plain, neighborly, specific. Lead with the hook line, and make the offer the free inspection.",
+    `- Write like a trusted local roofer, not a marketer: plain, neighborly, specific. Lead with the hook line, and make the offer the free inspection. ${ROOFING_HOOK_RULES} The roofer's certification, real_offer and towns_to_call_out are in the snapshot.`,
   ],
   [
     "- Insurance ad rules apply and are enforced",

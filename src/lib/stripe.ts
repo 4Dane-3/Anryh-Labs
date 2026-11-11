@@ -1,7 +1,7 @@
 import "server-only";
 import Stripe from "stripe";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { feeCents, feeLabel, SETUP_FEE_CENTS } from "@/lib/campaign";
+import { feeCents, feeLabel, MIGZ_MONTHLY_CENTS, SETUP_FEE_CENTS, type FeePlan } from "@/lib/campaign";
 import { getFundsAddedCents } from "@/lib/dashboard/queries";
 import { referralRowFor, type WalletRow } from "@/lib/referrals";
 import { reversalShares } from "@/lib/referrals-core";
@@ -65,14 +65,17 @@ export async function createDepositCheckout(input: CheckoutFor & {
   cents: number;
   addedBeforeCents: number; // everything the agent has added so far: sets the fee rate
   returnTo: "funds" | "start"; // where Stripe sends them back (Start here while they're setting up)
+  plan?: FeePlan; // the Migz AI subscription adds funds with no fee
 }) {
-  const fee = feeCents(input.cents, input.addedBeforeCents);
+  const fee = feeCents(input.cents, input.addedBeforeCents, input.plan);
   const forAds = input.cents - fee;
   const back = `${input.appUrl}/dashboard/${input.returnTo}`;
   return openCheckout(input, {
     cents: input.cents,
     name: "Ad funds",
-    description: `$${(forAds / 100).toFixed(2)} for your Meta ads, $${(fee / 100).toFixed(2)} Anryh Labs fee (${feeLabel(input.cents, input.addedBeforeCents)}).`,
+    description: fee
+      ? `$${(forAds / 100).toFixed(2)} for your Meta ads, $${(fee / 100).toFixed(2)} Anryh Labs fee (${feeLabel(input.cents, input.addedBeforeCents)}).`
+      : `All $${(forAds / 100).toFixed(2)} goes to your Meta ads (no fee on the Migz AI plan).`,
     metadata: { deposit_cents: String(input.cents), fee_cents: String(fee), added_before_cents: String(input.addedBeforeCents), kind: "ad_funds" },
     success: `${back}?deposit=success`,
     cancel: `${back}?deposit=canceled`,
@@ -89,6 +92,69 @@ export async function createSetupFeeCheckout(input: CheckoutFor) {
     success: `${input.appUrl}/dashboard/start?setup_fee=paid`,
     cancel: `${input.appUrl}/dashboard/start?setup_fee=canceled`,
   });
+}
+
+/** A Checkout page for the Migz AI subscription ($1,000 a month, no setup fee). Returns the URL. */
+export async function createSubscriptionCheckout(input: CheckoutFor) {
+  const who = input.customerId ? { customer: input.customerId } : { customer_email: input.email };
+  const session = await stripe().checkout.sessions.create({
+    mode: "subscription",
+    ...who,
+    billing_address_collection: "required",
+    client_reference_id: input.agentId,
+    line_items: [
+      {
+        quantity: 1,
+        price_data: {
+          currency: "usd",
+          unit_amount: MIGZ_MONTHLY_CENTS,
+          recurring: { interval: "month" },
+          product_data: { name: "Migz AI", description: "Your Meta ads run by Migz AI: campaigns, video and image ads, booking page, reporting. No setup fee, cancel anytime. Ad spend is separate." },
+        },
+      },
+    ],
+    metadata: { agent_id: input.agentId, kind: "migz_subscription" },
+    subscription_data: { metadata: { agent_id: input.agentId, kind: "migz_subscription" } },
+    success_url: `${input.appUrl}/dashboard/start?setup_fee=subscribed`,
+    cancel_url: `${input.appUrl}/dashboard/start?setup_fee=canceled`,
+  });
+  if (!session.url) throw new Error("Stripe didn't return a checkout link.");
+  return session.url;
+}
+
+/** A finished subscription checkout: the account moves to the monthly plan. Repeats are no-ops. */
+export async function recordSubscriptionStart(session: Stripe.Checkout.Session) {
+  const agentId = session.metadata?.agent_id ?? session.client_reference_id;
+  if (!agentId) throw new Error(`Checkout session ${session.id} has no agent`);
+  const subId = typeof session.subscription === "string" ? session.subscription : session.subscription?.id;
+  if (!subId) throw new Error(`Checkout session ${session.id} has no subscription`);
+  const customer = typeof session.customer === "string" ? session.customer : session.customer?.id;
+  const { data, error } = await supabaseAdmin
+    .from("agents")
+    .update({ migz_plan: "subscription", stripe_subscription_id: subId, subscription_status: "active", setup_fee_paid_at: new Date().toISOString(), setup_fee_session_id: session.id })
+    .eq("id", agentId)
+    .or(`stripe_subscription_id.is.null,stripe_subscription_id.neq.${subId}`)
+    .select("id, full_name");
+  if (error) throw new Error(`Couldn't record the subscription: ${error.message}`);
+  if (customer) await supabaseAdmin.from("agents").update({ stripe_customer_id: customer }).eq("id", agentId).is("stripe_customer_id", null);
+  if (!data?.length) return false;
+  await alertAdmin(`${data[0].full_name} started Migz AI at $${(MIGZ_MONTHLY_CENTS / 100).toLocaleString("en-US")}/month. Their setup is next: link their Meta ad account if it isn't yet.`);
+  return true;
+}
+
+/** Keeps the account's subscription state in step with Stripe (renewals, failed payments, cancellations). */
+export async function syncSubscription(sub: Stripe.Subscription) {
+  if (sub.metadata?.kind !== "migz_subscription") return false;
+  const end = (sub as unknown as { current_period_end?: number }).current_period_end ?? sub.items?.data?.[0]?.current_period_end;
+  const { data } = await supabaseAdmin
+    .from("agents")
+    .update({ subscription_status: sub.status, subscription_period_end: end ? new Date(end * 1000).toISOString() : null })
+    .eq("stripe_subscription_id", sub.id)
+    .select("full_name, subscription_status");
+  if (!data?.length) return false;
+  if (["past_due", "unpaid", "canceled", "incomplete_expired"].includes(sub.status))
+    await alertAdmin(`${data[0].full_name}'s Migz AI subscription is ${sub.status.replace("_", " ")}. Their ads keep running until you pause them.`);
+  return true;
 }
 
 async function openCheckout(
