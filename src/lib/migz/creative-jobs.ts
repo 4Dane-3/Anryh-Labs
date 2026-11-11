@@ -23,6 +23,8 @@ import { leadFormFor } from "@/lib/migz/leads";
 // Higgsfield webhook:  generating -> stored -> meta_processing -> launched   (or failed)
 // Agent uploads being launched skip straight to "stored". Generated images skip "meta_processing":
 // Meta takes image bytes directly and returns a hash we can use right away.
+// With video approval on, a video Migz made for an ad set waits at "awaiting_approval" (between stored and
+// the Meta upload) until the agent approves it on their review page (lib/migz/video-review.ts).
 
 const MAX_ATTEMPTS = 72; // ~12 hours of 10-minute checks before giving up
 
@@ -32,7 +34,7 @@ type Job = {
   action_id: string | null;
   provider_request_id: string | null;
   status_url: string | null;
-  stage: "generating" | "stored" | "meta_processing" | "launched" | "failed";
+  stage: "generating" | "stored" | "awaiting_approval" | "meta_processing" | "launched" | "failed";
   brief: AnyBrief;
   parent_creative_id: string | null;
   creative_id: string | null;
@@ -43,6 +45,7 @@ type Job = {
   event_id?: number | null; // the Brain step open while this job works (Higgsfield, then Meta)
   parts?: CardPart[] | null; // carousels: one generation per card
   video_charge_cents?: number; // what the agent was charged for this video (missing before its migration)
+  approval_status?: "pending" | "approved" | "changes_requested" | null; // video approval (missing before its migration)
 };
 
 type CardPart = { request_id: string; status_url: string; creative_id: string | null };
@@ -542,6 +545,11 @@ async function advance(job: Job) {
     if (job.stage === "stored") {
       if (!job.launch_adset_id) return "stored"; // library only
       const agent = await loadAgent(job.agent_id);
+      // A video Migz made waits for the agent's OK before anything reaches Meta (their own uploads don't)
+      if (agent.video_approval && isVideoBrief(job.brief) && job.provider_request_id && !job.approval_status) {
+        await update(job.id, { stage: "awaiting_approval", approval_status: "pending", approval_ready_at: new Date().toISOString() });
+        return "awaiting_approval";
+      }
       const { data: creative } = await supabaseAdmin
         .from("creatives")
         .select("kind, storage_path, mime_type")

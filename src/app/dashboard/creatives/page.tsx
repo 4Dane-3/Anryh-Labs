@@ -5,6 +5,7 @@ import { integrations } from "@/lib/integrations";
 import { briefLabel, isVideoBrief, type AnyBrief } from "@/lib/migz/brief";
 import { NotConnected, PageHeader } from "@/components/dashboard/ui";
 import { CreativesManager, type Creative, type GeneratingJob } from "@/components/dashboard/CreativesManager";
+import { VideoApprovals } from "@/components/dashboard/VideoApprovals";
 
 export default async function CreativesPage() {
   const agent = await requireAgent();
@@ -85,6 +86,8 @@ export default async function CreativesPage() {
     hook: briefLabel(j.brief as AnyBrief),
   }));
 
+  const { count: waiting } = await supabaseAdmin.from("creative_jobs").select("id", { count: "exact", head: true }).eq("agent_id", agent.id).eq("stage", "awaiting_approval");
+
   return (
     <>
       <PageHeader
@@ -96,6 +99,7 @@ export default async function CreativesPage() {
           <NotConnected service="Meta">Upload now. Migz adds your files to your campaigns once your ad account is linked.</NotConnected>
         </div>
       )}
+      <VideoApprovals on={!!agent.video_approval} waiting={waiting ?? 0} reviewUrl={agent.video_review_token ? `/review/${agent.video_review_token}` : null} />
       <CreativesManager creatives={creatives} generating={generating} />
     </>
   );

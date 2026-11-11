@@ -57,7 +57,7 @@ export async function buildSnapshot(agent: Agent) {
       .from("creative_jobs")
       .select("stage, brief, launch_adset_id, created_at")
       .eq("agent_id", agent.id)
-      .in("stage", ["generating", "stored", "meta_processing"]),
+      .in("stage", ["generating", "stored", "awaiting_approval", "meta_processing"]),
     supabaseAdmin
       .from("ad_actions")
       .select("kind, title, detail, status, created_at")
