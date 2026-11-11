@@ -1,6 +1,7 @@
 import { isCronRequest } from "@/lib/cron-auth";
 import { advanceOpenJobs } from "@/lib/migz/creative-jobs";
 import { notifyAdReviews } from "@/lib/migz/notify";
+import { sendVideoReviewRequests } from "@/lib/migz/video-review";
 
 export const maxDuration = 300;
 
@@ -10,6 +11,10 @@ export const maxDuration = 300;
 export async function GET(req: Request) {
   if (!isCronRequest(req)) return new Response("Unauthorized", { status: 401 });
   const results = await advanceOpenJobs(Date.now() + 240_000);
+  const videoReviews = await sendVideoReviewRequests().catch((e) => {
+    console.error("video review requests failed", e);
+    return { error: e instanceof Error ? e.message : String(e) };
+  });
   const reviews = await notifyAdReviews(Date.now() + 40_000).catch((e) => ({ error: e instanceof Error ? e.message : String(e) }));
-  return Response.json({ jobs: results, reviews });
+  return Response.json({ jobs: results, videoReviews, reviews });
 }

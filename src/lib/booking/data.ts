@@ -109,6 +109,8 @@ export type Agent = {
   referral_intro_email?: boolean; // one plain email to each referred person
   mailing_address?: string | null; // the business's postal address, required in marketing email
   job_webhook_token?: string; // the secret for /api/jobs/completed
+  video_approval?: boolean; // Migz's videos wait for the agent's OK before going to Meta (missing before 20261208000000)
+  video_review_token?: string; // the private link to their video review page
   google_review_url?: string | null; // the roofer's Google review link, in the check-in email (missing before 20261204000000)
   job_rules?: unknown; // "Jobs we take" (lib/roofing/job-rules), null = everything; missing before 20261205000000
 };
