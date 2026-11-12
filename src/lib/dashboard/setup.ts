@@ -97,7 +97,9 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
       ? `Your campaign needs ${money(fundsNeeded.cents)} in ad funds (we recommend ${money(fundsNeeded.recommendedCents)}). Add about ${money(roundUpToFundsStep(depositFor(fundsNeeded.recommendedCents - balanceCents, 0, plan)))}${plan === "subscription" ? "; all of it goes to your ads" : " with the 20% fee"}.`
       : null
     : balanceCents < MIN_AD_BALANCE_CENTS
-      ? `Add at least $${(MIN_DEPOSIT_CENTS / 100).toLocaleString("en-US")} (two weeks at $50/day). Plan your campaign first to see what it needs.`
+      ? roof
+        ? "Add at least $2,000: a month of ads at the $2,000/month minimum. Plan your campaign first to see what it needs."
+        : `Add at least $${(MIN_DEPOSIT_CENTS / 100).toLocaleString("en-US")} (two weeks at $50/day). Plan your campaign first to see what it needs.`
       : null;
   // Agents who finished setup before the setup fee existed count as paid
   // Roofers start Migz AI by the month instead (no setup fee); the same step tracks it

@@ -125,7 +125,7 @@ export function PresenterSetup({ initial, inSetup, onSaved }: { initial: Present
             </label>
           </div>
           <p className="-mt-2 text-[12px] text-fg-muted">Spell the name the way it sounds if the AI voice might get it wrong. Captions still show it spelled as above.</p>
-          {v.mode === "ai" && <p className="text-[13px] text-fg-muted">Their voice is picked under Ad Creative AI Context: one of ElevenLabs&apos; voices, or their own.</p>}
+          {v.mode === "ai" && <p className="text-[13px] text-fg-muted">Their voice is picked under Ad Creative AI Context.</p>}
           <p className="text-[12px] text-fg-muted">Migz introduces them once, like &quot;I&apos;m {v.onCameraName.trim() || "Gil"}, {(v.onCameraRole.trim() || "owner").toLowerCase()} here at your company&quot;.</p>
         </Panel>
       )}

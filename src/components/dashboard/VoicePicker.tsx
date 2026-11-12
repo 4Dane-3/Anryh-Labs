@@ -6,8 +6,8 @@ import type { AdVoice } from "@/lib/voice/ad-voices";
 
 type Gender = "male" | "female" | null;
 
-/** Pick the voice their ads are spoken in, from ElevenLabs' voices (and their own, once recorded). */
-export function VoicePicker({ initial, own, first, onSaved }: { initial: { id: string | null; name: string | null }; own: "ready" | "saved" | null; first: { voices: AdVoice[]; more: boolean }; onSaved?: () => void }) {
+/** Pick the voice their ads are spoken in, from ElevenLabs' voices. Our picks are starred and listed first. */
+export function VoicePicker({ initial, first, onSaved }: { initial: { id: string | null; name: string | null }; first: { voices: AdVoice[]; more: boolean }; onSaved?: () => void }) {
   const [chosen, setChosen] = useState(initial);
   const [gender, setGender] = useState<Gender>(null);
   const [search, setSearch] = useState("");
@@ -45,7 +45,8 @@ export function VoicePicker({ initial, own, first, onSaved }: { initial: { id: s
   const play = (id: string) => {
     audio.current?.pause();
     if (playing === id) return setPlaying(null);
-    const a = new Audio(`/api/dashboard/voice-preview?id=${id}`);
+    const src = voices.find((v) => v.id === id)?.preview;
+    const a = new Audio(`/api/dashboard/voice-preview?id=${id}${src ? `&src=${encodeURIComponent(src)}` : ""}`);
     a.onended = () => setPlaying(null);
     a.onerror = () => {
       setPlaying(null);
@@ -61,7 +62,7 @@ export function VoicePicker({ initial, own, first, onSaved }: { initial: { id: s
       const r = await chooseAdVoice(id, name);
       if (!r.ok) return setError(r.error ?? "Couldn't save that.");
       setError(null);
-      setChosen({ id, name: id === "own" ? "Your voice" : name });
+      setChosen({ id, name });
       onSaved?.();
     });
 
@@ -91,7 +92,6 @@ export function VoicePicker({ initial, own, first, onSaved }: { initial: { id: s
           "Pick the voice for your videos: press play to hear each one. Until you pick, Migz uses its standard narrator."
         )}
       </p>
-      {own && <VoiceCard id="own" name="Your voice" line={own === "ready" ? "Made from your recording" : "Recording saved: the voice is made from it once voice copying is on"} chosen={chosen.id === "own"} busy={saving} onChoose={choose} />}
       <div className="flex flex-wrap items-center gap-2">
         {([null, "male", "female"] as Gender[]).map((g) => (
           <button key={g ?? "all"} type="button" onClick={() => filter(g)} className={`rounded-full border px-3 py-1 text-[12px] ${gender === g ? "border-brand text-fg" : "border-line text-fg-muted"}`}>
@@ -123,6 +123,7 @@ export function VoicePicker({ initial, own, first, onSaved }: { initial: { id: s
             name={v.name}
             line={[v.tagline, [v.gender, v.age, v.accent].filter(Boolean).join(", ")].filter(Boolean).join(" · ")}
             detail={v.description}
+            starred={v.starred}
             chosen={chosen.id === v.id}
             busy={saving}
             playing={playing === v.id}
@@ -150,7 +151,7 @@ export function VoicePicker({ initial, own, first, onSaved }: { initial: { id: s
   );
 }
 
-function VoiceCard(v: { id: string; name: string; line: string; detail?: string | null; chosen: boolean; busy: boolean; playing?: boolean; onPlay?: (id: string) => void; onChoose: (id: string, name: string) => void }) {
+function VoiceCard(v: { id: string; name: string; line: string; detail?: string | null; starred?: boolean; chosen: boolean; busy: boolean; playing?: boolean; onPlay?: (id: string) => void; onChoose: (id: string, name: string) => void }) {
   return (
     <div className={`flex items-start gap-3 rounded-lg border p-3 ${v.chosen ? "border-brand" : "border-line"}`}>
       {v.onPlay ? (
@@ -161,7 +162,14 @@ function VoiceCard(v: { id: string; name: string; line: string; detail?: string 
         <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-brand/15 text-[13px] text-brand">●</span>
       )}
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold text-fg">{v.name}</p>
+        <p className="text-sm font-semibold text-fg">
+          {v.name}
+          {v.starred && (
+            <span title="One of our picks" aria-label="One of our picks" className="ml-1.5 text-amber-400">
+              ★
+            </span>
+          )}
+        </p>
         <p className="text-[12px] text-fg-muted">{v.line}</p>
         {v.detail && <p className="mt-1 line-clamp-2 text-[12px] text-fg-muted">{v.detail}</p>}
       </div>

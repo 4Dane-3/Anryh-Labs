@@ -38,7 +38,7 @@ import {
   type ClientActivity,
 } from "@/lib/dashboard/clients";
 import { cleanSequence, SEQUENCES, sequencesFor, type Sequence } from "@/lib/email-sequences";
-import { campaignMoney, cleanAnswers, MAX_CAMPAIGN_DAILY_CENTS, MIN_CAMPAIGN_DAILY_CENTS, type CampaignAnswers, type CampaignPlan } from "@/lib/campaign-plan";
+import { campaignMoney, cleanAnswers, MAX_CAMPAIGN_DAILY_CENTS, MIN_CAMPAIGN_DAILY_CENTS, minDailyFor, ROOFER_MIN_DAILY_CENTS, type CampaignAnswers, type CampaignPlan } from "@/lib/campaign-plan";
 import { activateBatch } from "@/lib/dashboard/start-batch";
 import { getBalanceCents, getFundsAddedCents } from "@/lib/dashboard/queries";
 import { checkoutReturnBase, createAutoTopUpSetup, createDepositCheckout, createSetupFeeCheckout, createSubscriptionCheckout, stripe } from "@/lib/stripe";
@@ -188,10 +188,11 @@ export async function setAdsPaused(paused: boolean): Promise<Result> {
 /** Starts a Stripe Checkout session for an ad-funds deposit. Needs Stripe keys. */
 export async function startDeposit(cents: number): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
   const agent = await requireAgent();
-  // The first deposit starts a campaign, so it covers two weeks; later top-ups can be smaller
-  const minCents = minDepositFor(await getFundsAddedCents(agent.id));
+  // The first deposit starts a campaign, so it covers two weeks (a roofer's, a month at the minimum); later top-ups can be smaller
+  const plan = feePlanOf(agent) === "subscription" || (isRoofer(agent) && !agent.onboarding_completed_at) ? "subscription" : "percent";
+  const minCents = minDepositFor(await getFundsAddedCents(agent.id), plan);
   if (!Number.isInteger(cents) || cents < minCents || cents > MAX_DEPOSIT_CENTS)
-    return { ok: false, error: `${minCents > MIN_TOP_UP_CENTS ? "Your first deposit starts your campaign with two weeks of ads, so it" : "A deposit"} must be between $${(minCents / 100).toLocaleString("en-US")} and $${(MAX_DEPOSIT_CENTS / 100).toLocaleString("en-US")}.` };
+    return { ok: false, error: `${minCents > MIN_TOP_UP_CENTS ? (plan === "subscription" ? "Your first deposit starts your campaign with a month of ads at the $2,000 minimum, so it" : "Your first deposit starts your campaign with two weeks of ads, so it") : "A deposit"} must be between $${(minCents / 100).toLocaleString("en-US")} and $${(MAX_DEPOSIT_CENTS / 100).toLocaleString("en-US")}.` };
   // Agents who finished setup before the setup fee existed count as paid
   if (!agent.setup_fee_paid_at && !agent.onboarding_completed_at) return { ok: false, error: isRoofer(agent) ? "Start Migz AI first: it's in Start here." : "Pay the setup fee first: it's step 1 in Start here." };
   if (!integrations.stripe)
@@ -1084,8 +1085,10 @@ async function resolveCampaign(agent: Agent, input: CampaignChoice): Promise<Res
     if (!states.length) return "Choose the states you're licensed in.";
   }
   const daily = Math.round(Number(input.dailyCents));
-  if (!Number.isInteger(daily) || daily < MIN_CAMPAIGN_DAILY_CENTS || daily > MAX_CAMPAIGN_DAILY_CENTS)
-    return `Choose a daily budget between $${MIN_CAMPAIGN_DAILY_CENTS / 100} and $${(MAX_CAMPAIGN_DAILY_CENTS / 100).toLocaleString("en-US")}.`;
+  if (!Number.isInteger(daily) || daily < minDailyFor(roof ? "roofing" : null) || daily > MAX_CAMPAIGN_DAILY_CENTS)
+    return roof
+      ? `Roofing campaigns run at least $2,000 a month in ads: choose $${ROOFER_MIN_DAILY_CENTS / 100}/day or more.`
+      : `Choose a daily budget between $${MIN_CAMPAIGN_DAILY_CENTS / 100} and $${(MAX_CAMPAIGN_DAILY_CENTS / 100).toLocaleString("en-US")}.`;
   // Roofers run the booking page only: an inspection needs an address and a time
   const intent = roof ? "medium_high" : isIntentLevel(input.intentLevel) ? input.intentLevel : DEFAULT_INTENT;
   const tier = isVideoTier(input.videoTier) ? input.videoTier : DEFAULT_VIDEO_TIER;

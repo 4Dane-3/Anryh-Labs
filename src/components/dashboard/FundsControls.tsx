@@ -21,7 +21,7 @@ const presetsFor = (first: boolean) => (first ? [2, 3, 4, 6] : [1, 2, 3, 4]).map
 export function AddFunds({ addedBeforeCents = 0, plan = "percent" }: { addedBeforeCents?: number; plan?: FeePlan }) {
   const first = addedBeforeCents === 0;
   const spanDays = first ? START_FUNDED_DAYS : CYCLE_DAYS;
-  const minCents = minDepositFor(addedBeforeCents);
+  const minCents = minDepositFor(addedBeforeCents, plan);
   const [amount, setAmount] = useState<number>(presetsFor(first)[0]);
   const [custom, setCustom] = useState("");
   const [message, setMessage] = useState<string | null>(null);
