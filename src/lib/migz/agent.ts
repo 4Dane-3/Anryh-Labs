@@ -37,6 +37,12 @@ import type { EvalContext } from "@/lib/migz/tools";
 
 export type { CreateMessage } from "@/lib/migz/router";
 
+/** The job photos the snapshot offered (roofers), which an image ad may use. */
+function realPhotosOf(agent: unknown): string[] {
+  const r = (agent as { real_photos?: { photos?: { real_photo: string }[] } | string }).real_photos;
+  return typeof r === "object" && r?.photos ? r.photos.map((p) => p.real_photo) : [];
+}
+
 /**
  * MIGZ_TEST_MODE=1: everything is created for real (campaign, ad set, uploads, ads) but the campaign
  * stays paused, so nothing delivers or spends. Remove the flag and the next review switches it on.
@@ -110,6 +116,7 @@ export async function buildEvalContext(agent: Agent, snapshot: Snapshot): Promis
     scriptedAds,
     reusableAds,
     libraryCreativeIds: new Set(snapshot.forModel.creatives_not_running.map((c) => c.creative_id)),
+    realPhotos: new Set(realPhotosOf(snapshot.forModel.agent)),
   };
 }
 

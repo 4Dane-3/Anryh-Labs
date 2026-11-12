@@ -67,12 +67,20 @@ function cardImage(card: Card, plan: PresenterPlan) {
       "flex-end",
       panel([
         h("div", { key: "a", style: { display: "flex", fontSize: 62, color: ORANGE, WebkitTextStroke: `2px ${ORANGE}` } }, "Tap Learn More"),
-        h("div", { key: "b", style: { display: "flex", fontSize: 34, marginTop: 8 } }, "to request your free inspection"),
+        h("div", { key: "b", style: { display: "flex", fontSize: 34, marginTop: 8 } }, `to request your ${plan.lead_offer === "free quote" ? "free quote" : "free inspection"}`),
         h("div", { key: "c", style: { display: "flex", fontSize: 26, marginTop: 8, color: "#CBD5E1" } }, "No deposit. No obligation."),
       ]),
     ),
   );
 }
+
+// How the script is spoken. Eleven v3 first: it reads the punctuation like a person (a comma is a breath, a dash
+// a beat, a question goes up) instead of one even rhythm; "Natural" stability keeps it close to their own voice.
+// Multilingual v2 when v3 refuses, with less stability and more style than its default, so it's less sing-song.
+const SPEECH = [
+  { model_id: "eleven_v3", voice_settings: { stability: 0.5, similarity_boost: 0.8, use_speaker_boost: true } },
+  { model_id: "eleven_multilingual_v2", voice_settings: { stability: 0.32, similarity_boost: 0.85, style: 0.45, use_speaker_boost: true } },
+];
 
 /** The script spoken (their cloned voice first, then the narrators), as MP3. */
 export async function speakScript(text: string, voiceIds: string[]): Promise<Buffer> {
@@ -80,13 +88,15 @@ export async function speakScript(text: string, voiceIds: string[]): Promise<Buf
   if (!key) throw new Error("ELEVENLABS_API_KEY is not set");
   let last = "";
   for (const voice of voiceIds) {
-    const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voice}?output_format=mp3_44100_128`, {
-      method: "POST",
-      headers: { "xi-api-key": key, "Content-Type": "application/json", Accept: "audio/mpeg" },
-      body: JSON.stringify({ text, model_id: "eleven_multilingual_v2", voice_settings: { stability: 0.45, similarity_boost: 0.85, style: 0.3 } }),
-    });
-    if (res.ok) return Buffer.from(await res.arrayBuffer());
-    last = `${res.status}`;
+    for (const speech of SPEECH) {
+      const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voice}?output_format=mp3_44100_128`, {
+        method: "POST",
+        headers: { "xi-api-key": key, "Content-Type": "application/json", Accept: "audio/mpeg" },
+        body: JSON.stringify({ text, ...speech }),
+      });
+      if (res.ok) return Buffer.from(await res.arrayBuffer());
+      last = `${speech.model_id} ${res.status}`;
+    }
   }
   throw new Error(`ElevenLabs voice failed (${last})`);
 }

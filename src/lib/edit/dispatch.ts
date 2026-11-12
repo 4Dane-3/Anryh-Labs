@@ -1,4 +1,5 @@
 import "server-only";
+import { spellLikeScript } from "@/lib/edit/words";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -25,6 +26,12 @@ export const EDIT_TIMEOUT_MS = 45 * 60_000; // after this, the simple edit takes
 
 export type EditState = { status: "rendering" | "done" | "failed"; started_at: string; plan_checks?: Check[]; render_checks?: Check[]; stats?: unknown; error?: string; seconds?: number };
 
+/** Saves a file for the edit, failing loudly (a refused upload would otherwise surface as a worker download error). */
+async function store(path: string, body: Buffer, contentType: string) {
+  const { error } = await supabaseAdmin.storage.from("creatives").upload(path, body, { contentType, upsert: true });
+  if (error) throw new Error(`Couldn't store ${path.split("/").pop()}: ${error.message}`);
+}
+
 export const editWorkerReady = () => !!process.env.RENDER_WORKER_URL?.trim() && !!process.env.RENDER_WORKER_SECRET?.trim();
 
 export const signRender = (body: string) => createHmac("sha256", process.env.RENDER_WORKER_SECRET ?? "").update(body).digest("hex");
@@ -43,7 +50,7 @@ async function sign(path: string) {
 }
 
 /** Where the face is in the 9:16 frame, from one frame of the talking video (a small vision call). */
-async function findFace(frame: Buffer, agentId: string): Promise<Box | null> {
+export async function findFace(frame: Buffer, agentId: string): Promise<Box | null> {
   const res = await callModel({
     task: "creative_traits",
     tier: "haiku",
@@ -94,7 +101,7 @@ async function sfxUrl(kind: SfxKind): Promise<string | null> {
     body: JSON.stringify({ text: SFX_PROMPTS[kind].prompt, duration_seconds: SFX_PROMPTS[kind].seconds, prompt_influence: 0.6 }),
   }).catch(() => null);
   if (!res?.ok) return null;
-  await supabaseAdmin.storage.from("creatives").upload(path, Buffer.from(await res.arrayBuffer()), { contentType: "audio/mpeg", upsert: true });
+  await store(path, Buffer.from(await res.arrayBuffer()), "audio/mpeg");
   return sign(path);
 }
 
@@ -105,7 +112,7 @@ const MUSIC_PROMPT =
  * Builds the edit for a presenter video and sends it to the worker. Returns the plan checks, or null (with why)
  * when it can't: then the caller uses the simple edit.
  */
-export async function startEdit(job: { id: string; agent_id: string }, plan: PresenterPlan, media: { talkingUrl: string | null; broll: string[] }, company: string): Promise<{ started: true; checks: Check[] } | { started: false; reason: string }> {
+export async function startEdit(job: { id: string; agent_id: string }, plan: PresenterPlan, media: { talkingUrl: string | null; broll: string[]; kinds?: (string | null)[] }, company: string): Promise<{ started: true; checks: Check[] } | { started: false; reason: string }> {
   const bin = await ffmpegPath();
   if (!bin) return { started: false, reason: "ffmpeg isn't available here" };
   const dir = await mkdtemp(join(tmpdir(), "edit-"));
@@ -126,11 +133,12 @@ export async function startEdit(job: { id: string; agent_id: string }, plan: Pre
     await writeFile(talkFile, talk);
     const src = await probe(bin, talkFile);
     if (!src.hasAudio || !src.seconds) throw new Error("The talking video has no sound");
-    await supabaseAdmin.storage.from("creatives").upload(editPath(job.id, "talk.mp4"), talk, { contentType: "video/mp4", upsert: true });
+    await store(editPath(job.id, "talk.mp4"), talk, "video/mp4");
 
     // What was said, and where the face is
     const [words, face] = await Promise.all([
-      transcribe(talk),
+      // The AI voice read our script word for word: spell what was heard the way the script spells it
+      transcribe(talk).then((heard) => (plan.mode === "ai" && plan.script ? spellLikeScript(heard, plan.script) : heard)),
       (async () => {
         const f = join(dir, "face.jpg");
         await run(bin, ["-loglevel", "error", "-y", "-ss", String(Math.min(1, src.seconds! / 2)), "-i", talkFile, "-frames:v", "1", "-vf", `scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},scale=540:960`, "-q:v", "4", f], { timeout: 30_000 });
@@ -142,6 +150,8 @@ export async function startEdit(job: { id: string; agent_id: string }, plan: Pre
     // The brand and the facts the roofer gave
     const { brand, row } = await brandForEdit(job.agent_id);
     const presenter = await getPresenter(job.agent_id);
+    const { data: owner } = await supabaseAdmin.from("agents").select("service_area").eq("id", job.agent_id).maybeSingle();
+    const area = (owner?.service_area as string | null | undefined) ?? null;
     const certifications = row?.certifications.length ? row.certifications : plan.badge ? [plan.badge] : [];
     const names = [company, ...plan.towns, ...certifications, ...(onCameraLine(presenter ?? null)?.split(",")[0] ? [onCameraLine(presenter ?? null)!.split(",")[0]] : [])];
     const built = buildPlan({
@@ -150,9 +160,14 @@ export async function startEdit(job: { id: string; agent_id: string }, plan: Pre
       sourceHeight: Math.min(src.width ?? 1080, src.height ?? 1920) >= 1080 ? 1080 : 720,
       face,
       broll: media.broll.length,
+      brollKinds: media.kinds,
       hook: plan.callout ?? null,
       towns: plan.towns,
       deals: row?.deals.length ? row.deals : plan.offer ? [plan.offer] : [],
+      offer: plan.lead_offer ?? null,
+      person: presenter?.on_camera_name ? { name: presenter.on_camera_name, role: presenter.on_camera_role ?? null } : null,
+      company,
+      area: area ?? null,
       certifications,
       license: row?.license ?? null,
       warranties: row?.warranties ?? [],
@@ -173,11 +188,11 @@ export async function startEdit(job: { id: string; agent_id: string }, plan: Pre
     ]);
     let musicUrl: string | null = null;
     if (music) {
-      await supabaseAdmin.storage.from("creatives").upload(editPath(job.id, "music.mp3"), music, { contentType: "audio/mpeg", upsert: true });
+      await store(editPath(job.id, "music.mp3"), music, "audio/mpeg");
       musicUrl = await sign(editPath(job.id, "music.mp3"));
     }
     const headingFiles = heading.filter((f) => f.weight >= 700);
-    const bodyFiles = (brand.bodyFont === brand.headingFont ? heading : body).filter((f) => f.weight === 400 || f.weight === 700);
+    const bodyFiles = (brand.bodyFont === brand.headingFont ? heading : body).filter((f) => [300, 400, 700].includes(f.weight));
     const fonts = [...headingFiles.map((f) => ({ file: `heading-${f.weight}.woff2`, url: f.url })), ...bodyFiles.map((f) => ({ file: `body-${f.weight}.woff2`, url: f.url }))];
     const html = buildComposition(edit, brand, { headingWeights: headingFiles.map((f) => f.weight), bodyWeights: bodyFiles.map((f) => f.weight), hasLogo: !!brand.logoUrl, brollCount: edit.broll.length });
 
@@ -197,7 +212,7 @@ export async function startEdit(job: { id: string; agent_id: string }, plan: Pre
       fonts,
       media: {
         talk: await sign(editPath(job.id, "talk.mp4")),
-        broll: edit.broll.map((b) => media.broll[b.index] ?? media.broll[0]),
+        broll: edit.broll.map((b) => media.broll[b.clip ?? b.index] ?? media.broll[0]),
         logo: brand.logoUrl ?? null,
         music: musicUrl,
         sfx: Object.fromEntries(sfx.filter(([, u]) => u)),
@@ -212,7 +227,7 @@ export async function startEdit(job: { id: string; agent_id: string }, plan: Pre
       signal: AbortSignal.timeout(20_000),
     });
     if (!res.ok) return { started: false, reason: `The render worker refused the job (${res.status})` };
-    await supabaseAdmin.storage.from("creatives").upload(editPath(job.id, "plan.json"), Buffer.from(JSON.stringify(edit)), { contentType: "application/json", upsert: true });
+    await store(editPath(job.id, "plan.json"), Buffer.from(JSON.stringify(edit)), "application/json");
     return { started: true, checks };
   } finally {
     await rm(dir, { recursive: true, force: true });

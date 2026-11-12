@@ -69,7 +69,11 @@ async function submit(path: string, body: Record<string, unknown>, opts: SubmitO
     throw new Error("Higgsfield is out of credits on the API account, so no new creatives can be made until credits are added.");
   }
   if (!res.ok || !json.request_id || !json.status_url) {
-    throw new Error(`Higgsfield ${res.status}: ${JSON.stringify(json.detail ?? json.error ?? json).slice(0, 300)}`);
+    // Validation errors echo the whole input first; lead with what's wrong
+    const detail = Array.isArray(json.detail)
+      ? (json.detail as { loc?: unknown[]; msg?: string }[]).map((d) => `${(d.loc ?? []).join(".")}: ${d.msg ?? "invalid"}`).join("; ")
+      : JSON.stringify(json.detail ?? json.error ?? json);
+    throw new Error(`Higgsfield ${res.status}: ${detail.length > 400 ? `${detail.slice(0, 80)} … ${detail.slice(-300)}` : detail}`);
   }
   return { requestId: json.request_id, statusUrl: json.status_url };
 }
@@ -83,6 +87,19 @@ export const videoModel = (tier: VideoTier = DEFAULT_VIDEO_TIER): VideoModel =>
  * for cost estimates only: Standard videos are included, so nothing is charged from it.
  */
 export const KLING_USD_PER_SECOND = 0.084;
+
+/** Kling takes at most this many shots ("multi_prompt is too long" past it). */
+export const KLING_MAX_SHOTS = 6;
+
+/** A brief's shots within Kling's limit: any past the limit join the last one (prompts joined, seconds added). */
+export function klingShots(shots: { prompt: string; duration: number }[]) {
+  if (shots.length <= KLING_MAX_SHOTS) return shots;
+  const keep = shots.slice(0, KLING_MAX_SHOTS - 1);
+  const rest = shots.slice(KLING_MAX_SHOTS - 1);
+  const prompt = rest.map((s) => s.prompt.split(". Same people")[0].split(". Candid")[0]).join(" Then: ");
+  const tail = rest[0].prompt.slice(rest[0].prompt.split(". Same people")[0].split(". Candid")[0].length);
+  return [...keep, { prompt: `${prompt}${tail}`.slice(0, 512), duration: rest.reduce((n, s) => n + s.duration, 0) }];
+}
 
 /**
  * Which model and request body a video uses. Pure, so routing is testable. Both are written as a short-film
@@ -102,7 +119,7 @@ export function videoRequest(brief: CreativeBrief, tier: VideoTier = DEFAULT_VID
         aspect_ratio: "9:16",
         sound: "on",
         multi_shots: true,
-        multi_prompt: shotPrompts(brief),
+        multi_prompt: klingShots(shotPrompts(brief)),
       },
     };
   }

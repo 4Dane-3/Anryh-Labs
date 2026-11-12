@@ -112,6 +112,18 @@ const lowFaces = low.checks.find((c) => c.name === "Faces")!;
 const lowSafe = low.checks.find((c) => c.name === "Safe zone")!;
 assert.ok(lowSafe.pass, lowSafe.detail);
 assert.ok(lowFaces.pass || /Over the face/.test(lowFaces.detail), "a face the text can't avoid is reported, never hidden");
+// A close selfie (the face fills the frame): the video shrinks toward the top over a blurred copy, the long callout
+// becomes its first town, and every check passes with the cards on the caption band
+const selfie = { x: 65, y: 134, w: 907, h: 1382 };
+const sp = fixPlan(buildPlan({ ...input, face: selfie, hook: "Kenmore, Bothell, Woodinville homeowners" }), { face: selfie, names: input.names, sourceWords: takes });
+for (const c of sp.checks) assert.ok(c.pass, `selfie ${c.name}: ${c.detail}`);
+assert.ok(sp.plan.fit && sp.plan.fit.scale < 1 && sp.plan.fit.scale >= 0.6, `shrunk: ${JSON.stringify(sp.plan.fit)}`);
+assert.equal(sp.plan.hook?.text, "Kenmore homeowners");
+assert.equal(plan.fit, null, "a normal framing isn't shrunk");
+const selfieHtml = buildComposition(sp.plan, readableBrand({ headingFont: "Inter", bodyFont: "Inter", background: "#0B1F3A", text: "#FFFFFF", accent: "#F59E0B" }), { headingWeights: [800], bodyWeights: [400], hasLogo: false, brollCount: sp.plan.broll.length });
+assert.ok(selfieHtml.includes('id="fit"') && selfieHtml.includes('id="bgv"') && selfieHtml.includes("#bgloop"), "the shrunk frame, its blurred copy and the loop still");
+// The special is on the last card even when it isn't said
+assert.ok(sp.plan.cards.find((c) => c.kind === "cta")!.sub!.length > 0);
 // A misspelling left on screen fails
 const bad = { ...plan, captions: [{ start: 3, end: 4, words: [{ word: "Certainted", start: 3, end: 3.5 }] }] };
 assert.equal(checkPlan(bad, { face, names: input.names, sourceWords: takes }).find((c) => c.name === "Captions")!.pass, false);
@@ -164,3 +176,46 @@ assert.equal(closestGoogleFont("Some Serif Font"), "Merriweather");
 console.log("edit checks passed");
 for (const c of plan.captions) assert.ok(!c.words.slice(0, -1).some((w) => /[.!?]$/.test(w.word)), `a caption never runs across a sentence end: ${c.words.map((w) => w.word).join(" ")}`);
 console.log("caption sentence check passed");
+
+// The AI presenter's transcript takes the script's spelling (names the transcriber mishears)
+{
+  const { spellLikeScript } = await import("../../src/lib/edit/words.ts");
+  const heard = ["most", "roof", "leaks", "start", "years", "before", "you", "see", "them.", "I'm", "Ezion,", "owner", "of", "Martinez", "Roofing,", "a", "GAF", "master", "elite", "roofer."].map((word, i) => ({ word, start: i * 0.3, end: i * 0.3 + 0.25 }));
+  const fixed = spellLikeScript(heard, "Most roof leaks start years before you see them. I'm Izeahn, owner of Martinez Roofing, a GAF Master Elite roofer.");
+  assert.equal(fixed[10].word, "Izeahn,");
+  assert.equal(fixed[17].word, "Master");
+  assert.equal(fixed[10].start, heard[10].start, "timing kept");
+  const extra = spellLikeScript([{ word: "uh", start: 0, end: 0.1 }, ...heard.slice(0, 3)], "Most roof leaks");
+  assert.deepEqual(extra.map((w) => w.word), ["Most", "roof", "leaks"], "an extra heard word is folded into the next");
+  assert.equal(extra[0].start, 0, "and its time goes with it");
+  const split = spellLikeScript(["I'm", "Izzy", "Izeahn,", "owner"].map((word, i) => ({ word, start: i, end: i + 0.9 })), "I'm Izeahn, owner");
+  assert.deepEqual(split.map((w) => w.word), ["I'm", "Izeahn,", "owner"], "a name heard as two words shows once");
+  assert.equal(spellLikeScript([{ word: "1,000", start: 0, end: 1 }], "one thousand")[0].word, "1,000", "numbers stay as heard");
+  console.log("script spelling check passed");
+}
+for (const c of plan.captions) {
+  const last = c.words.at(-1)!.word;
+  assert.ok(!/^(a|an|the|to|of|for|your|our)$/i.test(last.replace(/[^a-z]/gi, "")) || /[.!?,]$/.test(last), `a caption never ends on a little word: ${c.words.map((w) => w.word).join(" ")}`);
+}
+{
+  const { splitCaption } = await import("../../src/lib/edit/composition.ts");
+  assert.deepEqual(splitCaption(["What", "you", "are", "paying"]), { lead: ["What", "you", "are"], punch: ["paying"] });
+  assert.deepEqual(splitCaption(["Let", "us", "take"]), { lead: ["Let", "us"], punch: ["take"] });
+  assert.deepEqual(splitCaption(["most", "roof", "leaks"]), { lead: ["most"], punch: ["roof", "leaks"] });
+  assert.deepEqual(splitCaption(["leaks", "start"]), { lead: ["leaks"], punch: ["start"] });
+  console.log("caption weight check passed");
+}
+
+// ---------- cut-aways match the words: "check" cuts to the inspection clip, "leaks" to damage ----------
+{
+  const kinded = buildPlan({ ...input, broll: 3, brollKinds: ["finished", "damage", "inspection"] });
+  const at = (w: string) => kinded.words.find((x) => x.word.toLowerCase().replace(/[^a-z]/g, "") === w)?.start;
+  for (const b of kinded.broll) {
+    const word = kinded.words.find((x) => Math.abs(x.start - b.start) < 0.01)?.word.toLowerCase().replace(/[^a-z]/g, "");
+    if (word === "leaks") assert.equal(b.clip, 1, "leaks → the damage clip");
+    if (word === "check") assert.equal(b.clip, 2, "check → the inspection clip");
+  }
+  assert.equal(new Set(kinded.broll.map((b) => b.clip)).size, kinded.broll.length, "each clip used once");
+  assert.ok(at("leaks") !== undefined);
+  console.log("cut-away matching passed:", kinded.broll.map((b) => `${kinded.words.find((x) => Math.abs(x.start - b.start) < 0.01)?.word}→${b.clip}`).join(", "));
+}

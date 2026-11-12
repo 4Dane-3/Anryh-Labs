@@ -1,6 +1,8 @@
 import "server-only";
+import { leadOffer } from "@/lib/roofing/setup-options";
 import { areaLabel, roofingAges } from "@/lib/verticals";
 import { DateTime } from "luxon";
+import { allMedia, type JobMedia } from "@/lib/roofing/job-media";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
 import { getBalanceCents } from "@/lib/dashboard/queries";
@@ -393,8 +395,15 @@ export async function buildSnapshot(agent: Agent) {
 
   // What the roofer told us is true about them: the only certification and offer ads may name
   const facts = agent.vertical === "roofing"
-    ? (await supabaseAdmin.from("agent_presenters").select("offer, badge, towns").eq("agent_id", agent.id).maybeSingle()).data as { offer: string | null; badge: string | null; towns: string[] } | null
+    ? (await supabaseAdmin.from("agent_presenters").select("*").eq("agent_id", agent.id).maybeSingle()).data as { offer: string | null; badge: string | null; towns: string[]; job_media?: JobMedia[]; job_photo_paths?: string[] } | null
     : null;
+  // Their own job photos (Ad Creative AI Context): an image ad can put its text on one instead of generating a scene
+  const realPhotos = allMedia(facts?.job_media, facts?.job_photo_paths).filter((m) => m.type === "photo").slice(-20);
+  // Their business details from setup (special, certifications, warranties, license): what videos and images may feature
+  const brandFacts = agent.vertical === "roofing"
+    ? ((await supabaseAdmin.from("agent_brand").select("deals, certifications, warranties, license").eq("agent_id", agent.id).maybeSingle()).data as { deals: string[]; certifications: string[]; warranties: string[]; license: string | null } | null)
+    : null;
+  const offer = leadOffer(agent);
 
   const forModel = {
     migz_notebook: notebook,
@@ -408,11 +417,21 @@ export async function buildSnapshot(agent: Agent) {
       name: agent.full_name,
       ...(agent.vertical === "roofing"
         ? {
-            business: "roofing company: every ad offers a free roof inspection; booked_calls count booked inspections",
+            business: `roofing company: every ad offers a ${offer.short}; booked_calls count booked ${agent.lead_goal === "quote" ? "quotes" : "inspections"}`,
+            lead_offer: offer.short,
             service_area: `homeowners ${areaLabel(agent)}, every adult ${roofingAges().min}–65+ (Meta's Housing category: no age targeting)`,
             towns_to_call_out: facts?.towns.length ? facts.towns : "the service area's town",
-            certification: facts?.badge || "none given: never name a certification or manufacturer program",
-            real_offer: facts?.offer || "none given: the free inspection is the only offer",
+            certification: brandFacts?.certifications?.[0] || facts?.badge || "none given: never name a certification or manufacturer program",
+            all_certifications: brandFacts?.certifications?.length ? brandFacts.certifications : undefined,
+            real_offer: brandFacts?.deals?.[0] || facts?.offer || `none given: the ${offer.short} is the only offer`,
+            warranties: brandFacts?.warranties?.length ? brandFacts.warranties : "none given: never mention a warranty",
+            real_photos: realPhotos.length
+              ? {
+                  note: "Their own photos from real jobs. Real beats generated: for an image ad, pass one as real_photo (exactly as written) when it fits the angle, and describe it as the scene. Use each at most once per batch.",
+                  photos: realPhotos.map((m) => ({ real_photo: m.path, shows: m.kind === "other" ? "a job photo" : m.kind })),
+                }
+              : "none yet",
+            license: brandFacts?.license || undefined,
             inspections_at_once: agent.crews ?? 1,
             free_inspection_minutes: agent.slot_minutes,
           }

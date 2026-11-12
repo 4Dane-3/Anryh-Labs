@@ -48,13 +48,14 @@ const MUSIC_TAIL_LUFS = -22;
 const MAX_MUSIC_LIFT_DB = 15;
 
 /** The voiceover as speech (MP3), in the narrator's voice (or the next voice that works). */
-export async function speak(text: string, narrator: Narrator = "female"): Promise<{ audio: Buffer; voiceId: string }> {
+export async function speak(text: string, narrator: Narrator = "female", voiceId?: string | null): Promise<{ audio: Buffer; voiceId: string }> {
   const key = process.env.ELEVENLABS_API_KEY;
   if (!key) throw new Error("ELEVENLABS_API_KEY is not set");
   let lastError = "";
-  for (const voiceId of narratorVoices(narrator)) {
-    const res = await speakAs(key, voiceId, text);
-    if (res.ok) return { audio: Buffer.from(await res.arrayBuffer()), voiceId };
+  // The voice they picked for their ads first, then the narrators
+  for (const id of [...new Set([...(voiceId ? [voiceId] : []), ...narratorVoices(narrator)])]) {
+    const res = await speakAs(key, id, text);
+    if (res.ok) return { audio: Buffer.from(await res.arrayBuffer()), voiceId: id };
     lastError = `ElevenLabs ${res.status}: ${(await res.text()).slice(0, 300)}`;
     // Only a missing or unusable voice moves on to the next one; anything else (key, quota) won't get better
     if (res.status !== 404 && !/voice/i.test(lastError)) break;
@@ -210,10 +211,11 @@ export async function narrateVideo(
   voiceover: string,
   narrator: Narrator = "female",
   mood?: string | null,
+  voiceId?: string | null, // the voice they picked for their ads
 ): Promise<Buffer> {
   // Voice and music in parallel; the music is a nice-to-have, so its failure never costs the narration
   const [{ audio }, music] = await Promise.all([
-    speak(voiceover, narrator),
+    speak(voiceover, narrator, voiceId),
     // Composed longer than the video so its own ending falls after the video's: the video's last seconds
     // land mid-swell and our fade closes it (a 15s piece tends to wind down early)
     composeMusic(mood, MUSIC_COMPOSE_S).catch((e) => {

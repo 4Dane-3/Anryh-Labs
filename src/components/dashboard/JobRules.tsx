@@ -36,7 +36,8 @@ function Row({ title, hint, on, onChange }: { title: string; hint: string; on: b
   );
 }
 
-export function JobRulesForm({ initial, onSaved }: { initial: JobRules | null; onSaved?: () => void }) {
+/** `required` (setup): at least one kind of job must be picked, and "take every lead" isn't offered. */
+export function JobRulesForm({ initial, onSaved, required }: { initial: JobRules | null; onSaved?: () => void; required?: boolean }) {
   const router = useRouter();
   const [d, setD] = useState<Draft>(toDraft(initial ?? FORM_DEFAULTS));
   const [error, setError] = useState<string | null>(null);
@@ -48,6 +49,7 @@ export function JobRulesForm({ initial, onSaved }: { initial: JobRules | null; o
   const save = (clear = false) =>
     startTransition(async () => {
       setError(null);
+      if (required && !clear && !d.jobTypes.length) return setError("Pick at least one kind of job you take.");
       setSaved(false);
       const res = await saveJobRules(clear ? null : d);
       if (!res.ok) return setError(res.error);
@@ -60,7 +62,7 @@ export function JobRulesForm({ initial, onSaved }: { initial: JobRules | null; o
 
   return (
     <div className="space-y-5">
-      {!initial && <p className="rounded-lg bg-white/[0.04] px-4 py-3 text-[13px] text-fg-muted">Nothing saved yet, so every lead gets through. Choose what you want and save: your AI assistant and your booking page will then follow it.</p>}
+      {!initial && !required && <p className="rounded-lg bg-white/[0.04] px-4 py-3 text-[13px] text-fg-muted">Nothing saved yet, so every lead gets through. Choose what you want and save: your AI assistant and your booking page will then follow it.</p>}
 
       <div>
         <Label>Jobs you take</Label>
@@ -69,7 +71,7 @@ export function JobRulesForm({ initial, onSaved }: { initial: JobRules | null; o
             <Chip key={t.id} on={d.jobTypes.includes(t.id)} onClick={() => toggle("jobTypes", t.id)}>{t.label}</Chip>
           ))}
         </div>
-        <p className="mt-1 text-[12px] text-fg-muted">Pick none to take every kind.</p>
+        <p className="mt-1 text-[12px] text-fg-muted">{required ? "Pick every kind you want leads for." : "Pick none to take every kind."}</p>
       </div>
 
       <div>
@@ -132,7 +134,7 @@ export function JobRulesForm({ initial, onSaved }: { initial: JobRules | null; o
 
       <div className="flex flex-wrap items-center gap-3">
         <Button onClick={() => save()} disabled={pending}>{pending ? "Saving…" : "Save"}</Button>
-        {initial && (
+        {initial && !required && (
           <button type="button" className="text-[13px] text-fg-muted hover:text-fg" disabled={pending} onClick={() => save(true)}>Take every lead again</button>
         )}
         {saved && <span className="text-[13px] text-good">Saved</span>}

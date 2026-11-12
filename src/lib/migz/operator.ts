@@ -160,7 +160,7 @@ export async function runOperator(
         max_tokens: 16000,
         betas: [ADVISOR_BETA],
         output_config: { effort: "medium" },
-        system: [{ type: "text", text: systemPromptFor(agent.vertical), cache_control: { type: "ephemeral" } }],
+        system: [{ type: "text", text: systemPromptFor(agent.vertical, agent.lead_goal), cache_control: { type: "ephemeral" } }],
         tools,
         messages,
       },

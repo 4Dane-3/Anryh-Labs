@@ -5,7 +5,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowUpRight, Check, Loader2 } from "lucide-react";
-import { launchCampaign, saveBatchPlan, setCreativeMode, startSetupFee } from "@/app/dashboard/actions";
+import { chooseVertical, launchCampaign, saveBatchPlan, saveCrm, saveLeadGoal, setCreativeMode, startSetupFee } from "@/app/dashboard/actions";
+import { BrandSetup, type BrandInitial } from "@/components/dashboard/BrandSetup";
+import { PresenterSetup, type PresenterInitial } from "@/components/dashboard/PresenterSetup";
+import { CreativeContext, type CreativeContextInitial } from "@/components/dashboard/CreativeContext";
+import { CRMS, LEAD_GOALS, leadOffer, type LeadGoal } from "@/lib/roofing/setup-options";
 import { MIGZ_MONTHLY_CENTS, SETUP_FEE_CENTS } from "@/lib/campaign";
 import { CampaignFlow, type CampaignStart } from "@/components/dashboard/start/CampaignFlow";
 import { listCampaignTopics, type CampaignSlot } from "@/lib/batch";
@@ -55,9 +59,16 @@ type Props = {
   migzMode: "auto" | "approve" | null; // null until chosen here
   autoTopUp: AutoTopUpState | null; // null without Stripe
   jobRules?: JobRules | null; // a roofer's "Jobs we take" (null = none saved)
+  verticalChosen: boolean; // setup's first question answered
+  crm: string;
+  leadGoal: LeadGoal | null;
+  brand: BrandInitial | null; // roofers: their special, certifications, warranties and look
+  presenter: PresenterInitial | null; // roofers: who's on camera
+  context: CreativeContextInitial | null; // roofers: their voice, job photos and clips
 };
 
 const TITLES: Record<string, { title: string; blurb: string }> = {
+  vertical: { title: "What kind of business?", blurb: "Setup and your ads are built for your trade." },
   business: { title: "Your business", blurb: "Your agency or IMO, your business email and the number leads reach you on." },
   meta: { title: "Your Meta ad account", blurb: "Share your ad account and Facebook Page with Anryh Labs, so Migz can run your ads." },
   setup_fee: { title: `Setup fee: ${usd(SETUP_FEE_CENTS, { cents: false })}`, blurb: "One time, before anything else. It covers setting up your ad account, your first campaign and your pages." },
@@ -75,11 +86,14 @@ const TITLES: Record<string, { title: string; blurb: string }> = {
 const ROOF_TITLES: Record<string, { title: string; blurb: string }> = {
   business: { title: "Your business", blurb: "Your business email and the number homeowners reach you on." },
   setup_fee: { title: `Migz AI: ${usd(MIGZ_MONTHLY_CENTS, { cents: false })}/month`, blurb: "No setup fee, cancel anytime. Every dollar of ad funds you add goes to your ads." },
-  profile: { title: "Your company", blurb: "Your company name, logo or photo and a short intro. Homeowners see this before they book." },
-  page: { title: "Your booking page", blurb: "Where homeowners book a free inspection, and the hours your crews inspect." },
-  slack: { title: "Slack (optional)", blurb: "New inspections also come to your email. Connect Slack if you'd like them there too." },
+  profile: { title: "Your company", blurb: "Your company name, logo or photo and a short intro. Homeowners see this before they talk to you." },
+  crm: { title: "Your CRM", blurb: "Leads are booked straight into your CRM's calendar. Tell us which one you use." },
+  slack: { title: "Slack (optional)", blurb: "New leads also come to your email. Connect Slack if you'd like them there too." },
   plan: { title: "Plan your first campaign", blurb: "What your ads lead with, where you work and a daily budget. Migz makes the ads." },
-  rules: { title: "Jobs you take (optional)", blurb: "Replacements, repairs, roof types, claims, homeowners only. Your assistant and booking page follow it; skip it and every lead gets through." },
+  rules: { title: "Jobs you take", blurb: "What your ads offer (a free inspection or a free quote) and the jobs you want. Your assistant only books the right ones." },
+  details: { title: "Your special, certifications and warranties", blurb: "What every video can feature: this campaign's special, the certifications you hold and your warranties." },
+  avatar: { title: "Who's on camera (optional)", blurb: "For person-to-camera ads: who appears, their photo and their voice. Skip it for ads with no person." },
+  media: { title: "Ad Creative AI Context (optional)", blurb: "Your voice and your real job photos and clips. Migz uses them in every ad: your voice in the videos, your photos in the videos and the image ads." },
 };
 
 function StepShell({
@@ -188,6 +202,110 @@ function SetupFeeStep({ stripeConnected, contactEmail, roof }: { stripeConnected
   );
 }
 
+/** Step 1: roofing company or insurance agent. Everything after it is built for the answer. */
+function VerticalStep({ current, chosen, onSaved }: { current: "roofing" | "insurance"; chosen: boolean; onSaved: () => void }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const pick = (v: "roofing" | "insurance") =>
+    start(async () => {
+      setError(null);
+      const res = await chooseVertical(v);
+      if (!res.ok) return setError(res.error);
+      router.refresh();
+      onSaved();
+    });
+  const options = [
+    { value: "roofing", title: "Roofing company", detail: "Meta ads that bring homeowners in for a free inspection or quote, booked into your CRM." },
+    { value: "insurance", title: "Insurance agent", detail: "Meta ads that book calls with people shopping for life insurance." },
+  ] as const;
+  return (
+    <div className="space-y-3">
+      <div className="grid gap-2 sm:grid-cols-2">
+        {options.map((o) => (
+          <button
+            key={o.value}
+            type="button"
+            disabled={pending}
+            aria-pressed={chosen && current === o.value}
+            onClick={() => pick(o.value)}
+            className={cn("rounded-lg border px-4 py-3 text-left transition-colors", chosen && current === o.value ? "border-brand/60 bg-brand/[0.08]" : "border-line hover:border-line-strong hover:bg-white/[0.03]")}
+          >
+            <span className="block text-sm font-medium text-fg">{o.title}</span>
+            <span className="mt-1 block text-[12px] leading-snug text-fg-muted">{o.detail}</span>
+          </button>
+        ))}
+      </div>
+      {error && <p className="text-[13px] text-bad">{error}</p>}
+    </div>
+  );
+}
+
+/** Roofers: the CRM they book in (replaces the booking page). */
+function CrmStep({ initial, onSaved }: { initial: string; onSaved: () => void }) {
+  const router = useRouter();
+  const known = (CRMS as readonly string[]).includes(initial);
+  const [picked, setPicked] = useState(initial ? (known ? initial : "Other") : "");
+  const [other, setOther] = useState(known ? "" : initial);
+  const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const save = () =>
+    start(async () => {
+      setError(null);
+      const res = await saveCrm(picked === "Other" ? other : picked);
+      if (!res.ok) return setError(res.error);
+      router.refresh();
+      onSaved();
+    });
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-2">
+        {[...CRMS, "Other"].map((c) => (
+          <button key={c} type="button" aria-pressed={picked === c} onClick={() => setPicked(c)} className={cn("rounded-lg border px-3 py-1.5 text-[13px] font-medium transition-colors", picked === c ? "border-brand bg-brand/15 text-fg" : "border-line text-fg-muted hover:border-line-strong hover:text-fg")}>
+            {c}
+          </button>
+        ))}
+      </div>
+      {picked === "Other" && <input value={other} onChange={(e) => setOther(e.target.value)} maxLength={60} placeholder="Which CRM?" className="w-full rounded-lg border border-line bg-ink-high px-3 py-2 text-sm text-fg" />}
+      <p className="text-[12px] text-fg-muted">We&apos;ll connect your calendar so new leads are booked right into it. No CRM yet? Pick None yet and we&apos;ll set you up.</p>
+      <div className="flex items-center gap-3">
+        <Button onClick={save} disabled={pending || !picked || (picked === "Other" && !other.trim())}>{pending ? "Saving…" : "Save"}</Button>
+        {error && <span className="text-[13px] text-bad">{error}</span>}
+      </div>
+    </div>
+  );
+}
+
+/** Roofers: what every ad offers, above the jobs they take. */
+function LeadGoalPicker({ initial }: { initial: LeadGoal | null }) {
+  const router = useRouter();
+  const [picked, setPicked] = useState(initial);
+  const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const pick = (g: LeadGoal) =>
+    start(async () => {
+      setPicked(g);
+      setError(null);
+      const res = await saveLeadGoal(g);
+      if (!res.ok) return setError(res.error);
+      router.refresh();
+    });
+  return (
+    <div>
+      <p className="mb-2 text-sm font-medium text-fg">What your ads offer</p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {LEAD_GOALS.map((g) => (
+          <button key={g.id} type="button" disabled={pending} aria-pressed={picked === g.id} onClick={() => pick(g.id)} className={cn("rounded-lg border px-4 py-3 text-left transition-colors", picked === g.id ? "border-brand/60 bg-brand/[0.08]" : "border-line hover:border-line-strong hover:bg-white/[0.03]")}>
+            <span className="block text-sm font-medium text-fg">{g.title}</span>
+            <span className="mt-1 block text-[12px] leading-snug text-fg-muted">{g.detail}</span>
+          </button>
+        ))}
+      </div>
+      {error && <p className="mt-2 text-[13px] text-bad">{error}</p>}
+    </div>
+  );
+}
+
 function PlanStep({ plan, balanceCents, onSaved }: { plan: Props["plan"]; balanceCents: number; onSaved: () => void }) {
   const router = useRouter();
   return (
@@ -270,10 +388,12 @@ function CreativesStep({ mode, count, onSaved }: { mode: Props["creativeMode"]; 
 export function StartWizard(props: Props) {
   const router = useRouter();
   const roof = props.plan.start.vertical === "roofing";
-  // "Jobs you take" is optional for roofers: it never counts toward launching
-  const counted = props.steps.filter((s) => s.key !== "rules");
+  // Until the first question is answered, it's the only step shown
+  const shown = props.verticalChosen ? props.steps : props.steps.filter((s) => s.key === "vertical");
+  const required = (k: string) => k !== "avatar" && k !== "media" && !(roof && k === "slack");
+  const counted = props.steps.filter((s) => required(s.key));
   const doneCount = counted.filter((s) => s.done).length;
-  const firstTodo = props.steps.find((s) => !s.done && s.key !== "rules")?.key ?? null;
+  const firstTodo = shown.find((s) => !s.done && required(s.key))?.key ?? null;
   const [open, setOpen] = useState<string | null>(firstTodo);
   const [launching, startLaunch] = useTransition();
   const [launchError, setLaunchError] = useState<string | null>(null);
@@ -283,8 +403,8 @@ export function StartWizard(props: Props) {
   const advance = (from: string) => {
     // After finishing a step, open the next unfinished one
     const order = props.steps.map((s) => s.key);
-    const next = order.slice(order.indexOf(from) + 1).find((k) => !stateOf(k).done);
-    if (next) setOpen(next);
+    const next = order.slice(order.indexOf(from) + 1).find((k) => !stateOf(k).done && required(k));
+    setOpen(next ?? null);
   };
 
   const launch = () =>
@@ -296,18 +416,82 @@ export function StartWizard(props: Props) {
     });
 
   const summaries: Record<string, string> = {
+    vertical: roof ? "Roofing company" : "Insurance agent",
     business: roof ? props.business.business_email || "Saved" : props.business.agency_name,
     meta: props.meta.linked ? `Ad account ${props.meta.linked.adAccount}` : "",
     slack: "Connected",
     setup_fee: props.setupFeePaidAt ? `${roof ? "Started" : "Paid"} ${new Date(props.setupFeePaidAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : "",
     profile: props.profile.full_name,
     page: props.booking.choice === "own" ? `Your own page: ${props.booking.ownUrl.replace(/^https?:\/\//, "")}` : `Live at /${props.slug}`,
+    crm: props.crm,
+    rules: `${leadOffer({ lead_goal: props.leadGoal }).title} · ${props.jobRules?.jobTypes.length ?? 0} kind${props.jobRules?.jobTypes.length === 1 ? "" : "s"} of job`,
+    details: props.brand?.deals[0] ? `Special: ${props.brand.deals[0]}` : "Saved",
+    avatar: props.presenter?.mode === "none" ? "No person" : props.presenter?.onCameraName ? `${props.presenter.onCameraName}, ${props.presenter.onCameraRole}` : "Saved",
+    media: [props.context?.adVoice.name ? `Voice: ${props.context.adVoice.name}` : props.context?.voice ? "Your voice" : null, `${props.context?.media.length ?? 0} photos and clips`].filter(Boolean).join(" · "),
     funds: `${usd(props.balanceCents, { cents: true })} available`,
     plan: props.plan.batch
       ? `${usd(props.plan.batch.daily_cents, { cents: false })}/day, rolling · ${listCampaignTopics(props.plan.batch.campaigns.map((t) => (t || null) as CampaignSlot))}`
       : cleanFocus(props.plan.topics).map((t) => TOPICS[t].label).join(", "),
     mode: props.migzMode === "auto" ? "Migz runs it" : "Ask me first",
     creatives: props.creativeMode === "ai" ? "Migz creates them" : props.creativeMode === "upload" ? `${props.creativeCount} of your own` : "Yours plus Migz's",
+  };
+
+  const body: Record<string, React.ReactNode> = {
+    vertical: <VerticalStep current={roof ? "roofing" : "insurance"} chosen={props.verticalChosen} onSaved={() => advance("vertical")} />,
+    business: <BusinessStep initial={props.business} roof={roof} onSaved={() => advance("business")} />,
+    meta: <MetaStep {...props.meta} onSaved={() => advance("meta")} />,
+    setup_fee: <SetupFeeStep stripeConnected={props.stripeConnected} contactEmail={props.contactEmail} roof={roof} />,
+    profile: <ProfileForm profile={props.profile} onSaved={() => advance("profile")} />,
+    page: <BookingStep {...props.booking} slug={props.slug} onSaved={() => advance("page")} />,
+    crm: <CrmStep initial={props.crm} onSaved={() => advance("crm")} />,
+    rules: (
+      <div className="space-y-6">
+        <LeadGoalPicker initial={props.leadGoal} />
+        <JobRulesForm initial={props.jobRules ?? null} required onSaved={() => advance("rules")} />
+      </div>
+    ),
+    details: props.brand && <BrandSetup initial={props.brand} details onSaved={() => advance("details")} />,
+    avatar: props.presenter && <PresenterSetup initial={props.presenter} inSetup onSaved={() => advance("avatar")} />,
+    media: props.context && <CreativeContext initial={props.context} />,
+    slack: <SlackStep current={props.slack.current} inviteUrl={props.slack.inviteUrl} contactEmail={props.contactEmail} onSaved={() => advance("slack")} />,
+    plan: <PlanStep plan={props.plan} balanceCents={props.balanceCents} onSaved={() => advance("plan")} />,
+    funds: (
+      <div className="-mx-5 -my-5">
+        <div className="border-b border-line px-5 py-4">
+          <p className="text-[13px] text-fg-muted">Available balance</p>
+          <p className="mt-1 text-3xl font-semibold tracking-tight">{usd(props.balanceCents, { cents: true })}</p>
+          {props.plan.fundsNeeded && (
+            <p className="mt-1 text-[13px] text-fg-muted">
+              Your first week needs {usd(props.plan.fundsNeeded.cents, { cents: false })} of ad funds. We recommend {usd(props.plan.fundsNeeded.recommendedCents, { cents: false })} (the next {usd(FUNDS_STEP_CENTS, { cents: false })} step): treat it as the minimum.
+            </p>
+          )}
+          <p className="mt-2 text-[13px] text-fg-muted">{KEEP_FUNDED}</p>
+          {!roof && (
+            <p className="mt-2 text-[13px] text-fg-muted">
+              <span className="text-fg">Booked-call guarantee:</span> keep your campaign funded and running for its first 30 days, on your Anryh Labs booking page with your calendar
+              open, and get {TARGET_LOW} booked calls ({TARGET_HIGH} at $75/day or more), or we credit back your Anryh Labs fee.
+            </p>
+          )}
+        </div>
+        <AddFunds addedBeforeCents={props.fundsAddedCents} plan={roof ? "subscription" : "percent"} />
+        {props.autoTopUp && (
+          <div className="border-t border-line [&>section]:rounded-none [&>section]:border-0 [&>section]:bg-transparent [&>section]:shadow-none">
+            <AutoTopUp state={props.autoTopUp} />
+          </div>
+        )}
+        {!props.stripeConnected && (
+          <p className="border-t border-line px-6 py-4 text-[13px] text-fg-muted">
+            Card payments aren&apos;t switched on yet. To add funds now, email{" "}
+            <a className="text-fg underline-offset-4 hover:underline" href={`mailto:${props.contactEmail}?subject=${encodeURIComponent("Add funds to my ad balance")}`}>
+              {props.contactEmail}
+            </a>{" "}
+            and we&apos;ll add them for you.
+          </p>
+        )}
+      </div>
+    ),
+    creatives: <CreativesStep mode={props.creativeMode} count={props.creativeCount} onSaved={() => advance("creatives")} />,
+    mode: <MigzModeStep current={props.migzMode} onSaved={() => advance("mode")} />,
   };
 
   return (
@@ -322,106 +506,38 @@ export function StartWizard(props: Props) {
         </div>
       </div>
 
-      <StepShell roof={roof} index={1} stepKey="business" done={stateOf("business").done} summary={summaries.business} open={open === "business"} onToggle={() => setOpen(open === "business" ? null : "business")}>
-        <BusinessStep initial={props.business} roof={roof} onSaved={() => advance("business")} />
-      </StepShell>
-
-      <StepShell roof={roof} index={2} stepKey="meta" done={stateOf("meta").done} summary={summaries.meta} open={open === "meta"} onToggle={() => setOpen(open === "meta" ? null : "meta")}>
-        <MetaStep {...props.meta} onSaved={() => advance("meta")} />
-      </StepShell>
-
-      <StepShell roof={roof} index={3} stepKey="setup_fee" done={stateOf("setup_fee").done} summary={summaries.setup_fee} open={open === "setup_fee"} onToggle={() => setOpen(open === "setup_fee" ? null : "setup_fee")}>
-        <SetupFeeStep stripeConnected={props.stripeConnected} contactEmail={props.contactEmail} roof={roof} />
-      </StepShell>
-
-      <StepShell roof={roof} index={4} stepKey="profile" done={stateOf("profile").done} summary={summaries.profile} open={open === "profile"} onToggle={() => setOpen(open === "profile" ? null : "profile")}>
-        <ProfileForm profile={props.profile} onSaved={() => advance("profile")} />
-      </StepShell>
-
-      <StepShell roof={roof} index={5} stepKey="page" done={stateOf("page").done} summary={summaries.page} open={open === "page"} onToggle={() => setOpen(open === "page" ? null : "page")}>
-        <BookingStep {...props.booking} slug={props.slug} onSaved={() => advance("page")} />
-      </StepShell>
-
-      <StepShell roof={roof} index={6} stepKey="slack" done={stateOf("slack").done} summary={summaries.slack} open={open === "slack"} onToggle={() => setOpen(open === "slack" ? null : "slack")}>
-        <SlackStep current={props.slack.current} inviteUrl={props.slack.inviteUrl} contactEmail={props.contactEmail} onSaved={() => advance("slack")} />
-      </StepShell>
-
-      <StepShell roof={roof} index={7} stepKey="plan" done={stateOf("plan").done} summary={summaries.plan} open={open === "plan"} onToggle={() => setOpen(open === "plan" ? null : "plan")}>
-        <PlanStep plan={props.plan} balanceCents={props.balanceCents} onSaved={() => advance("plan")} />
-      </StepShell>
-
-      {roof && (
-        <StepShell roof index={8} stepKey="rules" done={stateOf("rules").done} summary="Saved" open={open === "rules"} onToggle={() => setOpen(open === "rules" ? null : "rules")}>
-          <JobRulesForm initial={props.jobRules ?? null} onSaved={() => advance("rules")} />
+      {shown.map((s, i) => (
+        <StepShell key={s.key} roof={roof} index={i + 1} stepKey={s.key} done={s.done} summary={summaries[s.key] ?? "Saved"} open={open === s.key} onToggle={() => setOpen(open === s.key ? null : s.key)}>
+          {body[s.key]}
         </StepShell>
-      )}
+      ))}
 
-      <StepShell roof={roof} index={roof ? 9 : 8} stepKey="funds" done={stateOf("funds").done} summary={summaries.funds} open={open === "funds"} onToggle={() => setOpen(open === "funds" ? null : "funds")}>
-        <div className="-mx-5 -my-5">
-          <div className="border-b border-line px-5 py-4">
-            <p className="text-[13px] text-fg-muted">Available balance</p>
-            <p className="mt-1 text-3xl font-semibold tracking-tight">{usd(props.balanceCents, { cents: true })}</p>
-            {props.plan.fundsNeeded && (
-              <p className="mt-1 text-[13px] text-fg-muted">
-                Your first week needs {usd(props.plan.fundsNeeded.cents, { cents: false })} of ad funds. We recommend {usd(props.plan.fundsNeeded.recommendedCents, { cents: false })} (the next {usd(FUNDS_STEP_CENTS, { cents: false })} step): treat it as the minimum.
-              </p>
-            )}
-            <p className="mt-2 text-[13px] text-fg-muted">{KEEP_FUNDED}</p>
-            <p className="mt-2 text-[13px] text-fg-muted">
-              <span className="text-fg">Booked-call guarantee:</span> keep your campaign funded and running for its first 30 days, on your Anryh Labs booking page with your calendar
-              open, and get {TARGET_LOW} booked calls ({TARGET_HIGH} at $75/day or more), or we credit back your Anryh Labs fee.
-            </p>
-          </div>
-          <AddFunds addedBeforeCents={props.fundsAddedCents} plan={roof ? "subscription" : "percent"} />
-          {props.autoTopUp && (
-            <div className="border-t border-line [&>section]:rounded-none [&>section]:border-0 [&>section]:bg-transparent [&>section]:shadow-none">
-              <AutoTopUp state={props.autoTopUp} />
-            </div>
-          )}
-          {!props.stripeConnected && (
-            <p className="border-t border-line px-6 py-4 text-[13px] text-fg-muted">
-              Card payments aren&apos;t switched on yet. To add funds now, email{" "}
-              <a className="text-fg underline-offset-4 hover:underline" href={`mailto:${props.contactEmail}?subject=${encodeURIComponent("Add funds to my ad balance")}`}>
-                {props.contactEmail}
-              </a>{" "}
-              and we&apos;ll add them for you.
-            </p>
-          )}
-        </div>
-      </StepShell>
-
-      <StepShell roof={roof} index={roof ? 10 : 9} stepKey="creatives" done={stateOf("creatives").done} summary={summaries.creatives} open={open === "creatives"} onToggle={() => setOpen(open === "creatives" ? null : "creatives")}>
-        <CreativesStep mode={props.creativeMode} count={props.creativeCount} onSaved={() => advance("creatives")} />
-      </StepShell>
-
-      <StepShell roof={roof} index={roof ? 11 : 10} stepKey="mode" done={stateOf("mode").done} summary={summaries.mode} open={open === "mode"} onToggle={() => setOpen(open === "mode" ? null : "mode")}>
-        <MigzModeStep current={props.migzMode} onSaved={() => advance("mode")} />
-      </StepShell>
-
-      <Panel className={cn("mt-6 px-5 py-5", ready && !props.completed && "border-brand/40")}>
-        <h2 className="text-sm font-semibold text-fg">{props.completed ? "Your campaign" : "Start your campaign"}</h2>
-        {props.completed ? (
-          <p className="mt-1 text-[13px] text-fg-muted">
-            You&apos;re set up. Start new campaigns from the <Link href="/dashboard" className="text-fg underline-offset-4 hover:underline">Overview</Link>, or <Link href="/dashboard/brain" className="text-fg underline-offset-4 hover:underline">watch Migz work</Link>.
-          </p>
-        ) : (
-          <>
+      {props.verticalChosen && (
+        <Panel className={cn("mt-6 px-5 py-5", ready && !props.completed && "border-brand/40")}>
+          <h2 className="text-sm font-semibold text-fg">{props.completed ? "Your campaign" : "Start your campaign"}</h2>
+          {props.completed ? (
             <p className="mt-1 text-[13px] text-fg-muted">
-              {ready
-                ? "This starts your first campaign. Migz sets it up and makes every ad for it on day one. In Ask me first mode, nothing goes live until you approve it."
-                : `Finish ${props.steps.length - doneCount} more step${props.steps.length - doneCount === 1 ? "" : "s"} to start.`}
+              You&apos;re set up. Start new campaigns from the <Link href="/dashboard" className="text-fg underline-offset-4 hover:underline">Overview</Link>, or <Link href="/dashboard/brain" className="text-fg underline-offset-4 hover:underline">watch Migz work</Link>.
             </p>
-            {!props.connected && ready && (
-              <p className="mt-2 text-[13px] text-brand">Your Meta ad account isn&apos;t linked yet. Once we accept your partner request (step 2), this button will work.</p>
-            )}
-            {launchError && <p className="mt-2 text-[13px] text-bad">{launchError}</p>}
-            <Button className="mt-4 bg-brand text-brand-fg hover:bg-brand/90" disabled={!ready || launching || !props.connected} onClick={launch}>
-              {launching ? <Loader2 className="animate-spin" /> : null}
-              Start my campaign
-            </Button>
-          </>
-        )}
-      </Panel>
+          ) : (
+            <>
+              <p className="mt-1 text-[13px] text-fg-muted">
+                {ready
+                  ? "This starts your first campaign. Migz sets it up and makes every ad for it on day one. In Ask me first mode, nothing goes live until you approve it."
+                  : `Finish ${counted.length - doneCount} more step${counted.length - doneCount === 1 ? "" : "s"} to start.`}
+              </p>
+              {!props.connected && ready && (
+                <p className="mt-2 text-[13px] text-brand">Your Meta ad account isn&apos;t linked yet. Once we accept your partner request, this button will work.</p>
+              )}
+              {launchError && <p className="mt-2 text-[13px] text-bad">{launchError}</p>}
+              <Button className="mt-4 bg-brand text-brand-fg hover:bg-brand/90" disabled={!ready || launching || !props.connected} onClick={launch}>
+                {launching ? <Loader2 className="animate-spin" /> : null}
+                Start my campaign
+              </Button>
+            </>
+          )}
+        </Panel>
+      )}
     </div>
   );
 }

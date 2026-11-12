@@ -41,6 +41,7 @@ export type ImageBrief = {
   aspect_ratio: "4:5" | "9:16" | "1:1"; // 4:5 for feeds, 9:16 for Stories and Reels, 1:1 for carousel cards
   primary_text: string;
   headline: string;
+  real_photo?: string | null; // roofers: one of their own job photos (storage path); the text goes on it, nothing is generated
 };
 
 export type CarouselCard = {

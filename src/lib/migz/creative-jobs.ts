@@ -5,9 +5,11 @@ import { adLinkFor } from "@/lib/booking/sites";
 import type { Agent } from "@/lib/booking/data";
 import { getRequestStatus, submitClip, submitImage, submitVideo, videoModel } from "@/lib/higgsfield";
 import { isRoofer } from "@/lib/verticals";
-import { brollShots } from "@/lib/migz/presenter-plan";
+import { brollShots, sayNameAs } from "@/lib/migz/presenter-plan";
+import { motionFor, type JobMedia } from "@/lib/roofing/job-media";
+import { photoAd } from "@/lib/migz/photo-ad";
 import { assemblePresenter, speakScript } from "@/lib/migz/presenter-edit";
-import { getTalkingPhoto, heygenReady, submitTalkingPhoto } from "@/lib/heygen";
+import { getTalkingPhoto, heygenReady, submitTalkingPhoto, submitLookVideo } from "@/lib/heygen";
 import { cleanEdit, EDIT_TIMEOUT_MS, editWorkerReady, startEdit, takeFinishedEdit, type EditState } from "@/lib/edit/dispatch";
 import { createAd, createAdCreative, creativeEnhancementsOn, uploadImage, uploadVideo, videoState } from "@/lib/meta/ads";
 import { MetaApiError } from "@/lib/meta/graph";
@@ -55,7 +57,7 @@ type Job = {
 };
 
 // provider "heygen": the presenter's lip-synced talking video (request_id is HeyGen's video id); else Higgsfield
-type CardPart = { request_id: string; status_url: string; creative_id: string | null; video_url?: string | null; provider?: "heygen" };
+type CardPart = { request_id: string; status_url: string; creative_id: string | null; video_url?: string | null; provider?: "heygen" | "upload"; kind?: string };
 
 const kindOf = (brief: AnyBrief) => (isCarouselBrief(brief) ? "carousel" : isImageBrief(brief) ? "image" : "video");
 
@@ -132,6 +134,20 @@ export async function enqueueGeneration(input: {
       : null;
     const opts = { idempotencyKey: job.id, webhookUrl };
     // A video's tier decides its model; a Seedance video is charged to the agent's ad funds before it starts
+    if (isImageBrief(input.brief) && input.brief.real_photo) {
+      // On their own job photo: the text goes on it here, nothing is generated (and nothing charged)
+      const { data: file, error: dlErr } = await supabaseAdmin.storage.from("creatives").download(input.brief.real_photo);
+      if (dlErr || !file) throw new Error("Couldn't read their job photo");
+      const { data: brand } = await supabaseAdmin.from("agent_brand").select("accent, heading_font").eq("agent_id", input.agentId).maybeSingle();
+      const made = await photoAd(Buffer.from(await file.arrayBuffer()), input.brief, { accent: brand?.accent as string | null, font: brand?.heading_font as string | null });
+      const { data: full } = await supabaseAdmin.from("creative_jobs").select("*").eq("id", job.id).single();
+      const real = full as Job;
+      await openJobEvent(real, { step: "drafting", tier: "code", summary: `Making an image ad on their own job photo: ${briefLabel(input.brief)}`.slice(0, 200) }, input.runId ?? null);
+      const creativeId = await storeGenerated(real, null, undefined, made);
+      await update(job.id, { stage: "stored", creative_id: creativeId, attempts: 0 });
+      await closeJobEvent(real, `Made an image ad on their own job photo: ${briefLabel(input.brief)}`.slice(0, 200));
+      return job.id as string;
+    }
     if (isVideoBrief(input.brief) && input.brief.presenter) {
       // The owner talking (HeyGen: their photo speaking the script in their voice; none when they filmed it) and
       // Higgsfield b-roll from their job photos; assembled once all are back
@@ -144,16 +160,26 @@ export async function enqueueGeneration(input: {
       };
       if (plan.mode === "ai") {
         if (!heygenReady()) throw new Error("The AI presenter isn't connected yet: HEYGEN_API_KEY is not set.");
-        const audio = await speakScript(plan.script, [...(plan.voice_id ? [plan.voice_id] : []), ...narratorVoices(plan.narrator ?? "male")]);
+        const spoken = plan.say_as ? sayNameAs(plan.script, plan.say_as.name, plan.say_as.as) : plan.script;
+        const audio = await speakScript(spoken, [...(plan.voice_id ? [plan.voice_id] : []), ...narratorVoices(plan.narrator ?? "male")]);
         const audioPath = `presenter/${input.agentId}/${job.id}.mp3`;
         const { error: upErr } = await supabaseAdmin.storage.from("creatives").upload(audioPath, audio, { contentType: "audio/mpeg", upsert: true });
         if (upErr) throw new Error(`Couldn't store the voiceover: ${upErr.message}`);
-        const videoId = await submitTalkingPhoto({ imageUrl: await sign(plan.photo_paths.at(-1)!), audioUrl: await sign(audioPath), title: `Presenter ${job.id}` });
+        // At their jobsite when the look is ready; their plain photo otherwise
+        const videoId = plan.look_id
+          ? await submitLookVideo({ lookId: plan.look_id, audioUrl: await sign(audioPath), title: `Presenter ${job.id}` })
+          : await submitTalkingPhoto({ imageUrl: await sign(plan.photo_paths.at(-1)!), audioUrl: await sign(audioPath), title: `Presenter ${job.id}` });
         parts.push({ request_id: videoId, status_url: "", creative_id: null, provider: "heygen" });
       }
-      for (const [i, shot] of brollShots(plan.job_paths).entries()) {
-        const r = await submitClip({ imageUrl: await sign(shot.path), prompt: shot.prompt }, { ...opts, idempotencyKey: `${job.id}-${i}` });
-        parts.push({ request_id: r.requestId, status_url: r.statusUrl, creative_id: null });
+      // Their cut-aways: real clips as they are, real photos with a slow camera move (Higgsfield)
+      const shots = plan.broll_media ?? brollShots(plan.job_paths).map((s) => ({ path: s.path, kind: "other", type: "photo" as const }));
+      for (const [i, shot] of shots.entries()) {
+        if (shot.type === "video") {
+          parts.push({ request_id: `upload-${i}`, status_url: "", creative_id: null, video_url: await sign(shot.path), provider: "upload", kind: shot.kind });
+          continue;
+        }
+        const r = await submitClip({ imageUrl: await sign(shot.path), prompt: motionFor(shot.kind as JobMedia["kind"]) }, { ...opts, idempotencyKey: `${job.id}-${i}` });
+        parts.push({ request_id: r.requestId, status_url: r.statusUrl, creative_id: null, kind: shot.kind });
       }
       await update(job.id, parts.length ? { provider_request_id: parts[0].request_id, status_url: parts[0].status_url, parts } : { parts: [] });
       await openJobEvent({ id: job.id, agent_id: input.agentId, event_id: null } as Job, { step: "drafting", tier: "higgsfield", summary: `Making a presenter video: ${briefLabel(input.brief)}`.slice(0, 200) }, input.runId ?? null);
@@ -342,7 +368,7 @@ async function storeGenerated(job: Job, mediaUrl: string | null, card?: { index:
   // If that fails the video is kept without narration (never lose a paid generation) and staff are told.
   if (!image && !card && isVideoBrief(job.brief) && job.brief.voiceover) {
     try {
-      bytes = await narrateVideo(bytes, job.brief.voiceover, job.brief.narrator ?? "female", job.brief.mood);
+      bytes = await narrateVideo(bytes, job.brief.voiceover, job.brief.narrator ?? "female", job.brief.mood, await (await import("@/lib/migz/presenter")).adVoiceFor(job.agent_id)); // lazy: presenter imports this file
     } catch (e) {
       const reason = e instanceof Error ? e.message : String(e);
       console.error("narration failed", reason);
@@ -592,6 +618,7 @@ async function advance(job: Job) {
       const media = {
         talkingUrl: parts.find((p) => p.provider === "heygen")?.video_url ?? null,
         broll: parts.filter((p) => p.provider !== "heygen").map((p) => p.video_url!),
+        kinds: parts.filter((p) => p.provider !== "heygen").map((p) => p.kind ?? null),
       };
       // The full edit (HyperFrames, on the render worker) when it's connected; the simple edit otherwise, or when
       // the full edit can't pass its checks, fails, or takes too long

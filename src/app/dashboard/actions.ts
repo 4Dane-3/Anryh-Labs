@@ -17,6 +17,7 @@ import type { TopicKey } from "@/lib/migz/topics";
 import { PAGE_FONT_KEYS } from "@/lib/booking/page-font-keys";
 import { feePlanOf, MAX_DEPOSIT_CENTS, MIN_TOP_UP_CENTS, minDepositFor } from "@/lib/campaign";
 import { CONTACT_EMAIL } from "@/lib/contact";
+import { isLeadGoal } from "@/lib/roofing/setup-options";
 import { dailyBatch } from "@/lib/batch";
 import { closeEndedBatch, getActiveBatch, getBatchHistory, getOpenBatch } from "@/lib/dashboard/batches";
 import { buildCampaignPlan } from "@/lib/dashboard/campaign-plan";
@@ -421,10 +422,13 @@ function safeName(name: string) {
   return name.toLowerCase().replace(/[^a-z0-9.]+/g, "-").replace(/-+/g, "-").slice(-80);
 }
 
+// A presenter's voice sample (never an ad by itself): allowed to upload, never recorded as a creative
+const VOICE_TYPES = new Set(["audio/mpeg", "audio/mp4", "audio/x-m4a", "audio/wav", "audio/x-wav", "audio/webm"]);
+
 /** Returns a one-time signed URL; the browser uploads straight to Storage (videos never pass through us). */
 export async function createCreativeUpload(file: { name: string; type: string; size: number }) {
   const agent = await requireAgent();
-  if (!CREATIVE_TYPES[file.type]) return { ok: false as const, error: "Use a JPG, PNG, WebP, MP4, MOV or WebM file." };
+  if (!CREATIVE_TYPES[file.type] && !VOICE_TYPES.has(file.type)) return { ok: false as const, error: "Use a JPG, PNG, WebP, MP4, MOV or WebM file (or an MP3, M4A or WAV for your voice)." };
   if (file.size > 500 * 1024 * 1024) return { ok: false as const, error: "Files must be under 500 MB." };
 
   const path = `${agent.id}/${crypto.randomUUID()}-${safeName(file.name)}`;
@@ -892,6 +896,42 @@ export async function saveJobRules(input: unknown): Promise<Result> {
   if (error) return fail(error.code === "42703" ? "Job rules aren't set up yet (migration 20261205000000)." : "Couldn't save that.");
   revalidatePath("/dashboard/settings");
   revalidatePath("/dashboard/start");
+  return { ok: true };
+}
+
+/** Setup's first question: roofing company or insurance agent. Can change until the first campaign starts. */
+export async function chooseVertical(vertical: string): Promise<Result> {
+  const agent = await requireAgent();
+  if (vertical !== "roofing" && vertical !== "insurance") return fail("Pick one.");
+  if (agent.onboarding_completed_at && vertical !== agent.vertical) return fail("Your campaign already started. Email us to switch.");
+  const { error } = await supabaseAdmin.from("agents").update({ vertical, vertical_chosen_at: new Date().toISOString() }).eq("id", agent.id);
+  if (error) return fail(error.code === "42703" || error.code === "PGRST204" ? "Setup isn't updated yet (migration 20261211000000)." : "Couldn't save that.");
+  revalidatePath("/dashboard", "layout");
+  return { ok: true };
+}
+
+/** The CRM a roofer books inspections in. */
+export async function saveCrm(crm: string): Promise<Result> {
+  const agent = await requireAgent();
+  if (!isRoofer(agent)) return fail("Only for roofing accounts.");
+  const name = clean(crm, 60);
+  if (!name) return fail("Choose your CRM, or None yet.");
+  const { error } = await supabaseAdmin.from("agents").update({ crm: name }).eq("id", agent.id);
+  if (error) return fail(error.code === "42703" || error.code === "PGRST204" ? "Setup isn't updated yet (migration 20261211000000)." : "Couldn't save that.");
+  revalidatePath("/dashboard/start");
+  revalidatePath("/dashboard/settings");
+  return { ok: true };
+}
+
+/** What a roofer's ads offer: a free roof inspection or a free quote. */
+export async function saveLeadGoal(goal: string): Promise<Result> {
+  const agent = await requireAgent();
+  if (!isRoofer(agent)) return fail("Only for roofing accounts.");
+  if (!isLeadGoal(goal)) return fail("Pick a free inspection or a free quote.");
+  const { error } = await supabaseAdmin.from("agents").update({ lead_goal: goal }).eq("id", agent.id);
+  if (error) return fail(error.code === "42703" || error.code === "PGRST204" ? "Setup isn't updated yet (migration 20261211000000)." : "Couldn't save that.");
+  revalidatePath("/dashboard/start");
+  revalidatePath("/dashboard/settings");
   return { ok: true };
 }
 

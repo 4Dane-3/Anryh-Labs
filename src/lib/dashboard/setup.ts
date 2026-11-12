@@ -14,7 +14,7 @@ import { getOpenBatch, getRecentBatches, type Batch } from "@/lib/dashboard/batc
 // account first, the setup fee, then the rest. Until the first campaign starts, the rest of the dashboard
 // stays locked (requireSetUpAgent).
 
-export type StepKey = "business" | "meta" | "setup_fee" | "profile" | "page" | "slack" | "funds" | "plan" | "rules" | "creatives" | "mode";
+export type StepKey = "vertical" | "business" | "meta" | "setup_fee" | "profile" | "page" | "crm" | "slack" | "funds" | "plan" | "rules" | "details" | "avatar" | "media" | "creatives" | "mode";
 
 export type Step = {
   key: StepKey;
@@ -39,12 +39,14 @@ export type SetupState = {
 };
 
 export async function getSetupState(agent: Agent): Promise<SetupState> {
-  const [balanceCents, hours, creatives, openBatch, pastBatches] = await Promise.all([
+  const [balanceCents, hours, creatives, openBatch, pastBatches, brandRow, presenterRow] = await Promise.all([
     getBalanceCents(agent.id),
     supabaseAdmin.from("availability_rules").select("id", { count: "exact", head: true }).eq("agent_id", agent.id),
     supabaseAdmin.from("creatives").select("id", { count: "exact", head: true }).eq("agent_id", agent.id).in("status", ["submitted", "in_review", "live"]).eq("source", "upload"),
     getOpenBatch(agent.id),
     getRecentBatches(agent.id, 1),
+    isRoofer(agent) ? supabaseAdmin.from("agent_brand").select("deals, certifications, warranties").eq("agent_id", agent.id).maybeSingle() : null,
+    isRoofer(agent) ? supabaseAdmin.from("agent_presenters").select("*").eq("agent_id", agent.id).maybeSingle() : null,
   ]);
   const batch = openBatch ?? pastBatches[0] ?? null;
   const creativeCount = creatives.count ?? 0;
@@ -112,21 +114,52 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
       ? "Upload at least one photo or video, or let Migz create them."
       : null;
 
+  // Setup's first question, answered once (accounts that finished setup before it existed count as answered)
+  const verticalMissing = agent.vertical_chosen_at || agent.onboarding_completed_at ? null : "Tell us whether you're a roofing company or an insurance agent.";
+  // Roofers book in their own CRM's calendar, so they're asked which CRM instead of setting up a booking page
+  const crmMissing = agent.crm ? null : "Tell us which CRM you book inspections in.";
+  const rules = agent.job_rules as { jobTypes?: string[] } | null;
+  const rulesMissing = !agent.lead_goal
+    ? "Choose what your ads offer: a free roof inspection or a free quote."
+    : !rules
+      ? "Choose the jobs you take."
+      : !rules.jobTypes?.length ? "Pick at least one kind of job you take." : null;
+  // The business details every video can feature: their current special and their warranty (certifications if they hold any)
+  const brand = brandRow?.data as { deals?: string[]; certifications?: string[]; warranties?: string[] } | null | undefined;
+  const detailsMissing = !brand?.deals?.filter(Boolean).length
+    ? "Add the special you want this campaign to promote."
+    : !brand.warranties?.filter(Boolean).length ? "Add the warranty you offer." : null;
+  const presenter = presenterRow?.data as { mode?: string; photo_paths?: string[]; film_path?: string | null; consent_at?: string | null; job_media?: unknown[]; job_photo_paths?: string[] } | null | undefined;
+  const mediaMissing = (presenter?.job_media?.length ?? 0) + (presenter?.job_photo_paths?.length ?? 0) || (presenter as { voice_sample_path?: string | null; ad_voice_id?: string | null } | null | undefined)?.voice_sample_path || (presenter as { ad_voice_id?: string | null } | null | undefined)?.ad_voice_id ? null : "Pick the voice for your ads and add photos or clips of your real jobs.";
+  const avatarMissing = !presenter
+    ? "Choose who appears in your on-camera ads, or skip them."
+    : presenter.mode === "ai" && (!presenter.photo_paths?.length || !presenter.consent_at)
+      ? "Add their photo and agree to it being used."
+      : null;
+
   const modeMissing = agent.migz_mode_chosen_at ? null : "Choose whether Migz runs your ads on its own or asks you first.";
 
+  const step = (key: StepKey, missing: string | null, required = true): Step => ({ key, required, missing, done: !missing });
   const steps: Step[] = [
-    { key: "business", required: true, missing: businessMissing, done: !businessMissing },
-    { key: "meta", required: true, missing: metaMissing, done: !metaMissing },
-    { key: "setup_fee", required: true, missing: setupFeeMissing, done: !setupFeeMissing },
-    { key: "profile", required: true, missing: profileMissing, done: !profileMissing },
-    { key: "page", required: true, missing: pageMissing, done: !pageMissing },
-    { key: "slack", required: !roof, missing: slackMissing, done: !slackMissing }, // roofers hear about inspections by email
-    { key: "plan", required: true, missing: planMissing, done: !planMissing },
-    // Roofers only, never blocks launching: what jobs they take (nothing saved = every lead gets through)
-    ...(roof ? [{ key: "rules" as const, required: false, missing: agent.job_rules ? null : "Tell us which jobs you take.", done: !!agent.job_rules }] : []),
-    { key: "funds", required: true, missing: fundsMissing, done: !fundsMissing },
-    { key: "creatives", required: true, missing: creativesMissing, done: !creativesMissing },
-    { key: "mode", required: true, missing: modeMissing, done: !modeMissing },
+    step("vertical", verticalMissing),
+    step("business", businessMissing),
+    step("meta", metaMissing),
+    step("setup_fee", setupFeeMissing),
+    step("profile", profileMissing),
+    ...(roof
+      ? [
+          step("crm", crmMissing),
+          step("rules", rulesMissing), // the jobs they take and the lead goal
+          step("details", detailsMissing), // special, certifications, warranties, license
+          step("media", mediaMissing, false), // Ad Creative AI Context: their voice, job photos and clips (optional)
+          step("avatar", avatarMissing, false), // who's on camera: optional, never blocks starting
+          step("slack", slackMissing, false), // roofers hear about inspections by email
+        ]
+      : [step("page", pageMissing), step("slack", slackMissing)]),
+    step("plan", planMissing),
+    step("funds", fundsMissing),
+    step("creatives", creativesMissing),
+    step("mode", modeMissing),
   ];
   return {
     steps,

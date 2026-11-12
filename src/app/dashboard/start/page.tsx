@@ -13,6 +13,8 @@ import { META_BUSINESS_ID } from "@/lib/meta/access";
 import { topUpDefaults } from "@/lib/auto-top-up";
 import { rulesOf } from "@/lib/roofing/fit";
 import { applyRooferDefaults } from "@/lib/roofing/autopilot-defaults";
+import { creativeSetup } from "@/lib/dashboard/creative-setup";
+import { isRoofer } from "@/lib/verticals";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +30,7 @@ const RETURNS: Record<string, { text: string; good: boolean }> = {
 export default async function StartPage({ searchParams }: { searchParams: Promise<{ setup_fee?: string; deposit?: string }> }) {
   const [signedIn, query] = await Promise.all([requireAgent(), searchParams]);
   const agent = await applyRooferDefaults(signedIn);
-  const [state, start, fundsAdded] = await Promise.all([getSetupState(agent), getCampaignStart(agent), getFundsAddedCents(agent.id)]);
+  const [state, start, fundsAdded, creative] = await Promise.all([getSetupState(agent), getCampaignStart(agent), getFundsAddedCents(agent.id), isRoofer(agent) ? creativeSetup(agent) : null]);
   const back = RETURNS[query.setup_fee ? `setup_fee:${query.setup_fee}` : `deposit:${query.deposit}`];
 
   return (
@@ -111,6 +113,12 @@ export default async function StartPage({ searchParams }: { searchParams: Promis
         }
         jobRules={rulesOf(agent)}
         migzMode={agent.migz_mode_chosen_at ? (agent.migz_mode === "auto" ? "auto" : "approve") : null}
+        verticalChosen={!!(agent.vertical_chosen_at || agent.onboarding_completed_at)}
+        crm={agent.crm ?? ""}
+        leadGoal={agent.lead_goal === "quote" || agent.lead_goal === "inspection" ? agent.lead_goal : null}
+        brand={creative?.brand ?? null}
+        presenter={creative?.presenter ?? null}
+        context={creative?.context ?? null}
       />
     </>
   );

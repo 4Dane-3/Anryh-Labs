@@ -93,7 +93,9 @@ export async function render(job, outFile, log = console.log) {
     for (const [i] of job.media.broll.entries()) {
       const y = await meanLuma(join(dir, `broll${i}-src.mp4`));
       const lift = talkY !== null && y !== null ? Math.max(-0.08, Math.min(0.08, (talkY - y) / 255)) : 0;
-      await ff(["-i", join(dir, `broll${i}-src.mp4`), "-vf", `${FRAME(fps)},eq=brightness=${lift.toFixed(3)},${GRADE},format=yuv420p`, "-an", "-c:v", "libx264", "-preset", "medium", "-crf", "16", join(project, `broll${i}.mp4`)]);
+      // A real clip from the roofer can be long: skip its shaky first second and keep 4 seconds
+      const long = ((await info(join(dir, `broll${i}-src.mp4`))).seconds ?? 0) > 5;
+      await ff([...(long ? ["-ss", "1", "-t", "4"] : []), "-i", join(dir, `broll${i}-src.mp4`), "-vf", `${FRAME(fps)},eq=brightness=${lift.toFixed(3)},${GRADE},format=yuv420p`, "-an", "-c:v", "libx264", "-preset", "medium", "-crf", "16", join(project, `broll${i}.mp4`)]);
     }
 
     // 4-6. The composition

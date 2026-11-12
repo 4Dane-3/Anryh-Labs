@@ -103,6 +103,9 @@ export type Agent = {
   service_radius_miles?: number | null;
   crews?: number; // inspections a roofer can take at the same time (1 or 2)
   crm_webhook_url?: string | null; // each booking is POSTed here
+  crm?: string | null; // the CRM a roofer books in (JobNimbus, AccuLynx…); missing before 20261211000000
+  lead_goal?: "inspection" | "quote" | null; // what a roofer's ads offer
+  vertical_chosen_at?: string | null; // when setup's first question (roofing or insurance) was answered
   company_license?: string | null; // contractor license on the page and postcards
   // Speed to lead (missing before its migration; lib/voice)
   voice_agent?: boolean; // the AI voice agent calls new leads within seconds

@@ -159,6 +159,57 @@ export function fixNames(words: Word[], names: string[]): Word[] {
 const UNITS: Record<string, number> = { zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19 };
 const TENS: Record<string, number> = { twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90 };
 
+/**
+ * The transcript spelled as the script (AI presenter: the voice read exactly this script). Words are aligned in
+ * order (an edit-distance alignment over whole words); a transcript word paired with a different script word
+ * takes the script's spelling and punctuation, keeping its own timing. Numbers stay as heard ("$1,000" may be
+ * transcribed as words), and unpaired words are left alone.
+ */
+export function spellLikeScript(words: Word[], script: string): Word[] {
+  const tokens = script.split(/\s+/).filter(Boolean);
+  const key = (w: string) => w.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const n = words.length;
+  const m = tokens.length;
+  if (!n || !m) return words;
+  // cost[i][j]: aligning the first i heard words with the first j script words
+  const cost = Array.from({ length: n + 1 }, (_, i) => Array.from({ length: m + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)));
+  for (let i = 1; i <= n; i++)
+    for (let j = 1; j <= m; j++) {
+      const same = key(words[i - 1].word) === key(tokens[j - 1]) ? 0 : 1;
+      cost[i][j] = Math.min(cost[i - 1][j - 1] + same, cost[i - 1][j] + 1, cost[i][j - 1] + 1);
+    }
+  const out = words.map((w) => ({ ...w }));
+  const extra = new Set<number>(); // heard but not in the script: a word the transcriber split or invented ("Izzy Izeahn")
+  let i = n;
+  let j = m;
+  while (i > 0 && j > 0) {
+    const same = key(words[i - 1].word) === key(tokens[j - 1]) ? 0 : 1;
+    if (cost[i][j] === cost[i - 1][j - 1] + same) {
+      const heard = words[i - 1].word;
+      const said = tokens[j - 1];
+      // A swap of one word for one word: take the script's spelling, unless it's a number either way
+      if (!/\d/.test(heard) && !/\d/.test(said)) out[i - 1].word = said;
+      i--;
+      j--;
+    } else if (cost[i][j] === cost[i - 1][j] + 1) {
+      if (!/\d/.test(words[i - 1].word)) extra.add(i - 1);
+      i--;
+    } else j--;
+  }
+  // Heard before the script's first word
+  for (; i > 0; i--) if (!/\d/.test(words[i - 1].word)) extra.add(i - 1);
+  // An extra word is folded into the word after it (or before it, at the end), so the timing still covers the sound
+  for (const k of [...extra].sort((a, b) => b - a)) {
+    const next = out.slice(k + 1).find((_, d) => !extra.has(k + 1 + d));
+    if (next) next.start = Math.min(next.start, out[k].start);
+    else {
+      const prev = [...out.slice(0, k)].reverse().find((_, d) => !extra.has(k - 1 - d));
+      if (prev) prev.end = Math.max(prev.end, out[k].end);
+    }
+  }
+  return out.filter((_, k) => !extra.has(k));
+}
+
 export type Spoken = { value: number; unit: "dollars" | "years" | "percent" | null; plus: boolean; first: number; last: number };
 
 /** A number said at word i ("five hundred dollars", "$500", "25-year", "15+ years"), with its unit, or null. */
