@@ -56,10 +56,14 @@ export async function isGoogleFont(family: string) {
 
 /** The woff2 files for a Google Font (regular and bold), for the render worker to load locally. */
 export async function googleFontFiles(family: string): Promise<{ weight: number; url: string }[]> {
-  const res = await fetch(`https://fonts.googleapis.com/css2?family=${encodeURIComponent(family).replace(/%20/g, "+")}:wght@400;700;800`, {
-    headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36" },
-    signal: AbortSignal.timeout(5000),
-  }).catch(() => null);
+  // The light weight for the small lead words of a caption, when the family has one (asking for a weight it lacks fails the whole request)
+  const get = (weights: string) =>
+    fetch(`https://fonts.googleapis.com/css2?family=${encodeURIComponent(family).replace(/%20/g, "+")}:wght@${weights}`, {
+      headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36" },
+      signal: AbortSignal.timeout(5000),
+    }).catch(() => null);
+  let res = await get("300;400;700;800");
+  if (!res?.ok) res = await get("400;700;800");
   if (!res?.ok) return [];
   const css = await res.text();
   // Only the latin subset of each weight (each block is preceded by a "/* latin */" style comment)

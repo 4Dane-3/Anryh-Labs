@@ -1,6 +1,7 @@
 // The edit plan for a Migz video ad: every cut, framing, push-in, caption, card, cut-away and sound effect, each
 // on its word. Pure: the app builds and checks it, the render worker draws it (HyperFrames) and mixes it
 // (ffmpeg). The rules are written out in docs/migz-video-edit.md.
+import { kindsForWord } from "@/lib/roofing/job-media";
 import { cleanTakes, editedLength, fixNames, retime, spokenNumber, tightCut, type Segment, type Word } from "@/lib/edit/words";
 
 export const W = 1080;
@@ -13,14 +14,14 @@ const LOOP_SECONDS = 10 / FPS; // the closing frames that match frame 0
 const PUSH_SECONDS = 0.4;
 const CARD_SECONDS = 1.8;
 const NUMBER_SECONDS = 1.4;
-const BROLL_SECONDS = 2.2;
+const BROLL_SECONDS = 1.8;
 const MIN_GAP = 0.3; // two effects never start closer than this
 export const CAPTION_PX = 76;
 const CAPTION_CHARS = 16; // a caption longer than this splits (2 lines at most)
 
 export type Box = { x: number; y: number; w: number; h: number };
 export type Framing = "wide" | "close";
-export type CardKind = "town" | "cert" | "license" | "warranty" | "number" | "cta";
+export type CardKind = "town" | "cert" | "license" | "warranty" | "number" | "name" | "cta";
 export type SfxKind = "click" | "whoosh" | "pop" | "swoosh" | "riser" | "hit";
 
 export type EditInput = {
@@ -29,14 +30,19 @@ export type EditInput = {
   sourceHeight: number; // 720 or 1080: caps the close framing
   face: Box | null; // the face in the 1080x1920 frame at 100%, from one frame of the talking video
   broll: number; // job clips available
+  brollKinds?: (string | null)[]; // what each clip shows ("crew", "inspection"...), to cut to the one that fits the word
   hook: string | null; // the on-screen callout ("Kenmore homeowners")
   towns: string[];
   deals: string[];
+  offer?: string | null; // what the ads offer ("free roof inspection" or "free quote"), for the last card
   certifications: string[];
   license: string | null;
   warranties: string[];
   names: string[]; // every name and brand, spelled as given (company, person, towns, certifications)
   hasLogo: boolean;
+  person?: { name: string; role: string | null } | null; // who's on camera: a name tag when they say their name
+  company?: string | null;
+  area?: string | null; // "Bothell, WA": the line under the name tag
 };
 
 export type Effect = { kind: "framing" | "push" | "card" | "broll" | "captions-on"; start: number; anchor: number; priority: number };
@@ -50,14 +56,21 @@ export type EditPlan = {
   words: Word[]; // edited timeline, names fixed
   eye: { x: number; y: number }; // zoom centre
   closeScale: number;
+  // When the face fills the frame (a close selfie), the talking video is shrunk toward the top over a blurred
+  // copy of itself, so captions and cards have room under the chin. null = full frame.
+  fit: { scale: number; origin: { x: number; y: number } } | null;
   framings: { start: number; framing: Framing }[]; // the framing from this moment (on cuts and punch-ins)
   pushes: { start: number; from: number; to: number }[]; // smooth push-ins and pull-outs, PUSH_SECONDS each
-  hook: { text: string; accent: string | null; box: Box; end: number } | null;
+  hook: { text: string; accent: string | null; box: Box; end: number; pins?: string[] } | null;
   captionsFrom: number;
   captionBox: Box; // where captions sit (lower middle, clear of the face)
   captions: { start: number; end: number; words: Word[] }[];
   cards: { kind: CardKind; text: string; sub: string | null; start: number; end: number; anchor: number; box: Box }[];
-  broll: { index: number; start: number; end: number; anchor: number }[];
+  face: Box | null; // the face at 100% (the name tag's focus brackets follow it through the zooms)
+  company: string | null;
+  area: string | null;
+  offer: string; // "free roof inspection" or "free quote"
+  broll: { index: number; start: number; end: number; anchor: number; clip?: number }[]; // clip: which job clip (default: index)
   sfx: { kind: SfxKind; at: number }[];
   loopFrom: number; // from here to the end, the picture is frame 0 again
   musicEnd: number; // music ends cleanly on the last word
@@ -78,6 +91,13 @@ export function textHeight(text: string, px: number, width = COL.w, lineHeight =
 export function scaleBox(b: Box, eye: { x: number; y: number }, s: number): Box {
   return { x: eye.x + (b.x - eye.x) * s, y: eye.y + (b.y - eye.y) * s, w: b.w * s, h: b.h * s };
 }
+
+/** A box (already zoomed) where it lands after the shrink-to-fit, if any. */
+export const fitBox = (b: Box, fit: EditPlan["fit"]) => (fit ? scaleBox(b, fit.origin, fit.scale) : b);
+
+/** Smallest the talking video is shrunk to; below this the person is too small to carry the ad. */
+export const MIN_FIT = 0.6;
+export const HOOK_PX = 84;
 
 export const overlaps = (a: Box, b: Box) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 
@@ -138,23 +158,40 @@ export function buildPlan(input: EditInput): EditPlan {
   const scaleOf = (f: Framing) => (f === "close" ? closeScale : 1);
 
   // 6. The hook: on screen from frame 0, until the first sentence ends; then captions take over
-  const firstEnd = words.findIndex((w, i) => /[.!?]$/.test(w.word) || i === words.length - 1);
+  const firstEnd = words.findIndex((w, i) => /[.!?:]$/.test(w.word) || i === words.length - 1); // "Kenmore homeowners:" ends the hook too
   const captionsFrom = q(Math.min(words[Math.max(0, firstEnd)]?.end ?? 2.5, 3.5));
-  const faceAt = (s: number) => (face ? scaleBox(face, eye, s) : null);
+  // The hook as typed, or (when it won't fit in two lines) its first town plus "homeowners"
+  const hookLines = (t: string) => Math.round(textHeight(t.toUpperCase(), HOOK_PX, COL.w, 1.05, 0.74) / (HOOK_PX * 1.05));
+  const typed = input.hook?.trim() || null;
+  const firstTown = typed ? input.towns.find((t) => typed.toLowerCase().includes(t.toLowerCase())) : undefined;
+  const hookText = typed && hookLines(typed) > 2 && firstTown ? `${firstTown} homeowners` : typed;
+  // With towns in it, the hook is a stack of map-pin tags (up to 3) under one light line; otherwise big text
+  const pinTowns = hookText ? input.towns.slice(0, 3) : [];
+  const pinned = !!hookText && pinTowns.some((t) => hookText.toLowerCase().includes(t.toLowerCase()));
+  const hookH = !hookText ? 0 : pinned ? 76 + pinTowns.length * 92 : textHeight(hookText.toUpperCase(), HOOK_PX, COL.w, 1.05, 0.74) + 40;
+  const capH = Math.ceil(2 * CAPTION_PX * 1.08) + 20; // room for two lines
+
+  // The face at its biggest (close framing plus a push). If text can't sit under it, shrink the video toward the top
+  const innerMax = face ? scaleBox(face, eye, closeScale * 1.08) : null;
+  const band = Math.max(capH, hookH);
+  let fit: EditPlan["fit"] = null;
+  if (innerMax && innerMax.y + innerMax.h + 32 + band > SAFE.bottom) {
+    const origin = { x: W / 2, y: 0 };
+    const scale = Math.max(MIN_FIT, Math.min(1, (SAFE.bottom - band - 32 - origin.y) / (innerMax.y + innerMax.h - origin.y)));
+    fit = { scale: Math.floor(scale * 1000) / 1000, origin };
+  }
+  const faceAt = (s: number) => (face ? fitBox(scaleBox(face, eye, s), fit) : null);
   const maxFace = faceAt(closeScale * 1.08);
-  const hookText = input.hook?.trim() || null;
-  const hookPx = 84;
-  const hookH = hookText ? textHeight(hookText.toUpperCase(), hookPx, COL.w, 1.05, 0.74) + 40 : 0;
   const topRoom = (maxFace ? maxFace.y : H * 0.3) - 24 - SAFE.top;
   // Captions in the lower middle, under the face; above it only if the face sits too low
-  const capH = Math.ceil(2 * CAPTION_PX * 1.08) + 20; // room for two lines
-  const capTop = Math.max(maxFace ? maxFace.y + maxFace.h + 32 : H * 0.58, H * 0.56);
-  const captionBox: Box = capTop + capH <= SAFE.bottom - 180 ? { x: COL.x, y: capTop, w: COL.w, h: capH } : { x: COL.x, y: SAFE.bottom - 180 - capH, w: COL.w, h: capH };
+  const capTop = Math.max(maxFace ? maxFace.y + maxFace.h + 32 : H * 0.58, fit ? 0 : H * 0.56);
+  const captionBox: Box = capTop + capH <= SAFE.bottom - 180 || fit ? { x: COL.x, y: capTop, w: COL.w, h: capH } : { x: COL.x, y: SAFE.bottom - 180 - capH, w: COL.w, h: capH };
   const cardBand: Box = { x: COL.x, y: captionBox.y + captionBox.h + 16, w: COL.w, h: Math.max(120, SAFE.bottom - (captionBox.y + captionBox.h + 16)) };
   const hook = hookText
     ? {
         text: hookText,
         accent: input.towns.find((t) => hookText.toLowerCase().includes(t.toLowerCase())) ?? null,
+        ...(pinned ? { pins: pinTowns } : {}),
         box: hookH <= topRoom ? { x: COL.x, y: SAFE.top, w: COL.w, h: hookH } : { x: COL.x, y: captionBox.y, w: COL.w, h: hookH },
         end: captionsFrom,
       }
@@ -175,19 +212,23 @@ export function buildPlan(input: EditInput): EditPlan {
   const ctaStart = ctaAt >= 0 && words[ctaAt].start <= ctaLatest ? words[ctaAt].start : (words.filter((w) => w.start <= Math.min(ctaLatest, ctaAt >= 0 ? words[ctaAt].start : lastWord - 2.5) && w.start > captionsFrom).at(-1)?.start ?? q(ctaLatest));
   const cards: EditPlan["cards"] = [];
   const busy = (s: number, e: number) => cards.some((c) => s < c.end && c.start < e);
+  // When there's no room under the captions (a shrunk video), cards take the caption band and captions hide under them
+  const cardsBelow = cardBand.y + 140 <= SAFE.bottom;
   const placeCard = (kind: CardKind, text: string, sub: string | null, at: number, len: number) => {
     const start = words[at].start;
     const end = q(Math.min(start + len, ctaStart - 0.15));
     if (start < captionsFrom || taken(start) || busy(start, end) || end - start < 0.8) return false;
-    const big = kind === "number";
-    const h = big ? Math.min(cardBand.h + captionBox.h, textHeight(text, 150) + (sub ? 70 : 0) + 30) : textHeight(text, 58) + (sub ? 50 : 0) + 96;
-    const box: Box = big ? { x: COL.x, y: captionBox.y, w: COL.w, h } : { x: COL.x, y: cardBand.y, w: COL.w, h: Math.min(h, cardBand.h) };
+    // Every card sits on the torso, like the captions (which hide under it): the offer pill, the glass cards, the name tag
+    const h = kind === "number" ? (sub ? 64 : 0) + 150 : kind === "name" ? 170 : kind === "cert" ? 240 : kind === "cta" ? 300 : textHeight(text, 52, COL.w - 150) + 110;
+    void cardsBelow;
+    const box: Box = { x: COL.x, y: captionBox.y, w: COL.w, h: Math.min(h, SAFE.bottom - captionBox.y) };
     cards.push({ kind, text, sub, start, end, anchor: start, box });
     add({ kind: "card", start, anchor: start, priority: 1 });
     return true;
   };
 
-  cards.push({ kind: "cta", text: "Tap Learn More", sub: "Free roof inspection", start: ctaStart, end: loopFrom, anchor: ctaStart, box: { x: COL.x, y: captionBox.y, w: COL.w, h: Math.min(SAFE.bottom - captionBox.y, 330) } });
+  const offerLine = input.offer ? input.offer.charAt(0).toUpperCase() + input.offer.slice(1) : "Free roof inspection";
+  cards.push({ kind: "cta", text: "Tap Learn More", sub: offerLine, start: ctaStart, end: loopFrom, anchor: ctaStart, box: { x: COL.x, y: captionBox.y, w: COL.w, h: Math.min(SAFE.bottom - captionBox.y, 330) } });
   add({ kind: "card", start: ctaStart, anchor: ctaStart, priority: 0 });
 
   // Numbers said out loud, as big kinetic text (the offer's own wording when it's the deal)
@@ -198,6 +239,11 @@ export function buildPlan(input: EditInput): EditPlan {
     const text = deal?.big ?? numberText(n);
     if (text) placeCard("number", text, deal?.sub ?? null, i, NUMBER_SECONDS);
     i = n.last;
+  }
+  // Their name tag, when they say their name ("I'm Gil")
+  if (input.person?.name) {
+    const at = find(words, input.person.name.split(/\s+/)[0]);
+    if (at >= 0) placeCard("name", input.person.name, input.person.role, at, CARD_SECONDS);
   }
   // Credentials, on the word that names them
   for (const c of input.certifications) {
@@ -214,33 +260,46 @@ export function buildPlan(input: EditInput): EditPlan {
     if (at >= 0 && !(hookText ?? "").toLowerCase().includes(t.toLowerCase())) placeCard("town", t, null, at, CARD_SECONDS);
   }
 
-  // A deal said too close to the end for its own card goes on the last card instead
+  // The current special always makes it on screen: its own card when it's said in time, else on the last card
   const cta = cards.find((c) => c.kind === "cta")!;
   const dealSaid = words.some((w, i) => {
     const n = spokenNumber(words, i);
     return n && (n.unit === "dollars" || n.unit === "percent") && !!dealFor(input.deals, n.value);
   });
-  if (dealSaid && !cards.some((c) => c.kind === "number" && input.deals.some((d) => d.toUpperCase().startsWith(c.text)))) cta.sub = input.deals.find((d) => /\d/.test(d)) ?? cta.sub;
+  const dealCard = cards.some((c) => c.kind === "number" && input.deals.some((d) => d.toUpperCase().startsWith(c.text)));
+  if (!dealCard && input.deals.length) cta.sub = (dealSaid ? input.deals.find((d) => /\d/.test(d)) : null) ?? input.deals[0];
 
   // Cut-aways to the job clips on the words about the roof or the work, then spread over what's left
   const broll: EditPlan["broll"] = [];
-  const clear = (s: number, e: number) => !busy(s, e) && !broll.some((b) => s < b.end + 0.6 && b.start < e + 0.6) && s >= captionsFrom + 0.6 && e <= ctaStart - 0.4;
+  const clear = (s: number, e: number) => !busy(s, e) && !broll.some((b) => s < b.end + 0.6 && b.start < e + 0.6) && s >= captionsFrom + 0.3 && e <= ctaStart - 0.3;
+  // Each clip is used once; on a word about the roof, the clip that shows it ("inspection" cuts to an inspection)
+  const used = new Set<number>();
+  const clipFor = (word: string) => {
+    const free = [...Array(input.broll).keys()].filter((i) => !used.has(i));
+    const want = kindsForWord(word);
+    const best = want.map((k) => free.find((i) => input.brollKinds?.[i] === k)).find((i) => i !== undefined);
+    return best ?? free[0];
+  };
+  const cut = (w: Word, end: number) => {
+    const clip = clipFor(w.word);
+    used.add(clip);
+    broll.push({ index: broll.length, start: w.start, end, anchor: w.start, clip });
+    add({ kind: "broll", start: w.start, anchor: w.start, priority: 2 });
+  };
   for (const w of words) {
     if (broll.length >= input.broll) break;
-    if (!BROLL_WORDS.test(clean(w.word)) || taken(w.start)) continue;
+    if (!(BROLL_WORDS.test(clean(w.word)) || kindsForWord(w.word).some((k) => input.brollKinds?.includes(k) && k !== "team")) || taken(w.start)) continue;
     const end = q(w.start + BROLL_SECONDS);
     if (!clear(w.start, end)) continue;
-    broll.push({ index: broll.length, start: w.start, end, anchor: w.start });
-    add({ kind: "broll", start: w.start, anchor: w.start, priority: 2 });
+    cut(w, end);
   }
   for (const w of words) {
     if (broll.length >= input.broll) break;
     const end = q(w.start + BROLL_SECONDS);
-    if (taken(w.start, 1.2) || !clear(w.start, end)) continue;
+    if (taken(w.start, 0.6) || !clear(w.start, end)) continue;
     // Keep them apart: at most one cut-away in any 4 seconds
     if (broll.some((b) => Math.abs(b.start - w.start) < 4)) continue;
-    broll.push({ index: broll.length, start: w.start, end, anchor: w.start });
-    add({ kind: "broll", start: w.start, anchor: w.start, priority: 2 });
+    cut(w, end);
   }
   broll.sort((a, b) => a.start - b.start).forEach((b, i) => (b.index = i));
 
@@ -319,13 +378,19 @@ export function buildPlan(input: EditInput): EditPlan {
     const next = shown[i + 1];
     const stop = /[.!?,]$/.test(w.word) || (next && next.start - w.end > 0.25);
     const long = (cur.map((x) => x.word).join(" ") + (next ? ` ${next.word}` : "")).length > CAPTION_CHARS;
+    // Never end a caption on a little word ("take a" / "look"): it goes with the word after it
+    const weak = /^(a|an|the|to|of|for|your|our|my|and|or|in|on|at|with|by|is|are|it|this|that)$/.test(clean(w.word)) && !/[.!?,]$/.test(w.word);
+    if (weak && next && cur.length < 4 && !long) return;
     if (cur.length >= 4 || /[.!?]$/.test(w.word) || (stop && cur.length >= 2) || !next || (long && cur.length >= 1)) {
-      captions.push({ start: cur[0].start, end: q(next ? next.start : Math.min(w.end + 0.3, ctaStart)), words: cur });
-      cur = [];
+      // A little word left at the end moves on to the next caption
+      const carry = weak && next && cur.length > 1 ? [cur.pop()!] : [];
+      captions.push({ start: cur[0].start, end: q(carry.length ? carry[0].start : next ? next.start : Math.min(w.end + 0.3, ctaStart)), words: cur });
+      cur = carry;
     }
   });
-  const numberCards = cards.filter((c) => c.kind === "number");
-  const visibleCaptions = captions.filter((c) => !numberCards.some((n) => c.start < n.end && n.start < c.end));
+  // Hidden under any card that sits on the caption band (the big numbers, or every card in a shrunk video)
+  const overCaptions = cards.filter((c) => c.kind !== "cta" && overlaps(c.box, captionBox));
+  const visibleCaptions = captions.filter((c) => !overCaptions.some((n) => c.start < n.end && n.start < c.end));
 
   // 8. Sound: restrained, only on beats (a click on cuts in the opening, whooshes on every other push)
   const sfx: EditPlan["sfx"] = [{ kind: "hit", at: 0 }];
@@ -348,6 +413,11 @@ export function buildPlan(input: EditInput): EditPlan {
     words,
     eye,
     closeScale,
+    fit,
+    face: face ?? null,
+    company: input.company ?? null,
+    area: input.area ?? null,
+    offer: input.offer || "free roof inspection",
     framings: framings.sort((a, b) => a.start - b.start),
     pushes,
     hook,

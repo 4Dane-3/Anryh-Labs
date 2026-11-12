@@ -151,8 +151,27 @@ function roofingPrompt(base: string) {
 
 export const MIGZ_ROOFING_SYSTEM_PROMPT = roofingPrompt(MIGZ_SYSTEM_PROMPT);
 
-/** The standing instructions for an account's business. */
-export const systemPromptFor = (vertical: string | null | undefined) => (vertical === "roofing" ? MIGZ_ROOFING_SYSTEM_PROMPT : MIGZ_SYSTEM_PROMPT);
+/** The roofing instructions for a roofer whose ads offer a free quote instead of a free inspection. */
+export const MIGZ_ROOFING_QUOTE_SYSTEM_PROMPT = quoteVariant(MIGZ_ROOFING_SYSTEM_PROMPT);
+
+/** Swaps the free inspection for a free quote, keeping the metric names (booked_calls still counts bookings). */
+export function quoteVariant(text: string) {
+  return text
+    .replace(/a free roof inspection/g, "a free roof replacement quote")
+    .replace(/free roof inspection/g, "free roof quote")
+    .replace(/Book a free inspection/g, "Get a free quote")
+    .replace(/book a free inspection/g, "get a free quote")
+    .replace(/the free inspection/g, "the free quote")
+    .replace(/a free inspection/g, "a free quote")
+    .replace(/Free inspection\./g, "Free quote.")
+    .replace(/free inspection/g, "free quote")
+    .replace(/only the inspection is free/g, "only the quote is free")
+    .replace(/what the inspection covers/g, "what the quote covers");
+}
+
+/** The standing instructions for an account's business (and, for roofers, what their ads offer). */
+export const systemPromptFor = (vertical: string | null | undefined, leadGoal?: string | null) =>
+  vertical === "roofing" ? (leadGoal === "quote" ? MIGZ_ROOFING_QUOTE_SYSTEM_PROMPT : MIGZ_ROOFING_SYSTEM_PROMPT) : MIGZ_SYSTEM_PROMPT;
 
 export function reviewMessage(input: { mode: "approve" | "auto"; producing?: boolean; fillAdsets?: string[]; wave?: { day: number; adsets: string[] } | null; snapshotJson: string; contextJson?: string; reasons?: string[]; today?: string }) {
   const productionLine = input.wave

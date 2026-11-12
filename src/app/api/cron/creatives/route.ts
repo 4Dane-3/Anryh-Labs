@@ -2,6 +2,7 @@ import { isCronRequest } from "@/lib/cron-auth";
 import { advanceOpenJobs } from "@/lib/migz/creative-jobs";
 import { notifyAdReviews } from "@/lib/migz/notify";
 import { sendVideoReviewRequests } from "@/lib/migz/video-review";
+import { refreshJobsiteLooks } from "@/lib/migz/presenter-look";
 
 export const maxDuration = 300;
 
@@ -15,6 +16,7 @@ export async function GET(req: Request) {
     console.error("video review requests failed", e);
     return { error: e instanceof Error ? e.message : String(e) };
   });
+  const looks = await refreshJobsiteLooks().catch((e) => ({ error: e instanceof Error ? e.message : String(e) }));
   const reviews = await notifyAdReviews(Date.now() + 40_000).catch((e) => ({ error: e instanceof Error ? e.message : String(e) }));
-  return Response.json({ jobs: results, videoReviews, reviews });
+  return Response.json({ jobs: results, videoReviews, reviews, looks });
 }

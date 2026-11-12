@@ -11,14 +11,25 @@ it there too.
 
 ## 0. What goes in
 
-- **Footage**: the talking video (HeyGen, or the roofer's own recording) and up to three Higgsfield clips made from
-  their real job photos.
+- **Footage**: the talking video and up to four cut-aways from the roofer's own photos and clips, each tagged in
+  setup with what it shows (crew working, inspection, damage, finished roof, drone, team and trucks). One of each kind
+  first, a real clip before a photo, different picks from one video to the next. Real clips cut in as they are
+  (their first second skipped, 4 seconds kept); photos get a slow Higgsfield camera move that adds nothing to the
+  scene (at most three per video). For the AI
+  presenter, their photo (even a selfie) becomes a HeyGen photo avatar, and from it a **jobsite look**: them standing
+  at a roofing job, waist up, holding a tablet, plain work hoodie (no logos), crew on the roof and a truck behind,
+  moody overcast light. Every video is made from that look, never from the raw photo. Or the roofer's own recording.
 - **Brand**, from the setup page:
   - their website, scanned for the heading font, body font, background, text and one accent colour;
   - their logo;
   - deals, certifications, license number and warranties.
   Only what they gave ever appears on screen.
-- **Who's on camera**: name and role, introduced once.
+- **Who's on camera**: name, role and how to say the name (the voice reads the pronunciation; captions keep the
+  spelling), introduced once.
+- **Voice**: their own, cloned (ElevenLabs instant clone, background noise removed) from a minute or two they
+  record in setup by reading lines that cover what ads say, or from an upload. Spoken with Eleven v3 at "Natural"
+  stability, which reads punctuation like a person; the script is written to be spoken (contractions, mixed sentence
+  lengths, a breath where a comma is), never three same-shaped sentences in a row.
 
 ## 1. Takes
 
@@ -47,15 +58,27 @@ it there too.
 
 ## 5. Captions and design
 
-- Captions are 2 to 4 words, timed per word, in the brand's heading font, about 76px on a 1080-wide frame, at most 16 characters (two lines). They
-  sit in the lower middle and are never over the face.
-- The active word is in the brand accent, with an 80ms fade-in and no bouncing. Every caption has a subtle
-  shadow.
-- Palette: the brand's background and text colours, plus the accent on one word or element at a time, never as a
-  background. One easing for everything (expo out). Rounded corners on every card.
-- Names, brands and towns are always spelled exactly as the roofer typed them, even when the transcript
-  misspells them.
+The reference is a premium roofer ad: the owner at the job, text on the torso, never on the face.
+
+- **Captions** are 2 to 4 words in two weights: the lead words small and light in white (about 58px), then the
+  stressed words big and bold in the brand accent with a soft glow (up to 116px). They never start or end on a
+  little word ("a", "the", "us"). The lead slides in, the stressed words punch in on their own word (scale and blur
+  in), and the caption blurs away.
+- **Hook**: map-pin town tags (a red pin and a glass pill per town, up to three) under one light line, the first one
+  on frame 0 and the rest dropping in. Without towns, big uppercase text.
+- **Name tag** when they say their name: role in the accent, name big, a divider, the company (last word in the
+  accent) and the town with a pin, on glass, with accent focus brackets around the face.
+- **Offer**: the deal as an accent pill with a glow, its wording above in light text.
+- **Credentials**: glass cards with a kicker ("COMPANY · TOWN"), the certification big with a check, a generic
+  shield badge (never a manufacturer's logo); warranty and license with a shield icon.
+- **Call to action**: a glass card, "Tap" white and "Learn More" glowing in the accent, "to request your free roof
+  inspection" (or free quote), the special in the accent, and a glowing ring with a down arrow that bobs.
+- Cut-aways come in and go out through a blur. A soft vignette darkens the edges.
+- Names, brands and towns are always spelled exactly as the roofer typed them (for the AI presenter the transcript
+  is spelled like the script, since the voice read it).
 - **Safe zone**: nothing in the top 220px, bottom 420px or right 140px of the 1080x1920 frame.
+- When the face fills the frame (a close selfie in their own recording), the video shrinks toward the top over a
+  blurred copy of itself so the text has room.
 
 ## 6. Sync map
 
@@ -71,7 +94,7 @@ Each effect lands within 2 frames of the start of its word.
 | "Licensed" or the license is said | A license card with their license number. |
 | "Warranty" is said | The warranty card, exactly as they wrote it. |
 | A number is said | The number as big kinetic text ($500 OFF, 25 YEARS). |
-| A roof problem or the work is described | A cut-away to a job clip, with a soft swoosh. |
+| A roof problem or the work is described | A cut-away to the clip that shows it ("inspection" or "check" → an inspection, "leaks" or "moss" → damage, "crew" or "replacement" → the crew at work, "roof" → drone or a finished roof), each clip once, with a soft swoosh. |
 | "Learn More" | Riser, then the Tap Learn More card with their logo. |
 | Last word | It ends on a frame identical to frame 0, so the video loops. |
 

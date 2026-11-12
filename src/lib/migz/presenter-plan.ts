@@ -11,10 +11,14 @@ export type PresenterPlan = {
   offer?: string | null; // only what the roofer typed
   badge?: string | null; // only what the roofer typed
   photo_paths: string[]; // their own photos (creatives bucket)
-  job_paths: string[]; // their own job photos
+  job_paths: string[]; // their own job photos (before kinds existed)
+  broll_media?: { path: string; kind: string; type: "photo" | "video" }[]; // the cut-aways for this video, picked from their photos and clips
   film_path?: string | null; // their own recording
   voice_id?: string | null; // their cloned voice, when they gave a sample
   narrator?: "female" | "male";
+  lead_offer?: string | null; // "free roof inspection" or "free quote" (end card), inspection when missing
+  say_as?: { name: string; as: string } | null; // the voice says the name this way; captions keep the spelling
+  look_id?: string | null; // their jobsite look (HeyGen): the video is made from it instead of the plain photo
 };
 
 export const BROLL_CLIPS = 3;
@@ -123,4 +127,13 @@ export function sfxEvents(cards: Card[], caps: Caption[], broll: { start: number
 export function overlayFilter(times: { start: number; end: number }[], from = "0:v", firstInput = 1) {
   const steps = times.map((t, i) => `[${i === 0 ? from : `v${i}`}][${firstInput + i}:v]overlay=0:0:enable='between(t,${t.start.toFixed(2)},${t.end.toFixed(2)})'[v${i + 1}]`);
   return { filter: steps.join(";"), out: times.length ? `[v${times.length}]` : `[${from}]` };
+}
+
+/** The script as the voice should read it: their name spelled the way it's said. Pure. */
+export function sayNameAs(script: string, name: string | null | undefined, pronunciation: string | null | undefined) {
+  const n = name?.trim();
+  const say = pronunciation?.trim();
+  if (!n || !say || say.toLowerCase() === n.toLowerCase()) return script;
+  const escaped = n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return script.replace(new RegExp(`\\b${escaped}\\b`, "gi"), say);
 }

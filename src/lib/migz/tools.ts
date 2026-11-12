@@ -180,6 +180,7 @@ export const MIGZ_TOOLS: Anthropic.Beta.BetaTool[] = [
         description: `Text for a button-shaped label at the bottom, under ${MAX_BUTTON_CHARS} characters (e.g. "Book a free call"), or null for none. Meta adds the real clickable button separately.`,
       },
       aspect_ratio: { type: "string", enum: ["4:5", "9:16"], description: "4:5 for Facebook and Instagram feeds (the default); 9:16 for Stories and Reels." },
+      real_photo: { type: ["string", "null"], description: "Roofers: one of agent.real_photos (exactly as written) to put the text on instead of generating a photo, or null. Then the scene describes that photo." },
       primary_text: { type: "string", description: "Ad copy above the image. Under 300 characters; carry the detail here, not on the image." },
       headline: { type: "string", description: "Short headline under the image, under 40 characters." },
       launch_adset_id: {
@@ -289,6 +290,8 @@ export type EvalContext = GuardContext & {
   /** Ads whose creative has a Migz brief, for hook variants. */
   scriptedAds: Map<string, { creative_id: string; script: CreativeBrief; meta_adset_id: string }>;
   libraryCreativeIds: Set<string>;
+  /** Roofers: their own job photos an image ad may use (storage paths). */
+  realPhotos?: Set<string>;
 };
 
 export type Evaluated =
@@ -462,6 +465,11 @@ function evaluateTool(name: string, raw: unknown, ctx: EvalContext): Evaluated {
         primary_text: str(input.primary_text, 500),
         headline: str(input.headline, 60),
       };
+      const real = typeof input.real_photo === "string" ? input.real_photo.trim() : "";
+      if (real) {
+        if (!ctx.realPhotos?.has(real)) return fail("That real_photo isn't one of agent.real_photos. Copy it exactly, or pass null.");
+        brief.real_photo = real;
+      }
       if (!brief.scene || !brief.style || !brief.primary_text || !brief.headline)
         return fail("An image needs a scene, a style, primary text and a headline.");
       if (lines.length < 1 || lines.length > MAX_OVERLAY_LINES)

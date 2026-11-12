@@ -7,12 +7,14 @@ import { Panel } from "@/components/dashboard/ui";
 import { uploadToSignedUrl } from "@/lib/dashboard/upload";
 
 type Mode = "film" | "ai" | "none";
-type Initial = {
+export type PresenterInitial = {
   mode: Mode;
   towns: string;
   onCameraName: string;
   onCameraRole: string;
   onCameraVoice: "male" | "female";
+  onCameraPronunciation: string;
+  look: { status: "processing" | "completed" | "failed" | null; preview: string | null };
   consentName: string;
   consented: boolean;
   photos: number;
@@ -54,21 +56,24 @@ function Upload({ label, accept, kind, have, onDone, onError }: { label: string;
   );
 }
 
-export function PresenterSetup({ initial }: { initial: Initial }) {
-  const [v, setV] = useState(initial);
+/** `inSetup`: the Start here step, which saves who's on camera and their photo but never makes a video. */
+export function PresenterSetup({ initial, inSetup, onSaved }: { initial: PresenterInitial; inSetup?: boolean; onSaved?: () => void }) {
+  const [v, setV] = useState<PresenterInitial>(initial);
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
   const [script, setScript] = useState<string | null>(null);
   const [busy, start] = useTransition();
-  const set = (patch: Partial<Initial>) => setV((c) => ({ ...c, ...patch }));
+  const set = (patch: Partial<PresenterInitial>) => setV((c) => ({ ...c, ...patch }));
   const fail = (text: string) => setNotice({ ok: false, text });
-  const uploaded = (patch: Partial<Initial>) => () => {
+  const uploaded = (patch: Partial<PresenterInitial>) => () => {
     set(patch);
     setNotice({ ok: true, text: "Uploaded." });
+    if (inSetup && patch.photos) onSaved?.();
   };
   const save = () =>
     start(async () => {
       const r = await savePresenter(v);
-      setNotice(r.ok ? { ok: true, text: "Saved." } : { ok: false, text: r.error ?? "Couldn't save." });
+      setNotice(r.ok ? { ok: true, text: inSetup && v.mode === "ai" && !v.photos ? "Saved. Now add their photo below." : "Saved." } : { ok: false, text: r.error ?? "Couldn't save." });
+      if (r.ok && !(inSetup && v.mode === "ai" && !v.photos)) onSaved?.();
     });
   const make = () =>
     start(async () => {
@@ -83,7 +88,7 @@ export function PresenterSetup({ initial }: { initial: Initial }) {
     });
 
   return (
-    <div className="max-w-2xl space-y-5">
+    <div className={inSetup ? "space-y-5" : "max-w-2xl space-y-5"}>
       <div className="grid gap-3 sm:grid-cols-3">
         {MODES.map((m) => (
           <button key={m.key} type="button" onClick={() => set({ mode: m.key })} className={`rounded-xl border p-4 text-left ${v.mode === m.key ? "border-brand" : "border-line"}`}>
@@ -100,7 +105,7 @@ export function PresenterSetup({ initial }: { initial: Initial }) {
         <Panel className="space-y-4 p-5">
           <p className="text-sm font-semibold text-fg">Who&apos;s on camera</p>
           <p className="-mt-3 text-[12px] text-fg-muted">The owner usually works best. It can be anyone on your team who agrees to it.</p>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-3">
             <label className="block text-sm text-fg">
               Their first name
               <input value={v.onCameraName} onChange={(e) => set({ onCameraName: e.target.value })} maxLength={40} placeholder="Gil" className={field} />
@@ -114,19 +119,13 @@ export function PresenterSetup({ initial }: { initial: Initial }) {
                 ))}
               </datalist>
             </label>
+            <label className="block text-sm text-fg">
+              How to say it <span className="text-fg-muted">(optional)</span>
+              <input value={v.onCameraPronunciation} onChange={(e) => set({ onCameraPronunciation: e.target.value })} maxLength={60} placeholder="e.g. eye-ZAY-un" className={field} />
+            </label>
           </div>
-          {v.mode === "ai" && (
-            <div className="text-sm text-fg">
-              Voice, if you don&apos;t upload a recording
-              <div className="mt-1 flex gap-2">
-                {(["male", "female"] as const).map((g) => (
-                  <button key={g} type="button" onClick={() => set({ onCameraVoice: g })} className={`rounded-full border px-3 py-1 text-[12px] ${v.onCameraVoice === g ? "border-brand text-fg" : "border-line text-fg-muted"}`}>
-                    {g === "male" ? "Man's voice" : "Woman's voice"}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+          <p className="-mt-2 text-[12px] text-fg-muted">Spell the name the way it sounds if the AI voice might get it wrong. Captions still show it spelled as above.</p>
+          {v.mode === "ai" && <p className="text-[13px] text-fg-muted">Their voice is picked under Ad Creative AI Context: one of ElevenLabs&apos; voices, or their own.</p>}
           <p className="text-[12px] text-fg-muted">Migz introduces them once, like &quot;I&apos;m {v.onCameraName.trim() || "Gil"}, {(v.onCameraRole.trim() || "owner").toLowerCase()} here at your company&quot;.</p>
         </Panel>
       )}
@@ -153,15 +152,28 @@ export function PresenterSetup({ initial }: { initial: Initial }) {
         </button>
       </Panel>
 
-      {v.mode !== "none" && (
+      {(v.mode === "ai" || (v.mode === "film" && !inSetup)) && (
         <Panel className="space-y-4 p-5">
           {v.mode === "ai" && (
             <>
-              <Upload label="A clear, well-lit photo of them facing the camera, chest up (a job site behind them is ideal)" accept="image/jpeg,image/png,image/webp" kind="photo" have={v.photos ? "Added (the newest one is used)" : ""} onDone={uploaded({ photos: Math.min(3, v.photos + 1) })} onError={fail} />
-              <Upload label="About a minute of them talking, so it sounds like them (recommended)" accept="audio/*,video/mp4" kind="voice" have={v.voice ? "Added" : ""} onDone={uploaded({ voice: true })} onError={fail} />
+              {v.look.status && (
+                <div className="flex items-center gap-4 rounded-lg bg-white/[0.04] p-3">
+                  {/* eslint-disable-next-line @next/next/no-img-element -- HeyGen's preview link, not an optimizable asset */}
+                  {v.look.preview ? <img src={v.look.preview} alt="" crossOrigin="anonymous" className="h-28 w-16 rounded object-cover" /> : <div className="h-28 w-16 animate-pulse rounded bg-white/10" />}
+                  <p className="text-[13px] text-fg-muted">
+                    {v.look.status === "completed"
+                      ? "Your jobsite look: this is how you'll appear in your videos, at a roofing job. Upload a new photo to make a new one."
+                      : v.look.status === "failed"
+                        ? "We couldn't make a jobsite look from that photo. Try a clearer, well-lit photo of your face."
+                        : "Making your jobsite look from your photo. It takes a few minutes."}
+                  </p>
+                </div>
+              )}
+              <Upload label="A clear, well-lit photo of their face (even a selfie works: Migz puts them at a jobsite)" accept="image/jpeg,image/png,image/webp" kind="photo" have={v.photos ? "Added (the newest one is used)" : ""} onDone={uploaded({ photos: Math.min(3, v.photos + 1) })} onError={fail} />
+              <p className="text-[13px] text-fg-muted">Their voice, job photos and clips are under Ad Creative AI Context.</p>
             </>
           )}
-          {v.mode === "film" && (
+          {v.mode === "film" && !inSetup && (
             <>
               <button type="button" onClick={write} disabled={busy} className="rounded-lg border border-line px-4 py-2 text-sm font-semibold text-fg disabled:opacity-50">
                 Write my script
@@ -170,10 +182,11 @@ export function PresenterSetup({ initial }: { initial: Initial }) {
               <Upload label="Your recording, held vertically" accept="video/mp4,video/quicktime,video/webm" kind="film" have={v.film ? "Added" : ""} onDone={uploaded({ film: true })} onError={fail} />
             </>
           )}
-          <Upload label="Photos of your real jobs (Migz cuts these in as moving shots)" accept="image/jpeg,image/png,image/webp" kind="job" have={`${v.jobs} of 6`} onDone={uploaded({ jobs: Math.min(6, v.jobs + 1) })} onError={fail} />
-          <button type="button" onClick={make} disabled={busy} className="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-ink disabled:opacity-50">
-            Make my video
-          </button>
+          {!inSetup && (
+            <button type="button" onClick={make} disabled={busy} className="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-ink disabled:opacity-50">
+              Make my video
+            </button>
+          )}
         </Panel>
       )}
       {notice && (

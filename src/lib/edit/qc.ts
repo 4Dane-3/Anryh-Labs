@@ -1,5 +1,5 @@
 // The checks every edit passes before it renders (the plan) and after (the file). Pure.
-import { SAFE, overlaps, scaleAt, scaleBox, type Box, type EditPlan } from "@/lib/edit/plan";
+import { SAFE, fitBox, overlaps, scaleAt, scaleBox, type Box, type EditPlan } from "@/lib/edit/plan";
 import type { Word } from "@/lib/edit/words";
 
 export type Check = { name: string; pass: boolean; detail: string };
@@ -13,7 +13,7 @@ function faceBetween(plan: EditPlan, face: Box | null, from: number, to: number)
   if (!face) return null;
   let s = 1;
   for (let t = from; t <= to; t += 1 / plan.fps) s = Math.max(s, scaleAt(plan, t));
-  return scaleBox(face, plan.eye, s);
+  return fitBox(scaleBox(face, plan.eye, s), plan.fit ?? null);
 }
 
 /** Plan checks 1-5, plus no stacked effects and the pacing. */

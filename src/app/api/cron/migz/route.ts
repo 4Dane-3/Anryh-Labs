@@ -8,6 +8,7 @@ import { autoTopUpAll } from "@/lib/dashboard/top-up";
 import { settleGuarantees } from "@/lib/dashboard/guarantee";
 import { sendAllDueSequenceEmails } from "@/lib/dashboard/followups";
 import { sendInspectionReminders } from "@/lib/roofing/notify";
+import { sendSpecialChecks } from "@/lib/roofing/special-check";
 import { syncSpend } from "@/lib/migz/sync";
 
 export const maxDuration = 300;
@@ -56,6 +57,12 @@ export async function GET(req: Request) {
     return {};
   });
 
+  // Roofers: once a week, is the special their ads feature still running?
+  const specials = await sendSpecialChecks(deadline - 80_000).catch((e) => {
+    console.error("special checks failed", e);
+    return {};
+  });
+
   const dueBefore = new Date(Date.now() - REVIEW_EVERY_HOURS * 3_600_000).toISOString();
   const { data } = await supabaseAdmin
     .from("agents")
@@ -73,6 +80,7 @@ export async function GET(req: Request) {
     ...(Object.keys(renewals).length ? { renewals } : {}),
     ...(Object.keys(emails).length ? { emails } : {}),
     ...(Object.keys(inspections).length ? { inspections } : {}),
+    ...(Object.keys(specials).length ? { specials } : {}),
   };
   for (const agent of (data ?? []) as Agent[]) {
     if (Date.now() > deadline) break;
