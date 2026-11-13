@@ -20,6 +20,7 @@ import {
   PanelsTopLeft,
   Rocket,
   Settings,
+  Search,
   ShieldCheck,
   Users,
   Wallet,
@@ -185,6 +186,7 @@ function MenuSheet({ agent, devLogin, setupDone, staff, onClose }: { agent: Agen
           <div className="lg:hidden">{MAIN.map((n) => item(n.href, n.label, n.icon))}</div>
           {MORE.map((n) => item(n.href, n.label, n.icon))}
           {agent.roof && item("/dashboard/referrals", "Referrals", Handshake)}
+          {agent.roof && item("/dashboard/google", "Google Ads", Search)}
           {!setupDone && <p className="px-3 pt-3 text-[12px] text-fg-faint">Locked pages open once your first campaign starts.</p>}
         </nav>
         <div className="space-y-2 border-t border-white/15 pt-3">

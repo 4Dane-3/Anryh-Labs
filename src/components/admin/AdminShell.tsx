@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import {
+  Crosshair,
   ArrowUpRight,
   BarChart3,
   BellRing,
@@ -48,6 +49,11 @@ const GROUPS: Group[] = [
     ],
   },
   {
+    id: "migz",
+    label: "Migz",
+    places: [{ href: "/admin/competitors", label: "Competitor ads", icon: Crosshair, hint: "Who advertises, what wins, ads that beat them" }],
+  },
+  {
     id: "voice",
     label: "Voice",
     places: [
@@ -62,6 +68,7 @@ const PILL = [
   { href: "/admin", label: "Overview", icon: Gauge, match: (p: string) => p === "/admin" },
   { href: "/admin/clients", label: "Clients", icon: Users, match: (p: string) => p.startsWith("/admin/clients") },
   { href: "/admin/calendar", label: "Calendar", icon: CalendarDays, match: (p: string) => p.startsWith("/admin/calendar") },
+  { href: "/admin/competitors", label: "Competitors", icon: Crosshair, match: (p: string) => p.startsWith("/admin/competitors") },
   { href: "/admin/demo-call", label: "Voice", icon: PhoneCall, match: (p: string) => p.startsWith("/admin/demo-call") },
 ];
 

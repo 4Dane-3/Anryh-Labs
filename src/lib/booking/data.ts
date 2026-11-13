@@ -121,6 +121,7 @@ export type Agent = {
   video_approval?: boolean; // Migz's videos wait for the agent's OK before going to Meta (missing before 20261208000000)
   video_review_token?: string; // the private link to their video review page
   google_review_url?: string | null; // the roofer's Google review link, in the check-in email (missing before 20261204000000)
+  avg_job_dollars?: number | null; // their average job, sent to Google with a closed job (missing before 20261214000000)
   job_rules?: unknown; // "Jobs we take" (lib/roofing/job-rules), null = everything; missing before 20261205000000
 };
 

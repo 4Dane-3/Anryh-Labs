@@ -14,7 +14,7 @@ import { getOpenBatch, getRecentBatches, type Batch } from "@/lib/dashboard/batc
 // account first, the setup fee, then the rest. Until the first campaign starts, the rest of the dashboard
 // stays locked (requireSetUpAgent).
 
-export type StepKey = "vertical" | "business" | "meta" | "setup_fee" | "profile" | "page" | "crm" | "slack" | "funds" | "plan" | "rules" | "details" | "avatar" | "media" | "creatives" | "mode";
+export type StepKey = "vertical" | "business" | "meta" | "setup_fee" | "profile" | "page" | "crm" | "slack" | "funds" | "plan" | "rules" | "details" | "avatar" | "media" | "google" | "creatives" | "mode";
 
 export type Step = {
   key: StepKey;
@@ -39,7 +39,7 @@ export type SetupState = {
 };
 
 export async function getSetupState(agent: Agent): Promise<SetupState> {
-  const [balanceCents, hours, creatives, openBatch, pastBatches, brandRow, presenterRow] = await Promise.all([
+  const [balanceCents, hours, creatives, openBatch, pastBatches, brandRow, presenterRow, googleRow] = await Promise.all([
     getBalanceCents(agent.id),
     supabaseAdmin.from("availability_rules").select("id", { count: "exact", head: true }).eq("agent_id", agent.id),
     supabaseAdmin.from("creatives").select("id", { count: "exact", head: true }).eq("agent_id", agent.id).in("status", ["submitted", "in_review", "live"]).eq("source", "upload"),
@@ -47,6 +47,7 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
     getRecentBatches(agent.id, 1),
     isRoofer(agent) ? supabaseAdmin.from("agent_brand").select("deals, certifications, warranties").eq("agent_id", agent.id).maybeSingle() : null,
     isRoofer(agent) ? supabaseAdmin.from("agent_presenters").select("*").eq("agent_id", agent.id).maybeSingle() : null,
+    isRoofer(agent) ? supabaseAdmin.from("google_ads_accounts").select("link_status").eq("agent_id", agent.id).maybeSingle() : null,
   ]);
   const batch = openBatch ?? pastBatches[0] ?? null;
   const creativeCount = creatives.count ?? 0;
@@ -139,6 +140,9 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
       ? "Add their photo and agree to it being used."
       : null;
 
+  // Google Ads (optional): done once an account is linked, made for them, or its link request is waiting on them
+  const googleStatus = (googleRow?.data as { link_status?: string } | null | undefined)?.link_status;
+  const googleMissing = googleStatus && googleStatus !== "refused" && googleStatus !== "ended" ? null : "Connect Google Ads so Migz can run Google Search ads too (optional).";
   const modeMissing = agent.migz_mode_chosen_at ? null : "Choose whether Migz runs your ads on its own or asks you first.";
 
   const step = (key: StepKey, missing: string | null, required = true): Step => ({ key, required, missing, done: !missing });
@@ -155,6 +159,7 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
           step("details", detailsMissing), // special, certifications, warranties, license
           step("media", mediaMissing, false), // Ad Creative AI Context: their voice, job photos and clips (optional)
           step("avatar", avatarMissing, false), // who's on camera: optional, never blocks starting
+          step("google", googleMissing, false), // Google Search ads, run by Migz: optional
           step("slack", slackMissing, false), // roofers hear about inspections by email
         ]
       : [step("page", pageMissing), step("slack", slackMissing)]),
