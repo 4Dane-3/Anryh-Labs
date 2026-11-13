@@ -17,11 +17,12 @@ import {
   AGE_PRESETS,
   CALL_TIMES,
   CONTACT,
-  DAILY_CHOICES,
   LANGUAGES,
   MAIN_PRODUCTS,
   MAX_CAMPAIGN_DAILY_CENTS,
-  MIN_CAMPAIGN_DAILY_CENTS,
+  minDailyFor,
+  dailyChoicesFor,
+  ROOFER_MIN_DAILY_CENTS,
   PREMIUM_CHOICES,
   STATE_CODES,
   UNDERWRITING,
@@ -152,7 +153,7 @@ export function CampaignFlow({
   const [intent, setIntent] = useState<IntentLevel>(initial.intent);
   const [tier, setTier] = useState<VideoTier>(initial.tier);
   const [daily, setDaily] = useState(initial.dailyCents);
-  const [customDaily, setCustomDaily] = useState(DAILY_CHOICES.includes(initial.dailyCents as never) ? "" : String(initial.dailyCents / 100));
+  const [customDaily, setCustomDaily] = useState(dailyChoicesFor(initial.vertical).includes(initial.dailyCents) ? "" : String(initial.dailyCents / 100));
   const [autoRun, setAutoRun] = useState(initial.autoRun);
   const renew = true; // campaigns are rolling: each weekly cycle is followed by the next
   const [moreProducts, setMoreProducts] = useState(a.products.some((p) => !MAIN_PRODUCTS.includes(p)));
@@ -172,7 +173,8 @@ export function CampaignFlow({
   const ownUsed = expected.lines.some((l) => l.source === "yours");
   const choice: CampaignChoice = { answers: a, states: roof ? [area.state] : states, intentLevel: intent, videoTier: tier, dailyCents: daily, autoRun: askRunMode ? autoRun : undefined, renew, area: roof ? area : null };
 
-  const dailyOk = daily >= MIN_CAMPAIGN_DAILY_CENTS && daily <= MAX_CAMPAIGN_DAILY_CENTS;
+  const minDaily = minDailyFor(vertical);
+  const dailyOk = daily >= minDaily && daily <= MAX_CAMPAIGN_DAILY_CENTS;
   const ageLabel = roof ? "Every adult" : a.ageMin === null && a.ageMax === null ? "Any adult" : `${a.ageMin ?? 18}–${a.ageMax ?? "90"}`;
 
   const allScreens: { key: string; q: string; help?: string; skip?: () => void; valid?: boolean; body: React.ReactNode }[] = [
@@ -354,7 +356,7 @@ export function CampaignFlow({
       body: (
         <div className="space-y-4">
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-            {DAILY_CHOICES.map((c) => (
+            {dailyChoicesFor(vertical).map((c) => (
               <button
                 key={c}
                 type="button"
@@ -388,7 +390,8 @@ export function CampaignFlow({
             />
             <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[12px] text-fg-faint">/day</span>
           </div>
-          {!dailyOk && <p className="text-[13px] text-bad">Choose between {whole(MIN_CAMPAIGN_DAILY_CENTS)} and {whole(MAX_CAMPAIGN_DAILY_CENTS)} a day.</p>}
+          {roof && <p className="text-[13px] text-fg-muted">Roofing campaigns run at least $2,000 a month in ads ({whole(ROOFER_MIN_DAILY_CENTS)}/day).</p>}
+          {!dailyOk && <p className="text-[13px] text-bad">Choose between {whole(minDaily)} and {whole(MAX_CAMPAIGN_DAILY_CENTS)} a day.</p>}
           {dailyOk && (
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="rounded-xl border border-brand/30 bg-brand/[0.05] px-4 py-3">

@@ -14,7 +14,7 @@ import {
   cleanAnswers,
   DAILY_CHOICES,
   MAX_CAMPAIGN_DAILY_CENTS,
-  MIN_CAMPAIGN_DAILY_CENTS,
+  minDailyFor,
   expectedResults,
   lengthReason,
   recommendedDaily,
@@ -211,7 +211,7 @@ export async function getCampaignStart(agent: Agent): Promise<{ initial: Campaig
       states: agent.licensed_states ?? [],
       intent: isIntentLevel(agent.intent_level) ? agent.intent_level : DEFAULT_INTENT,
       tier: isVideoTier(agent.video_tier) ? agent.video_tier : DEFAULT_VIDEO_TIER,
-      dailyCents: Math.min(MAX_CAMPAIGN_DAILY_CENTS, Math.max(MIN_CAMPAIGN_DAILY_CENTS, daily)),
+      dailyCents: Math.min(MAX_CAMPAIGN_DAILY_CENTS, Math.max(minDailyFor(isRoofer(agent) ? "roofing" : null), daily)),
       autoRun: agent.migz_mode === "auto",
       renew: true, // campaigns are rolling
       vertical: isRoofer(agent) ? "roofing" : "insurance",

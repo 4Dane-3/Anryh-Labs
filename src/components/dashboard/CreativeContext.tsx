@@ -1,6 +1,5 @@
 "use client";
 
-import { VoiceRecorder } from "@/components/dashboard/VoiceRecorder";
 import { VoicePicker } from "@/components/dashboard/VoicePicker";
 import { JobMediaSetup, type MediaItem } from "@/components/dashboard/JobMediaSetup";
 import type { AdVoice } from "@/lib/voice/ad-voices";
@@ -23,14 +22,8 @@ export function CreativeContext({ initial, onSaved }: { initial: CreativeContext
     <div className="space-y-6">
       <section className="space-y-2">
         <p className="text-sm font-semibold text-fg">The voice for your ads</p>
-        <p className="text-[13px] text-fg-muted">Speaks your on-camera videos and your voiceovers.</p>
-        <VoicePicker initial={initial.adVoice} own={initial.voice} first={initial.voices} onSaved={onSaved} />
-        <details className="rounded-lg border border-line p-3" open={!!initial.voice}>
-          <summary className="cursor-pointer text-sm text-fg">Or use your own voice</summary>
-          <div className="mt-3">
-            <VoiceRecorder name={initial.name} company={initial.company} have={initial.voice} consented={initial.consented} onDone={() => onSaved?.()} />
-          </div>
-        </details>
+        <p className="text-[13px] text-fg-muted">Speaks your on-camera videos and your voiceovers. ★ marks our picks for roofing ads.</p>
+        <VoicePicker initial={initial.adVoice} first={initial.voices} onSaved={onSaved} />
       </section>
       <section className="space-y-2">
         <p className="text-sm font-semibold text-fg">Your job photos and clips</p>

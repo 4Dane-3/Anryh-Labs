@@ -98,6 +98,14 @@ export const MIN_CAMPAIGN_DAYS = 7;
 export const MIN_CAMPAIGN_DAILY_CENTS = 5000;
 export const MAX_CAMPAIGN_DAILY_CENTS = 100_000;
 export const DAILY_CHOICES = [5000, 7500, 10_000, 15_000, 20_000, 30_000] as const;
+/** Roofers run at least $2,000 a month in ads ($67/day): less than that rarely books enough inspections to judge. */
+export const ROOFER_MIN_MONTHLY_AD_CENTS = 200_000;
+export const ROOFER_MIN_DAILY_CENTS = 6700;
+export const ROOFER_DAILY_CHOICES = [6700, 10_000, 15_000, 20_000, 30_000, 50_000] as const;
+/** The least a campaign can run at a day, for this business. */
+export const minDailyFor = (vertical?: string | null) => (vertical === "roofing" ? ROOFER_MIN_DAILY_CENTS : MIN_CAMPAIGN_DAILY_CENTS);
+/** The daily budgets offered as buttons, for this business. */
+export const dailyChoicesFor = (vertical?: string | null): readonly number[] => (vertical === "roofing" ? ROOFER_DAILY_CHOICES : DAILY_CHOICES);
 
 /**
  * Campaigns are rolling: no end date. They run in 1-week cycles, and the next cycle starts on its own from

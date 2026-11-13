@@ -39,8 +39,11 @@ export const MIN_DEPOSIT_CENTS = 100_000;
 export const MAX_DEPOSIT_CENTS = 1_000_000;
 /** The least a deposit can be once the agent has added funds before (the first one is MIN_DEPOSIT_CENTS). */
 export const MIN_TOP_UP_CENTS = 50_000;
-/** The least the next deposit can be: the first one starts a campaign, so it covers two weeks. */
-export const minDepositFor = (addedBeforeCents: number) => (addedBeforeCents > 0 ? MIN_TOP_UP_CENTS : MIN_DEPOSIT_CENTS);
+/** A roofer's first deposit on the Migz AI plan: a month of ads at the $2,000/month minimum. */
+export const ROOFER_FIRST_DEPOSIT_CENTS = 200_000;
+/** The least the next deposit can be: the first one starts a campaign (two weeks; a roofer's, a month at the minimum). */
+export const minDepositFor = (addedBeforeCents: number, plan: FeePlan = "percent") =>
+  addedBeforeCents > 0 ? MIN_TOP_UP_CENTS : plan === "subscription" ? ROOFER_FIRST_DEPOSIT_CENTS : MIN_DEPOSIT_CENTS;
 /** The one-time setup fee a new agent pays in Start here before anything else (not ad funds: it never touches the balance). */
 export const SETUP_FEE_CENTS = 75_000;
 
