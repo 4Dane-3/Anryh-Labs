@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Reference repos (steal-competitor-ads, google-ads-agent), downloaded for reading only
+/reference/

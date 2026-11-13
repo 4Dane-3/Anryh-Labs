@@ -15,6 +15,7 @@ import { rulesOf } from "@/lib/roofing/fit";
 import { applyRooferDefaults } from "@/lib/roofing/autopilot-defaults";
 import { creativeSetup } from "@/lib/dashboard/creative-setup";
 import { isRoofer } from "@/lib/verticals";
+import { googleSetup } from "@/lib/dashboard/google-setup";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +31,7 @@ const RETURNS: Record<string, { text: string; good: boolean }> = {
 export default async function StartPage({ searchParams }: { searchParams: Promise<{ setup_fee?: string; deposit?: string }> }) {
   const [signedIn, query] = await Promise.all([requireAgent(), searchParams]);
   const agent = await applyRooferDefaults(signedIn);
-  const [state, start, fundsAdded, creative] = await Promise.all([getSetupState(agent), getCampaignStart(agent), getFundsAddedCents(agent.id), isRoofer(agent) ? creativeSetup(agent) : null]);
+  const [state, start, fundsAdded, creative, google] = await Promise.all([getSetupState(agent), getCampaignStart(agent), getFundsAddedCents(agent.id), isRoofer(agent) ? creativeSetup(agent) : null, isRoofer(agent) ? googleSetup(agent) : null]);
   const back = RETURNS[query.setup_fee ? `setup_fee:${query.setup_fee}` : `deposit:${query.deposit}`];
 
   return (
@@ -119,6 +120,7 @@ export default async function StartPage({ searchParams }: { searchParams: Promis
         brand={creative?.brand ?? null}
         presenter={creative?.presenter ?? null}
         context={creative?.context ?? null}
+        google={google}
       />
     </>
   );

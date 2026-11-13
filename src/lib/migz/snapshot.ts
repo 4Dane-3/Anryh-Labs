@@ -3,6 +3,7 @@ import { leadOffer } from "@/lib/roofing/setup-options";
 import { areaLabel, roofingAges } from "@/lib/verticals";
 import { DateTime } from "luxon";
 import { allMedia, type JobMedia } from "@/lib/roofing/job-media";
+import { competitorIntel } from "@/lib/competitors/intel";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
 import { getBalanceCents } from "@/lib/dashboard/queries";
@@ -432,6 +433,7 @@ export async function buildSnapshot(agent: Agent) {
                 }
               : "none yet",
             license: brandFacts?.license || undefined,
+            competitor_research: await competitorIntel(agent.id).catch(() => "none yet"),
             inspections_at_once: agent.crews ?? 1,
             free_inspection_minutes: agent.slot_minutes,
           }

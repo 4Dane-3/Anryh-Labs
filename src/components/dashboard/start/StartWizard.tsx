@@ -24,6 +24,7 @@ import { cleanFocus, TOPICS } from "@/lib/migz/topics";
 import { cn } from "@/lib/utils";
 import { JobRulesForm } from "@/components/dashboard/JobRules";
 import type { JobRules } from "@/lib/roofing/job-rules";
+import { GoogleAdsSetup, type GoogleSetupInitial } from "@/components/dashboard/GoogleAdsSetup";
 import { BookingStep, BusinessStep, MetaStep, MigzModeStep, SlackStep, type Business } from "@/components/dashboard/start/RequirementSteps";
 
 type StepState = { key: string; done: boolean; missing: string | null };
@@ -65,6 +66,7 @@ type Props = {
   brand: BrandInitial | null; // roofers: their special, certifications, warranties and look
   presenter: PresenterInitial | null; // roofers: who's on camera
   context: CreativeContextInitial | null; // roofers: their voice, job photos and clips
+  google: GoogleSetupInitial | null; // roofers: their Google Ads account
 };
 
 const TITLES: Record<string, { title: string; blurb: string }> = {
@@ -93,6 +95,7 @@ const ROOF_TITLES: Record<string, { title: string; blurb: string }> = {
   rules: { title: "Jobs you take", blurb: "What your ads offer (a free inspection or a free quote) and the jobs you want. Your assistant only books the right ones." },
   details: { title: "Your special, certifications and warranties", blurb: "What every video can feature: this campaign's special, the certifications you hold and your warranties." },
   avatar: { title: "Who's on camera (optional)", blurb: "For person-to-camera ads: who appears, their photo and their voice. Skip it for ads with no person." },
+  google: { title: "Google Ads (optional)", blurb: "Search ads for homeowners looking for a roofer right now. Migz builds and runs the campaign in your own Google Ads account." },
   media: { title: "Ad Creative AI Context (optional)", blurb: "Your voice and your real job photos and clips. Migz uses them in every ad: your voice in the videos, your photos in the videos and the image ads." },
 };
 
@@ -390,7 +393,7 @@ export function StartWizard(props: Props) {
   const roof = props.plan.start.vertical === "roofing";
   // Until the first question is answered, it's the only step shown
   const shown = props.verticalChosen ? props.steps : props.steps.filter((s) => s.key === "vertical");
-  const required = (k: string) => k !== "avatar" && k !== "media" && !(roof && k === "slack");
+  const required = (k: string) => k !== "avatar" && k !== "media" && k !== "google" && !(roof && k === "slack");
   const counted = props.steps.filter((s) => required(s.key));
   const doneCount = counted.filter((s) => s.done).length;
   const firstTodo = shown.find((s) => !s.done && required(s.key))?.key ?? null;
@@ -428,6 +431,7 @@ export function StartWizard(props: Props) {
     details: props.brand?.deals[0] ? `Special: ${props.brand.deals[0]}` : "Saved",
     avatar: props.presenter?.mode === "none" ? "No person" : props.presenter?.onCameraName ? `${props.presenter.onCameraName}, ${props.presenter.onCameraRole}` : "Saved",
     media: [props.context?.adVoice.name ? `Voice: ${props.context.adVoice.name}` : props.context?.voice ? "Your voice" : null, `${props.context?.media.length ?? 0} photos and clips`].filter(Boolean).join(" · "),
+    google: props.google?.account ? `${props.google.account.status === "pending" ? "Waiting for you to accept" : "Linked"} · $${(props.google.account.monthlyCapCents / 100).toLocaleString("en-US")}/month` : "",
     funds: `${usd(props.balanceCents, { cents: true })} available`,
     plan: props.plan.batch
       ? `${usd(props.plan.batch.daily_cents, { cents: false })}/day, rolling · ${listCampaignTopics(props.plan.batch.campaigns.map((t) => (t || null) as CampaignSlot))}`
@@ -453,6 +457,7 @@ export function StartWizard(props: Props) {
     details: props.brand && <BrandSetup initial={props.brand} details onSaved={() => advance("details")} />,
     avatar: props.presenter && <PresenterSetup initial={props.presenter} inSetup onSaved={() => advance("avatar")} />,
     media: props.context && <CreativeContext initial={props.context} />,
+    google: props.google && <GoogleAdsSetup initial={props.google} onSaved={() => advance("google")} />,
     slack: <SlackStep current={props.slack.current} inviteUrl={props.slack.inviteUrl} contactEmail={props.contactEmail} onSaved={() => advance("slack")} />,
     plan: <PlanStep plan={props.plan} balanceCents={props.balanceCents} onSaved={() => advance("plan")} />,
     funds: (

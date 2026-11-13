@@ -10,6 +10,8 @@ import { sendAllDueSequenceEmails } from "@/lib/dashboard/followups";
 import { sendInspectionReminders } from "@/lib/roofing/notify";
 import { sendSpecialChecks } from "@/lib/roofing/special-check";
 import { syncSpend } from "@/lib/migz/sync";
+import { runGoogleAdsAll } from "@/lib/google-ads/review";
+import { advanceOpenRuns } from "@/lib/competitors/pipeline";
 
 export const maxDuration = 300;
 
@@ -91,6 +93,21 @@ export async function GET(req: Request) {
     const run = await runMigz(agent, { trigger: "schedule" });
     results[agent.slug] = run.status;
   }
+
+  // Google Ads (roofers who linked an account): link checks, the campaign build, sync, the monthly cap,
+  // conversions back to Google, and a daily review. After the Meta reviews, so it never delays them.
+  const google = await runGoogleAdsAll(deadline + 20_000).catch((e) => {
+    console.error("google ads failed", e);
+    return {};
+  });
+  if (Object.keys(google).length) results.google = google;
+
+  // Competitor research runs in progress (started from /admin/competitors): the next step of each
+  const research = await advanceOpenRuns(deadline + 30_000).catch((e) => {
+    console.error("competitor research failed", e);
+    return {};
+  });
+  if (Object.keys(research).length) results.research = research;
 
   // Between reviews, keep each running batch's spend current on the dashboard (reads Meta, changes nothing)
   const reviewedBefore = new Date(Date.now() - 50 * 60_000).toISOString();

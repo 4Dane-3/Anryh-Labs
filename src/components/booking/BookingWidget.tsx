@@ -32,7 +32,8 @@ export function collectAttribution() {
   const out: Record<string, string> = {};
   const params = new URLSearchParams(window.location.search);
   for (const [key, value] of params) {
-    if (key.startsWith("utm_") || key === "fbclid") out[key] = value;
+    // fbclid for Meta; gclid (or gbraid/wbraid on iPhone) for Google, sent back as conversions
+    if (key.startsWith("utm_") || key === "fbclid" || key === "gclid" || key === "gbraid" || key === "wbraid") out[key] = value;
   }
   for (const cookie of document.cookie.split("; ")) {
     const [name, ...rest] = cookie.split("=");
