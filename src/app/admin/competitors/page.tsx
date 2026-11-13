@@ -16,7 +16,9 @@ export default async function CompetitorsPage({ searchParams }: { searchParams: 
   const sp = await searchParams;
   const { data } = await supabaseAdmin.from("agents").select("*").eq("vertical", "roofing").order("full_name");
   const roofers = (data ?? []) as Agent[];
-  const agent = roofers.find((a) => a.id === sp.agent) ?? roofers[0] ?? null;
+  // With no roofer picked, open on whoever was researched last (not whoever sorts first)
+  const { data: last } = sp.agent ? { data: null } : await supabaseAdmin.from("competitor_runs").select("agent_id").order("created_at", { ascending: false }).limit(1).maybeSingle();
+  const agent = roofers.find((a) => a.id === (sp.agent ?? last?.agent_id)) ?? roofers[0] ?? null;
   const [run, context, google] = agent ? await Promise.all([latestRun(agent.id), getAdContext(agent.id), getGoogleAccount(agent.id)]) : [null, null, null];
   const { error: tableMissing } = await supabaseAdmin.from("competitor_runs").select("id").limit(1);
 
