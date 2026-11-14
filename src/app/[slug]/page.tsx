@@ -17,6 +17,7 @@ import { areaLabel, isRoofer } from "@/lib/verticals";
 import { voiceOnFor } from "@/lib/voice/dial";
 import { withRuleQuestions } from "@/lib/roofing/job-rules";
 import { rulesOf } from "@/lib/roofing/fit";
+import { brandTheme, type BrandLook } from "@/lib/landing/theme";
 
 export const dynamic = "force-dynamic";
 
@@ -103,7 +104,7 @@ export default async function AgentPage({ params, searchParams }: Props) {
     redirect(tags.size ? `${partner}?${tags}` : partner);
   }
 
-  const [{ data: testimonials }, questions, { data: hours }] = await Promise.all([
+  const [{ data: testimonials }, questions, { data: hours }, { data: look }] = await Promise.all([
     supabaseAdmin
       .from("testimonials")
       .select("id, author_name, author_detail, quote, rating")
@@ -112,6 +113,8 @@ export default async function AgentPage({ params, searchParams }: Props) {
       .order("sort"),
     getIntakeQuestions(agent.id),
     supabaseAdmin.from("availability_rules").select("weekday, start_time, end_time").eq("agent_id", agent.id),
+    // A roofer's page wears their look (colours and fonts from their website), the same as their landing pages
+    isRoofer(agent) ? supabaseAdmin.from("agent_brand").select("heading_font, body_font, background, text_color, accent").eq("agent_id", agent.id).maybeSingle() : Promise.resolve({ data: null }),
   ]);
   // "Call now", when the agent turned it on (and, if they chose, only while they're open)
   const call = callButtonShows(agent, hours ?? []) && agent.call_phone ? { phone: agent.call_phone, firstName: agent.full_name.split(" ")[0] } : null;
@@ -132,9 +135,14 @@ export default async function AgentPage({ params, searchParams }: Props) {
   const rated = (testimonials ?? []).filter((t) => t.rating);
   const avgRating = rated.length ? rated.reduce((s, t) => s + (t.rating ?? 0), 0) / rated.length : null;
   const font = pageFont(agent.page_font);
+  const brand = look as BrandLook;
+  const theme = brand ? brandTheme(brand) : null;
+  const themed = theme ? { ...theme.vars, color: theme.ink, ...(brand?.body_font ? { fontFamily: theme.body } : font.style) } : font.style;
+  const headingFont = theme && brand?.heading_font ? { fontFamily: theme.heading } : undefined;
 
   return (
-    <div className={`min-h-screen bg-white text-slate-900 ${font.className}`} style={font.style}>
+    <div className={`min-h-screen bg-white ${theme ? "" : "text-slate-900"} ${brand?.body_font ? "" : font.className}`} style={themed as React.CSSProperties}>
+      {theme?.fontHref && <link rel="stylesheet" href={theme.fontHref} crossOrigin="anonymous" precedence="default" />}
       {/* Booking first: on phones the calendar sits right under who the agent is, before any long text;
           on desktop it's the sticky right column */}
       <main className="mx-auto grid max-w-5xl grid-cols-[minmax(0,1fr)] gap-6 px-4 pb-28 pt-5 sm:px-6 lg:grid-cols-[minmax(0,1fr)_420px] lg:gap-x-14 lg:gap-y-8 lg:pb-16 lg:pt-14">
@@ -154,7 +162,7 @@ export default async function AgentPage({ params, searchParams }: Props) {
               </div>
             )}
             <div className="min-w-0">
-              <h1 className="text-xl font-bold leading-tight sm:text-3xl">{agent.full_name}</h1>
+              <h1 className="text-xl font-bold leading-tight sm:text-3xl" style={headingFont}>{agent.full_name}</h1>
               <p className="text-sm text-slate-500 sm:text-base">{agent.title || (roof ? "Roofing" : DEFAULT_TITLE)}</p>
               {roof && agent.service_area && (
                 <p className="mt-0.5 flex items-center gap-1 text-sm text-slate-600">
