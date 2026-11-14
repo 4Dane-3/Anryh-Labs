@@ -85,6 +85,8 @@ export type Agent = {
   business_email?: string | null; // where leads' replies go (null = email)
   booking_choice?: "ours" | "own" | null; // where their ads send people; null until they choose
   own_booking_url?: string | null; // their own booking page when booking_choice is "own"
+  ad_domain?: string | null; // the address their ads use on their own domain (book.theirroofing.com), served by us
+  ad_domain_ok?: boolean | null; // its DNS points at us and it serves
   meta_ad_account_requested?: string | null; // the ad account they shared with us, until it's linked
   meta_page_requested?: string | null; // the Page they shared with us, until it's linked
   meta_access_requested_at?: string | null;

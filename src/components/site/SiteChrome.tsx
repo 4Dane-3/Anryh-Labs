@@ -29,7 +29,7 @@ export function SiteFooter() {
           anryh labs
         </p>
         <div className="sb-foot__row">
-          <p>© {new Date().getFullYear()} anryh labs. ai meta and google ads automation and booking.</p>
+          <p>© {new Date().getFullYear()} anryh labs. ai ad manager for meta and google ads.</p>
           <nav aria-label="footer">
             <Link href="/pricing" className="sb-link">
               pricing

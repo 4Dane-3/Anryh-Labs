@@ -1,9 +1,36 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { supabaseAdmin } from "@/lib/supabase-admin";
+import { isOurHost } from "@/lib/booking/ad-domain";
+
+// A roofer's ad address (book.theirroofing.com) shows their booking page at its root: host -> slug, cached a minute
+const hostSlugs = new Map<string, { slug: string | null; at: number }>();
+async function slugForHost(host: string) {
+  const hit = hostSlugs.get(host);
+  if (hit && Date.now() - hit.at < 60_000) return hit.slug;
+  const { data } = await supabaseAdmin.from("agents").select("slug").eq("ad_domain", host).maybeSingle();
+  const slug = (data?.slug as string | undefined) ?? null;
+  hostSlugs.set(host, { slug, at: Date.now() });
+  return slug;
+}
 
 // Refreshes the Supabase session cookie on dashboard and admin requests, sends signed-out visitors to
 // /login, and keeps the dashboard read-only while staff are viewing an agent's account.
 export async function proxy(request: NextRequest) {
+  // On a roofer's own ad address, the root is their booking page (and /prepare its follow-up questions)
+  if (request.nextUrl.pathname === "/" || request.nextUrl.pathname === "/prepare") {
+    const host = (request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? "").toLowerCase().replace(/:\d+$/, "");
+    if (!isOurHost(host)) {
+      const slug = await slugForHost(host).catch(() => null);
+      if (slug) {
+        const url = request.nextUrl.clone();
+        url.pathname = request.nextUrl.pathname === "/" ? `/${slug}` : `/${slug}/prepare`;
+        return NextResponse.rewrite(url);
+      }
+    }
+    return NextResponse.next();
+  }
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -56,5 +83,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/api/dashboard/:path*", "/admin/:path*", "/admin", "/login"],
+  matcher: ["/", "/prepare", "/dashboard/:path*", "/api/dashboard/:path*", "/admin/:path*", "/admin", "/login"],
 };

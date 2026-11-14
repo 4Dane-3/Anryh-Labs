@@ -12,6 +12,8 @@ import { GOOGLE_MAX_MONTHLY_CENTS, GOOGLE_MIN_MONTHLY_CENTS } from "@/lib/google
 import { checkAction, type GAction } from "@/lib/google-ads/guardrails";
 import { applyChecked, guardCtxFor, runGoogleAds } from "@/lib/google-ads/review";
 import type { GoogleSnapshot } from "@/lib/google-ads/types";
+import { cleanAdDomain } from "@/lib/booking/ad-domain";
+import { addDomainToVercel, dnsPointsHere, vercelServes } from "@/lib/booking/ad-domain-server";
 
 type Result = { ok: true; message: string; status?: string } | { ok: false; error: string };
 
@@ -28,6 +30,35 @@ function capFrom(dollars: number) {
 function refresh() {
   revalidatePath("/dashboard/start");
   revalidatePath("/dashboard/google");
+}
+
+/** Their ad address on their own domain: saved, added to our hosting, and checked against their DNS. */
+export async function saveAdDomain(input: { domain: string }): Promise<Result> {
+  const agent = await requireAgent();
+  const c = cleanAdDomain(input.domain);
+  if (!c.ok) return { ok: false, error: c.error };
+  const { data: taken } = await supabaseAdmin.from("agents").select("id").eq("ad_domain", c.domain).neq("id", agent.id).maybeSingle();
+  if (taken) return { ok: false, error: "That address is already in use. Try another." };
+  const changed = agent.ad_domain !== c.domain;
+  const { error } = await supabaseAdmin.from("agents").update({ ad_domain: c.domain, ...(changed ? { ad_domain_ok: false } : {}) }).eq("id", agent.id);
+  if (error) return { ok: false, error: /ad_domain/.test(error.message) ? "Ad addresses aren't switched on yet: run migration 20261216000000_client_ad_domain.sql." : "Couldn't save that. Try again." };
+  const added = await addDomainToVercel(c.domain);
+  if (!added.done) await alertAdmin(`${agent.full_name} (${agent.slug}) chose the ad address ${c.domain}: add it to the Vercel project (Settings → Domains).${added.error ? ` Vercel said: ${added.error}` : ""}`);
+  refresh();
+  return checkAdDomain();
+}
+
+/** Whether their ad address now points at us and serves; once it does, their ads use it. */
+export async function checkAdDomain(): Promise<Result> {
+  const agent = await requireAgent();
+  if (!agent.ad_domain) return { ok: false, error: "Choose your ad address first." };
+  const pointing = await dnsPointsHere(agent.ad_domain);
+  const live = pointing && (await vercelServes(agent.ad_domain));
+  if (live !== !!agent.ad_domain_ok) await supabaseAdmin.from("agents").update({ ad_domain_ok: live }).eq("id", agent.id);
+  refresh();
+  return live
+    ? { ok: true, status: "live", message: `${agent.ad_domain} is live. Your ads use it.` }
+    : { ok: true, status: "pending", message: pointing ? "The address points at us, but it isn't serving yet. Give it a minute and check again." : "Not pointing at us yet. DNS changes can take up to an hour; check again after adding the record." };
 }
 
 /** They have a Google Ads account: save it and send our manager account's link request. */

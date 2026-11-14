@@ -245,7 +245,9 @@ export async function runGoogleAds(agent: Agent, opts: { force?: boolean; create
   if (!lock) return { status: "busy" };
   try {
     let built = false;
-    if (!account.campaign_id && account.enabled && account.monthly_cap_cents >= GOOGLE_MIN_MONTHLY_CENTS) {
+    // Ads always send people to the roofer's own domain: no campaign until their ad address points at us
+    const waitingForAddress = !account.campaign_id && account.enabled && !agent.ad_domain_ok;
+    if (!account.campaign_id && account.enabled && !waitingForAddress && account.monthly_cap_cents >= GOOGLE_MIN_MONTHLY_CENTS) {
       const b = await buildCampaign(agent, account);
       built = b.built;
       if (b.built) {

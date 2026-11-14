@@ -26,6 +26,7 @@ export async function publishPaused(runId: string): Promise<{ ok: true; publishe
   const agent = agentRow as Agent;
   const account = await getGoogleAccount(agent.id);
   if (!manageable(account)) return { ok: false, error: "This roofer's Google Ads account isn't linked yet." };
+  if (!agent.ad_domain_ok) return { ok: false, error: "This roofer's ad address (on their own domain) isn't live yet: ads never use our domain." };
   const { headlines, descriptions, path1, path2 } = run.drafts.kept;
   const why = checkAdText(headlines, descriptions, path1, path2);
   if (why) return { ok: false, error: `Google would reject the ad: ${why}` };
