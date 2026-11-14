@@ -10,15 +10,19 @@ import { cn } from "@/lib/utils";
 export type GoogleSetupInitial = {
   account: { customerId: string; status: "pending" | "linked" | "created" | "refused" | "ended"; monthlyCapCents: number; enabled: boolean; inviteEmail: string | null; built: boolean; lastError: string | null } | null;
   adDomain: { domain: string; live: boolean } | null;
+  website: string | null;
+  pages: { name: string; title: string; url: string; preview: string }[];
   avgJobDollars: number | null;
   minMonthly: number;
   recommendedMonthly: number;
 };
 
 /** Where their ads send people: an address on their own domain, served by us. They add one DNS record. */
-function AdAddress({ initial }: { initial: { domain: string; live: boolean } | null }) {
+function AdAddress({ initial, website: savedSite, pages }: { initial: { domain: string; live: boolean } | null; website: string | null; pages: GoogleSetupInitial["pages"] }) {
   const router = useRouter();
-  const [domain, setDomain] = useState(initial?.domain ?? "");
+  const [website, setWebsite] = useState(savedSite ?? "");
+  const root = website.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/[/?#].*$/, "");
+  const [domain, setDomain] = useState(initial?.domain ?? (root ? `book.${root}` : ""));
   const [pending, start] = useTransition();
   const [result, setResult] = useState<{ good: boolean; text: string } | null>(null);
   const saved = initial?.domain === domain.trim().toLowerCase().replace(/^https?:\/\//, "");
@@ -31,11 +35,28 @@ function AdAddress({ initial }: { initial: { domain: string; live: boolean } | n
     });
   const host = (initial?.domain ?? "book.yourroofing.com").split(".")[0];
   return (
+    <div className="space-y-4">
+      <div>
+        <Label htmlFor="g-site">Your website</Label>
+        <input
+          id="g-site"
+          className={cn(inputClass, "max-w-[320px]")}
+          placeholder="yourroofing.com"
+          value={website}
+          onChange={(e) => {
+            const next = e.target.value;
+            const r = next.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/[/?#].*$/, "");
+            if (!initial && (!domain || domain === `book.${root}`)) setDomain(r ? `book.${r}` : "");
+            setWebsite(next);
+          }}
+        />
+        <p className="mt-1 text-[12px] text-fg-muted">Your landing pages are built in your website&apos;s fonts and colours, and live on its domain.</p>
+      </div>
     <div>
       <Label htmlFor="g-domain">Your ad address (on your own website&apos;s domain)</Label>
       <div className="flex flex-wrap items-center gap-2">
         <input id="g-domain" className={cn(inputClass, "max-w-[320px]")} placeholder="book.yourroofing.com" value={domain} onChange={(e) => setDomain(e.target.value)} />
-        <Button disabled={pending || !domain.trim()} onClick={() => run(() => saveAdDomain({ domain }))}>
+        <Button disabled={pending || !domain.trim() || !website.trim()} onClick={() => run(() => saveAdDomain({ domain, website }))}>
           {pending && <Loader2 className="animate-spin" />}
           {initial ? "Save" : "Set up"}
         </Button>
@@ -61,6 +82,24 @@ function AdAddress({ initial }: { initial: { domain: string; live: boolean } | n
       )}
       {initial?.live && <p className="mt-2 text-[12px] text-good">Live: your ads use {initial.domain}.</p>}
       {result && <p className={cn("mt-2 text-[13px]", result.good ? "text-good" : "text-brand")}>{result.text}</p>}
+    </div>
+      {pages.length > 0 && (
+        <div>
+          <Label>Your landing pages, one for each ad group</Label>
+          <ul className="mt-1 space-y-1.5 text-[13px]">
+            {pages.map((p) => (
+              <li key={p.name} className="flex flex-wrap items-baseline gap-x-2">
+                <span className="text-fg">{p.title}</span>
+                <span className="text-fg-muted">·</span>
+                <a href={p.preview} target="_blank" rel="noreferrer" className="text-fg-muted underline underline-offset-2 hover:text-fg">
+                  {initial?.live ? p.url.replace(/^https:\/\//, "") : "preview"}
+                </a>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1 text-[12px] text-fg-muted">Each Google ad goes to the page for its job, with the same headline as the ad.</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -115,7 +154,7 @@ export function GoogleAdsSetup({ initial, onSaved }: { initial: GoogleSetupIniti
           {acct.status === "created" && " Make sure you accepted Google's invitation and added your card under Billing in Google Ads."}
         </p>
         {acct.lastError && <p className="text-[13px] text-brand">Last run: {acct.lastError}</p>}
-        <AdAddress initial={initial.adDomain} />
+        <AdAddress initial={initial.adDomain} website={initial.website} pages={initial.pages} />
         {budgetField}
         <div>
           <Label htmlFor="g-avg">Your average job (optional)</Label>
@@ -164,7 +203,7 @@ export function GoogleAdsSetup({ initial, onSaved }: { initial: GoogleSetupIniti
         </div>
       )}
       {budgetField}
-      <AdAddress initial={initial.adDomain} />
+      <AdAddress initial={initial.adDomain} website={initial.website} pages={initial.pages} />
       {acct?.status === "pending" && (
         <p className="text-[13px] text-fg-muted">
           Request sent to <span className="font-mono text-fg">{fmtId(acct.customerId)}</span>. In Google Ads open Admin → Access and security → Managers and accept Anryh Labs.

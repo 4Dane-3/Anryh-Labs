@@ -188,6 +188,18 @@ function sharedHeadlines(input: { company: string; special: string | null; warra
   ].filter((h): h is string => !!h && h.length <= HEADLINE_MAX);
 }
 
+/** A description within Google's 90 characters: whole sentences dropped from the end first, so it never stops mid-sentence. */
+export function fitDescription(d: string) {
+  if (d.length <= DESCRIPTION_MAX) return d;
+  const sentences = d.match(/[^.!?]+[.!?]+/g) ?? [];
+  let out = "";
+  for (const s of sentences) {
+    if ((out + s).trim().length > DESCRIPTION_MAX) break;
+    out += s;
+  }
+  return out.trim() || d.slice(0, DESCRIPTION_MAX).replace(/\s+\S*$/, ".");
+}
+
 function descriptions(input: { company: string; offer: "inspection" | "quote"; special: string | null; warranty: string | null; city: string | null }, lead: string): string[] {
   const offer = input.offer === "quote" ? "free quote" : "free roof inspection";
   return [
@@ -195,7 +207,7 @@ function descriptions(input: { company: string; offer: "inspection" | "quote"; s
     `${input.company}: licensed, insured and local${input.city ? ` to ${input.city}` : ""}. Pick a time that suits you.`,
     input.special ? `${input.special}. Ask about it at your ${offer}.` : `No pressure: we show you photos of what we find and give you an honest price.`,
     input.warranty ? `Backed by the ${input.warranty}. Book your ${offer} today.` : `Book your ${offer} today and get a clear, written price.`,
-  ].map((d) => (d.length <= DESCRIPTION_MAX ? d : d.slice(0, DESCRIPTION_MAX).replace(/\s+\S*$/, ".")));
+  ].map(fitDescription);
 }
 
 /** Callouts under the ad (25 characters each). */

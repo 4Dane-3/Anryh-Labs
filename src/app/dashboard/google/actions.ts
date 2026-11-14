@@ -14,6 +14,8 @@ import { applyChecked, guardCtxFor, runGoogleAds } from "@/lib/google-ads/review
 import type { GoogleSnapshot } from "@/lib/google-ads/types";
 import { cleanAdDomain } from "@/lib/booking/ad-domain";
 import { addDomainToVercel, dnsPointsHere, vercelServes } from "@/lib/booking/ad-domain-server";
+import { rootDomainOf } from "@/lib/landing/groups";
+import { scanBrandSite } from "@/lib/edit/brand-scan";
 
 type Result = { ok: true; message: string; status?: string } | { ok: false; error: string };
 
@@ -33,10 +35,26 @@ function refresh() {
 }
 
 /** Their ad address on their own domain: saved, added to our hosting, and checked against their DNS. */
-export async function saveAdDomain(input: { domain: string }): Promise<Result> {
+export async function saveAdDomain(input: { domain: string; website?: string }): Promise<Result> {
   const agent = await requireAgent();
+  // Their website is what the landing pages are built from (its look) and the domain the ad address sits on
+  const { data: brand } = await supabaseAdmin.from("agent_brand").select("website, scanned_at").eq("agent_id", agent.id).maybeSingle();
+  const website = (input.website?.trim() || brand?.website || "").slice(0, 200);
+  const root = rootDomainOf(website);
+  if (!root) return { ok: false, error: "Enter your website (like yourroofing.com) first: your landing pages are built from it." };
   const c = cleanAdDomain(input.domain);
   if (!c.ok) return { ok: false, error: c.error };
+  if (!c.domain.endsWith(`.${root}`)) return { ok: false, error: `Use an address on your website's domain, like book.${root}.` };
+  if (website !== brand?.website || !brand?.scanned_at) {
+    // Read their look (fonts and colours) the first time, so the pages match their site; they can change it under your brand
+    const look = await scanBrandSite(website).catch(() => null);
+    await supabaseAdmin.from("agent_brand").upsert({
+      agent_id: agent.id,
+      website,
+      ...(look && !brand?.scanned_at ? { heading_font: look.headingFont, body_font: look.bodyFont, background: look.background, text_color: look.text, accent: look.accent, font_note: look.note, scanned_at: new Date().toISOString() } : {}),
+      updated_at: new Date().toISOString(),
+    });
+  }
   const { data: taken } = await supabaseAdmin.from("agents").select("id").eq("ad_domain", c.domain).neq("id", agent.id).maybeSingle();
   if (taken) return { ok: false, error: "That address is already in use. Try another." };
   const changed = agent.ad_domain !== c.domain;

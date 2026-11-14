@@ -2,6 +2,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
 import { adLinkFor } from "@/lib/booking/sites";
+import { landingPageUrl } from "@/lib/landing/groups";
 import { cleanRules } from "@/lib/roofing/job-rules";
 import { createdNames, microsOf, mutate, request, validateOnly, type MutateOperation } from "@/lib/google-ads/api";
 import { saveGoogleAccount, type GoogleAccount } from "@/lib/google-ads/account";
@@ -18,6 +19,19 @@ import { radiusMiles } from "@/lib/verticals";
 export const ENGLISH = "languageConstants/1000";
 
 type Brand = { deals?: string[]; certifications?: string[]; warranties?: string[] } | null;
+
+/** The facts the ad groups (and their landing pages) are written from. */
+export function planFacts(agent: Pick<Agent, "full_name" | "service_area" | "lead_goal" | "job_rules">, brand: Brand) {
+  return {
+    company: agent.full_name?.trim() || "Local Roofing",
+    city: cityOf(agent.service_area),
+    rules: cleanRules(agent.job_rules),
+    offer: agent.lead_goal === "quote" ? "quote" : "inspection",
+    special: brand?.deals?.find(Boolean) ?? null,
+    warranty: brand?.warranties?.find(Boolean) ?? null,
+    certification: brand?.certifications?.find(Boolean) ?? null,
+  } as const;
+}
 
 async function brandOf(agentId: string): Promise<Brand> {
   const { data } = await supabaseAdmin.from("agent_brand").select("deals, certifications, warranties").eq("agent_id", agentId).maybeSingle();
@@ -59,6 +73,8 @@ export function campaignOperations(input: {
   monthlyCapCents: number;
   callConversion: string | null;
   landingUrl: string;
+  /** Each ad group's own landing page by its key (falls back to landingUrl). */
+  landingFor?: (groupKey: string) => string;
   /** PAUSED builds it without spending (the competitor-beating ad goes in paused for a person to review). */
   status?: "ENABLED" | "PAUSED";
   name?: string;
@@ -69,11 +85,8 @@ export function campaignOperations(input: {
   const res = (kind: string, id: number) => `customers/${cid}/${kind}/${id}`;
   const budget = res("campaignBudgets", -1);
   const campaign = res("campaigns", -2);
-  const rules = cleanRules(agent.job_rules);
-  const company = agent.full_name?.trim() || "Local Roofing";
-  const city = cityOf(agent.service_area);
-  const offer = agent.lead_goal === "quote" ? "quote" : "inspection";
-  const facts = { company, city, rules, offer, special: brand?.deals?.find(Boolean) ?? null, warranty: brand?.warranties?.find(Boolean) ?? null, certification: brand?.certifications?.find(Boolean) ?? null } as const;
+  const facts = planFacts(agent, brand);
+  const { company, rules, offer } = facts;
   const groups = adGroupPlans(facts);
   const address = proximityAddress(agent.service_area ?? "", agent.licensed_states?.[0]);
   if (!address) throw new Error("Add your service area (a ZIP, city or address) so Google knows where to show your ads.");
@@ -112,7 +125,7 @@ export function campaignOperations(input: {
         create: {
           adGroup,
           status: "ENABLED",
-          ad: { finalUrls: [input.landingUrl], responsiveSearchAd: { headlines: ad.headlines.map((text) => ({ text })), descriptions: ad.descriptions.map((text) => ({ text })), path1: ad.path1 || undefined, path2: ad.path2 || undefined } },
+          ad: { finalUrls: [input.landingFor?.(g.key) ?? input.landingUrl], responsiveSearchAd: { headlines: ad.headlines.map((text) => ({ text })), descriptions: ad.descriptions.map((text) => ({ text })), path1: ad.path1 || undefined, path2: ad.path2 || undefined } },
         },
       },
     });
@@ -139,7 +152,7 @@ export async function buildCampaign(agent: Agent, account: GoogleAccount) {
   if (account.campaign_id) return { built: false as const, campaignId: account.campaign_id };
   await enableAutoTagging(account.customer_id);
   const conversions = await ensureConversions(agent, account);
-  const { ops, groups } = campaignOperations({ customerId: account.customer_id, agent, brand: await brandOf(agent.id), monthlyCapCents: account.monthly_cap_cents, callConversion: conversions.call ?? null, landingUrl: adLinkFor(agent, process.env.APP_URL) });
+  const { ops, groups } = campaignOperations({ customerId: account.customer_id, agent, brand: await brandOf(agent.id), monthlyCapCents: account.monthly_cap_cents, callConversion: conversions.call ?? null, landingUrl: adLinkFor(agent, process.env.APP_URL), landingFor: (key) => landingPageUrl(agent, key) });
   const names = createdNames(await mutate(account.customer_id, ops));
   if (validateOnly()) return { built: false as const, campaignId: null, validated: true, groups: groups.length };
   const campaignId = idOf(names[1] ?? "");

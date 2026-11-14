@@ -2,6 +2,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
 import { adLinkFor } from "@/lib/booking/sites";
+import { groupKeyFromName, landingPageUrl } from "@/lib/landing/groups";
 import { createdNames, googleAdsReady, mutate, validateOnly } from "@/lib/google-ads/api";
 import { getGoogleAccount, manageable, saveGoogleAccount } from "@/lib/google-ads/account";
 import { campaignOperations, ensureConversions } from "@/lib/google-ads/build";
@@ -40,7 +41,7 @@ export async function publishPaused(runId: string): Promise<{ ok: true; publishe
     const conversions = await ensureConversions(agent, account!);
     const { data: brand } = await supabaseAdmin.from("agent_brand").select("deals, certifications, warranties").eq("agent_id", agent.id).maybeSingle();
     campaignName = `Migz | ${agent.full_name.slice(0, 50)} | Search`;
-    const { ops } = campaignOperations({ customerId: cid, agent, brand: brand as never, monthlyCapCents: account!.monthly_cap_cents, callConversion: conversions.call ?? null, landingUrl, status: "PAUSED", name: campaignName, rsa });
+    const { ops } = campaignOperations({ customerId: cid, agent, brand: brand as never, monthlyCapCents: account!.monthly_cap_cents, callConversion: conversions.call ?? null, landingUrl, landingFor: (key) => landingPageUrl(agent, key), status: "PAUSED", name: campaignName, rsa });
     const names = createdNames(await mutate(cid, ops));
     campaignId = idOf(names[1] ?? "") || null;
     if (!validateOnly() && campaignId) await saveGoogleAccount(agent.id, { campaign_id: campaignId, budget_resource: names[0] || null, launched_at: new Date().toISOString() });
@@ -53,7 +54,7 @@ export async function publishPaused(runId: string): Promise<{ ok: true; publishe
       cid,
       groups.map((g) => ({
         adGroupAdOperation: {
-          create: { adGroup: `customers/${cid}/adGroups/${g.id}`, status: "PAUSED", ad: { finalUrls: [landingUrl], responsiveSearchAd: { headlines: headlines.map((text) => ({ text })), descriptions: descriptions.map((text) => ({ text })), path1, path2 } } },
+          create: { adGroup: `customers/${cid}/adGroups/${g.id}`, status: "PAUSED", ad: { finalUrls: [landingPageUrl(agent, groupKeyFromName(g.name))], responsiveSearchAd: { headlines: headlines.map((text) => ({ text })), descriptions: descriptions.map((text) => ({ text })), path1, path2 } } },
         },
       })),
     );

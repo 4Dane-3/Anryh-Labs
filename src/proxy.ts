@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { isOurHost } from "@/lib/booking/ad-domain";
+import { LANDING_PATHS } from "@/lib/landing/groups";
 
 // A roofer's ad address (book.theirroofing.com) shows their booking page at its root: host -> slug, cached a minute
 const hostSlugs = new Map<string, { slug: string | null; at: number }>();
@@ -17,14 +18,17 @@ async function slugForHost(host: string) {
 // Refreshes the Supabase session cookie on dashboard and admin requests, sends signed-out visitors to
 // /login, and keeps the dashboard read-only while staff are viewing an agent's account.
 export async function proxy(request: NextRequest) {
-  // On a roofer's own ad address, the root is their booking page (and /prepare its follow-up questions)
-  if (request.nextUrl.pathname === "/" || request.nextUrl.pathname === "/prepare") {
+  // On a roofer's own ad address, the root is their booking page, /prepare its follow-up questions, and
+  // /roof-replacement (and the other ad groups) each ad group's landing page
+  const path = request.nextUrl.pathname;
+  const landing = LANDING_PATHS.includes(path.slice(1));
+  if (path === "/" || path === "/prepare" || landing) {
     const host = (request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? "").toLowerCase().replace(/:\d+$/, "");
     if (!isOurHost(host)) {
       const slug = await slugForHost(host).catch(() => null);
       if (slug) {
         const url = request.nextUrl.clone();
-        url.pathname = request.nextUrl.pathname === "/" ? `/${slug}` : `/${slug}/prepare`;
+        url.pathname = path === "/" ? `/${slug}` : landing ? `/${slug}/p${path}` : `/${slug}/prepare`;
         return NextResponse.rewrite(url);
       }
     }
@@ -83,5 +87,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/", "/prepare", "/dashboard/:path*", "/api/dashboard/:path*", "/admin/:path*", "/admin", "/login"],
+  matcher: ["/", "/prepare", "/roof-replacement", "/roof-repair", "/storm-damage", "/roof-inspection", "/gutters", "/siding", "/dashboard/:path*", "/api/dashboard/:path*", "/admin/:path*", "/admin", "/login"],
 };

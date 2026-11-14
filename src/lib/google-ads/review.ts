@@ -3,6 +3,7 @@ import type { BetaMessageParam, BetaToolResultBlockParam, BetaToolUseBlock } fro
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
 import { adLinkFor } from "@/lib/booking/sites";
+import { groupKeyFromName, landingPageUrl } from "@/lib/landing/groups";
 import { areaLabel } from "@/lib/verticals";
 import { cleanRules, describeRules } from "@/lib/roofing/job-rules";
 import { emit } from "@/lib/migz/events";
@@ -58,7 +59,17 @@ export const guardCtxFor = (account: GoogleAccount, snapshot: GoogleSnapshot): G
   lastBiddingChangeAt: account.last_bidding_change_at,
 });
 
-const targetFor = (agent: Agent, account: GoogleAccount): ExecTarget => ({ customerId: account.customer_id, campaignId: account.campaign_id ?? "", budgetResource: account.budget_resource, landingUrl: adLinkFor(agent, process.env.APP_URL) });
+// A new ad goes to its ad group's landing page (found by the group's name), else the booking page
+const targetFor = (agent: Agent, account: GoogleAccount): ExecTarget => {
+  const groups = ((account.snapshot as GoogleSnapshot | null)?.adGroups ?? []) as { id: string; name: string }[];
+  return {
+    customerId: account.customer_id,
+    campaignId: account.campaign_id ?? "",
+    budgetResource: account.budget_resource,
+    landingUrl: adLinkFor(agent, process.env.APP_URL),
+    landingFor: (adGroupId) => landingPageUrl(agent, groupKeyFromName(groups.find((g) => g.id === adGroupId)?.name ?? "")),
+  };
+};
 
 async function logAction(agentId: string, row: { tool: string; payload: unknown; title: string; reason: string; status: string; result?: unknown }) {
   const { data } = await supabaseAdmin.from("google_ads_actions").insert({ agent_id: agentId, ...row, decided_at: row.status === "proposed" ? null : new Date().toISOString() }).select("id").single();

@@ -5,7 +5,7 @@ import { cleanKeyword, type GAction } from "@/lib/google-ads/guardrails";
 // Applies a checked Google Ads change. Every change goes through mutate, so validate-only mode (test mode) has
 // Google check it without changing anything.
 
-export type ExecTarget = { customerId: string; campaignId: string; budgetResource: string | null; landingUrl: string };
+export type ExecTarget = { customerId: string; campaignId: string; budgetResource: string | null; landingUrl: string; landingFor?: (adGroupId: string) => string };
 
 export function operationsFor(a: GAction, t: ExecTarget): MutateOperation[] {
   const cid = t.customerId;
@@ -26,7 +26,7 @@ export function operationsFor(a: GAction, t: ExecTarget): MutateOperation[] {
             create: {
               adGroup: adGroup(a.ad_group_id),
               status: "ENABLED",
-              ad: { finalUrls: [t.landingUrl], responsiveSearchAd: { headlines: a.headlines.map((text) => ({ text: text.trim() })), descriptions: a.descriptions.map((text) => ({ text: text.trim() })), path1: a.path1 || undefined, path2: a.path2 || undefined } },
+              ad: { finalUrls: [t.landingFor?.(a.ad_group_id) ?? t.landingUrl], responsiveSearchAd: { headlines: a.headlines.map((text) => ({ text: text.trim() })), descriptions: a.descriptions.map((text) => ({ text: text.trim() })), path1: a.path1 || undefined, path2: a.path2 || undefined } },
             },
           },
         },
