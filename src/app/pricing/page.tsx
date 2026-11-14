@@ -9,7 +9,7 @@ import { PRICING_FAQS } from "@/lib/seo/faqs";
 import { absoluteUrl, pageMeta } from "@/lib/site";
 
 export const metadata: Metadata = pageMeta({
-  title: "pricing · anryh labs · ai meta ads automation and booking",
+  title: "pricing · anryh labs · ai meta and google ads automation and booking",
   description:
     "anryh labs pricing: roofing companies pay $1,000 a month for migz ai with no setup fee, plus at least $2,000 in meta ad spend the first month. life insurance agents pay a one-time $750 setup fee, no monthly fee, then 20% down to 12% of the ad funds they add.",
   path: "/pricing",

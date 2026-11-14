@@ -6,7 +6,7 @@ import { Activity, ArrowUpRight, Clapperboard, MapPin, MessageSquare, PauseCircl
 import { DEMO_MAILTO } from "@/lib/contact";
 
 const FEATURES = [
-  { icon: Activity, text: "reads your meta numbers all day" },
+  { icon: Activity, text: "reads your meta and google numbers all day" },
   { icon: Shuffle, text: "moves budget to what gets booked" },
   { icon: PauseCircle, text: "pauses ads that aren’t working" },
   { icon: Clapperboard, text: "makes new images and videos" },
@@ -90,12 +90,12 @@ export function GlassHero() {
       <div className="gh-main">
         <div className="gh-copy">
           <h1 className="gh-h1" id="gh-title">
-            <span>ai meta ads automation</span>
+            <span>ai meta and google ads automation</span>
             <span>and booking</span>
           </h1>
           <p className="gh-lead">
-            migz ai runs your whole meta campaign automatically. it reads the analytics all day, works out what is holding
-            results back, and fixes it: budget, placements, creative and copy.
+            migz ai runs your whole meta campaign automatically, and for roofers a google search campaign too. it reads the analytics
+            all day, works out what is holding results back, and fixes it: budget, placements, creative and copy.
           </p>
         </div>
         <div className="gh-actions">
