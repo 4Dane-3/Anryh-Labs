@@ -2,6 +2,8 @@
 // agents). Booking, quotes and page analytics come from these origins cross-site, and a booking made there
 // is reported to Meta with that page's URL.
 
+import { adDomainUrl } from "@/lib/booking/ad-domain";
+
 export const PARTNER_SITES = ["foreignfinancial.org", "www.foreignfinancial.org"];
 
 /** The page a booking or quote was made on, when it's one of the partner sites; otherwise null. */
@@ -67,6 +69,9 @@ export function landingUrl(slug: string, appUrl = process.env.APP_URL || "http:/
  * The link on the agent's ads: their own booking page when they chose to use it in Start here (no booking
  * tracking there: no booking events to Meta, no booking numbers for Migz), else landingUrl.
  */
-export function adLinkFor(agent: { slug: string; booking_choice?: string | null; own_booking_url?: string | null }, appUrl?: string) {
-  return agent.booking_choice === "own" && agent.own_booking_url ? agent.own_booking_url : landingUrl(agent.slug, appUrl);
+export function adLinkFor(agent: { slug: string; booking_choice?: string | null; own_booking_url?: string | null; ad_domain?: string | null; ad_domain_ok?: boolean | null }, appUrl?: string) {
+  if (agent.booking_choice === "own" && agent.own_booking_url) return agent.own_booking_url;
+  // Their ad address on their own domain, once it points at us: ads never show ours
+  if (agent.ad_domain && agent.ad_domain_ok) return adDomainUrl(agent.ad_domain);
+  return landingUrl(agent.slug, appUrl);
 }

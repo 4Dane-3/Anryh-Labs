@@ -6,9 +6,9 @@ import { SITE_NAME, SITE_URL } from "@/lib/site";
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   openGraph: { siteName: SITE_NAME, type: "website", locale: "en_US" },
-  title: "anryh labs · ai meta and google ads automation and booking",
+  title: "anryh labs · ai ad manager for meta and google ads",
   description:
-    "migz ai, the media buyer from anryh labs, runs your whole meta campaign, and google search ads for roofing companies, for roofing companies and life insurance agents: it reads the analytics and fixes what holds results back so more homeowners book a roof inspection and more prospects book a call. invite only.",
+    "migz ai, the media buyer from anryh labs, runs your whole meta campaign for roofing companies and life insurance agents, plus google search ads for roofers: it reads the analytics and fixes what holds results back so more homeowners book a roof inspection and more prospects book a call. invite only.",
 };
 
 export default function RootLayout({

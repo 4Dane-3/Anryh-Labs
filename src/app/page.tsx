@@ -62,7 +62,7 @@ export default function Home() {
             logo: absoluteUrl("/anryh-labs-logo.png"),
             email: "anryhlabs@gmail.com",
             description:
-              "anryh labs makes migz ai, an ai media buyer that runs meta (facebook and instagram) ads and, for roofing companies, google search ads, for roofing companies and independent life insurance agents.",
+              "anryh labs makes migz ai, an ai ad manager that runs meta (facebook and instagram) ads for roofing companies and independent life insurance agents, plus google search ads for roofers.",
           },
           { "@context": "https://schema.org", "@type": "WebSite", name: "anryh labs", url: absoluteUrl() },
           faqLd(HOME_FAQS),

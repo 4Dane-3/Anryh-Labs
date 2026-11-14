@@ -90,8 +90,8 @@ export function GlassHero() {
       <div className="gh-main">
         <div className="gh-copy">
           <h1 className="gh-h1" id="gh-title">
-            <span>ai meta and google ads automation</span>
-            <span>and booking</span>
+            <span>ai ad manager</span>
+            <span>for meta and google ads</span>
           </h1>
           <p className="gh-lead">
             migz ai runs your whole meta campaign automatically, and for roofers a google search campaign too. it reads the analytics

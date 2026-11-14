@@ -11,6 +11,7 @@ export async function googleSetup(agent: Agent): Promise<GoogleSetupInitial> {
     account: a
       ? { customerId: a.customer_id, status: a.link_status, monthlyCapCents: a.monthly_cap_cents, enabled: a.enabled, inviteEmail: a.invite_email, built: !!a.campaign_id, lastError: a.last_error }
       : null,
+    adDomain: agent.ad_domain ? { domain: agent.ad_domain, live: !!agent.ad_domain_ok } : null,
     avgJobDollars: agent.avg_job_dollars ?? null,
     minMonthly: GOOGLE_MIN_MONTHLY_CENTS / 100,
     recommendedMonthly: GOOGLE_RECOMMENDED_MONTHLY_CENTS / 100,

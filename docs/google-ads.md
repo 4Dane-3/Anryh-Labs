@@ -25,6 +25,11 @@ Until all of the keys above are set, the setup step still saves the roofer's acc
 - **They don't have one:** they enter the Google email that should own it.
   - We create the account under our manager account, and Google emails them an invitation as admin.
   - They accept it and add their card under Billing.
+- **Ad address:** the ads always send people to an address on the roofer's own domain (like `book.theirroofing.com`), never ours. They add one DNS record (CNAME to `cname.vercel-dns.com`); we serve their booking page on that host and their main website is untouched.
+  - It's saved on the agent (`ad_domain`) and added to our Vercel project through the API when `VERCEL_API_TOKEN` and `VERCEL_PROJECT_ID` (and `VERCEL_TEAM_ID` for a team) are set; otherwise staff get a Slack alert to add it under Settings → Domains.
+  - Migz checks the DNS from the setup step's Check again button. Once it points at us and serves, `ad_domain_ok` turns on and every ad link uses it.
+  - No Google campaign is built, and no research campaign is published, until the address is live.
+  - Migration `20261216000000_client_ad_domain.sql`.
 - **Monthly budget:** at least $1,000, $1,500 recommended. Roofing clicks often cost $15 to $50+. The budget is a hard cap that Migz never budgets past, and it's separate from their Meta ad funds.
 - **Dashboard → Google Ads** shows the last 30 days and the changes waiting for approval. It's also where they change the cap, switch Google off, set their average job value, and see everything Migz changed.
 
