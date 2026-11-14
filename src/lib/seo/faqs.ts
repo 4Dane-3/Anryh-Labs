@@ -7,7 +7,7 @@ import { INSURANCE_TYPES, type Faq } from "@/lib/seo/insurance-types";
 export const HOME_FAQS: Faq[] = [
   {
     q: "what is anryh labs?",
-    a: "anryh labs makes migz ai, an ai media buyer for roofing companies and independent life insurance agents. it runs your whole meta (facebook and instagram) ad campaign: it makes the ads, reads the results through the day and fixes what holds back booked roof inspections, leads and booked calls. it is invite only.",
+    a: "anryh labs makes migz ai, an ai media buyer for roofing companies and independent life insurance agents. it runs your whole meta (facebook and instagram) ad campaign, and for roofing companies a google search campaign too: it makes the ads, reads the results through the day and fixes what holds back booked roof inspections, leads and booked calls. it is invite only.",
   },
   {
     q: "what does migz ai do for a life insurance agent?",
@@ -15,7 +15,7 @@ export const HOME_FAQS: Faq[] = [
   },
   {
     q: "what does migz ai do for a roofing company?",
-    a: "it runs meta ads for free roof inspections to homeowners within the radius you pick around your service area. homeowners book a time on your booking page, which asks for the address, whether they own the home, the roof issue and the roof's age. you get an email for each inspection with a postcard and door hanger for that street, a reminder the morning of, and the booking can go straight to your crm. its ads never promise a free roof or to cover an insurance deductible. roofing companies pay $1,000 a month for migz ai, with no setup fee, and need at least $2,000 in meta ad spend for the first month.",
+    a: "it runs meta ads, and optionally google search ads in the roofer's own google ads account, for free roof inspections to homeowners within the radius you pick around your service area. homeowners book a time on your booking page, which asks for the address, whether they own the home, the roof issue and the roof's age. you get an email for each inspection with a postcard and door hanger for that street, a reminder the morning of, and the booking can go straight to your crm. its ads never promise a free roof or to cover an insurance deductible. roofing companies pay $1,000 a month for migz ai, with no setup fee, and need at least $2,000 in meta ad spend for the first month.",
   },
   {
     q: "which types of life insurance can it advertise?",
@@ -35,7 +35,7 @@ export const HOME_FAQS: Faq[] = [
   },
   {
     q: "whose ad account is it, and who owns the leads?",
-    a: "yours. the ads run in your own meta ad account, you can remove migz ai's access in your facebook settings at any time, and every lead lands in your dashboard and your slack.",
+    a: "yours. the ads run in your own meta ad account (and your own google ads account, for roofers who add google), you can remove migz ai's access in your facebook or google settings at any time, and every lead lands in your dashboard and your slack.",
   },
   {
     q: "who is it for?",

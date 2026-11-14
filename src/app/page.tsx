@@ -22,16 +22,17 @@ const VERTICALS = [
   {
     name: "roofing companies",
     goal: "booked free roof inspections",
-    lead: "ads reach homeowners around your service area and book them straight into your crews’ calendar.",
+    lead: "meta ads and google search ads reach homeowners around your service area and book them straight into your crews’ calendar.",
     points: [
       "radius targeting: homeowners within 15 to 50 miles of you",
+      "google search ads in your own google ads account, for homeowners searching for a roofer right now",
       "booking page asks the address, homeowner, roof issue and roof age",
       "books two inspections at once if you run two crews",
       "an email per inspection with a postcard and door hanger for that street",
       "a reminder the morning of, and each booking sent to your crm",
       "ads never promise a free roof or to cover a deductible",
     ],
-    start: ["$1,000/month for migz ai, no setup fee", "at least $2,000 in meta ad spend for the first month, all of it to your ads"],
+    start: ["$1,000/month for migz ai, no setup fee", "at least $2,000 in meta ad spend for the first month, all of it to your ads", "google search ads are optional, with their own budget (at least $1,000 a month) that you pay to google"],
   },
   {
     name: "life insurance agents",
@@ -61,7 +62,7 @@ export default function Home() {
             logo: absoluteUrl("/anryh-labs-logo.png"),
             email: "anryhlabs@gmail.com",
             description:
-              "anryh labs makes migz ai, an ai media buyer that runs meta (facebook and instagram) ads for roofing companies and independent life insurance agents.",
+              "anryh labs makes migz ai, an ai media buyer that runs meta (facebook and instagram) ads and, for roofing companies, google search ads, for roofing companies and independent life insurance agents.",
           },
           { "@context": "https://schema.org", "@type": "WebSite", name: "anryh labs", url: absoluteUrl() },
           faqLd(HOME_FAQS),
@@ -78,14 +79,15 @@ export default function Home() {
             </h2>
             <p className="cx-answer">
               migz ai is an ai media buyer for <b>roofing companies</b> and <b>independent life insurance agents</b>, made by
-              anryh labs. it runs your whole meta (facebook and instagram) ad campaign: it makes the ads, sends people to your
-              booking page, tells you the moment someone books, and reads the numbers every day to fix what holds results back.
+              anryh labs. it runs your whole meta (facebook and instagram) ad campaign, and for roofing companies a google search campaign too: it makes
+              the ads, sends people to your booking page, tells you the moment someone books, and reads the numbers every day to fix what
+              holds results back.
             </p>
           </section>
 
           <section className="sb-sec" id="who" aria-labelledby="who-h">
             <h2 className="sb-h2" id="who-h" data-reveal>
-              who we run meta ads for.
+              who we run ads for.
             </h2>
             <ul className="cx-verts">
               {VERTICALS.map((v) => (
@@ -198,7 +200,7 @@ export default function Home() {
             </h2>
             <p className="sb-note" style={{ marginBottom: 12 }}>
               <b>roofing companies:</b> $1,000 a month for migz ai with no setup fee, and at least $2,000 in meta ad spend for the first
-              month.
+              month. google search ads are optional and run in your own google ads account with their own budget, paid to google.
             </p>
             <p className="sb-note" style={{ marginBottom: 24 }}>
               <b>life insurance agents:</b> {PRICING_SUMMARY}
