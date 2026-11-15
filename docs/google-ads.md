@@ -11,7 +11,7 @@ Roofers can add Google Search ads next to their Meta ads. The Google Ads account
 3. **OAuth client.** In Google Cloud, create an OAuth client (type "Web application" or "Desktop") and enable the Google Ads API. Set `GOOGLE_ADS_CLIENT_ID` and `GOOGLE_ADS_CLIENT_SECRET`.
 4. **Refresh token.** Sign in once, as a user with access to the manager account, with the scope `https://www.googleapis.com/auth/adwords` (for example through Google's OAuth Playground with your own client). Save the result in `GOOGLE_ADS_REFRESH_TOKEN`.
 5. **Optional settings:**
-   - `GOOGLE_ADS_API_VERSION` (default `v22`). Google retires each version after about a year; bump it when Google announces a sunset.
+   - `GOOGLE_ADS_API_VERSION` (default `v26`). Google retires each version after about a year; bump it when Google announces a sunset.
    - `GOOGLE_ADS_VALIDATE_ONLY=1` makes Google check every change without making it. `MIGZ_TEST_MODE=1` does the same.
 6. **Migration.** Run `supabase/migrations/20261214000000_google_ads.sql`.
 
