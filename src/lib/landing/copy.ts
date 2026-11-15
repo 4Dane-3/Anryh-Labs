@@ -83,15 +83,18 @@ export function landingCopy(key: LandingKey, ad: { headline: string; description
     title: ad.headline,
     subhead: ad.description,
     intro: INTRO[key](f),
-    cta: `Book your ${offer}`,
+    cta: "Get my free quote",
     steps: [
-      { title: "Pick a time", body: "Choose a time that suits you below. It takes under a minute." },
+      { title: "Request your quote", body: "Tell us what's going on with the roof. It takes under a minute." },
+      { title: "Emma calls you right away", body: "Emma is our AI assistant. She asks a few quick questions about your roof so your quote fits, and can set up the visit." },
       { title: f.offer === "quote" ? "We come out and measure" : "We inspect the roof", body: "You don't need to climb anything. We look at the whole roof and the problem you told us about." },
-      { title: "You get straight answers", body: "What we found, with photos, and what (if anything) it would take to fix." },
-      { title: "No pressure", body: "It costs nothing, and you decide what, if anything, to do next." },
+      { title: "You get straight answers", body: "What we found, with photos, and a clear price. You decide what, if anything, to do next." },
     ],
     why,
-    faq: FAQ[key](f, offer),
+    faq: [
+      { q: "Who will call me?", a: "Emma, our AI assistant, calls right after you send your request (between 8am and 8pm your time; later requests are called the next morning). She asks a few questions about your roof, and our team takes it from there." },
+      ...FAQ[key](f, offer),
+    ],
     disclaimer: `${f.company}${f.license ? ` (${licenseText(f.license)})` : ""} offers a ${Offer.toLowerCase()} to homeowners in its service area. An inspection or quote is not a promise of any repair, price or insurance outcome.`,
   };
 }
