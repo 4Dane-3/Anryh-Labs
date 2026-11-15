@@ -174,11 +174,11 @@ export function adGroupPlans(input: { company: string; city: string | null; rule
 function sharedHeadlines(input: { company: string; special: string | null; warranty: string | null; certification: string | null; city: string | null }, offer: string): string[] {
   return [
     cut(input.company),
-    `Book a ${offer}`,
+    "Request a Free Quote",
     `${offer} Today`,
     "Licensed & Insured Roofers",
     "Local, Family-Run Crew",
-    "Book Online in 60 Seconds",
+    "Quick Call, Clear Price",
     input.special ? cut(input.special) : null,
     input.certification ? cut(`${input.certification} Roofer`) : null,
     input.warranty ? cut(input.warranty) : null,
@@ -203,16 +203,16 @@ export function fitDescription(d: string) {
 function descriptions(input: { company: string; offer: "inspection" | "quote"; special: string | null; warranty: string | null; city: string | null }, lead: string): string[] {
   const offer = input.offer === "quote" ? "free quote" : "free roof inspection";
   return [
-    `${lead} Book your ${offer} online in under a minute.`,
-    `${input.company}: licensed, insured and local${input.city ? ` to ${input.city}` : ""}. Pick a time that suits you.`,
+    `${lead} Request your free quote in under a minute.`,
+    `${input.company}, ${input.city ? `local to ${input.city}` : "licensed and local"}. Request a quote and we'll call you back.`,
     input.special ? `${input.special}. Ask about it at your ${offer}.` : `No pressure: we show you photos of what we find and give you an honest price.`,
-    input.warranty ? `Backed by the ${input.warranty}. Book your ${offer} today.` : `Book your ${offer} today and get a clear, written price.`,
+    input.warranty ? `Backed by the ${input.warranty}. Request your free quote today.` : `Request your free quote today and get a clear, written price.`,
   ].map(fitDescription);
 }
 
 /** Callouts under the ad (25 characters each). */
 export function callouts(input: { offer: "inspection" | "quote"; warranty: string | null; certification: string | null; emergencies: boolean }): string[] {
-  return [input.offer === "quote" ? "Free Quotes" : "Free Inspections", "Licensed & Insured", "Local Crew", "Book Online 24/7", input.emergencies ? "Emergency Leak Repair" : null, input.certification ? `${input.certification}`.slice(0, 25) : null, input.warranty ? "Strong Warranties" : null]
+  return [input.offer === "quote" ? "Free Quotes" : "Free Inspections", "Licensed & Insured", "Local Crew", "Request a Quote 24/7", input.emergencies ? "Emergency Leak Repair" : null, input.certification ? `${input.certification}`.slice(0, 25) : null, input.warranty ? "Strong Warranties" : null]
     .filter((c): c is string => !!c && c.length <= 25);
 }
 
@@ -231,7 +231,7 @@ How to run a roofing Search account well:
 
 3. Cut what doesn't. A keyword that spent ${PAUSE_MIN_SPEND_X_TARGET}x the target cost per booked inspection (or $${PAUSE_MIN_SPEND_CENTS / 100} with no target yet) with no conversion in 30 days and at least ${PAUSE_MIN_CLICKS} clicks: pause_keyword. Low quality score (1 to 4) with spend usually means the ad or page doesn't match the search: write an ad that does before pausing.
 
-4. Ads. Each ad group should have 2 to 3 enabled responsive search ads with 10 to 15 distinct headlines and 4 descriptions. Headlines: the service plus the city, the free inspection or quote offer, the current special, certifications and warranty, trust (licensed, insured, local, reviews if real), and a reason to book now. When an ad has had 1,500+ impressions and converts at less than half the rate of the best ad in its group, pause it and write a new one that borrows what the winner says. Never invent reviews, ratings, years in business, prices or awards that aren't in the facts. Never promise a free roof, insurance paying, financing, or covering a deductible.
+4. Ads. Each ad group should have 2 to 3 enabled responsive search ads with 10 to 15 distinct headlines and 4 descriptions. Headlines: the service plus the city, the free inspection or quote offer, the current special, certifications and warranty, trust (licensed, insured, local, reviews if real), and a reason to act now. Each ad lands on a page where the homeowner requests a free quote and gets a call back, so ask for that ("Request a Free Quote"), never "book online" or "pick a time". When an ad has had 1,500+ impressions and converts at less than half the rate of the best ad in its group, pause it and write a new one that borrows what the winner says. Never invent reviews, ratings, years in business, prices or awards that aren't in the facts. Never promise a free roof, insurance paying, financing, or covering a deductible.
 
 5. Budget. The roofer's monthly cap is a hard limit (the system enforces it). Raise the daily budget only when the account books inspections at or under target AND search_budget_lost_impression_share is 10%+ (it's running out of money while working). Lower it when the cost per booked inspection is far over target for two weeks and search terms are already clean. Changes are at most 25%, 3+ days apart.
 

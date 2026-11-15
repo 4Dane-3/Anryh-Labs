@@ -44,7 +44,11 @@ async function load(slug: string, path: string) {
   const group = groupByPath(path);
   const agent = await getAgentBySlug(slug);
   if (!group || !agent || !isRoofer(agent)) return null;
-  const { data } = await supabaseAdmin.from("agent_brand").select("website, logo_path, heading_font, body_font, background, text_color, accent, deals, certifications, warranties, license, proof").eq("agent_id", agent.id).maybeSingle();
+  const cols = "website, logo_path, heading_font, body_font, background, text_color, accent, deals, certifications, warranties, license";
+  const brandQuery = (c: string) => supabaseAdmin.from("agent_brand").select(c).eq("agent_id", agent.id).maybeSingle();
+  // Before migration 20261217000000 there is no proof column, and asking for it would lose their whole look
+  let { data, error } = await brandQuery(`${cols}, proof`);
+  if (error) ({ data, error } = await brandQuery(cols));
   const brand = (data as Brand | null) ?? null;
   const facts = planFacts(agent, brand ? { deals: brand.deals ?? [], certifications: brand.certifications ?? [], warranties: brand.warranties ?? [] } : null);
   // Only the jobs they take have a page, the same as their ad groups
@@ -283,6 +287,7 @@ export default async function LandingPage({ params, searchParams }: Props) {
         )}
 
         {/* Customers on camera, then in writing */}
+        {(proof.rating || liveVideos.length > 0 || !!testimonials?.length || preview) && (
         <section>
           <h2 className="text-2xl font-extrabold sm:text-3xl" style={heading}>What homeowners say</h2>
           {proof.rating && (
@@ -321,6 +326,7 @@ export default async function LandingPage({ params, searchParams }: Props) {
             </div>
           )}
         </section>
+        )}
 
         <section className="grid gap-10 lg:grid-cols-2">
           <div>
