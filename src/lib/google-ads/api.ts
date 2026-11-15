@@ -7,9 +7,9 @@ import "server-only";
 //   GOOGLE_ADS_CLIENT_ID / GOOGLE_ADS_CLIENT_SECRET   an OAuth client in Google Cloud
 //   GOOGLE_ADS_REFRESH_TOKEN     a refresh token for a user with access to the manager account (scope adwords)
 //   GOOGLE_ADS_MANAGER_ID        the manager account's 10-digit id
-//   GOOGLE_ADS_API_VERSION       optional, e.g. "v22" (Google retires each version after about a year)
+//   GOOGLE_ADS_API_VERSION       optional, e.g. "v26" (Google retires each version after about a year)
 
-const VERSION = () => process.env.GOOGLE_ADS_API_VERSION || "v22";
+const VERSION = () => process.env.GOOGLE_ADS_API_VERSION || "v26";
 const BASE = () => `https://googleads.googleapis.com/${VERSION()}`;
 
 export const managerId = () => (process.env.GOOGLE_ADS_MANAGER_ID ?? "").replace(/\D/g, "");

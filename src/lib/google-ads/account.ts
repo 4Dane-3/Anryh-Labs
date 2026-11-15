@@ -43,10 +43,14 @@ export async function getGoogleAccount(agentId: string): Promise<GoogleAccount |
   return (data as GoogleAccount | null) ?? null;
 }
 
+/**
+ * Saves fields on their account row. Only a save that names the account (customer_id) can create the row: an
+ * upsert without it fails the not-null check even when the row exists, so every other save is an update.
+ */
 export async function saveGoogleAccount(agentId: string, fields: Partial<GoogleAccount>) {
-  return supabaseAdmin
-    .from("google_ads_accounts")
-    .upsert({ agent_id: agentId, ...fields, updated_at: new Date().toISOString() }, { onConflict: "agent_id" });
+  const row = { ...fields, updated_at: new Date().toISOString() };
+  if (fields.customer_id) return supabaseAdmin.from("google_ads_accounts").upsert({ agent_id: agentId, ...row }, { onConflict: "agent_id" });
+  return supabaseAdmin.from("google_ads_accounts").update(row).eq("agent_id", agentId);
 }
 
 /** Sends a link request from our manager account to theirs. They accept it in Google Ads. */
