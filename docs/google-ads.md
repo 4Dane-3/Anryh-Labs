@@ -30,6 +30,12 @@ Until all of the keys above are set, the setup step still saves the roofer's acc
   - Migz checks the DNS from the setup step's Check again button. Once it points at us and serves, `ad_domain_ok` turns on and every ad link uses it.
   - No Google campaign is built, and no research campaign is published, until the address is live.
   - Migration `20261216000000_client_ad_domain.sql`.
+- **Landing pages, one per ad group** (`src/lib/landing/`, route `src/app/[slug]/p/[group]`):
+  - Each ad group's ads go to its own page on the ad address: `/roof-replacement`, `/roof-repair`, `/storm-damage`, `/roof-inspection`, `/gutters`, `/siding`. Only the jobs they take get a page, the same as their ad groups.
+  - The page's headline is the ad group's first headline and its subhead the first description, so the click lands on what the ad said.
+  - It's in their look: the fonts and colours read from their website (entered with the ad address, which must be on that website's domain), their logo, and their first job photo.
+  - The rest is written from their facts only (special, certification, warranty, license, area, reviews). It never promises a free roof, an insurance outcome, prices or financing.
+  - The pages are `noindex`: they're ad destinations, not pages for search, and their own website and its rankings are untouched.
 - **Monthly budget:** at least $1,000, $1,500 recommended. Roofing clicks often cost $15 to $50+. The budget is a hard cap that Migz never budgets past, and it's separate from their Meta ad funds.
 - **Dashboard → Google Ads** shows the last 30 days and the changes waiting for approval. It's also where they change the cap, switch Google off, set their average job value, and see everything Migz changed.
 
