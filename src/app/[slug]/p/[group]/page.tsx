@@ -16,6 +16,7 @@ import { adGroupPlans } from "@/lib/google-ads/playbook";
 import { planFacts } from "@/lib/google-ads/build";
 import { groupByPath } from "@/lib/landing/groups";
 import { landingCopy } from "@/lib/landing/copy";
+import { brandTheme } from "@/lib/landing/theme";
 
 // One Google ad group's landing page, in the roofer's own look, on their own ad address
 // (book.theirroofing.com/roof-replacement rewrites here). Not for search engines: it's where an ad lands.
@@ -73,15 +74,6 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return { title: `${page.copy.title} | ${page.agent.full_name}`, description: page.copy.subhead, robots: { index: false, follow: false } };
 }
 
-const HEX = /^#[0-9a-f]{6}$/i;
-const hex = (c: string | null | undefined, fallback: string) => (c && HEX.test(c) ? c : fallback);
-/** Black or white, whichever reads on the colour. */
-function onColor(c: string) {
-  const [r, g, b] = [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.45 ? "#111111" : "#ffffff";
-}
-const fontStack = (f: string | null | undefined) => (f ? `'${f.replace(/'/g, "")}', ui-sans-serif, system-ui, sans-serif` : "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Arial, sans-serif");
-
 async function signed(path: string | null | undefined) {
   if (!path) return null;
   const { data } = await supabaseAdmin.storage.from("creatives").createSignedUrl(path, 24 * 3600);
@@ -109,18 +101,13 @@ export default async function LandingPage({ params, searchParams }: Props) {
   const requiredSteps = agent.required_intake_steps ?? [];
 
   // Their look: colours and fonts read from their website (Start here → your brand)
-  const accent = hex(brand?.accent, "#1d4ed8");
-  const band = hex(brand?.background, "#ffffff");
-  // The page body is white, so their text colour is used only when it reads on white (a dark site's light text doesn't)
-  const brandInk = hex(brand?.text_color, "#0f172a");
-  const ink = onColor(brandInk) === "#ffffff" ? brandInk : "#0f172a";
-  const fonts = [brand?.heading_font, brand?.body_font].filter((f, i, a): f is string => !!f && a.indexOf(f) === i);
-  const fontHref = fonts.length ? `https://fonts.googleapis.com/css2?${fonts.map((f) => `family=${encodeURIComponent(f).replace(/%20/g, "+")}:wght@400;600;700;800`).join("&")}&display=swap` : null;
-  const vars = { "--lp-accent": accent, "--lp-on-accent": onColor(accent), "--lp-ink": ink, "--lp-band": band, "--lp-on-band": onColor(band) === "#ffffff" ? "#ffffff" : ink } as React.CSSProperties;
-  const heading = { fontFamily: fontStack(brand?.heading_font) };
+  const theme = brandTheme(brand);
+  const vars = theme.vars as React.CSSProperties;
+  const fontHref = theme.fontHref;
+  const heading = { fontFamily: theme.heading };
 
   return (
-    <div className="min-h-screen bg-white" style={{ ...vars, color: "var(--lp-ink)", fontFamily: fontStack(brand?.body_font) }}>
+    <div className="min-h-screen bg-white" style={{ ...vars, color: "var(--lp-ink)", fontFamily: theme.body }}>
       {fontHref && <link rel="stylesheet" href={fontHref} crossOrigin="anonymous" precedence="default" />}
 
       <header className="border-b border-black/5" style={{ background: "var(--lp-band)", color: "var(--lp-on-band)" }}>
