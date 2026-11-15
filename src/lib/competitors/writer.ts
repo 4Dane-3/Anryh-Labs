@@ -43,7 +43,8 @@ export async function writeLines(agent: Agent, ctx: AdContext, winners: CompAd[]
     maxTokens: 16000,
     system: `You write Google responsive search ad ${kind}s for a roofing company that must beat the competitors' winning ads. Write exactly ${count} ${kind}s, each ${max} characters or fewer (count them), sentence case, each one reading alone in any order.
 Spread them across six angles: offer, speed, price, trust, risk-reversal, ask (about equal), plus up to ${kind === "headline" ? 15 : 0} "keyword" lines (the search itself plus the city, e.g. "Roof replacement in Kent").
-Every number and claim must come from CAN CLAIM. Never a competitor's name. Never a phone number, emoji, "!" in a headline, all caps, superlatives (best, #1, top-rated, cheapest, fastest), "risk-free", "limited time", a free roof, insurance paying, financing or a deductible. Win on what none of the competitors say: a claim they can't make, a fear they leave untouched, a specific promise from CAN CLAIM.`,
+Every number and claim must come from CAN CLAIM. Never a competitor's name. Never a phone number, emoji, "!" in a headline, all caps, superlatives (best, #1, top-rated, cheapest, fastest), "risk-free", "limited time", a free roof, insurance paying, financing or a deductible. Win on what none of the competitors say: a claim they can't make, a fear they leave untouched, a specific promise from CAN CLAIM.
+The ad leads to a page where the homeowner requests a free quote and gets a call back, so "ask" lines ask for that ("Request a free quote"), never "book online" or "pick a time".`,
     content: `${brief(ctx, winners, offers, agent)}${notes ? `\n\nWHY THE BUYER PICKED THEIRS LAST ROUND (fix the line, not the wording):\n${notes}` : ""}`,
     schema: obj({ lines: arr(obj({ text: str, angle: { type: "string", enum: ANGLE_ENUM } })) }),
   });
@@ -119,7 +120,7 @@ export async function writeLanding(agent: Agent, ctx: AdContext, winners: CompAd
     tier: "sonnet",
     agentId: agent.id,
     maxTokens: 6000,
-    system: `Write the landing page copy for a roofing company's Google ad, to beat the competitors' pages. It must match the ad's promise, lead with the offer, show proof only from CAN CLAIM and the reviews, answer the buyer's fears, and make booking the free ${agent.lead_goal === "quote" ? "quote" : "inspection"} the only action. Sections: what happens at the inspection, why us (proof), what it costs (only what's provable), reviews, the area served, a short FAQ. No superlatives, no claims beyond CAN CLAIM, no em-dashes.`,
+    system: `Write the landing page copy for a roofing company's Google ad, to beat the competitors' pages. It must match the ad's promise, lead with the offer, show proof only from CAN CLAIM and the reviews, answer the buyer's fears, and make requesting a free quote the only action: the homeowner fills in a short form and gets a call back right away with a few questions, then the ${agent.lead_goal === "quote" ? "visit to measure" : "free inspection"}. Never "book online" or "pick a time". Sections: what happens at the inspection, why us (proof), what it costs (only what's provable), reviews, the area served, a short FAQ. No superlatives, no claims beyond CAN CLAIM, no em-dashes.`,
     content: `${brief(ctx, winners, offers, agent)}\n\nTHE AD IT SITS BEHIND:\n${ours.headlines.join(" | ")}\n${ours.descriptions.join(" ")}\n\nREVIEWS TO QUOTE:\n${ctx.reviews.quotes.map((q) => `"${q.text}" (${q.author})`).join("\n") || "none"}`,
     schema: obj({ headline: str, subhead: str, offer: str, proof: arr(str), sections: arr(obj({ title: str, body: str })), cta: str }),
   });
