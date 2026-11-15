@@ -15,8 +15,9 @@ type Voice = { status: "calling"; from: string | null } | { status: "scheduled";
  * A roofer's (`roof`, shown when their voice agent is on) asks where the home is and what's wrong with the
  * roof instead, and the voice agent calls within seconds to book the inspection.
  */
-export function QuoteForm({ slug, firstName, preview, openForAds = false, roof = false }: { slug: string; firstName: string; preview: boolean; openForAds?: boolean; roof?: boolean }) {
-  const [open, setOpen] = useState(false);
+export function QuoteForm({ slug, firstName, preview, openForAds = false, roof = false, inline = false, heading, subheading, cta, issues }: { slug: string; firstName: string; preview: boolean; openForAds?: boolean; roof?: boolean; inline?: boolean; heading?: string; subheading?: string; cta?: string; issues?: readonly string[] }) {
+  // `inline`: the form is the page's main action (a landing page), so it is always open, with its own wording
+  const [open, setOpen] = useState(inline);
   useEffect(() => {
     if (!openForAds) return;
     const params = new URLSearchParams(window.location.search);
@@ -41,8 +42,12 @@ export function QuoteForm({ slug, firstName, preview, openForAds = false, roof =
             {voice.status === "calling" ? `We're calling you now${from}.` : `We'll call you at ${voice.label}${from}.`}
           </span>
           {voice.status === "calling"
-            ? `It's ${firstName}'s AI assistant. It takes a couple of minutes and can book your ${roof ? "inspection" : "call"} right then.`
-            : `We only call between 8am and 8pm your time. Rather not wait? Pick a time above and it's set.`}
+            ? inline
+              ? `Pick up and Emma, ${firstName}'s AI assistant, will ask a few quick questions about your roof so your quote is accurate. It takes a couple of minutes.`
+              : `It's ${firstName}'s AI assistant. It takes a couple of minutes and can book your ${roof ? "inspection" : "call"} right then.`
+            : inline
+              ? `We only call between 8am and 8pm your time.`
+              : `We only call between 8am and 8pm your time. Rather not wait? Pick a time above and it's set.`}
         </p>
       </div>
     );
@@ -54,7 +59,7 @@ export function QuoteForm({ slug, firstName, preview, openForAds = false, roof =
         <CheckCircle2 className="size-5 shrink-0 text-blue-700" />
         <p>
           <span className="block font-semibold text-slate-900">Got it. {roof ? "We'll" : `${firstName} will`} call you{form.bestTime ? ` in the ${form.bestTime.toLowerCase()}` : " soon"}.</span>
-          Rather not wait? Pick a time above and it&apos;s set.
+          {inline ? "Keep your phone nearby." : "Rather not wait? Pick a time above and it's set."}
         </p>
       </div>
     );
@@ -108,10 +113,10 @@ export function QuoteForm({ slug, firstName, preview, openForAds = false, roof =
     }`;
 
   return (
-    <form onSubmit={onSubmit} className="mt-5 space-y-4 border-t border-slate-100 pt-4">
+    <form onSubmit={onSubmit} className={inline ? "space-y-4" : "mt-5 space-y-4 border-t border-slate-100 pt-4"}>
       <div>
-        <h3 className="font-semibold">{roof ? "Get a call about your free inspection" : "Get a free quote"}</h3>
-        <p className="text-sm text-slate-500">{roof ? "Leave your number and we'll call you in seconds to set up your inspection." : `Leave your number and ${firstName} will call you with options.`}</p>
+        <h3 className={inline ? "text-xl font-bold" : "font-semibold"}>{heading ?? (roof ? "Get a call about your free inspection" : "Get a free quote")}</h3>
+        <p className="text-sm text-slate-500">{subheading ?? (roof ? "Leave your number and we'll call you in seconds to set up your inspection." : `Leave your number and ${firstName} will call you with options.`)}</p>
       </div>
       <div>
         <label htmlFor="quote-name" className="mb-1 block text-sm font-medium text-slate-700">Full name</label>
@@ -134,7 +139,7 @@ export function QuoteForm({ slug, firstName, preview, openForAds = false, roof =
           <fieldset>
             <legend className="mb-1.5 text-sm font-medium text-slate-700">What&apos;s going on with the roof? <span className="font-normal text-slate-400">(optional)</span></legend>
             <div className="flex flex-wrap gap-2">
-              {ROOF_ISSUES.map((c) => (
+              {(issues ?? ROOF_ISSUES).map((c) => (
                 <button key={c} type="button" aria-pressed={form.roofIssue === c} className={chip(form.roofIssue === c)} onClick={() => setForm({ ...form, roofIssue: form.roofIssue === c ? "" : c })}>
                   {c}
                 </button>
@@ -190,9 +195,9 @@ export function QuoteForm({ slug, firstName, preview, openForAds = false, roof =
       <button
         type="submit"
         disabled={submitting || preview}
-        className="flex h-12 w-full items-center justify-center rounded-lg border border-blue-700 bg-white text-base font-semibold text-blue-700 transition-colors hover:bg-blue-50 disabled:opacity-60"
+        className={`flex h-12 w-full items-center justify-center rounded-lg border border-blue-700 text-base font-semibold transition-colors disabled:opacity-60 ${inline ? "bg-blue-700 text-white hover:bg-blue-800" : "bg-white text-blue-700 hover:bg-blue-50"}`}
       >
-        {submitting ? <Loader2 className="size-4 animate-spin" /> : preview ? "Quotes are off in preview" : roof ? "Call me now" : "Get my free quote"}
+        {submitting ? <Loader2 className="size-4 animate-spin" /> : preview ? "Quotes are off in preview" : cta ?? (roof ? "Call me now" : "Get my free quote")}
       </button>
     </form>
   );
