@@ -20,6 +20,10 @@ import { syncGoogleAccount } from "@/lib/google-ads/sync";
 import { parseAction, GOOGLE_TOOLS } from "@/lib/google-ads/tools";
 import { cpaCents, type GoogleSnapshot } from "@/lib/google-ads/types";
 import { competitorIntel } from "@/lib/competitors/intel";
+import { researchAd, researchState, startResearchFor } from "@/lib/competitors/live";
+import { firstBuildStep } from "@/lib/competitors/live-copy";
+import { refreshAdDomain } from "@/lib/booking/ad-domain-server";
+import { apifyReady } from "@/lib/apify";
 
 // Migz on Google Ads, run from the hourly Migz cron. Each run, per linked roofer:
 //   1. a pending link is rechecked (did they accept it in Google Ads?)
@@ -257,14 +261,33 @@ export async function runGoogleAds(agent: Agent, opts: { force?: boolean; create
   try {
     let built = false;
     // Ads always send people to the roofer's own domain: no campaign until their ad address points at us
-    const waitingForAddress = !account.campaign_id && account.enabled && !agent.ad_domain_ok;
-    if (!account.campaign_id && account.enabled && !waitingForAddress && account.monthly_cap_cents >= GOOGLE_MIN_MONTHLY_CENTS) {
-      const b = await buildCampaign(agent, account);
+    let waitingForAddress = !account.campaign_id && account.enabled && !agent.ad_domain_ok;
+    if (waitingForAddress && agent.ad_domain) {
+      const { live } = await refreshAdDomain(agent).catch(() => ({ live: false }));
+      if (live) {
+        agent = { ...agent, ad_domain_ok: true };
+        waitingForAddress = false;
+      }
+    }
+    // The first build waits for competitor research (started the moment Google is on, so it's usually done by the
+    // time their ad address is live), then puts the ad that beat the competitors next to each group's own
+    let researchStep: "start" | "wait" | "build" = "build";
+    if (!account.campaign_id && account.enabled) {
+      researchStep = firstBuildStep(await researchState(agent.id), apifyReady());
+      if (researchStep === "start") {
+        const started = await startResearchFor(agent);
+        if (started) await emit({ agentId: agent.id, runId: null, step: "acting", tier: "code", summary: "Started competitor research for the first Google campaign" });
+        researchStep = started ? "wait" : "build";
+      }
+    }
+    if (!account.campaign_id && account.enabled && !waitingForAddress && researchStep === "build" && account.monthly_cap_cents >= GOOGLE_MIN_MONTHLY_CENTS) {
+      const research = await researchAd(agent.id);
+      const b = await buildCampaign(agent, account, research);
       built = b.built;
       if (b.built) {
         account = (await getGoogleAccount(agent.id)) ?? account;
         const title = `Built your Google Search campaign (${b.groups} ad group${b.groups === 1 ? "" : "s"})`;
-        const reason = "Google Search only, people in your service area, phrase and exact keywords for the jobs you take, starting negatives, call and callout assets, Maximize conversions.";
+        const reason = `Google Search only, people in your service area, phrase and exact keywords for the jobs you take, starting negatives, call and callout assets, Maximize conversions.${b.research ? " Each ad group also runs the ad that beat your competitors' winning ads in testing." : ""}`;
         await logAction(agent.id, { tool: "system_build", payload: { campaign_id: b.campaignId }, title, reason, status: "applied" });
         await supabaseAdmin.from("ad_actions").insert({ agent_id: agent.id, kind: "launch", title: `Google Ads: ${title}`, detail: reason, status: "applied", tool: "google_system" });
         await emit({ agentId: agent.id, runId: null, step: "acting", tier: "code", summary: title });

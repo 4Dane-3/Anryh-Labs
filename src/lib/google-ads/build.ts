@@ -80,6 +80,8 @@ export function campaignOperations(input: {
   name?: string;
   /** One ad for every ad group instead of each group's own (the 15 headlines and 4 descriptions that beat the competitors). */
   rsa?: { headlines: string[]; descriptions: string[]; path1: string; path2: string };
+  /** A second ad in every ad group, next to the group's own: the one that beat the competitors. Google rotates them. */
+  alsoRsa?: { headlines: string[]; descriptions: string[]; path1: string; path2: string } | null;
 }) {
   const { customerId: cid, agent, brand } = input;
   const res = (kind: string, id: number) => `customers/${cid}/${kind}/${id}`;
@@ -119,16 +121,17 @@ export function campaignOperations(input: {
     const adGroup = res("adGroups", -10 - i);
     ops.push({ adGroupOperation: { create: { resourceName: adGroup, name: g.name, campaign, status: "ENABLED", type: "SEARCH_STANDARD" } } });
     for (const k of g.keywords) ops.push({ adGroupCriterionOperation: { create: { adGroup, status: "ENABLED", keyword: { text: k.text, matchType: k.match } } } });
-    const ad = input.rsa ?? g;
-    ops.push({
-      adGroupAdOperation: {
-        create: {
-          adGroup,
-          status: "ENABLED",
-          ad: { finalUrls: [input.landingFor?.(g.key) ?? input.landingUrl], responsiveSearchAd: { headlines: ad.headlines.map((text) => ({ text })), descriptions: ad.descriptions.map((text) => ({ text })), path1: ad.path1 || undefined, path2: ad.path2 || undefined } },
+    const ads = input.rsa ? [input.rsa] : input.alsoRsa ? [g, input.alsoRsa] : [g];
+    for (const ad of ads)
+      ops.push({
+        adGroupAdOperation: {
+          create: {
+            adGroup,
+            status: "ENABLED",
+            ad: { finalUrls: [input.landingFor?.(g.key) ?? input.landingUrl], responsiveSearchAd: { headlines: ad.headlines.map((text) => ({ text })), descriptions: ad.descriptions.map((text) => ({ text })), path1: ad.path1 || undefined, path2: ad.path2 || undefined } },
+          },
         },
-      },
-    });
+      });
   });
 
   // Assets: the call button and the callouts under the ad
@@ -148,14 +151,14 @@ export function campaignOperations(input: {
 }
 
 /** Builds the campaign in their account. Safe to call again: it does nothing once a campaign exists. */
-export async function buildCampaign(agent: Agent, account: GoogleAccount) {
+export async function buildCampaign(agent: Agent, account: GoogleAccount, research?: { headlines: string[]; descriptions: string[]; path1: string; path2: string } | null) {
   if (account.campaign_id) return { built: false as const, campaignId: account.campaign_id };
   await enableAutoTagging(account.customer_id);
   const conversions = await ensureConversions(agent, account);
-  const { ops, groups } = campaignOperations({ customerId: account.customer_id, agent, brand: await brandOf(agent.id), monthlyCapCents: account.monthly_cap_cents, callConversion: conversions.call ?? null, landingUrl: adLinkFor(agent, process.env.APP_URL), landingFor: (key) => landingPageUrl(agent, key) });
+  const { ops, groups } = campaignOperations({ customerId: account.customer_id, agent, brand: await brandOf(agent.id), monthlyCapCents: account.monthly_cap_cents, callConversion: conversions.call ?? null, landingUrl: adLinkFor(agent, process.env.APP_URL), landingFor: (key) => landingPageUrl(agent, key), alsoRsa: research ?? null });
   const names = createdNames(await mutate(account.customer_id, ops));
   if (validateOnly()) return { built: false as const, campaignId: null, validated: true, groups: groups.length };
   const campaignId = idOf(names[1] ?? "");
   await saveGoogleAccount(agent.id, { campaign_id: campaignId || null, budget_resource: names[0] || null, launched_at: new Date().toISOString() });
-  return { built: true as const, campaignId, groups: groups.length };
+  return { built: true as const, campaignId, groups: groups.length, research: !!research };
 }

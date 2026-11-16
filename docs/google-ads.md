@@ -42,6 +42,8 @@ Until all of the keys above are set, the setup step still saves the roofer's acc
 ## What Migz does (hourly cron, `src/lib/google-ads/review.ts`)
 
 1. **Link check.** A pending link is checked each hour until it's accepted.
+   - **Ad address check.** While the first campaign waits for the roofer's ad address, each run re-checks its DNS and marks it live once it points at us. The roofer doesn't need to come back and click "Check again".
+   - **Competitor research.** When Google is on and there's no research yet, a run starts automatically (Apify budget $10, benchmark Dublin). The first build waits for it for up to 6 hours, then goes ahead regardless (`src/lib/competitors/live-copy.ts`).
 2. **Build, once the roofer's campaign has started** (`build.ts`):
    - Turns on auto-tagging, so every click carries a gclid.
    - Creates three conversion actions:
@@ -58,6 +60,9 @@ Until all of the keys above are set, the setup step still saves the roofer's acc
    - One ad group for each kind of job they take: replacement, repair, storm/hail (only if they take insurance claims), inspection, gutters, siding. Each has phrase and exact keywords (including city keywords) and a responsive search ad with up to 15 headlines and 4 descriptions built from their facts: special, certifications, warranty, offer and city.
    - About 60 starting negatives: job seekers, DIY, supplies, other kinds of "roof", and anything their job rules exclude (jobs they don't take, roof types they don't do, residential or commercial, insurance claims, excluded towns).
    - A call asset with their number, and callouts.
+   - **The ad that beat the competitors.** If research passed the 9/10 gate, every ad group also gets its 15 headlines and 4 descriptions as a second live ad. Google rotates the two ads, and the weekly review pauses the loser.
+   - **Landing pages.** If research's landing copy was judged 9/10 better than every competitor page it was tested against, each ad group's page uses its subhead, proof lines and sections. The headline stays the ad group's own, so it still matches the search. Lines still written for booking ("book online", "pick a time") are dropped.
+   - **End-to-end test.** `scripts/migz/greenlight.e2e.mts` (see its header) runs green light → research → campaign → pages → quote request → Emma's booking → conversion against a dev server. Nothing is sent to Google or Meta, and nobody is called.
 3. **Sync** (`sync.ts`): campaigns with impression share (including impression share lost to budget and to rank), ad groups, keywords with quality score, the last 14 days of search terms, ads with ad strength and approval, negatives, and daily rows.
 4. **Spend control, enforced in code:**
    - The daily budget is never above the cap.
