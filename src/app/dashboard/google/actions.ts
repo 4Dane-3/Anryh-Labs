@@ -13,7 +13,7 @@ import { checkAction, type GAction } from "@/lib/google-ads/guardrails";
 import { applyChecked, guardCtxFor, runGoogleAds } from "@/lib/google-ads/review";
 import type { GoogleSnapshot } from "@/lib/google-ads/types";
 import { cleanAdDomain } from "@/lib/booking/ad-domain";
-import { addDomainToVercel, dnsPointsHere, vercelServes } from "@/lib/booking/ad-domain-server";
+import { addDomainToVercel, refreshAdDomain } from "@/lib/booking/ad-domain-server";
 import { rootDomainOf } from "@/lib/landing/groups";
 import { scanBrandSite } from "@/lib/edit/brand-scan";
 
@@ -70,9 +70,7 @@ export async function saveAdDomain(input: { domain: string; website?: string }):
 export async function checkAdDomain(): Promise<Result> {
   const agent = await requireAgent();
   if (!agent.ad_domain) return { ok: false, error: "Choose your ad address first." };
-  const pointing = await dnsPointsHere(agent.ad_domain);
-  const live = pointing && (await vercelServes(agent.ad_domain));
-  if (live !== !!agent.ad_domain_ok) await supabaseAdmin.from("agents").update({ ad_domain_ok: live }).eq("id", agent.id);
+  const { live, pointing } = await refreshAdDomain(agent);
   refresh();
   return live
     ? { ok: true, status: "live", message: `${agent.ad_domain} is live. Your ads use it.` }

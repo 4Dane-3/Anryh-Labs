@@ -32,7 +32,7 @@ const VERTICALS = [
       "a reminder the morning of, and each booking sent to your crm",
       "ads never promise a free roof or to cover a deductible",
     ],
-    start: ["$1,000/month for migz ai, no setup fee", "at least $2,000 in meta ad spend for the first month, all of it to your ads", "google search ads are optional, with their own budget (at least $1,000 a month) that you pay to google"],
+    start: ["$1,500/month for migz ai, no setup fee: meta ads, google search ads and emma, the ai assistant who calls and books your homeowners", "at least $2,000 in meta ad spend for the first month, all of it to your ads", "google search ads are optional, with their own budget (at least $1,000 a month) that you pay to google"],
   },
   {
     name: "life insurance agents",
@@ -199,8 +199,9 @@ export default function Home() {
               simple pricing.
             </h2>
             <p className="sb-note" style={{ marginBottom: 12 }}>
-              <b>roofing companies:</b> $1,000 a month for migz ai with no setup fee, and at least $2,000 in meta ad spend for the first
-              month. google search ads are optional and run in your own google ads account with their own budget, paid to google.
+              <b>roofing companies:</b> $1,500 a month for migz ai with no setup fee, covering meta ads, google search ads and emma, the ai
+              assistant who calls and books your homeowners. ad spend is separate: at least $2,000 in meta ad spend for the first month, and
+              google search ads, if you want them, run in your own google ads account with their own budget, paid to google.
             </p>
             <p className="sb-note" style={{ marginBottom: 24 }}>
               <b>life insurance agents:</b> {PRICING_SUMMARY}

@@ -55,7 +55,7 @@ try {
   const roundTrip = Date.now() - t0;
   assert.equal(res.status, 200, JSON.stringify(quote));
   assert.equal(quote.voice?.status, "calling");
-  assert.equal(quote.voice?.from, "(214) 555-0100");
+  assert.match(quote.voice?.from ?? "", /^\(\d{3}\) \d{3}-\d{4}$/, "the caller id Emma calls from (simulated config or the real number)");
   ok(`thank-you says "We're calling you now from ${quote.voice.from}" (form round trip ${roundTrip}ms)`);
 
   await new Promise((r) => setTimeout(r, 1500)); // the after() write

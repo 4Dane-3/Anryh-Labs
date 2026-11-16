@@ -48,3 +48,19 @@ export async function vercelServes(domain: string): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * Checks their ad address and saves whether it's live. The dashboard's "Check again" calls it, and so does each
+ * Google run while the first campaign waits for it, so a client who adds the DNS record and never comes back
+ * still goes live.
+ */
+export async function refreshAdDomain(agent: { id: string; ad_domain?: string | null; ad_domain_ok?: boolean | null }): Promise<{ live: boolean; pointing: boolean }> {
+  if (!agent.ad_domain) return { live: false, pointing: false };
+  const pointing = await dnsPointsHere(agent.ad_domain);
+  const live = pointing && (await vercelServes(agent.ad_domain));
+  if (live !== !!agent.ad_domain_ok) {
+    const { supabaseAdmin } = await import("@/lib/supabase-admin");
+    await supabaseAdmin.from("agents").update({ ad_domain_ok: live }).eq("id", agent.id);
+  }
+  return { live, pointing };
+}

@@ -17,6 +17,7 @@ import { planFacts } from "@/lib/google-ads/build";
 import { groupByPath } from "@/lib/landing/groups";
 import { landingCopy } from "@/lib/landing/copy";
 import { brandTheme } from "@/lib/landing/theme";
+import { researchLanding } from "@/lib/competitors/live";
 
 // One Google ad group's landing page, in the roofer's own look, on their own ad address
 // (book.theirroofing.com/roof-replacement rewrites here). Not for search engines: it's where an ad lands.
@@ -69,7 +70,19 @@ async function load(slug: string, path: string) {
       emergencies: facts.rules?.emergencies ?? true,
     },
   );
-  return { agent, brand, copy, special: facts.special };
+  // Competitor research's landing copy, when it was judged 9/10 better than every competitor page it was tested
+  // against: its subhead, proof and sections take over; the headline stays the ad group's (what they searched)
+  const research = await researchLanding(agent.id);
+  if (!research) return { agent, brand, copy, special: facts.special, sections: [] as { title: string; body: string }[], researched: false };
+  const why = [...new Set([...research.proof, ...copy.why])];
+  return {
+    agent,
+    brand,
+    copy: { ...copy, subhead: research.subhead ?? copy.subhead, why, cta: research.cta ?? copy.cta },
+    special: facts.special ?? research.offer,
+    sections: research.sections,
+    researched: true,
+  };
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
@@ -89,7 +102,7 @@ export default async function LandingPage({ params, searchParams }: Props) {
   const [{ slug, group }, query] = await Promise.all([params, searchParams]);
   const page = await load(slug, group);
   if (!page) notFound();
-  const { agent, brand, copy: baseCopy, special } = page;
+  const { agent, brand, copy: baseCopy, special, sections, researched } = page;
   const preview = query?.preview === "1";
   const emma = voiceOnFor(agent);
   const proof = parseProof(brand?.proof);
@@ -276,6 +289,24 @@ export default async function LandingPage({ params, searchParams }: Props) {
         {photo && !ownerVideo && !preview && (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={photo} alt="" crossOrigin="anonymous" className="aspect-[16/7] w-full rounded-3xl object-cover" />
+        )}
+
+        {/* Competitor research's sections: written to answer what the competitors' pages leave out */}
+        {sections.length > 0 && (
+          <section data-research="landing">
+            <h2 className="text-2xl font-extrabold sm:text-3xl" style={heading}>Why homeowners pick {agent.full_name}</h2>
+            <div className="mt-5 grid gap-4 sm:grid-cols-2">
+              {sections.map((s) => (
+                <div key={s.title} className="rounded-2xl bg-slate-50 p-5 ring-1 ring-slate-200">
+                  <h3 className="font-bold" style={heading}>{s.title}</h3>
+                  <p className="mt-1.5 leading-relaxed opacity-80">{s.body}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+        {preview && !researched && (
+          <Placeholder preview={preview} icon="badge" title="Copy that beat the competitors' pages" hint="Appears once competitor research has written a landing page and the judge is 9/10 sure it beats every competitor page it was tested against." />
         )}
 
         {/* Guarantee: only what they actually offer */}

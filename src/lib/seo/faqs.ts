@@ -15,7 +15,7 @@ export const HOME_FAQS: Faq[] = [
   },
   {
     q: "what does migz ai do for a roofing company?",
-    a: "it runs meta ads, and optionally google search ads in the roofer's own google ads account, for free roof inspections to homeowners within the radius you pick around your service area. homeowners book a time on your booking page, which asks for the address, whether they own the home, the roof issue and the roof's age. you get an email for each inspection with a postcard and door hanger for that street, a reminder the morning of, and the booking can go straight to your crm. its ads never promise a free roof or to cover an insurance deductible. roofing companies pay $1,000 a month for migz ai, with no setup fee, and need at least $2,000 in meta ad spend for the first month.",
+    a: "it runs meta ads, and optionally google search ads in the roofer's own google ads account, for free roof inspections to homeowners within the radius you pick around your service area. homeowners book a time on your booking page, which asks for the address, whether they own the home, the roof issue and the roof's age. you get an email for each inspection with a postcard and door hanger for that street, a reminder the morning of, and the booking can go straight to your crm. its ads never promise a free roof or to cover an insurance deductible. roofing companies pay $1,500 a month for migz ai, covering meta ads, google search ads and emma, the ai assistant who calls every homeowner within a minute and books the ones who fit, with no setup fee, and need at least $2,000 in meta ad spend for the first month.",
   },
   {
     q: "which types of life insurance can it advertise?",
@@ -23,7 +23,7 @@ export const HOME_FAQS: Faq[] = [
   },
   {
     q: "how much does it cost?",
-    a: `roofing companies pay $1,000 a month for migz ai, with no setup fee, and need at least $2,000 in meta ad spend for the first month. life insurance agents: ${PRICING_SUMMARY}`,
+    a: `roofing companies pay $1,500 a month for migz ai, covering meta ads, google search ads and emma, the ai assistant who calls every homeowner within a minute and books the ones who fit, with no setup fee, and need at least $2,000 in meta ad spend for the first month. life insurance agents: ${PRICING_SUMMARY}`,
   },
   {
     q: "is there a monthly fee or a contract?",

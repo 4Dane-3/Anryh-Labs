@@ -85,4 +85,4 @@ export const PRICING_SUMMARY =
 export const ROOFING_MONTHLY = MIGZ_MONTHLY_CENTS / 100;
 export const ROOFING_SETUP_FEE = 0;
 export const ROOFING_MIN_FIRST_MONTH_AD_SPEND = 2000;
-export const ROOFING_PRICING_SUMMARY = `${usd(ROOFING_MONTHLY)} a month for migz ai, with no setup fee and no contract. your meta ad spend is separate (we recommend at least ${usd(ROOFING_MIN_FIRST_MONTH_AD_SPEND)} for the first month), and all of it goes to your ads.`;
+export const ROOFING_PRICING_SUMMARY = `${usd(ROOFING_MONTHLY)} a month for migz ai, with no setup fee and no contract. it covers meta ads, google search ads and emma, the ai assistant who calls every homeowner within a minute and books the ones who fit. your meta ad spend is separate (we recommend at least ${usd(ROOFING_MIN_FIRST_MONTH_AD_SPEND)} for the first month), and all of it goes to your ads.`;
