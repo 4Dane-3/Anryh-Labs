@@ -47,8 +47,9 @@ export const minDepositFor = (addedBeforeCents: number, plan: FeePlan = "percent
 /** The one-time setup fee a new agent pays in Start here before anything else (not ad funds: it never touches the balance). */
 export const SETUP_FEE_CENTS = 75_000;
 
-// Roofers pay for Migz AI by the month instead: no setup fee, and every dollar they add goes to their ads.
-export const MIGZ_MONTHLY_CENTS = 100_000;
+// Roofers pay for Migz AI by the month instead: no setup fee, and every dollar they add goes to their ads. It covers
+// Meta ads, Google search ads and Emma, the voice assistant who calls and books their homeowners.
+export const MIGZ_MONTHLY_CENTS = 150_000;
 export type FeePlan = "percent" | "subscription";
 /** How an agent pays us: the monthly Migz AI subscription, or the percentage of what they add. */
 export const feePlanOf = (agent: { migz_plan?: string | null } | null | undefined): FeePlan => (agent?.migz_plan === "subscription" ? "subscription" : "percent");

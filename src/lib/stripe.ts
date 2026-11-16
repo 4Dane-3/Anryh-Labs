@@ -94,7 +94,7 @@ export async function createSetupFeeCheckout(input: CheckoutFor) {
   });
 }
 
-/** A Checkout page for the Migz AI subscription ($1,000 a month, no setup fee). Returns the URL. */
+/** A Checkout page for the Migz AI subscription (MIGZ_MONTHLY_CENTS a month, no setup fee). Returns the URL. */
 export async function createSubscriptionCheckout(input: CheckoutFor) {
   const who = input.customerId ? { customer: input.customerId } : { customer_email: input.email };
   const session = await stripe().checkout.sessions.create({
@@ -109,7 +109,7 @@ export async function createSubscriptionCheckout(input: CheckoutFor) {
           currency: "usd",
           unit_amount: MIGZ_MONTHLY_CENTS,
           recurring: { interval: "month" },
-          product_data: { name: "Migz AI", description: "Your Meta ads run by Migz AI: campaigns, video and image ads, booking page, reporting. No setup fee, cancel anytime. Ad spend is separate." },
+          product_data: { name: "Migz AI", description: "Your Meta and Google ads run by Migz AI, and Emma, the AI assistant who calls and books your homeowners: campaigns, video and image ads, landing and booking pages, reporting. No setup fee, cancel anytime. Ad spend is separate." },
         },
       },
     ],

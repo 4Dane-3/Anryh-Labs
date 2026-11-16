@@ -73,7 +73,7 @@ export function PricingCovers() {
         <div className="cx-setup">
           <p className="cx-setup__who">roofing companies</p>
           <p className="cx-setup__fee">{usd(ROOFING_MONTHLY)}/month</p>
-          <p>migz ai, with no setup fee and no contract. ad spend is separate (at least {usd(ROOFING_MIN_FIRST_MONTH_AD_SPEND)} the first month), and all of it goes to your ads.</p>
+          <p>migz ai: meta ads, google search ads and emma, the ai assistant who calls and books your homeowners. no setup fee, no contract. ad spend is separate (at least {usd(ROOFING_MIN_FIRST_MONTH_AD_SPEND)} the first month), and all of it goes to your ads.</p>
         </div>
         <div className="cx-setup">
           <p className="cx-setup__who">life insurance agents</p>
