@@ -8,13 +8,14 @@ import { depositFor, feePlanOf, MIGZ_MONTHLY_CENTS, MIN_AD_BALANCE_CENTS, MIN_DE
 import { campaignMoney, roundUpToFundsStep } from "@/lib/campaign-plan";
 import { DEFAULT_INTENT, DEFAULT_VIDEO_TIER, isIntentLevel, isVideoTier } from "@/lib/ad-options";
 import { getOpenBatch, getRecentBatches, type Batch } from "@/lib/dashboard/batches";
+import { refreshAdDomain } from "@/lib/booking/ad-domain-server";
 
 // What "Start here" checks. Each step is done or not, with the reason it isn't, so the page and the
 // launch action agree. Only what's needed to run a first campaign: their business details and Meta ad
 // account first, the setup fee, then the rest. Until the first campaign starts, the rest of the dashboard
 // stays locked (requireSetUpAgent).
 
-export type StepKey = "vertical" | "business" | "meta" | "setup_fee" | "profile" | "page" | "crm" | "slack" | "funds" | "plan" | "rules" | "details" | "avatar" | "media" | "google" | "creatives" | "mode";
+export type StepKey = "vertical" | "business" | "meta" | "setup_fee" | "profile" | "address" | "page" | "crm" | "slack" | "funds" | "plan" | "rules" | "details" | "avatar" | "media" | "google" | "creatives" | "mode";
 
 export type Step = {
   key: StepKey;
@@ -50,6 +51,10 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
     isRoofer(agent) ? supabaseAdmin.from("google_ads_accounts").select("link_status").eq("agent_id", agent.id).maybeSingle() : null,
   ]);
   const batch = openBatch ?? pastBatches[0] ?? null;
+  // A roofer's ad address: re-checked each time this runs until it's live, so the step ticks off on its own once
+  // their DNS record is in (and launching re-checks it too)
+  let addressLive = !!agent.ad_domain_ok;
+  if (isRoofer(agent) && agent.ad_domain && !addressLive && !agent.onboarding_completed_at) addressLive = (await refreshAdDomain(agent).catch(() => ({ live: false }))).live;
   const creativeCount = creatives.count ?? 0;
 
   const roof = isRoofer(agent);
@@ -143,6 +148,12 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
   // Google Ads (optional): done once an account is linked, made for them, or its link request is waiting on them
   const googleStatus = (googleRow?.data as { link_status?: string } | null | undefined)?.link_status;
   const googleMissing = googleStatus && googleStatus !== "refused" && googleStatus !== "ended" ? null : "Connect Google Ads so Migz can run Google Search ads too (optional).";
+  // Every ad (Meta and Google) sends people to their own domain, so nothing launches before it's live
+  const addressMissing = !agent.ad_domain
+    ? "Set up your ad address on your own website's domain (like book.yourroofing.com)."
+    : !addressLive
+      ? `Add the DNS record for ${agent.ad_domain}. This step ticks off by itself once it points at us (it can take up to an hour).`
+      : null;
   const modeMissing = agent.migz_mode_chosen_at ? null : "Choose whether Migz runs your ads on its own or asks you first.";
 
   const step = (key: StepKey, missing: string | null, required = true): Step => ({ key, required, missing, done: !missing });
@@ -154,6 +165,7 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
     step("profile", profileMissing),
     ...(roof
       ? [
+          step("address", addressMissing), // their ad address: every ad lands on their own domain
           step("crm", crmMissing),
           step("rules", rulesMissing), // the jobs they take and the lead goal
           step("details", detailsMissing), // special, certifications, warranties, license

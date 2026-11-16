@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowUpRight, Check, Loader2 } from "lucide-react";
+import { ArrowUpRight, Check, Info, Loader2 } from "lucide-react";
 import { chooseVertical, launchCampaign, saveBatchPlan, saveCrm, saveLeadGoal, setCreativeMode, startSetupFee } from "@/app/dashboard/actions";
 import { BrandSetup, type BrandInitial } from "@/components/dashboard/BrandSetup";
 import { PresenterSetup, type PresenterInitial } from "@/components/dashboard/PresenterSetup";
@@ -24,7 +24,7 @@ import { cleanFocus, TOPICS } from "@/lib/migz/topics";
 import { cn } from "@/lib/utils";
 import { JobRulesForm } from "@/components/dashboard/JobRules";
 import type { JobRules } from "@/lib/roofing/job-rules";
-import { GoogleAdsSetup, type GoogleSetupInitial } from "@/components/dashboard/GoogleAdsSetup";
+import { AdAddress, GoogleAdsSetup, type GoogleSetupInitial } from "@/components/dashboard/GoogleAdsSetup";
 import { BookingStep, BusinessStep, MetaStep, MigzModeStep, SlackStep, type Business } from "@/components/dashboard/start/RequirementSteps";
 
 type StepState = { key: string; done: boolean; missing: string | null };
@@ -87,7 +87,7 @@ const TITLES: Record<string, { title: string; blurb: string }> = {
 /** What changes for a roofing company. */
 const ROOF_TITLES: Record<string, { title: string; blurb: string }> = {
   business: { title: "Your business", blurb: "Your business email and the number homeowners reach you on." },
-  setup_fee: { title: `Migz AI: ${usd(MIGZ_MONTHLY_CENTS, { cents: false })}/month`, blurb: "No setup fee, cancel anytime. Every dollar of ad funds you add goes to your ads." },
+  setup_fee: { title: `Migz AI: ${usd(MIGZ_MONTHLY_CENTS, { cents: false })}/month`, blurb: "Meta ads, Google ads and Emma. No setup fee, cancel anytime. Every dollar of ad funds you add goes to your ads." },
   profile: { title: "Your company", blurb: "Your company name, logo or photo and a short intro. Homeowners see this before they talk to you." },
   crm: { title: "Your CRM", blurb: "Leads are booked straight into your CRM's calendar. Tell us which one you use." },
   slack: { title: "Slack (optional)", blurb: "New leads also come to your email. Connect Slack if you'd like them there too." },
@@ -95,8 +95,42 @@ const ROOF_TITLES: Record<string, { title: string; blurb: string }> = {
   rules: { title: "Jobs you take", blurb: "What your ads offer (a free inspection or a free quote) and the jobs you want. Your assistant only books the right ones." },
   details: { title: "Your special, certifications and warranties", blurb: "What every video can feature: this campaign's special, the certifications you hold and your warranties." },
   avatar: { title: "Who's on camera (optional)", blurb: "For person-to-camera ads: who appears, their photo and their voice. Skip it for ads with no person." },
+  address: { title: "Your ad address", blurb: "Where every ad sends people: an address on your own website, like book.yourroofing.com. One DNS record." },
   google: { title: "Google Ads (optional)", blurb: "Search ads for homeowners looking for a roofer right now. Migz builds and runs the campaign in your own Google Ads account." },
   media: { title: "Ad Creative AI Context (optional)", blurb: "Your voice and your real job photos and clips. Migz uses them in every ad: your voice in the videos, your photos in the videos and the image ads." },
+};
+
+/** Why each step is asked for, shown at the top of the step, so the common questions are answered before they're asked. */
+const WHY: Record<string, string> = {
+  vertical: "Roofing companies and insurance agents get different ads, pages and setup steps. Your answer picks the right ones.",
+  business: "Meta needs a real business behind every ad, and your agency or IMO goes in your ads' disclosures. Leads reach you on this number.",
+  meta: "Your ads run from your own Meta ad account, so the account, its history and the spend are always yours. Sharing it with Anryh Labs lets Migz build and manage your campaigns without your password, and you can remove us any time.",
+  setup_fee: "It covers setting up your ad account, your first campaign and your booking page. It's charged once.",
+  profile: "People book with someone they can see. Your name, photo and bio are on your booking page, and Meta checks that ads match a real person.",
+  page: "This is where every ad sends people, so it has to be able to book: your hours set the times people can pick.",
+  slack: "Migz tells you about new leads and bookings the moment they happen, and sends your morning summary there.",
+  plan: "Migz needs to know what your ads lead with and how much to spend a day before it can build the campaign. The budget sets how many people see your ads.",
+  funds: "Your ad balance pays Meta for your ads. A campaign starts with two weeks funded so Meta has enough time and data to learn who books.",
+  creatives: "Every ad needs a video or image. Migz can make them for you, use your own, or both.",
+  rules: "So you only get the bookings you want, and nobody is booked for work you'd turn down.",
+  mode: "You choose how much control you keep: Migz runs everything within your budget, or asks you before every new ad and change.",
+};
+const ROOF_WHY: Record<string, string> = {
+  business: "Every lead and booking is emailed to this address, and homeowners reach you on this number. It's the call button on your ads and pages.",
+  meta: "Your Facebook and Instagram ads run from your own Meta ad account, so the account, its history and the spend are always yours. Sharing it with Anryh Labs lets Migz run your ads without your password, and you can remove us any time.",
+  setup_fee: "This is the monthly fee: Migz running your Meta and Google ads, the videos, and Emma calling and booking your homeowners. Your ad spend is separate and all of it goes to your ads.",
+  profile: "Homeowners see your company name, logo and intro on your landing pages before they ask for a quote. A company they can recognise gets more requests.",
+  address:
+    "Every ad, on Facebook, Instagram and Google, sends people to this address on your own domain, so the ad, the page and your company all match. Homeowners trust a link with your name in it, Google ranks ads higher when the page matches the search, and the address stays yours if you ever leave. Your main website isn't touched: only this one address points at us, and we build the pages in your website's fonts and colours.",
+  crm: "So inspections land in the calendar your crew already uses, and nobody retypes anything.",
+  slack: "Optional. Every lead already comes to your email. Slack just gets it to your phone faster.",
+  rules: "Your offer, a free inspection or a free quote, is what every ad leads with. The jobs you take tell Emma and your pages who to book, so your crew never drives out to a job you'd turn down.",
+  details: "Specific offers win. Your special, certifications and warranty are what set your ads apart from the roofer down the road. Migz only claims what you enter here, so an ad never promises something you don't offer.",
+  avatar: "Optional. Ads with a real person on camera tend to stop more people scrolling. Skip it and Migz makes ads without a person.",
+  google: "Optional. Google reaches homeowners searching for a roofer right now, the hottest leads there are. The account stays yours, and you pay Google directly.",
+  media: "Optional, but it makes your ads yours: your real job photos and your voice beat stock footage, and homeowners recognise your work.",
+  plan: "Migz needs to know what to lead with, where your crews work and how much to spend a day before it can build the campaign. The area keeps your ads to homeowners you can reach.",
+  funds: "This pays Meta for your Facebook and Instagram ads, all of it. A campaign starts with two weeks funded so Meta has time to learn which homeowners ask for quotes.",
 };
 
 function StepShell({
@@ -144,7 +178,18 @@ function StepShell({
             transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
             className="overflow-hidden"
           >
-            <div className="border-t border-line px-5 py-5">{children}</div>
+            <div className="border-t border-line px-5 py-5">
+              {((roof && ROOF_WHY[stepKey]) || WHY[stepKey]) && (
+                <div className="mb-5 flex gap-2.5 rounded-lg border border-line bg-white/[0.03] px-3.5 py-3 text-[13px] leading-relaxed text-fg-muted">
+                  <Info className="mt-0.5 size-4 shrink-0 text-fg-faint" />
+                  <p>
+                    <span className="font-medium text-fg">Why we need this: </span>
+                    {(roof && ROOF_WHY[stepKey]) || WHY[stepKey]}
+                  </p>
+                </div>
+              )}
+              {children}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -168,9 +213,10 @@ function SetupFeeStep({ stripeConnected, contactEmail, roof }: { stripeConnected
       {roof ? (
         <>
           <ul className="space-y-1.5 text-[13px] text-fg-muted">
-            <li>· Migz AI runs your Meta ads every day: campaigns, budgets and new ads</li>
+            <li>· Migz AI runs your Facebook, Instagram and Google ads every day: campaigns, budgets and new ads</li>
+            <li>· Emma, your AI assistant, calls every homeowner who asks for a quote within about a minute and books the ones who fit</li>
             <li>· Video ads with real hooks, your towns and your certifications, sent to you for approval</li>
-            <li>· Your booking page, inspection reminders and a summary every 3 days</li>
+            <li>· Landing pages on your own domain, inspection reminders and a summary every 3 days</li>
           </ul>
           <p className="text-[13px] text-fg-muted">{usd(MIGZ_MONTHLY_CENTS, { cents: false })} a month, billed today and monthly after. No setup fee, no contract. Your ad spend is separate, and all of it goes to your ads.</p>
         </>
@@ -427,6 +473,7 @@ export function StartWizard(props: Props) {
     profile: props.profile.full_name,
     page: props.booking.choice === "own" ? `Your own page: ${props.booking.ownUrl.replace(/^https?:\/\//, "")}` : `Live at /${props.slug}`,
     crm: props.crm,
+    address: props.google?.adDomain?.live ? `Live: ${props.google.adDomain.domain}` : props.google?.adDomain?.domain ?? "",
     rules: `${leadOffer({ lead_goal: props.leadGoal }).title} · ${props.jobRules?.jobTypes.length ?? 0} kind${props.jobRules?.jobTypes.length === 1 ? "" : "s"} of job`,
     details: props.brand?.deals[0] ? `Special: ${props.brand.deals[0]}` : "Saved",
     avatar: props.presenter?.mode === "none" ? "No person" : props.presenter?.onCameraName ? `${props.presenter.onCameraName}, ${props.presenter.onCameraRole}` : "Saved",
@@ -448,6 +495,7 @@ export function StartWizard(props: Props) {
     profile: <ProfileForm profile={props.profile} onSaved={() => advance("profile")} />,
     page: <BookingStep {...props.booking} slug={props.slug} onSaved={() => advance("page")} />,
     crm: <CrmStep initial={props.crm} onSaved={() => advance("crm")} />,
+    address: props.google && <AdAddress initial={props.google.adDomain} website={props.google.website} pages={props.google.pages} onLive={() => advance("address")} />,
     rules: (
       <div className="space-y-6">
         <LeadGoalPicker initial={props.leadGoal} />

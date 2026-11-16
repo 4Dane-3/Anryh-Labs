@@ -17,8 +17,8 @@ export type GoogleSetupInitial = {
   recommendedMonthly: number;
 };
 
-/** Where their ads send people: an address on their own domain, served by us. They add one DNS record. */
-function AdAddress({ initial, website: savedSite, pages }: { initial: { domain: string; live: boolean } | null; website: string | null; pages: GoogleSetupInitial["pages"] }) {
+/** Where their ads send people: an address on their own domain, served by us. They add one DNS record. A required step of Start here for roofers. */
+export function AdAddress({ initial, website: savedSite, pages, onLive }: { initial: { domain: string; live: boolean } | null; website: string | null; pages: GoogleSetupInitial["pages"]; onLive?: () => void }) {
   const router = useRouter();
   const [website, setWebsite] = useState(savedSite ?? "");
   const root = website.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/[/?#].*$/, "");
@@ -32,6 +32,7 @@ function AdAddress({ initial, website: savedSite, pages }: { initial: { domain: 
       const r = await fn();
       setResult(r.ok ? { good: true, text: r.message } : { good: false, text: r.error });
       router.refresh();
+      if (r.ok && r.status === "live") onLive?.();
     });
   const host = (initial?.domain ?? "book.yourroofing.com").split(".")[0];
   return (
@@ -77,7 +78,7 @@ function AdAddress({ initial, website: savedSite, pages }: { initial: { domain: 
             <span className="text-fg-muted">Name</span><span>{host}</span>
             <span className="text-fg-muted">Value</span><span>cname.vercel-dns.com</span>
           </div>
-          <p className="mt-2">It can take up to an hour. Then press Check again.</p>
+          <p className="mt-2">It can take up to an hour. This step ticks off by itself once it works, or press Check again. Not sure where your DNS is? Send this to whoever looks after your website.</p>
         </div>
       )}
       {initial?.live && <p className="mt-2 text-[12px] text-good">Live: your ads use {initial.domain}.</p>}
@@ -85,22 +86,33 @@ function AdAddress({ initial, website: savedSite, pages }: { initial: { domain: 
     </div>
       {pages.length > 0 && (
         <div>
-          <Label>Your landing pages, one for each ad group</Label>
+          <Label>Your landing pages, one for each kind of job</Label>
           <ul className="mt-1 space-y-1.5 text-[13px]">
             {pages.map((p) => (
               <li key={p.name} className="flex flex-wrap items-baseline gap-x-2">
                 <span className="text-fg">{p.title}</span>
                 <span className="text-fg-muted">·</span>
-                <a href={p.preview} target="_blank" rel="noreferrer" className="text-fg-muted underline underline-offset-2 hover:text-fg">
+                <a href={`${p.preview}?preview=1`} target="_blank" rel="noreferrer" className="text-fg-muted underline underline-offset-2 hover:text-fg">
                   {initial?.live ? p.url.replace(/^https:\/\//, "") : "preview"}
                 </a>
               </li>
             ))}
           </ul>
-          <p className="mt-1 text-[12px] text-fg-muted">Each Google ad goes to the page for its job, with the same headline as the ad.</p>
+          <p className="mt-1 text-[12px] text-fg-muted">Each Google ad goes to the page for its job, with the same headline as the ad. Your Facebook and Instagram ads go to {initial?.domain ?? "your ad address"} itself.</p>
         </div>
       )}
     </div>
+  );
+}
+
+/** The Google step's reminder that its ads use the ad address set up in its own step. */
+function AddressNote({ adDomain }: { adDomain: GoogleSetupInitial["adDomain"] }) {
+  return (
+    <p className="text-[13px] text-fg-muted">
+      {adDomain?.live
+        ? `Your Google ads send people to ${adDomain.domain}, with a page for each kind of job.`
+        : "Your Google ads send people to your ad address (its own step in Start here). The campaign is built once it's live."}
+    </p>
   );
 }
 
@@ -154,7 +166,7 @@ export function GoogleAdsSetup({ initial, onSaved }: { initial: GoogleSetupIniti
           {acct.status === "created" && " Make sure you accepted Google's invitation and added your card under Billing in Google Ads."}
         </p>
         {acct.lastError && <p className="text-[13px] text-brand">Last run: {acct.lastError}</p>}
-        <AdAddress initial={initial.adDomain} website={initial.website} pages={initial.pages} />
+        <AddressNote adDomain={initial.adDomain} />
         {budgetField}
         <div>
           <Label htmlFor="g-avg">Your average job (optional)</Label>
@@ -203,7 +215,7 @@ export function GoogleAdsSetup({ initial, onSaved }: { initial: GoogleSetupIniti
         </div>
       )}
       {budgetField}
-      <AdAddress initial={initial.adDomain} website={initial.website} pages={initial.pages} />
+      <AddressNote adDomain={initial.adDomain} />
       {acct?.status === "pending" && (
         <p className="text-[13px] text-fg-muted">
           Request sent to <span className="font-mono text-fg">{fmtId(acct.customerId)}</span>. In Google Ads open Admin → Access and security → Managers and accept Anryh Labs.
