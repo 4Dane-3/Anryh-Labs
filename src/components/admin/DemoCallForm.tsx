@@ -36,8 +36,8 @@ export function DemoCallForm({ accounts, ready, checkinReady, initialKind }: { a
     // check-in
     name: "",
     email: "",
-    rewardDollars: "100",
-    goal: "5",
+    rewardDollars: "",
+    goal: "",
   });
   const [confirmed, setConfirmed] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -99,101 +99,105 @@ export function DemoCallForm({ accounts, ready, checkinReady, initialKind }: { a
               : "The check-in agent isn't set up on this server yet. Add ELEVENLABS_CHECKIN_AGENT_ID in Vercel and redeploy."}
           </p>
         )}
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="sm:col-span-2">
+        <div className="grid gap-4 sm:grid-cols-3">
+          <div>
             <Label>Number to call</Label>
-            <input className={inputClass} inputMode="tel" placeholder="(253) 555-0100" value={f.phone} onChange={set("phone")} />
+            <input className={inputClass} inputMode="tel" autoFocus placeholder="(253) 555-0100" value={f.phone} onChange={set("phone")} />
           </div>
           <div>
-            <Label>Company Emma speaks for</Label>
+            <Label>{kind === "lead" ? "Their first name" : "Customer's name"}</Label>
+            {kind === "lead" ? (
+              <input className={inputClass} value={f.firstName} onChange={set("firstName")} placeholder="Mike" />
+            ) : (
+              <input className={inputClass} value={f.name} onChange={set("name")} placeholder="Mike Johnson" />
+            )}
+          </div>
+          <div>
+            <Label>Company name</Label>
             <input className={inputClass} value={f.company} onChange={set("company")} placeholder="Summit Roofing" />
           </div>
-
-          {kind === "lead" ? (
-            <>
-              <div>
-                <Label>Their first name</Label>
-                <input className={inputClass} value={f.firstName} onChange={set("firstName")} placeholder="Mike" />
-              </div>
-              <div>
-                <Label>Business</Label>
-                <select className={inputClass} value={f.business} onChange={set("business")}>
-                  <option value="roofing">Roofing</option>
-                  <option value="life insurance">Life insurance</option>
-                </select>
-              </div>
-              <div>
-                <Label>City</Label>
-                <input className={inputClass} value={f.city} onChange={set("city")} placeholder="Kent" />
-              </div>
-              {roof ? (
-                <>
-                  <div>
-                    <Label>Roof address (optional)</Label>
-                    <input className={inputClass} value={f.address} onChange={set("address")} placeholder="123 Main St" />
-                  </div>
-                  <div>
-                    <Label>What they told us (optional)</Label>
-                    <input className={inputClass} value={f.roofIssue} onChange={set("roofIssue")} placeholder="Leak after the storm" />
-                  </div>
-                </>
-              ) : (
-                <div className="sm:col-span-2">
-                  <Label>Interested in (optional)</Label>
-                  <input className={inputClass} value={f.interest} onChange={set("interest")} placeholder="Term life" />
-                </div>
-              )}
-              <div>
-                <Label>Service area (blank = the account&apos;s)</Label>
-                <input className={inputClass} value={f.serviceArea} onChange={set("serviceArea")} placeholder="Kent, Auburn, Renton" />
-              </div>
-              <div>
-                <Label>Inspection hours (blank = the account&apos;s)</Label>
-                <input className={inputClass} value={f.hours} onChange={set("hours")} placeholder="Monday to Friday 8am–5pm" />
-              </div>
-              <div>
-                <Label>Their time zone</Label>
-                <select className={inputClass} value={f.timezone} onChange={set("timezone")}>
-                  {(TIMEZONES.includes(f.timezone) ? TIMEZONES : [f.timezone, ...TIMEZONES]).map((z) => (
-                    <option key={z} value={z}>{z}</option>
-                  ))}
-                </select>
-              </div>
-            </>
-          ) : (
-            <>
-              <div>
-                <Label>Customer&apos;s name</Label>
-                <input className={inputClass} value={f.name} onChange={set("name")} placeholder="Mike Johnson" />
-              </div>
-              <div>
-                <Label>Their email (optional)</Label>
-                <input className={inputClass} type="email" value={f.email} onChange={set("email")} placeholder="Emma reads it back, or asks" />
-              </div>
-              <div>
-                <Label>Job address (optional)</Label>
-                <input className={inputClass} value={f.address} onChange={set("address")} placeholder="123 Main St, Kent" />
-              </div>
-              <div>
-                <Label>Gift card ($)</Label>
-                <input className={inputClass} inputMode="decimal" value={f.rewardDollars} onChange={set("rewardDollars")} />
-              </div>
-              <div>
-                <Label>Referrals needed</Label>
-                <input className={inputClass} inputMode="numeric" value={f.goal} onChange={set("goal")} />
-              </div>
-            </>
-          )}
-
-          <div className={kind === "lead" ? "" : "sm:col-span-2"}>
-            <Label>{kind === "lead" ? "Calendar a booking lands on" : "Account the demo job goes on"}</Label>
-            <select className={inputClass} value={f.accountId} onChange={set("accountId")}>
-              {accounts.map((a) => (
-                <option key={a.id} value={a.id}>{a.full_name}</option>
-              ))}
-            </select>
-          </div>
         </div>
+
+        <details className="group rounded-xl border border-line px-4 py-3">
+          <summary className="cursor-pointer select-none text-sm font-medium text-fg-muted hover:text-fg">More details (optional, blank is fine)</summary>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            {kind === "lead" ? (
+              <>
+                <div>
+                  <Label>Business</Label>
+                  <select className={inputClass} value={f.business} onChange={set("business")}>
+                    <option value="roofing">Roofing</option>
+                    <option value="life insurance">Life insurance</option>
+                  </select>
+                </div>
+                <div>
+                  <Label>City</Label>
+                  <input className={inputClass} value={f.city} onChange={set("city")} placeholder="Blank: Emma asks" />
+                </div>
+                {roof ? (
+                  <>
+                    <div>
+                      <Label>Roof address</Label>
+                      <input className={inputClass} value={f.address} onChange={set("address")} placeholder="Blank: Emma asks" />
+                    </div>
+                    <div>
+                      <Label>What they told us</Label>
+                      <input className={inputClass} value={f.roofIssue} onChange={set("roofIssue")} placeholder="Blank: Emma asks what's going on" />
+                    </div>
+                  </>
+                ) : (
+                  <div className="sm:col-span-2">
+                    <Label>Interested in</Label>
+                    <input className={inputClass} value={f.interest} onChange={set("interest")} placeholder="Blank: Emma asks" />
+                  </div>
+                )}
+                <div>
+                  <Label>Service area</Label>
+                  <input className={inputClass} value={f.serviceArea} onChange={set("serviceArea")} placeholder="Blank: the account's" />
+                </div>
+                <div>
+                  <Label>Inspection hours</Label>
+                  <input className={inputClass} value={f.hours} onChange={set("hours")} placeholder="Blank: the account's" />
+                </div>
+                <div>
+                  <Label>Their time zone</Label>
+                  <select className={inputClass} value={f.timezone} onChange={set("timezone")}>
+                    {(TIMEZONES.includes(f.timezone) ? TIMEZONES : [f.timezone, ...TIMEZONES]).map((z) => (
+                      <option key={z} value={z}>{z}</option>
+                    ))}
+                  </select>
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <Label>Their email</Label>
+                  <input className={inputClass} type="email" value={f.email} onChange={set("email")} placeholder="Blank: Emma asks for one" />
+                </div>
+                <div>
+                  <Label>Job address</Label>
+                  <input className={inputClass} value={f.address} onChange={set("address")} placeholder="Blank: left out" />
+                </div>
+                <div>
+                  <Label>Gift card ($)</Label>
+                  <input className={inputClass} inputMode="decimal" value={f.rewardDollars} onChange={set("rewardDollars")} placeholder="100" />
+                </div>
+                <div>
+                  <Label>Referrals needed</Label>
+                  <input className={inputClass} inputMode="numeric" value={f.goal} onChange={set("goal")} placeholder="5" />
+                </div>
+              </>
+            )}
+            <div className="sm:col-span-2">
+              <Label>{kind === "lead" ? "Calendar a booking lands on" : "Account the demo job goes on"}</Label>
+              <select className={inputClass} value={f.accountId} onChange={set("accountId")}>
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.id}>{a.full_name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </details>
 
         <p className="text-[13px] text-fg-muted">
           {kind === "lead"
@@ -205,7 +209,7 @@ export function DemoCallForm({ accounts, ready, checkinReady, initialKind }: { a
           This person asked me to call them for this demo.
         </label>
         <div className="flex flex-wrap items-center gap-4">
-          <Button variant="primary" onClick={call} disabled={pending || !isReady || !confirmed || !f.phone || !f.accountId}>
+          <Button variant="primary" onClick={call} disabled={pending || !isReady || !confirmed || !f.phone.trim() || !f.company.trim() || !(kind === "lead" ? f.firstName : f.name).trim() || !f.accountId}>
             <Phone /> {pending ? "Calling…" : kind === "lead" ? "Call now" : "Call for check-in"}
           </Button>
           {msg && <p className={msg.ok ? "text-sm text-good" : "text-sm text-bad"}>{msg.text}</p>}
