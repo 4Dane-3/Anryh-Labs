@@ -125,6 +125,13 @@ export type Agent = {
   google_review_url?: string | null; // the roofer's Google review link, in the check-in email (missing before 20261204000000)
   avg_job_dollars?: number | null; // their average job, sent to Google with a closed job (missing before 20261214000000)
   job_rules?: unknown; // "Jobs we take" (lib/roofing/job-rules), null = everything; missing before 20261205000000
+  // Inbound Emma, the $250/month add-on (lib/voice/inbound; all missing before 20261218000000)
+  inbound_calls?: boolean; // opted in
+  inbound_mode?: "forward" | "direct" | "mix" | null;
+  inbound_number?: string | null; // our number for them (E.164), set by staff on /admin/inbound
+  inbound_transfer_number?: string | null;
+  inbound_summary_email?: string | null;
+  inbound_prefs?: unknown; // lib/voice/inbound-rules InboundPrefs
 };
 
 export type Booking = {

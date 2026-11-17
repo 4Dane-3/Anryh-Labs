@@ -249,3 +249,75 @@ NODE_PATH=scripts/migz/stubs npx tsx --tsconfig ./tsconfig.json scripts/voice/jo
 ```
 
 `e2e.mjs` also exercises `check_fit`; its with-rules half runs once migration 20261205000000 is applied.
+
+---
+
+# Inbound Emma (roofers, +$250/month add-on)
+
+A third ElevenLabs agent answers a roofer's **incoming** calls. Roofers opt in under **Settings → Inbound calls** and choose how calls reach her:
+
+| Option | What the roofer does |
+|---|---|
+| **1. Missed calls only** (recommended) | Turns on "forward when no answer" on their own number, pointing at ours. They keep their number everywhere and still answer first. |
+| **2. Every call** | Puts our number on their website, Google profile, ads and trucks. Emma answers everything. |
+| **Mix** | Our number on the ads and landing page only, their own everywhere else. |
+
+They also set a transfer number (a cell, never the forwarded line, or the call loops back to Emma), whether existing customers and urgent calls go straight to it, Emma's tone, their FAQ answers, notes, and where call summaries are emailed. Their "Jobs you take" rules apply to her bookings too.
+
+New homeowners are qualified and booked exactly like a form lead (they become a `quote_requests` row with `source = 'phone'`, so `open_times`, `check_fit`, `book_inspection` and `do_not_call` work unchanged). Existing customers, suppliers and everyone else get a message taken or a transfer; their temporary lead is deleted after the call. Every call except spam is emailed to the roofer.
+
+## 1. Run the migration
+
+`supabase/migrations/20261218000000_inbound_calls.sql` (agents' inbound columns, `inbound_calls` table, `phone` as a lead source).
+
+## 2. Create the agent in ElevenLabs
+
+1. Duplicate the speed-to-lead agent (same voice, Flash v2.5, LLM, temperature, recording on), name it "Emma (inbound)".
+2. Copy its id into `ELEVENLABS_INBOUND_AGENT_ID` (Vercel and `.env.local`), then push the prompt and first message:
+   ```
+   node --env-file=.env.local scripts/voice/push-emma.mjs --inbound            # dry run
+   node --env-file=.env.local scripts/voice/push-emma.mjs --inbound --apply
+   ```
+3. **Tools:** the same four webhook tools as the speed-to-lead agent (`open_times`, `check_fit`, `book_inspection`, `do_not_call`, each with `lead_id` bound to `{{lead_id}}`), plus the system tools `end_call` and **`transfer_to_number`**: one rule, destination `{{transfer_number}}`, condition "the caller should be connected to the team, as the prompt says". Use the Twilio conference (warm) transfer so the team hears who it is. `voicemail_detection` isn't needed.
+4. **Dynamic variables** (all come from the initiation webhook): `lead_id`, `inbound_call_id`, `company_name`, `service_area`, `inspection_hours`, `lead_timezone`, `caller_number_known`, `transfer_number`, `can_transfer`, `transfer_existing`, `transfer_urgent`, `tone`, `company_faqs`, `company_notes`, `line_ready`.
+5. **Security:** turn on "Fetch conversation initiation data for inbound Twilio calls". No overrides needed.
+6. **Workspace webhooks:** add the conversation initiation webhook `https://<APP_URL>/api/voice/inbound`, `POST`, with the header `x-voice-secret: <ELEVENLABS_WEBHOOK_SECRET>` (the workspace secret the tools already use). The post-call webhook is the same one as the other agents (`/api/voice/post-call`); turn on post-call transcription for this agent.
+7. **Max call duration:** 8 minutes. Silence end-call timeout ~20s.
+
+### Data collection
+
+| Field | Type | Description |
+|---|---|---|
+| `caller_type` | string | One of: `new_customer`, `existing_customer`, `vendor`, `spam`, `other`. `vendor` for suppliers, adjusters, other contractors. |
+| `outcome` | string | One of: `booked`, `message`, `transferred`, `not_qualified`, `callback`, `do_not_call`. `message` when you took a message. |
+| `caller_name` | string | The caller's name, if given |
+| `message` | string | The message for the team, in one or two sentences, if one was taken |
+| `callback_time` | string | When they want a call back, if they said |
+| `email` | string | Their email, if given |
+| `address` | string | The property or job address, if given |
+| `roof_issue` | string | What's going on with the roof, in their words |
+| `roof_age`, `owns_home`, `insurance_claim`, `decision_makers` | string | As on the speed-to-lead agent |
+
+The server checks `outcome` against what really happened (a booking exists, do-not-call, a transfer, a caller who never spoke).
+
+## 3. Per roofer (when they opt in)
+
+You get a Slack alert. Then:
+1. Buy a local Twilio number in their area code (Twilio console → Phone numbers).
+2. Import it into ElevenLabs (Agents → Phone numbers → Import from Twilio) and assign it to **Emma (inbound)**.
+3. Enter it on **/admin/inbound**. Their Settings page then shows the number and, for option 1, the forwarding codes for their carrier.
+4. Call it yourself once to hear Emma as their company.
+
+Bill the $250 by hand for now (it isn't added to their Stripe subscription automatically). /admin/inbound shows each roofer's last 30 days of calls, bookings and minutes.
+
+## 4. Compliance
+
+Washington (and other all-party consent states) need everyone's consent to record: the first message says the call may be recorded. Inbound callers aren't added to any calling list; a booking's confirmation emails go out as for any booking. Text summaries wait for A2P 10DLC approval; summaries are email only.
+
+## 5. Testing without a phone
+
+```bash
+NODE_PATH=scripts/migz/stubs npx tsx --tsconfig ./tsconfig.json scripts/voice/inbound.test.mts
+```
+
+Checks the variables, the call classification and the summary email.
