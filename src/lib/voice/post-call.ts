@@ -4,6 +4,7 @@ import { logActivity } from "@/lib/dashboard/activity";
 import { markDoNotCall } from "@/lib/voice/tools";
 import { isOutcome, MAX_ATTEMPTS, retryAt, type CallOutcome } from "@/lib/voice/rules";
 import { checkinInitiationFailed, checkinPostCall, type CheckinTranscript } from "@/lib/roofing/checkin";
+import { findInboundCall, handleInboundPostCall, type InboundTranscript } from "@/lib/voice/inbound";
 
 // ElevenLabs' post-call webhook: `post_call_transcription` after every call that connected (transcript,
 // analysis with our data-collection fields, metadata with the call's start time), and
@@ -101,6 +102,9 @@ export async function handlePostCall(payload: PostCallPayload) {
   if (payload.type !== "post_call_transcription") return { ok: true, ignored: payload.type };
   const { data } = payload as Transcription;
   const vars = data.conversation_initiation_client_data?.dynamic_variables;
+  // Inbound Emma's calls have their own table and handling
+  const inbound = await findInboundCall(conversationId, vars);
+  if (inbound) return handleInboundPostCall(inbound, data as InboundTranscript);
   const found = await findCall(conversationId, vars);
   if (!found) return { ok: false, reason: "unknown call" };
   if (found.kind === "checkin" && found.job_booking_id) return checkinPostCall({ id: found.id, job_booking_id: found.job_booking_id, attempt: found.attempt }, data as CheckinTranscript);

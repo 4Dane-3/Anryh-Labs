@@ -4,19 +4,24 @@
 //   node --env-file=.env.local scripts/voice/push-emma.mjs           dry run: shows what would change
 //   node --env-file=.env.local scripts/voice/push-emma.mjs --apply   updates the agent (saves a backup first)
 //
+// With --inbound it pushes inbound Emma instead (scripts/voice/emma-inbound-prompt.md, ELEVENLABS_INBOUND_AGENT_ID).
+//
 // The backup goes to .claude/emma-backups/ (not committed). To restore it, PATCH its conversation_config and workflow back.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const FIRST_MESSAGE =
-  "{{greeting}}, this is Emma, the AI assistant for {{company_name}}, calling about the roof quote you just requested. This call may be recorded. I just have a few quick questions so the inspector comes prepared, then I'll get you booked. Got a quick minute?";
+const inbound = process.argv.includes("--inbound");
+const FIRST_MESSAGE = inbound
+  ? "Thanks for calling {{company_name}}, this is Emma, the AI assistant. This call may be recorded. How can I help you today?"
+  : "{{greeting}}, this is Emma, the AI assistant for {{company_name}}, calling about the roof quote you just requested. This call may be recorded. I just have a few quick questions so the inspector comes prepared, then I'll get you booked. Got a quick minute?";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const prompt = readFileSync(join(here, "emma-lead-prompt.md"), "utf8").trim();
+const prompt = readFileSync(join(here, inbound ? "emma-inbound-prompt.md" : "emma-lead-prompt.md"), "utf8").trim();
 const key = process.env.ELEVENLABS_API_KEY;
-const agentId = (process.env.ELEVENLABS_AGENT_ID ?? "").match(/agent_[A-Za-z0-9]+/)?.[0];
-if (!key || !agentId) throw new Error("Needs ELEVENLABS_API_KEY and ELEVENLABS_AGENT_ID (run with --env-file=.env.local).");
+const envName = inbound ? "ELEVENLABS_INBOUND_AGENT_ID" : "ELEVENLABS_AGENT_ID";
+const agentId = (process.env[envName] ?? "").match(/agent_[A-Za-z0-9]+/)?.[0];
+if (!key || !agentId) throw new Error(`Needs ELEVENLABS_API_KEY and ${envName} (run with --env-file=.env.local).`);
 
 const url = `https://api.elevenlabs.io/v1/convai/agents/${agentId}`;
 const headers = { "xi-api-key": key, "content-type": "application/json" };
@@ -43,7 +48,7 @@ if (!process.argv.includes("--apply")) {
 
 const backups = join(here, "../../.claude/emma-backups");
 mkdirSync(backups, { recursive: true });
-const backup = join(backups, `lead-agent-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
+const backup = join(backups, `${inbound ? "inbound" : "lead"}-agent-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
 writeFileSync(backup, JSON.stringify(before, null, 1));
 console.log(`\nBackup: ${backup}`);
 

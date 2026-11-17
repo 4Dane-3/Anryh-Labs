@@ -7,6 +7,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import { scanAll } from "@/lib/admin/health";
 import { approveJoinRequest, declineJoinRequest, setReferralPaused, setReferrer } from "@/lib/referrals";
 import { decideGuarantee } from "@/lib/dashboard/guarantee";
+import { usPhone } from "@/lib/booking/call";
 
 type Result = { ok: true; message?: string } | { ok: false; error: string };
 
@@ -43,6 +44,24 @@ export async function setAgentModelBudget(agentId: string, cents: number): Promi
   const { error } = await supabaseAdmin.from("agents").update({ migz_model_budget_cents: cents }).eq("id", agentId);
   if (error) return { ok: false, error: "Couldn't save that budget." };
   revalidatePath("/admin");
+  return { ok: true };
+}
+
+/**
+ * Assigns (or clears, with "") a roofer's inbound Emma number: the Twilio number bought for them, imported into
+ * ElevenLabs and assigned to the inbound agent. Calls to it are answered as this roofer.
+ */
+export async function setInboundNumber(agentId: string, raw: string): Promise<Result> {
+  if (!(await staffEmail())) return { ok: false, error: "Staff only." };
+  const number = raw.trim() ? usPhone(raw) : null;
+  if (raw.trim() && !number) return { ok: false, error: "Enter a US number with its area code." };
+  if (number) {
+    const { data: taken } = await supabaseAdmin.from("agents").select("full_name").eq("inbound_number", number).neq("id", agentId).maybeSingle();
+    if (taken) return { ok: false, error: `That number is already ${taken.full_name}'s.` };
+  }
+  const { error } = await supabaseAdmin.from("agents").update({ inbound_number: number }).eq("id", agentId);
+  if (error) return { ok: false, error: error.code === "42703" ? "Run migration 20261218000000 first." : "Couldn't save that number." };
+  revalidatePath("/admin/inbound");
   return { ok: true };
 }
 

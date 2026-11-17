@@ -22,6 +22,7 @@ import {
   UsersRound,
   Wallet,
   X,
+  PhoneIncoming,
 } from "lucide-react";
 import { createSupabaseBrowser } from "@/lib/supabase-browser";
 import { cn } from "@/lib/utils";
@@ -59,6 +60,7 @@ const GROUPS: Group[] = [
     places: [
       { href: "/admin/demo-call", label: "New lead call", icon: PhoneCall, hint: "Emma calls and books" },
       { href: "/admin/demo-call?kind=checkin", label: "Post-job check-in", icon: HeartHandshake, hint: "Review and referrals" },
+      { href: "/admin/inbound", label: "Inbound calls", icon: PhoneIncoming, hint: "Numbers for roofers who opted in" },
     ],
   },
 ];
@@ -69,7 +71,7 @@ const PILL = [
   { href: "/admin/clients", label: "Clients", icon: Users, match: (p: string) => p.startsWith("/admin/clients") },
   { href: "/admin/calendar", label: "Calendar", icon: CalendarDays, match: (p: string) => p.startsWith("/admin/calendar") },
   { href: "/admin/competitors", label: "Competitors", icon: Crosshair, match: (p: string) => p.startsWith("/admin/competitors") },
-  { href: "/admin/demo-call", label: "Voice", icon: PhoneCall, match: (p: string) => p.startsWith("/admin/demo-call") },
+  { href: "/admin/demo-call", label: "Voice", icon: PhoneCall, match: (p: string) => p.startsWith("/admin/demo-call") || p.startsWith("/admin/inbound") },
 ];
 
 function useOutside(open: boolean, close: () => void) {

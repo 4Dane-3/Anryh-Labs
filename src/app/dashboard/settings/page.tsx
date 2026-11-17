@@ -1,7 +1,10 @@
 import { requireSetUpAgent } from "@/lib/auth";
 import { PageHeader } from "@/components/dashboard/ui";
 import { AutomatedEmailsLink, CallButtonForm, GhostBookingsForm, MigzModeForm, NotificationSettings, VoiceAgentForm } from "@/components/dashboard/SettingsForms";
-import { checkinConfigured, voiceConfigured } from "@/lib/voice/elevenlabs";
+import { checkinConfigured, inboundConfigured, voiceConfigured } from "@/lib/voice/elevenlabs";
+import { InboundCallsForm } from "@/components/dashboard/InboundCalls";
+import { cleanInboundPrefs, isInboundMode } from "@/lib/voice/inbound-rules";
+import { displayPhone } from "@/lib/booking/call";
 import { JobRulesPanel } from "@/components/dashboard/JobRules";
 import { rulesOf } from "@/lib/roofing/fit";
 import { CheckinSettingsForm } from "@/components/dashboard/Referrals";
@@ -35,6 +38,20 @@ export default async function SettingsPage() {
         <VideoTierForm tier={isVideoTier(agent.video_tier) ? agent.video_tier : DEFAULT_VIDEO_TIER} />
         {isRoofer(agent) && <JobRulesPanel initial={rulesOf(agent)} />}
         <VoiceAgentForm on={!!agent.voice_agent} ready={voiceConfigured()} roof={isRoofer(agent)} />
+        {isRoofer(agent) && (
+          <InboundCallsForm
+            initial={{
+              on: !!agent.inbound_calls,
+              mode: isInboundMode(agent.inbound_mode) ? agent.inbound_mode : "forward",
+              number: agent.inbound_number ?? null,
+              transferNumber: agent.inbound_transfer_number ? displayPhone(agent.inbound_transfer_number) : "",
+              summaryEmail: agent.inbound_summary_email ?? "",
+              accountEmail: agent.business_email || agent.email,
+              prefs: cleanInboundPrefs(agent.inbound_prefs),
+            }}
+            ready={inboundConfigured()}
+          />
+        )}
         {isRoofer(agent) && (
           <CheckinSettingsForm
             initial={{

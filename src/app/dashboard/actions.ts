@@ -47,6 +47,7 @@ import { startGuarantee } from "@/lib/dashboard/guarantee";
 import { setupBlockers } from "@/lib/dashboard/setup";
 import { adAccountFrom, checkMetaAccess, pageRefFrom } from "@/lib/meta/access";
 import { alertAdmin } from "@/lib/migz/slack";
+import { cleanInboundPrefs, INBOUND_MODE_COPY, INBOUND_PRICE_DOLLARS, isInboundMode, type InboundMode } from "@/lib/voice/inbound-rules";
 import { sendSlackMessage } from "@/lib/slack";
 import { isRoofer, MAX_RADIUS_MILES, MIN_RADIUS_MILES } from "@/lib/verticals";
 import { ROOFING_TOPIC_KEYS } from "@/lib/migz/topics";
@@ -883,6 +884,42 @@ export async function saveCheckinSettings(input: { on: boolean; rewardDollars: n
     })
     .eq("id", agent.id);
   if (error) return fail(error.code === "42703" ? "Check-in calls aren't set up yet (migrations 20261203000000 and 20261204000000)." : "Couldn't save that.");
+  revalidatePath("/dashboard/settings");
+  return { ok: true };
+}
+
+/**
+ * Inbound Emma (the $250/month add-on): opt in, pick how calls reach her (forward / direct / mix), and the
+ * company's preferences. Turning it on the first time tells staff to assign a number on /admin/inbound.
+ */
+export async function saveInboundSettings(input: { on: boolean; mode: string; transferNumber: string; summaryEmail: string; prefs: unknown }): Promise<Result> {
+  const agent = await requireAgent();
+  if (!isRoofer(agent)) return fail("Only for roofing accounts.");
+  if (!isInboundMode(input.mode)) return fail("Choose how calls reach Emma.");
+  const transferRaw = clean(input.transferNumber, 40);
+  const transfer = transferRaw ? usPhone(transferRaw) : null;
+  if (transferRaw && !transfer) return fail("The transfer number should be a US phone number with its area code.");
+  if (transfer && transfer === agent.inbound_number) return fail("Use a different number for transfers: that one rings Emma.");
+  const summaryEmail = clean(input.summaryEmail, 200).toLowerCase();
+  if (summaryEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(summaryEmail)) return fail("That summary email doesn't look right.");
+  const { error } = await supabaseAdmin
+    .from("agents")
+    .update({
+      inbound_calls: !!input.on,
+      inbound_mode: input.mode,
+      inbound_transfer_number: transfer,
+      inbound_summary_email: summaryEmail || null,
+      inbound_prefs: cleanInboundPrefs(input.prefs),
+    })
+    .eq("id", agent.id);
+  if (error) return fail(error.code === "42703" ? "Inbound calls aren't set up yet (migration 20261218000000)." : "Couldn't save that.");
+  if (input.on && !agent.inbound_calls) {
+    after(() =>
+      alertAdmin(
+        `${agent.full_name} turned on inbound calls (${INBOUND_MODE_COPY[input.mode as InboundMode].short}, +$${INBOUND_PRICE_DOLLARS}/month).${agent.inbound_number ? "" : " Assign them a number on /admin/inbound."}`,
+      ).catch(() => {}),
+    );
+  }
   revalidatePath("/dashboard/settings");
   return { ok: true };
 }

@@ -23,7 +23,15 @@ export const voiceConfig = () => ({
   webhookSecret: process.env.ELEVENLABS_WEBHOOK_SECRET ?? "",
   // The post-job check-in agent (its own prompt and tools), on the same phone number
   checkinAgentId: cleanElevenLabsId(process.env.ELEVENLABS_CHECKIN_AGENT_ID, "agent_"),
+  // Inbound Emma (answers roofers' incoming calls on their own numbers of ours)
+  inboundAgentId: cleanElevenLabsId(process.env.ELEVENLABS_INBOUND_AGENT_ID, "agent_"),
 });
+
+/** Inbound Emma can answer calls: its agent and the webhook secret are set (numbers are per account). */
+export function inboundConfigured() {
+  const c = voiceConfig();
+  return !!(c.apiKey && c.inboundAgentId && c.webhookSecret);
+}
 
 /** Everything the voice agent needs is set (the per-account toggle is checked separately). */
 export function voiceConfigured() {
