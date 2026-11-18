@@ -11,11 +11,11 @@ import { issueAlertEmail, referralInviteEmail } from "@/lib/roofing/referral-ema
 import { checkinConfigured, placeOutboundCall, voiceConfig } from "@/lib/voice/elevenlabs";
 import { isDoNotCall } from "@/lib/voice/dial";
 import { inCallWindow } from "@/lib/voice/rules";
-import { CHECKIN_MAX_ATTEMPTS, checkinOutcome, checkinRetryAt, checkinTime, checkinVariables, planCheckin, ratingOf, type CheckinOutcome } from "@/lib/voice/checkin-rules";
+import { CHECKIN_MAX_ATTEMPTS, checkinOutcome, checkinRetryAt, checkinTime, checkinVariables, planCheckin, type CheckinOutcome } from "@/lib/voice/checkin-rules";
 
 // The post-job check-in. The roofer marks a job done (dashboard or CRM webhook); about 2 hours later the
 // check-in agent ("Hi, this is Emma, the virtual assistant for …") calls the customer, if their consent covers
-// AI calls. It asks how it went, gets a 1–5 rating and their best email. Went well: the send_referral tool emails
+// AI calls. It asks how it went and confirms their best email. Went well: the send_referral tool emails
 // them their referral link mid-call. A problem: report_issue alerts the roofer right away, and no referral pitch.
 // No consent (or calls off, or do-not-call): the referral email goes on its own, worded for no call.
 
@@ -34,7 +34,6 @@ type JobRow = {
   job_done_at: string | null;
   checkin_status: string | null;
   checkin_attempts: number;
-  checkin_rating: number | null;
   checkin_alerted_at: string | null;
   referral_token: string | null;
   referral_email_sent_at: string | null;
@@ -42,7 +41,7 @@ type JobRow = {
 };
 
 const JOB_FIELDS =
-  "id, agent_id, name, email, phone, starts_at, status, consent_text, job_done_at, checkin_status, checkin_attempts, checkin_rating, checkin_alerted_at, referral_token, referral_email_sent_at, intake_responses(answers)";
+  "id, agent_id, name, email, phone, starts_at, status, consent_text, job_done_at, checkin_status, checkin_attempts, checkin_alerted_at, referral_token, referral_email_sent_at, intake_responses(answers)";
 
 const addressOf = (job: JobRow) => {
   const intake = Array.isArray(job.intake_responses) ? job.intake_responses[0] : job.intake_responses;
@@ -137,23 +136,22 @@ export async function sendReferralInvite(agent: Agent, job: Pick<JobRow, "id" | 
 }
 
 /** Tells the roofer right away (email, and Slack when connected) that a customer raised a problem. Once per job. */
-export async function alertRooferIssue(agent: Agent, job: JobRow, details: string, rating: number | null) {
+export async function alertRooferIssue(agent: Agent, job: JobRow, details: string) {
   const { data: claim } = await supabaseAdmin.from("bookings").update({ checkin_alerted_at: new Date().toISOString(), checkin_feedback: details.slice(0, 2000) || null }).eq("id", job.id).is("checkin_alerted_at", null).select("id").maybeSingle();
   if (!claim) return;
   const email = issueAlertEmail({
     customerName: job.name,
     phone: job.phone,
     address: addressOf(job),
-    rating,
     details,
     jobDate: DateTime.fromISO(job.starts_at).setZone(agent.timezone).toFormat("LLL d"),
   });
   await resend({ to: [agent.business_email || agent.email], subject: email.subject, html: email.html, text: email.text }, `checkin-issue/${job.id}`).catch((e) => console.error("[checkin] issue email failed", e));
   if (agent.slack_user_id)
-    await sendSlackMessage(agent.slack_user_id, `:warning: *${job.name}* raised a problem on the check-in call${rating ? ` (${rating}/5)` : ""}: ${details || "see the call summary"}. Call them back: ${job.phone}. ${appUrl()}/dashboard/clients?id=call:${job.id}`).catch((e) =>
+    await sendSlackMessage(agent.slack_user_id, `:warning: *${job.name}* raised a problem on the check-in call: ${details || "see the call summary"}. Call them back: ${job.phone}. ${appUrl()}/dashboard/clients?id=call:${job.id}`).catch((e) =>
       console.error("[checkin] issue slack failed", e),
     );
-  await logActivity(agent.id, { kind: "call", id: job.id }, "note", `Check-in: they raised a problem${rating ? ` (${rating}/5)` : ""}. ${details}`.trim());
+  await logActivity(agent.id, { kind: "call", id: job.id }, "note", `Check-in: they raised a problem. ${details}`.trim());
 }
 
 // ---------- Placing the call ----------
@@ -275,18 +273,16 @@ export async function placeDueCheckins(limit = 20) {
 const str = (v: unknown, max = 300) => (typeof v === "string" ? v.trim().slice(0, max) : "");
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-/** send_referral: { job_id, email?, name?, rating? } → emails the referral link now, during the call. */
+/** send_referral: { job_id, email?, name? } → emails the referral link now, during the call. */
 export async function sendReferralTool(body: Record<string, unknown>) {
   const job = await getJob(body.job_id);
   if (!job) return { error: "Unknown job." };
   const agent = job.agents;
   const email = str(body.email, 200).toLowerCase();
   const name = str(body.name, 100);
-  const rating = ratingOf(body.rating);
   const update: Record<string, unknown> = {};
   if (EMAIL.test(email) && email !== job.email) update.email = email;
   if (name && name !== job.name) update.name = name;
-  if (rating) update.checkin_rating = rating;
   if (Object.keys(update).length) await supabaseAdmin.from("bookings").update(update).eq("id", job.id);
   const to = (update.email as string | undefined) ?? job.email;
   if (!to) return { error: "Ask for their email address first, then call send_referral again with it." };
@@ -304,17 +300,16 @@ export async function sendReferralTool(body: Record<string, unknown>) {
   return {
     sent: true,
     email: to,
-    message: `Sent to ${to}. Now tell them, in your own words: you just emailed them ${review}${referral}. The gift card is for referrals only; never connect it to the review. Don't ask for a particular rating. Then thank them and end the call.`,
+    message: `Sent to ${to}. Now tell them, in your own words: you just emailed them ${review}${referral}. The gift card is for referrals only; never connect it to the review. Then thank them and end the call.`,
   };
 }
 
-/** report_issue: { job_id, details, rating? } → alerts the roofer right away. No referral offer after this. */
+/** report_issue: { job_id, details } → alerts the roofer right away. No referral offer after this. */
 export async function reportIssueTool(body: Record<string, unknown>) {
   const job = await getJob(body.job_id);
   if (!job) return { error: "Unknown job." };
-  const rating = ratingOf(body.rating);
-  await supabaseAdmin.from("bookings").update({ checkin_status: "issue", ...(rating ? { checkin_rating: rating } : {}) }).eq("id", job.id);
-  await alertRooferIssue(job.agents, job, str(body.details, 1000), rating ?? job.checkin_rating);
+  await supabaseAdmin.from("bookings").update({ checkin_status: "issue" }).eq("id", job.id);
+  await alertRooferIssue(job.agents, job, str(body.details, 1000));
   return { ok: true, message: `${job.agents.full_name} has been told and will call them. Apologize, say someone will reach out soon, and don't mention referrals. Thank them and end the call.` };
 }
 
@@ -353,10 +348,9 @@ export type CheckinTranscript = {
   analysis?: { transcript_summary?: string; data_collection_results?: Record<string, { value?: unknown }> };
 };
 
-const CHECKIN_FIELDS = ["outcome", "rating", "email", "name", "feedback", "went_well"] as const;
+const CHECKIN_FIELDS = ["outcome", "email", "name", "feedback", "went_well"] as const;
 // The names the live check-in agent's data collection uses, read as the documented ones when those are missing
 const CHECKIN_ALIASES: Record<string, (typeof CHECKIN_FIELDS)[number]> = {
-  client_satisfaction_rating: "rating",
   confirmed_email_address: "email",
   client_feedback_notes: "feedback",
 };
@@ -368,7 +362,6 @@ export async function checkinPostCall(call: CheckinCall, data: CheckinTranscript
   const collected: Record<string, unknown> = {};
   for (const k of CHECKIN_FIELDS) if (results[k]?.value != null && results[k]?.value !== "") collected[k] = results[k].value;
   for (const [alias, k] of Object.entries(CHECKIN_ALIASES)) if (collected[k] == null && results[alias]?.value != null && results[alias]?.value !== "") collected[k] = results[alias].value;
-  const rating = ratingOf(collected.rating) ?? job.checkin_rating;
   const turns = (data.transcript ?? []).filter((t) => t.role === "user" && t.message?.trim()).length;
   const outcome: CheckinOutcome = checkinOutcome({
     doNotCall: job.checkin_status === "do_not_call",
@@ -377,7 +370,6 @@ export async function checkinPostCall(call: CheckinCall, data: CheckinTranscript
     issueReported: job.checkin_status === "issue",
     referralSent: !!job.referral_email_sent_at,
     collected: collected.outcome,
-    rating,
   });
 
   const start = data.metadata?.start_time_unix_secs;
@@ -391,7 +383,6 @@ export async function checkinPostCall(call: CheckinCall, data: CheckinTranscript
       duration_secs: duration ?? null,
       call_sid: data.metadata?.phone_call?.call_sid ?? undefined,
       outcome,
-      rating,
       summary: data.analysis?.transcript_summary?.slice(0, 4000) ?? null,
       collected,
       transcript: (data.transcript ?? []).map((t) => ({ role: t.role, message: t.message, t: t.time_in_call_secs })),
@@ -405,11 +396,11 @@ export async function checkinPostCall(call: CheckinCall, data: CheckinTranscript
     const email = typeof collected.email === "string" && EMAIL.test(collected.email.trim()) ? collected.email.trim().toLowerCase() : null;
     await supabaseAdmin
       .from("bookings")
-      .update({ checkin_status: outcome, checkin_next_call_at: null, ...(rating ? { checkin_rating: rating } : {}), ...(email && !job.email ? { email } : {}), ...(typeof collected.feedback === "string" ? { checkin_feedback: collected.feedback.slice(0, 2000) } : {}) })
+      .update({ checkin_status: outcome, checkin_next_call_at: null, ...(email && !job.email ? { email } : {}), ...(typeof collected.feedback === "string" ? { checkin_feedback: collected.feedback.slice(0, 2000) } : {}) })
       .eq("id", job.id);
     if (outcome === "do_not_call") await supabaseAdmin.from("voice_do_not_call").upsert({ phone: job.phone, reason: "asked on the check-in call" }, { onConflict: "phone", ignoreDuplicates: true });
     // The tools are the main path; these catch a call where the agent didn't use them
-    if (outcome === "issue") await alertRooferIssue(agent, job, String(collected.feedback ?? data.analysis?.transcript_summary ?? ""), rating);
+    if (outcome === "issue") await alertRooferIssue(agent, job, String(collected.feedback ?? data.analysis?.transcript_summary ?? ""));
     if (outcome === "went_well" && !job.referral_email_sent_at) await sendReferralInvite(agent, { ...job, email: job.email ?? email }, "after_call").catch((e) => console.error("[checkin] referral email failed", e));
   }
 
@@ -421,6 +412,6 @@ export async function checkinPostCall(call: CheckinCall, data: CheckinTranscript
     do_not_call: "was asked not to call again",
   };
   const summary = data.analysis?.transcript_summary ? ` ${data.analysis.transcript_summary.slice(0, 600)}` : "";
-  await logActivity(agent.id, { kind: "call", id: job.id }, "note", `Check-in call (attempt ${call.attempt} of ${CHECKIN_MAX_ATTEMPTS}): your AI assistant ${words[outcome]}${rating ? `, rated ${rating}/5` : ""}.${summary}${next ? " Trying again tomorrow." : ""}`).catch(() => {});
-  return { ok: true, outcome, rating, retryAt: next?.toISOString() ?? null };
+  await logActivity(agent.id, { kind: "call", id: job.id }, "note", `Check-in call (attempt ${call.attempt} of ${CHECKIN_MAX_ATTEMPTS}): your AI assistant ${words[outcome]}.${summary}${next ? " Trying again tomorrow." : ""}`).catch(() => {});
+  return { ok: true, outcome, retryAt: next?.toISOString() ?? null };
 }

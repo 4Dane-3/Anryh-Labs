@@ -47,7 +47,7 @@ export type Client = {
     answers: IntakeAnswers | null;
     intakeCompleted: boolean;
     /** A roofer's finished job and its check-in call (null before the check-in migration, or not done yet). */
-    job?: { doneAt: string; checkin: string | null; nextCallAt: string | null; rating: number | null; feedback: string | null; referralEmailAt: string | null } | null;
+    job?: { doneAt: string; checkin: string | null; nextCallAt: string | null; feedback: string | null; referralEmailAt: string | null } | null;
   } | null;
   triedEmailSentAt: string | null;
   /** False when what came in as their phone isn't a number (someone typed "." into the form): email only. */
@@ -108,7 +108,6 @@ type BookingRow = {
   job_done_at?: string | null;
   checkin_status?: string | null;
   checkin_next_call_at?: string | null;
-  checkin_rating?: number | null;
   checkin_feedback?: string | null;
   referral_email_sent_at?: string | null;
   intake_responses: { answers: IntakeAnswers; completed_at: string | null } | { answers: IntakeAnswers; completed_at: string | null }[] | null;
@@ -124,7 +123,7 @@ const SEQUENCE_FIELDS = ", email_sequence, sequence_sent";
 // A roofer's finished job and its check-in call (20261203000000_job_checkin_referrals.sql)
 // How a lead or booking fit a roofer's "Jobs we take" rules (20261205000000_job_rules.sql)
 const FIT_FIELDS = ", fit_status, fit_detail";
-const JOB_FIELDS = ", job_done_at, checkin_status, checkin_next_call_at, checkin_rating, checkin_feedback, referral_email_sent_at";
+const JOB_FIELDS = ", job_done_at, checkin_status, checkin_next_call_at, checkin_feedback, referral_email_sent_at";
 
 /** A phone number someone could actually be called on: a real US number ("." or (000) 000-0000 isn't). */
 export const phoneGiven = (p: string | null | undefined) => !!usPhone(p ?? "");
@@ -228,7 +227,7 @@ export async function getClients(agentId: string): Promise<Client[]> {
         answers: intake?.answers && Object.keys(intake.answers).length ? intake.answers : null,
         intakeCompleted: !!intake?.completed_at,
         job: b.job_done_at
-          ? { doneAt: b.job_done_at, checkin: b.checkin_status ?? null, nextCallAt: b.checkin_next_call_at ?? null, rating: b.checkin_rating ?? null, feedback: b.checkin_feedback ?? null, referralEmailAt: b.referral_email_sent_at ?? null }
+          ? { doneAt: b.job_done_at, checkin: b.checkin_status ?? null, nextCallAt: b.checkin_next_call_at ?? null, feedback: b.checkin_feedback ?? null, referralEmailAt: b.referral_email_sent_at ?? null }
           : null,
       },
       triedEmailSentAt: b.tried_email_sent_at ?? lead?.tried_email_sent_at ?? null,

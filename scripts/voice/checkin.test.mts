@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-const { checkinTime, checkinRetryAt, coversAiCalls, planCheckin, checkinVariables, checkinOutcome, ratingOf, cleanReferralRows, dollars } = await import("@/lib/voice/checkin-rules");
+const { checkinTime, checkinRetryAt, coversAiCalls, planCheckin, checkinVariables, checkinOutcome, cleanReferralRows, dollars } = await import("@/lib/voice/checkin-rules");
 const { ROOFING_CONSENT_TEXT, ROOFING_QUOTE_CONSENT_TEXT, LEGACY_QUOTE_CONSENT_TEXT } = await import("@/lib/booking/constants");
 const { referralInviteEmail, issueAlertEmail, referralIntroEmail } = await import("@/lib/roofing/referral-emails");
 let n = 0; const ok = (m: string) => { n++; console.log("  ✓", m); };
@@ -36,20 +36,16 @@ assert.ok(Object.values(vars).every((v) => typeof v === "string"));
 assert.equal(dollars(2550), "$25.50");
 ok("the check-in agent gets every variable as a string ($100 gift card, 5 referrals)");
 
-assert.equal(ratingOf("4"), 4); assert.equal(ratingOf(5), 5); assert.equal(ratingOf("five"), 5); assert.equal(ratingOf("4 out of 5"), 4); assert.equal(ratingOf(""), null); assert.equal(ratingOf("great"), null); assert.equal(ratingOf("0"), null);
-// Past the scale means really good; an explicit "out of 10" is scaled
-for (const v of ["6", "7", "9", "10", 10, "ten", "seven", "11 out of 10", "10/10", "100"]) assert.equal(ratingOf(v), 5, `rating ${v}`);
-assert.equal(ratingOf("7 out of 10"), 4); assert.equal(ratingOf("3 out of 10"), 2); assert.equal(ratingOf("1 out of 10"), 1); assert.equal(ratingOf("4/5"), 4);
-const o = { doNotCall: false, voicemail: false, userTurns: 4, issueReported: false, referralSent: false, collected: undefined, rating: null };
-assert.equal(checkinOutcome({ ...o, referralSent: true, rating: 5 }), "went_well");
+const o = { doNotCall: false, voicemail: false, userTurns: 4, issueReported: false, referralSent: false, collected: undefined };
+assert.equal(checkinOutcome({ ...o, referralSent: true }), "went_well");
 assert.equal(checkinOutcome({ ...o, collected: "went_well" }), "went_well");
 assert.equal(checkinOutcome({ ...o, issueReported: true, referralSent: true }), "issue", "a problem wins over a sent referral");
-assert.equal(checkinOutcome({ ...o, rating: 2, collected: "went_well" }), "issue", "a 2/5 is never 'went well'");
+assert.equal(checkinOutcome({ ...o, issueReported: true, collected: "went_well" }), "issue", "a reported problem is never 'went well'");
 assert.equal(checkinOutcome({ ...o, userTurns: 0 }), "no_answer");
 assert.equal(checkinOutcome({ ...o, voicemail: true }), "no_answer");
 assert.equal(checkinOutcome({ ...o, doNotCall: true, issueReported: true }), "do_not_call");
-assert.equal(checkinOutcome({ ...o, rating: 3 }), "callback");
-ok("outcomes: a problem or a low rating is an issue, never 'went well'; do-not-call wins");
+assert.equal(checkinOutcome({ ...o }), "callback");
+ok("outcomes: a reported problem is an issue, never 'went well'; do-not-call wins");
 
 const rows = cleanReferralRows(
   [
@@ -82,7 +78,7 @@ assert.ok(!invite.text.includes("Google review"), "no review link set: no review
 const quiet = referralInviteEmail({ company: "Acme <Roofing>", customerName: "Sarah", link: "https://x.test/r/abc", rewardCents: 10000, goal: 5, variant: "no_call" });
 assert.match(quiet.text, /If anything isn't right/);
 assert.ok(!quiet.html.includes("<Roofing>"), "escaped");
-assert.match(issueAlertEmail({ customerName: "Sarah", phone: "+12145550142", address: null, rating: 2, details: "Gutter left loose", jobDate: "Nov 6" }).subject, /raised a problem \(2\/5\)/);
+assert.match(issueAlertEmail({ customerName: "Sarah", phone: "+12145550142", address: null, details: "Gutter left loose", jobDate: "Nov 6" }).subject, /raised a problem$/);
 assert.match(referralIntroEmail({ company: "Acme", customerName: "Sarah Lee", referralName: "Ann", bookUrl: "https://x.test/acme", mailingAddress: "1 Main St, Plano TX" }).text, /1 Main St, Plano TX[\s\S]*unsubscribe/);
 ok("emails: the invite has the link and reward, the no-call one asks how it went, the intro has the postal address and opt-out");
 

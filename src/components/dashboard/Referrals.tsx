@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 // Post-job: "Job done" on a booked inspection (it starts the check-in call), the Referrals tab (referred people
 // to call by hand, gift cards owed), and the Settings panel for check-in calls and the reward.
 
-type Job = { doneAt: string; checkin: string | null; nextCallAt: string | null; rating: number | null; feedback: string | null; referralEmailAt: string | null };
+type Job = { doneAt: string; checkin: string | null; nextCallAt: string | null; feedback: string | null; referralEmailAt: string | null };
 
 const CHECKIN_LABEL: Record<string, { text: string; tone: "neutral" | "accent" | "good" | "bad" }> = {
   scheduled: { text: "Check-in call scheduled", tone: "accent" },
@@ -69,7 +69,6 @@ export function JobDoneSection({ bookingId, job, timezone, past }: { bookingId: 
         <p className="flex flex-wrap items-center gap-2">
           <span>Job done {fmt(job.doneAt)}</span>
           {label && <Badge tone={label.tone}>{label.text}</Badge>}
-          {job.rating && <Badge tone={job.rating >= 4 ? "good" : job.rating <= 2 ? "bad" : "neutral"}>{job.rating}/5</Badge>}
         </p>
         {job.checkin === "scheduled" && job.nextCallAt && <p className="flex items-center gap-1.5"><PhoneCall className="size-3.5" /> Calls {fmt(job.nextCallAt)}</p>}
         {job.feedback && <p className="text-fg">“{job.feedback}”</p>}

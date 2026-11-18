@@ -6,7 +6,7 @@
 //
 // With --inbound it pushes inbound Emma instead (scripts/voice/emma-inbound-prompt.md, ELEVENLABS_INBOUND_AGENT_ID).
 // With --checkin it pushes the post-job check-in agent (scripts/voice/emma-checkin-prompt.md, ELEVENLABS_CHECKIN_AGENT_ID),
-// keeping its own first message and workflow, and words its rating field so a score above 5 is recorded as 5.
+// keeping its own first message and workflow, and removes the old satisfaction-rating field (the call doesn't rate).
 //
 // Every agent is set to patient turn-taking, so Emma waits for people to finish instead of talking over a pause.
 //
@@ -25,8 +25,6 @@ const FIRST_MESSAGE = {
 }[kind];
 const TURN_EAGERNESS = "patient";
 const RATING_FIELD = "client_satisfaction_rating";
-const RATING_DESCRIPTION =
-  "The client's satisfaction rating on a scale of 1 to 5 (1 = poor, 5 = excellent), only if they gave one. If they give a number above 5 (6, 7, 10, '11 out of 10'), record 5. If they say 'X out of 10', record round(X / 2).";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const prompt = readFileSync(join(here, `emma-${kind}-prompt.md`), "utf8").trim();
@@ -55,7 +53,7 @@ const dataCollection = before.platform_settings?.data_collection ?? {};
 const ratingField = checkin ? dataCollection[RATING_FIELD] : null;
 console.log(`First message: ${p.first_message === firstMessage ? "unchanged" : "updated"}`);
 console.log(`Turn eagerness: ${turn.turn_eagerness === TURN_EAGERNESS ? "unchanged" : `${turn.turn_eagerness} → ${TURN_EAGERNESS}`}`);
-if (checkin) console.log(`Rating field (${RATING_FIELD}): ${!ratingField ? "missing, left alone" : ratingField.description === RATING_DESCRIPTION ? "unchanged" : "description updated"}`);
+if (checkin) console.log(`Rating field (${RATING_FIELD}): ${ratingField ? "will be removed" : "none"}`);
 if (!checkin) console.log(`Workflow stages: ${stages(before).join(" → ") || "none"}${stages(before).length ? " (will be removed)" : ""}`);
 console.log(`Tools (left alone): ${toolNames(before)}`);
 
@@ -75,7 +73,7 @@ const res = await fetch(url, {
   headers,
   body: JSON.stringify({
     conversation_config: { agent: { first_message: firstMessage, prompt: { prompt } }, turn: { turn_eagerness: TURN_EAGERNESS } },
-    ...(ratingField ? { platform_settings: { data_collection: { ...dataCollection, [RATING_FIELD]: { ...ratingField, description: RATING_DESCRIPTION } } } } : {}),
+    ...(ratingField ? { platform_settings: { data_collection: Object.fromEntries(Object.entries(dataCollection).filter(([k]) => k !== RATING_FIELD)) } } : {}),
     // ElevenLabs needs at least the start node; a start node with no edges means "just the agent's own prompt"
     ...(checkin ? {} : { workflow: { nodes: { start_node: { type: "start", position: { x: 0, y: 0 }, edge_order: [] } }, edges: {} } }),
   }),
@@ -87,8 +85,9 @@ const ok = {
   prompt: after.conversation_config.agent.prompt.prompt === prompt,
   firstMessage: after.conversation_config.agent.first_message === firstMessage,
   patient: after.conversation_config.turn?.turn_eagerness === TURN_EAGERNESS,
-  ...(checkin ? { dataFieldsKept: Object.keys(after.platform_settings?.data_collection ?? {}).sort().join() === Object.keys(dataCollection).sort().join() } : { noStages: stages(after).length === 0 }),
-  ...(ratingField ? { rating: after.platform_settings?.data_collection?.[RATING_FIELD]?.description === RATING_DESCRIPTION } : {}),
+  ...(checkin
+    ? { ratingGone: !after.platform_settings?.data_collection?.[RATING_FIELD], otherFieldsKept: Object.keys(dataCollection).filter((k) => k !== RATING_FIELD).every((k) => after.platform_settings?.data_collection?.[k]) }
+    : { noStages: stages(after).length === 0 }),
   toolsKept: toolNames(after) === toolNames(before),
 };
 console.log(ok);
