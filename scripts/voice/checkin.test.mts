@@ -36,7 +36,10 @@ assert.ok(Object.values(vars).every((v) => typeof v === "string"));
 assert.equal(dollars(2550), "$25.50");
 ok("the check-in agent gets every variable as a string ($100 gift card, 5 referrals)");
 
-assert.equal(ratingOf("4"), 4); assert.equal(ratingOf(5), 5); assert.equal(ratingOf("five"), 5); assert.equal(ratingOf("4 out of 5"), 4); assert.equal(ratingOf("9"), null); assert.equal(ratingOf(""), null);
+assert.equal(ratingOf("4"), 4); assert.equal(ratingOf(5), 5); assert.equal(ratingOf("five"), 5); assert.equal(ratingOf("4 out of 5"), 4); assert.equal(ratingOf(""), null); assert.equal(ratingOf("great"), null); assert.equal(ratingOf("0"), null);
+// Past the scale means really good; an explicit "out of 10" is scaled
+for (const v of ["6", "7", "9", "10", 10, "ten", "seven", "11 out of 10", "10/10", "100"]) assert.equal(ratingOf(v), 5, `rating ${v}`);
+assert.equal(ratingOf("7 out of 10"), 4); assert.equal(ratingOf("3 out of 10"), 2); assert.equal(ratingOf("1 out of 10"), 1); assert.equal(ratingOf("4/5"), 4);
 const o = { doNotCall: false, voicemail: false, userTurns: 4, issueReported: false, referralSent: false, collected: undefined, rating: null };
 assert.equal(checkinOutcome({ ...o, referralSent: true, rating: 5 }), "went_well");
 assert.equal(checkinOutcome({ ...o, collected: "went_well" }), "went_well");

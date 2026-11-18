@@ -354,6 +354,12 @@ export type CheckinTranscript = {
 };
 
 const CHECKIN_FIELDS = ["outcome", "rating", "email", "name", "feedback", "went_well"] as const;
+// The names the live check-in agent's data collection uses, read as the documented ones when those are missing
+const CHECKIN_ALIASES: Record<string, (typeof CHECKIN_FIELDS)[number]> = {
+  client_satisfaction_rating: "rating",
+  confirmed_email_address: "email",
+  client_feedback_notes: "feedback",
+};
 
 export async function checkinPostCall(call: CheckinCall, data: CheckinTranscript) {
   const job = await getJob(call.job_booking_id);
@@ -361,6 +367,7 @@ export async function checkinPostCall(call: CheckinCall, data: CheckinTranscript
   const results = data.analysis?.data_collection_results ?? {};
   const collected: Record<string, unknown> = {};
   for (const k of CHECKIN_FIELDS) if (results[k]?.value != null && results[k]?.value !== "") collected[k] = results[k].value;
+  for (const [alias, k] of Object.entries(CHECKIN_ALIASES)) if (collected[k] == null && results[alias]?.value != null && results[alias]?.value !== "") collected[k] = results[alias].value;
   const rating = ratingOf(collected.rating) ?? job.checkin_rating;
   const turns = (data.transcript ?? []).filter((t) => t.role === "user" && t.message?.trim()).length;
   const outcome: CheckinOutcome = checkinOutcome({
