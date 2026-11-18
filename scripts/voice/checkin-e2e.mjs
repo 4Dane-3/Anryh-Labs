@@ -104,7 +104,7 @@ try {
   ok(`cron placed the check-in call (simulated ${call.conversation_id.slice(0, 20)}…), saved as kind checkin`);
 
   // 4. Went well: send_referral mid-call, then the signed post-call payload
-  const sent = await tool("send_referral", { job_id: happy, email: "sarah.new@example.com", rating: "5" });
+  const sent = await tool("send_referral", { job_id: happy, email: "sarah.new@example.com" });
   assert.equal(sent.body.sent, true, JSON.stringify(sent.body));
   assert.match(sent.body.message, /refer 5 friends.*\$100 gift card/);
   assert.match(sent.body.message, /Google review/i, "the tool tells Emma about the review link");
@@ -123,20 +123,18 @@ try {
         { role: "user", message: "Five.", time_in_call_secs: 12 },
       ],
       metadata: { start_time_unix_secs: Math.floor(Date.now() / 1000) - 90, call_duration_secs: 85 },
-      analysis: { transcript_summary: "Customer happy with the roof job, rated 5/5, referral email sent.", data_collection_results: { outcome: { value: "went_well" }, rating: { value: "5" }, email: { value: "sarah.new@example.com" } } },
+      analysis: { transcript_summary: "Customer happy with the roof job, referral email sent.", data_collection_results: { outcome: { value: "went_well" }, email: { value: "sarah.new@example.com" } } },
     },
   });
   assert.equal(pc.status, 200, JSON.stringify(pc.body));
   assert.equal(pc.body.outcome, "went_well");
   const saved = await callFor(happy);
   assert.equal(saved.outcome, "went_well");
-  assert.equal(saved.rating, 5);
   assert.equal(saved.transcript.length, 4);
   assert.ok(saved.summary);
   h = await job(happy);
   assert.equal(h.checkin_status, "went_well");
-  assert.equal(h.checkin_rating, 5);
-  ok("send_referral emailed the link mid-call; post-call saved outcome went_well, 5/5, summary and transcript");
+  ok("send_referral emailed the link mid-call; post-call saved outcome went_well, summary and transcript");
 
   // 5. The referral page and submissions
   const page = await fetch(`${BASE}/r/${h.referral_token}`);
@@ -189,14 +187,13 @@ try {
   await due(unhappy);
   await cron();
   const uc = await callFor(unhappy);
-  const issue = await tool("report_issue", { job_id: unhappy, details: "Gutter left loose on the north side", rating: 2 });
+  const issue = await tool("report_issue", { job_id: unhappy, details: "Gutter left loose on the north side" });
   assert.equal(issue.body.ok, true, JSON.stringify(issue.body));
   assert.match(issue.body.message, /don't mention referrals/);
   const upc = await signed({ type: "post_call_transcription", data: { conversation_id: uc.conversation_id, transcript: [{ role: "user", message: "The gutter is loose." }], metadata: { start_time_unix_secs: Math.floor(Date.now() / 1000) - 60, call_duration_secs: 55 }, analysis: { data_collection_results: { outcome: { value: "went_well" } } } } });
   assert.equal(upc.body.outcome, "issue");
   const u = await job(unhappy);
   assert.equal(u.checkin_status, "issue");
-  assert.equal(u.checkin_rating, 2);
   assert.ok(u.checkin_alerted_at);
   assert.equal(u.referral_email_sent_at, null, "no referral pitch after a problem");
   ok("report_issue alerted the roofer, outcome stays issue (2/5), no referral email");

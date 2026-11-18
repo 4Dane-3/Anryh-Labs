@@ -60,13 +60,12 @@ ${button(i.link, reward ? "Refer friends" : "Refer someone")}
 }
 
 /** To the roofer, right away: the customer raised a problem on the check-in call. */
-export function issueAlertEmail(i: { customerName: string; phone: string; address: string | null; rating: number | null; details: string; jobDate: string | null }) {
-  const subject = `Check-in: ${i.customerName} raised a problem${i.rating ? ` (${i.rating}/5)` : ""}`;
+export function issueAlertEmail(i: { customerName: string; phone: string; address: string | null; details: string; jobDate: string | null }) {
+  const subject = `Check-in: ${i.customerName} raised a problem`;
   const rows: [string, string][] = [
     ["Customer", i.customerName],
     ["Phone", displayPhone(i.phone)],
     ["Address", i.address ?? "Not given"],
-    ["Rating", i.rating ? `${i.rating} out of 5` : "Not given"],
     ["What they said", i.details || "See the call summary in your dashboard."],
   ];
   if (i.jobDate) rows.splice(3, 0, ["Job", i.jobDate]);

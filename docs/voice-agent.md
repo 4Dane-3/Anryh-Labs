@@ -125,7 +125,6 @@ The same as the speed-to-lead agent (Flash v2.5, `end_call` and `voicemail_detec
 | Field | Type | Description |
 |---|---|---|
 | `outcome` | string | One of: `went_well`, `issue`, `callback`, `do_not_call`, `voicemail`. `issue` if they raised any problem with the work. |
-| `rating` | string | Optional. A 1–5 rating, only if they volunteer one |
 | `email` | string | Their best email, if given or confirmed |
 | `name` | string | Their name, if corrected |
 | `feedback` | string | What they want to pass on to the company, in their words |
@@ -136,10 +135,10 @@ Same header (`x-voice-secret`) and 10s timeout. Bind `job_id` to `{{job_id}}`.
 
 1. **`send_referral`** → `https://<APP_URL>/api/voice/tools/send_referral`
    Description: "The customer said the job went well and confirmed their email. Sends them the email with the Google review link and the referral link now. Then tell them what the message it returns says."
-   Body: `job_id` (dynamic variable), `email` (string), `name` (string, optional), `rating` (string, optional).
+   Body: `job_id` (dynamic variable), `email` (string), `name` (string, optional).
 2. **`report_issue`** → `https://<APP_URL>/api/voice/tools/report_issue`
    Description: "The customer raised a problem with the work. Alerts the company right away. Never offer referrals after this."
-   Body: `job_id` (dynamic variable), `details` (string, what went wrong in their words), `rating` (string, optional).
+   Body: `job_id` (dynamic variable), `details` (string, what went wrong in their words).
 3. **`do_not_call`** → `https://<APP_URL>/api/voice/tools/do_not_call`
    Description: "The customer asked not to be called again. Call this right away, then apologize and end the call."
    Body: `job_id` (dynamic variable).
@@ -152,7 +151,7 @@ Same header (`x-voice-secret`) and 10s timeout. Bind `job_id` to `{{job_id}}`.
 
 ## 4. System prompt
 
-The prompt lives in `scripts/voice/emma-checkin-prompt.md`. Push it (and patient turn-taking, and the rating field's wording) with:
+The prompt lives in `scripts/voice/emma-checkin-prompt.md`. Push it (and patient turn-taking) with:
 
 ```
 node --env-file=.env.local scripts/voice/push-emma.mjs --checkin           # dry run
@@ -161,7 +160,7 @@ node --env-file=.env.local scripts/voice/push-emma.mjs --checkin --apply   # bac
 
 Edit the file, not the prompt in ElevenLabs, or the next push overwrites the dashboard edit.
 
-The live agent's data collection uses `client_satisfaction_rating`, `confirmed_email_address` and `client_feedback_notes`; the server reads them as `rating`, `email` and `feedback`. A rating above 5 counts as 5, and "X out of 10" is scaled to 1–5.
+The call doesn't ask for or record a rating. When it went well, Emma's only job is to say an email is coming and what's in it (the Google review link and the referral link). The live agent's data collection uses `confirmed_email_address` and `client_feedback_notes`; the server reads them as `email` and `feedback`.
 
 ## 5. The job completed webhook
 

@@ -73,24 +73,6 @@ export const CHECKIN_OUTCOMES = ["went_well", "issue", "callback", "no_answer", 
 export type CheckinOutcome = (typeof CHECKIN_OUTCOMES)[number];
 
 /**
- * A 1–5 rating from whatever the agent collected ("4", 4, "4 out of 5", "five"), or null. Customers who go past
- * the scale ("10", "seven", "11 out of 10") mean it went really well, so anything above 5 is a 5. An explicit
- * "out of 10" is scaled, so "3 out of 10" still reads as a problem.
- */
-export function ratingOf(v: unknown): number | null {
-  const words: Record<string, number> = { zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, hundred: 100 };
-  const num = (t: string | undefined) => (t == null ? NaN : /^\d/.test(t) ? parseFloat(t) : (words[t] ?? NaN));
-  const s = String(v ?? "").trim().toLowerCase().replace(/\/\s*/g, " out of ");
-  const [first, ...rest] = s.split(/\s+/);
-  const n = num(first);
-  if (!Number.isFinite(n) || n < 1) return null;
-  const outOf = rest.join(" ").match(/^out of (\S+)/)?.[1];
-  const scale = num(outOf);
-  if (Number.isFinite(scale) && scale > 5 && n <= scale) return Math.max(1, Math.min(5, Math.round((n / scale) * 5)));
-  return Math.min(5, Math.round(n));
-}
-
-/**
  * What came of a check-in call, from what happened (the tools it called) and what the agent collected. A problem
  * the customer raised wins over everything but do-not-call, so a roofer is never told "went well" about one.
  */
@@ -101,12 +83,11 @@ export function checkinOutcome(input: {
   issueReported: boolean; // report_issue ran on the call
   referralSent: boolean; // send_referral ran on the call
   collected: unknown;
-  rating: number | null;
 }): CheckinOutcome {
   if (input.doNotCall || input.collected === "do_not_call") return "do_not_call";
   if (input.voicemail || input.userTurns === 0) return "no_answer";
-  if (input.issueReported || input.collected === "issue" || (input.rating != null && input.rating <= 2)) return "issue";
-  if (input.referralSent || input.collected === "went_well" || (input.rating != null && input.rating >= 4)) return "went_well";
+  if (input.issueReported || input.collected === "issue") return "issue";
+  if (input.referralSent || input.collected === "went_well") return "went_well";
   return "callback";
 }
 
