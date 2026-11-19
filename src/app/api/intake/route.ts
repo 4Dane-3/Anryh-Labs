@@ -5,9 +5,11 @@ import { parseAnswers } from "@/lib/booking/validate";
 import { isHidden, preBookingQuestions, type IntakeAnswers } from "@/lib/booking/questions";
 import { intakeCompletedMessage } from "@/lib/booking/format";
 import { sendSlackMessage } from "@/lib/slack";
+import { allowWithin, clientIp, tooManyRequests } from "@/lib/rate-limit";
 
 // Called after every step (autosave) and once more with `final: true` on the last step.
 export async function POST(req: Request) {
+  if (!(await allowWithin(`intake:${clientIp(req)}`, 3600, 120))) return tooManyRequests();
   const body = await req.json().catch(() => null);
   const token = typeof body?.token === "string" ? body.token : "";
   const final = body?.final === true;

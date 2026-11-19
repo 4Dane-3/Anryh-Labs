@@ -3,10 +3,12 @@ import type { Agent } from "@/lib/booking/data";
 import { validSignature } from "@/lib/dashboard/outcomes";
 import { clientTap } from "@/lib/dashboard/clients";
 import type { OutcomeKind } from "@/lib/outcomes";
+import { allowWithin, clientIp, tooManyRequests } from "@/lib/rate-limit";
 
 // A one-tap answer from a Slack button's link page: signed per lead, so it needs no sign-in and can only act
 // on that lead (an outcome, or "tried_call"). The page posts it from the browser (link previews don't run scripts).
 export async function POST(req: Request) {
+  if (!(await allowWithin(`outcomes:${clientIp(req)}`, 3600, 60))) return tooManyRequests();
   const body = (await req.json().catch(() => null)) as { kind?: string; id?: string; s?: string; outcome?: string; premium?: number } | null;
   const kind = body?.kind === "call" || body?.kind === "lead" ? (body.kind as OutcomeKind) : null;
   if (!kind || typeof body?.id !== "string" || !validSignature(kind, body.id, body.s ?? null)) return Response.json({ ok: false }, { status: 403 });

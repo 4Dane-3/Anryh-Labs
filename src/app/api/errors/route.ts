@@ -1,6 +1,7 @@
 import { getCurrentAgent, getViewAs } from "@/lib/auth";
 import { reportIssue } from "@/lib/admin/errors";
 import type { IssueKind } from "@/lib/admin/error-core";
+import { allowWithin, clientIp } from "@/lib/rate-limit";
 
 // Errors seen in a browser (a crash page, a script error, a failed save). Public, so it's guarded: same
 // site only, small bodies, a per-visitor and a global rate limit, and errors are grouped so a flood
@@ -27,6 +28,7 @@ function limited(ip: string) {
 const str = (v: unknown, n: number) => (typeof v === "string" ? v.slice(0, n) : null);
 
 export async function POST(req: Request) {
+  if (!(await allowWithin(`errors:${clientIp(req)}`, 3600, 60))) return new Response(null, { status: 204 });
   const done = new Response(null, { status: 204 });
   const origin = req.headers.get("origin");
   if (origin) {

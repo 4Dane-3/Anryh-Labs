@@ -1,8 +1,10 @@
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { allowWithin, clientIp } from "@/lib/rate-limit";
 
 // One row per page view of an agent's booking page, with the ad that sent it (utm_content = Meta ad
 // id), so Migz can tell a creative problem from a landing-page problem. No IP, cookie or person data.
 export async function POST(req: Request, { params }: { params: Promise<{ slug: string }> }) {
+  if (!(await allowWithin(`visit:${clientIp(req)}`, 3600, 120))) return new Response(null, { status: 204 });
   const { slug } = await params;
   const body = (await req.json().catch(() => ({}))) as { utm_source?: unknown; utm_content?: unknown };
   const clean = (v: unknown) => (typeof v === "string" && v ? v.slice(0, 64) : null);
