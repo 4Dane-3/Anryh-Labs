@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import { PAGE_EVENTS, type PageEvent } from "@/lib/booking/track";
 import { sendConversionEvents } from "@/lib/meta/capi";
 import { partnerPageUrl } from "@/lib/booking/sites";
+import { allowWithin, clientIp } from "@/lib/rate-limit";
 
 // Page analytics for an agent's booking page: a small batch of steps from one visit (see
 // lib/booking/track.ts). Only known step names and short, flat details are kept; nothing that
@@ -37,6 +38,7 @@ function cleanMeta(meta: unknown) {
 }
 
 export async function POST(req: Request, { params }: { params: Promise<{ slug: string }> }) {
+  if (!(await allowWithin(`events:${clientIp(req)}`, 3600, 600))) return new Response(null, { status: 204 });
   const { slug } = await params;
   const body = (await req.json().catch(() => null)) as { session?: unknown; events?: unknown; ad?: unknown } | null;
   const session = typeof body?.session === "string" ? body.session.slice(0, 64) : "";

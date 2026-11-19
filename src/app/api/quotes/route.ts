@@ -12,6 +12,7 @@ import { isRoofer } from "@/lib/verticals";
 import { voiceConfigured } from "@/lib/voice/elevenlabs";
 import { dialLead, inspectionHoursBySlug, isDoNotCall, planColumns, planFirstCall, thankYouVoice, voiceOnFor } from "@/lib/voice/dial";
 import { leadTimezone } from "@/lib/voice/rules";
+import { allowWithin, clientIp, tooManyRequests } from "@/lib/rate-limit";
 
 // Speed to lead: Node (not edge, the Supabase and ElevenLabs clients are Node) in the region next to Supabase and
 // ElevenLabs/Twilio (US East), so the call request leaves within a few hundred ms of the submit.
@@ -23,6 +24,7 @@ export const maxDuration = 30;
 // request, has the voice agent call them within seconds (when on), pings the account, and tells Meta it was a
 // Lead (the event ad sets optimize for).
 export async function POST(req: Request) {
+  if (!(await allowWithin(`quotes:${clientIp(req)}`, 3600, 20))) return tooManyRequests();
   const submittedAt = new Date();
   const body = await req.json().catch(() => null);
   const parsed = parseQuote(body);
@@ -34,6 +36,7 @@ export async function POST(req: Request) {
   }
 
   const input = parsed.data;
+  if (!(await allowWithin(`quote-phone:${input.phone}`, 86400, 3))) return tooManyRequests("We already have your request and will be in touch soon.");
   // Everything the call needs is read alongside the account, so the dial is the first thing after the insert
   const voiceEnv = voiceConfigured();
   const [agent, doNotCall, hours] = await Promise.all([

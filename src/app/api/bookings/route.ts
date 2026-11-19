@@ -5,8 +5,10 @@ import { createBooking } from "@/lib/booking/create";
 import { isRoofer } from "@/lib/verticals";
 import { evaluateLead, factsFromAnswers, notFitMessage, withRuleQuestions } from "@/lib/roofing/job-rules";
 import { rulesOf } from "@/lib/roofing/fit";
+import { allowWithin, clientIp, tooManyRequests } from "@/lib/rate-limit";
 
 export async function POST(req: Request) {
+  if (!(await allowWithin(`bookings:${clientIp(req)}`, 3600, 30))) return tooManyRequests();
   const body = await req.json().catch(() => null);
   const parsed = parseBooking(body);
 
