@@ -12,6 +12,7 @@ import { deleteVoice, findVoices, isVoiceId, type AdVoice, type VoiceFilter } fr
 import { normalizeUsPhone } from "@/lib/migz/sms";
 import { scanBrandSite, type ScanResult } from "@/lib/edit/brand-scan";
 import { normalizeHex } from "@/lib/edit/brand";
+import { musicMood } from "@/lib/edit/music";
 import { allMedia, isMediaKind, MAX_JOB_MEDIA, type JobMedia } from "@/lib/roofing/job-media";
 
 /** Whether Migz's videos wait for the agent's OK before going to Meta. Videos already waiting keep waiting. */
@@ -216,6 +217,7 @@ export type BrandInput = {
   certifications: string[];
   license: string;
   warranties: string[];
+  musicMood: string; // soft, upbeat, educational, inspiring, luxury or none
 };
 
 const lines = (xs: string[], n: number, len: number) => xs.map((x) => x.trim().slice(0, len)).filter(Boolean).slice(0, n);
@@ -247,6 +249,7 @@ export async function saveBrand(input: BrandInput): Promise<{ ok: boolean; error
     certifications,
     license,
     warranties,
+    music_mood: musicMood(input.musicMood),
     scanned_at: input.website.trim() ? new Date().toISOString() : null,
     updated_at: new Date().toISOString(),
   });

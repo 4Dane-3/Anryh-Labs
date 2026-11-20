@@ -5,12 +5,17 @@ import { execFile } from "node:child_process";
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 const run = promisify(execFile);
 const require = createRequire(import.meta.url);
 const FFMPEG = process.env.FFMPEG_PATH || "ffmpeg";
+const HERE = dirname(fileURLToPath(import.meta.url));
+// The person cut-out (job.matte): MediaPipe's selfie segmenter, run by matte.py
+const PYTHON = process.env.MATTE_PYTHON || "python3";
+const MATTE_MODEL = process.env.MATTE_MODEL || join(HERE, "models", "selfie_segmenter.tflite");
 
 const ff = (args, timeout = 600_000) => run(FFMPEG, ["-hide_banner", "-loglevel", "error", "-y", ...args], { timeout, maxBuffer: 64 * 1024 * 1024 });
 /** ffmpeg's report (stderr) for an analysis pass. */
@@ -44,11 +49,19 @@ async function meanLuma(file) {
   return ys.length ? ys.reduce((a, b) => a + b, 0) / ys.length : null;
 }
 
-// The grade: gentle S-curve, warm highlights, cool shadows, a touch less saturation, soft vignette, light grain
-const GRADE = "curves=master='0/0 0.25/0.22 0.5/0.5 0.75/0.79 1/1',colorbalance=rs=-0.02:bs=0.035:rh=0.035:gh=0.01:bh=-0.03,eq=saturation=0.92,vignette=angle=0.42,noise=alls=3:allf=t";
+// The grade: gentle S-curve, warm highlights, cool shadows, a touch less saturation, light grain (no vignette: the
+// whole frame shows, edges included)
+const GRADE = "curves=master='0/0 0.25/0.22 0.5/0.5 0.75/0.79 1/1',colorbalance=rs=-0.02:bs=0.035:rh=0.035:gh=0.01:bh=-0.03,eq=saturation=0.92,noise=alls=3:allf=t";
 const FRAME = (fps) => `scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920,fps=${fps},setsar=1`;
 
-const SFX_VOLUME = { hit: 0.5, click: 0.3, whoosh: 0.32, pop: 0.22, swoosh: 0.3, riser: 0.35 };
+const SFX_VOLUME = { hit: 0.5, click: 0.3, whoosh: 0.32, pop: 0.22, swoosh: 0.3, riser: 0.35, ding: 0.26 };
+
+/** The gain (dB) that brings a sound's peak to -1 dBFS, so a library's files sit at one level before SFX_VOLUME. */
+async function peakGain(file) {
+  const r = await analyse(["-i", file, "-af", "volumedetect"]);
+  const m = r.match(/max_volume: (-?[\d.]+) dB/);
+  return m ? Math.max(-24, Math.min(24, -1 - +m[1])) : 0;
+}
 
 export async function render(job, outFile, log = console.log) {
   const dir = await mkdtemp(join(tmpdir(), "migz-edit-"));
@@ -87,6 +100,14 @@ export async function render(job, outFile, log = console.log) {
     const concat = `${job.segments.map((_, i) => `[v${i}][a${i}]`).join("")}concat=n=${job.segments.length}:v=1:a=1[cv][ca]`;
     await ff(["-i", join(dir, "talk-src.mp4"), "-filter_complex", `${parts.join(";")};${concat};[cv]${FRAME(fps)},${GRADE},format=yuv420p[gv]`, "-map", "[gv]", "-an", "-c:v", "libx264", "-preset", "medium", "-crf", "14", join(project, "talk.mp4"), "-map", "[ca]", "-vn", "-c:a", "pcm_s16le", "-ar", "48000", join(dir, "voice.wav")]);
     await ff(["-i", join(project, "talk.mp4"), "-frames:v", "1", join(project, "frame0.png")]);
+
+    // A card goes behind their head: the person cut out of the cut, graded video, on a transparent background
+    // (VP8 with alpha, which the renderer decodes as such), drawn over the card
+    if (job.matte) {
+      log("cutting out the person");
+      await run(PYTHON, [join(HERE, "matte.py"), join(project, "talk.mp4"), join(dir, "mask.mp4"), MATTE_MODEL, FFMPEG], { timeout: 900_000, maxBuffer: 16 * 1024 * 1024, env: { ...process.env, ...(process.env.MATTE_PYTHONPATH ? { PYTHONPATH: process.env.MATTE_PYTHONPATH } : {}) } });
+      await ff(["-i", join(project, "talk.mp4"), "-i", join(dir, "mask.mp4"), "-filter_complex", "[1:v]format=gray[m];[0:v][m]alphamerge,format=yuva420p[p]", "-map", "[p]", "-c:v", "libvpx", "-auto-alt-ref", "0", "-b:v", "0", "-crf", "8", "-metadata:s:v:0", "alpha_mode=1", join(project, "person.webm")]);
+    }
 
     // The job clips: same frame, same grade, exposure matched to the talking video so cuts don't flicker
     const talkY = await meanLuma(join(project, "talk.mp4"));
@@ -136,18 +157,27 @@ export async function render(job, outFile, log = console.log) {
     } else chains.push("[key]anullsink");
     for (const kind of Object.keys(SFX_VOLUME)) {
       const at = job.sfx.filter((s) => s.kind === kind && s.at < seconds - 0.15);
-      if (!at.length || !job.media.sfx?.[kind]) continue;
-      const f = join(dir, `sfx-${kind}`);
-      await download(job.media.sfx[kind], f);
-      inputs.push("-i", f);
-      const labels = at.map((_, i) => `[${kind}${i}]`);
-      chains.push(`[${n}:a]${fmt},volume=${SFX_VOLUME[kind]}${at.length > 1 ? `,asplit=${at.length}` : ""}${labels.join("")}`);
-      at.forEach((s, i) => {
-        const ms = Math.max(0, Math.round(s.at * 1000));
-        chains.push(`${labels[i]}adelay=${ms}|${ms}[${kind}d${i}]`);
-        mix.push(`[${kind}d${i}]`);
-      });
-      n++;
+      // One URL, or a library's several files of this kind that take turns (the 1st use plays the 1st file...)
+      const urls = [job.media.sfx?.[kind]].flat().filter(Boolean);
+      if (!at.length || !urls.length) continue;
+      const byFile = urls.map(() => []);
+      at.forEach((s, i) => byFile[i % urls.length].push(s));
+      for (let v = 0; v < urls.length; v++) {
+        const uses = byFile[v];
+        if (!uses.length) continue;
+        const f = join(dir, `sfx-${kind}-${v}`);
+        await download(urls[v], f);
+        const gain = await peakGain(f);
+        inputs.push("-i", f);
+        const labels = uses.map((_, i) => `[${kind}${v}_${i}]`);
+        chains.push(`[${n}:a]${fmt},volume=${gain.toFixed(2)}dB,volume=${SFX_VOLUME[kind]}${uses.length > 1 ? `,asplit=${uses.length}` : ""}${labels.join("")}`);
+        uses.forEach((s, i) => {
+          const ms = Math.max(0, Math.round(s.at * 1000));
+          chains.push(`${labels[i]}adelay=${ms}|${ms}[${kind}${v}d${i}]`);
+          mix.push(`[${kind}${v}d${i}]`);
+        });
+        n++;
+      }
     }
     chains.push(`${mix.join("")}amix=inputs=${mix.length}:normalize=0:duration=first,atrim=duration=${seconds.toFixed(3)}[pre]`);
     const premix = join(dir, "premix.wav");

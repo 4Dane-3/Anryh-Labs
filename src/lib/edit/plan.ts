@@ -2,6 +2,7 @@
 // on its word. Pure: the app builds and checks it, the render worker draws it (HyperFrames) and mixes it
 // (ffmpeg). The rules are written out in docs/migz-video-edit.md.
 import { kindsForWord } from "@/lib/roofing/job-media";
+import { pickEmojis } from "@/lib/edit/emoji";
 import { cleanTakes, editedLength, fixNames, retime, spokenNumber, tightCut, type Segment, type Word } from "@/lib/edit/words";
 
 export const W = 1080;
@@ -12,7 +13,7 @@ export const SAFE = { left: 60, top: 220, right: W - 140, bottom: H - 420 };
 const COL = { x: 80, w: SAFE.right - 80 }; // the text column inside the safe zone
 const LOOP_SECONDS = 10 / FPS; // the closing frames that match frame 0
 const PUSH_SECONDS = 0.4;
-const CARD_SECONDS = 1.8;
+const CARD_SECONDS = 2.2; // long enough for a card to land and get tapped
 const NUMBER_SECONDS = 1.4;
 const BROLL_SECONDS = 1.8;
 const MIN_GAP = 0.3; // two effects never start closer than this
@@ -21,8 +22,8 @@ const CAPTION_CHARS = 16; // a caption longer than this splits (2 lines at most)
 
 export type Box = { x: number; y: number; w: number; h: number };
 export type Framing = "wide" | "close";
-export type CardKind = "town" | "cert" | "license" | "warranty" | "number" | "name" | "cta";
-export type SfxKind = "click" | "whoosh" | "pop" | "swoosh" | "riser" | "hit";
+export type CardKind = "town" | "cert" | "license" | "warranty" | "number" | "name" | "reviews" | "cta";
+export type SfxKind = "click" | "whoosh" | "pop" | "swoosh" | "riser" | "hit" | "ding";
 
 export type EditInput = {
   words: Word[]; // the talking video's transcript, source seconds
@@ -32,6 +33,7 @@ export type EditInput = {
   broll: number; // job clips available
   brollKinds?: (string | null)[]; // what each clip shows ("crew", "inspection"...), to cut to the one that fits the word
   hook: string | null; // the on-screen callout ("Kenmore homeowners")
+  audience?: string | null; // who the hook calls out when it's shortened to "<town> <audience>" (default "homeowners")
   towns: string[];
   deals: string[];
   offer?: string | null; // what the ads offer ("free roof inspection" or "free quote"), for the last card
@@ -43,6 +45,7 @@ export type EditInput = {
   person?: { name: string; role: string | null } | null; // who's on camera: a name tag when they say their name
   company?: string | null;
   area?: string | null; // "Bothell, WA": the line under the name tag
+  reviews?: { rating: number | null; count: number | null } | null; // their Google rating, for the reviews card
 };
 
 export type Effect = { kind: "framing" | "push" | "card" | "broll" | "captions-on"; start: number; anchor: number; priority: number };
@@ -58,14 +61,19 @@ export type EditPlan = {
   closeScale: number;
   // When the face fills the frame (a close selfie), the talking video is shrunk toward the top over a blurred
   // copy of itself, so captions and cards have room under the chin. null = full frame.
-  fit: { scale: number; origin: { x: number; y: number } } | null;
+  fit: { scale: number; origin: { x: number; y: number } } | null; // no longer used: the video always fills the frame
+  selfie: boolean; // the face fills the frame: a gentler zoom, captions over the chin, cards above the head
+  chin: number; // in a selfie, the share of the face (from the bottom) captions may cover; 0 otherwise
   framings: { start: number; framing: Framing }[]; // the framing from this moment (on cuts and punch-ins)
   pushes: { start: number; from: number; to: number }[]; // smooth push-ins and pull-outs, PUSH_SECONDS each
   hook: { text: string; accent: string | null; box: Box; end: number; pins?: string[] } | null;
   captionsFrom: number;
   captionBox: Box; // where captions sit (lower middle, clear of the face)
-  captions: { start: number; end: number; words: Word[] }[];
-  cards: { kind: CardKind; text: string; sub: string | null; start: number; end: number; anchor: number; box: Box }[];
+  captions: { start: number; end: number; words: Word[]; emoji?: { word: number; char: string } }[]; // emoji: pops beside that word
+  // behind: the card sits behind their head (a wide shot, where the person is small enough to leave room above them)
+  // drop: falls in from the top and bounces to rest; taps: when a cursor taps it (a click sound plays)
+  cards: { kind: CardKind; text: string; sub: string | null; start: number; end: number; anchor: number; box: Box; behind?: boolean; drop?: boolean; taps?: number[] }[];
+  matte: boolean; // a card goes behind the person, so the worker cuts them out of the talking video
   face: Box | null; // the face at 100% (the name tag's focus brackets follow it through the zooms)
   company: string | null;
   area: string | null;
@@ -97,6 +105,9 @@ export const fitBox = (b: Box, fit: EditPlan["fit"]) => (fit ? scaleBox(b, fit.o
 
 /** Smallest the talking video is shrunk to; below this the person is too small to carry the ad. */
 export const MIN_FIT = 0.6;
+/** In a selfie, captions may cover this much of the bottom of the face (the chin). */
+export const CHIN = 0.15;
+export const MAX_CHIN = 0.3;
 export const HOOK_PX = 84;
 
 export const overlaps = (a: Box, b: Box) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
@@ -139,7 +150,15 @@ function numberText(n: { value: number; unit: string | null; plus: boolean }) {
   return null; // a bare number ("one honest reason") isn't worth a graphic
 }
 
-const BROLL_WORDS = /^(leaks?|leaking|moss|granules?|shingles?|curling|gutters?|replacement|replace|inspections?|inspect|crew|install(ed|ing)?|storms?|winter|rain|attic|ceiling|stains?|flashing|roofs?)$/;
+/** Cards that can sit behind the head in a wide shot (the name tag and the call to action stay in front). */
+const BEHIND_KINDS: CardKind[] = ["reviews", "number", "cert", "license", "warranty", "town"];
+/** A face this small (share of the frame's height) is a wide shot: standing, or sitting back from the camera. */
+export const WIDE_FACE = 0.13;
+/** Cards a cursor taps, like a button on a phone. */
+const TAPPABLE: CardKind[] = ["reviews", "cta", "cert", "license", "warranty"];
+const REVIEW_WORDS = /^(reviews?|fivestar|5star|google)$/; // after clean(): "five-star" is "fivestar"
+
+const BROLL_WORDS = /^(leaks?|leaking|moss|granules?|shingles?|curling|gutters?|replacement|replace|inspections?|inspect|crew|install(ed|ing)?|storms?|winter|rain|attic|ceiling|stains?|flashing|roofs?|clinic|consult(ation)?s?|procedures?|transplants?|hairline|grafts?|surgeons?|surgery)$/;
 
 /** The edit for one talking video. Effects are placed by priority: cards and numbers, then cut-aways, then zooms. */
 export function buildPlan(input: EditInput): EditPlan {
@@ -154,46 +173,57 @@ export function buildPlan(input: EditInput): EditPlan {
   // 4. Zooms centre on the eyes (a little above the middle of the face)
   const face = input.face;
   const eye = face ? { x: face.x + face.w / 2, y: face.y + face.h * 0.42 } : { x: W / 2, y: H * 0.36 };
-  const closeScale = input.sourceHeight >= 1080 ? 1.15 : 1.1;
-  const scaleOf = (f: Framing) => (f === "close" ? closeScale : 1);
+  const fullClose = input.sourceHeight >= 1080 ? 1.15 : 1.1;
 
   // 6. The hook: on screen from frame 0, until the first sentence ends; then captions take over
   const firstEnd = words.findIndex((w, i) => /[.!?:]$/.test(w.word) || i === words.length - 1); // "Kenmore homeowners:" ends the hook too
-  const captionsFrom = q(Math.min(words[Math.max(0, firstEnd)]?.end ?? 2.5, 3.5));
-  // The hook as typed, or (when it won't fit in two lines) its first town plus "homeowners"
+  const hookEnd = q(Math.min(words[Math.max(0, firstEnd)]?.end ?? 2.5, 3.5));
+  // The hook as typed, or (when it won't fit in two lines) its first town plus who it calls out ("homeowners")
   const hookLines = (t: string) => Math.round(textHeight(t.toUpperCase(), HOOK_PX, COL.w, 1.05, 0.74) / (HOOK_PX * 1.05));
   const typed = input.hook?.trim() || null;
   const firstTown = typed ? input.towns.find((t) => typed.toLowerCase().includes(t.toLowerCase())) : undefined;
-  const hookText = typed && hookLines(typed) > 2 && firstTown ? `${firstTown} homeowners` : typed;
+  const hookText = typed && hookLines(typed) > 2 && firstTown ? `${firstTown} ${input.audience?.trim() || "homeowners"}` : typed;
+  // Without a hook the captions carry the opening line from the first word
+  const captionsFrom = hookText ? hookEnd : 0;
   // With towns in it, the hook is a stack of map-pin tags (up to 3) under one light line; otherwise big text
   const pinTowns = hookText ? input.towns.slice(0, 3) : [];
   const pinned = !!hookText && pinTowns.some((t) => hookText.toLowerCase().includes(t.toLowerCase()));
   const hookH = !hookText ? 0 : pinned ? 76 + pinTowns.length * 92 : textHeight(hookText.toUpperCase(), HOOK_PX, COL.w, 1.05, 0.74) + 40;
   const capH = Math.ceil(2 * CAPTION_PX * 1.08) + 20; // room for two lines
 
-  // The face at its biggest (close framing plus a push). If text can't sit under it, shrink the video toward the top
-  const innerMax = face ? scaleBox(face, eye, closeScale * 1.08) : null;
+  // The video always fills the frame (never shrunk over a blurred copy with borders). A selfie, where the face is too
+  // big for text to fit under it at full zoom, zooms in less, and its captions may sit over the chin (the lowest 15%
+  // of the face), never higher
   const band = Math.max(capH, hookH);
-  let fit: EditPlan["fit"] = null;
-  if (innerMax && innerMax.y + innerMax.h + 32 + band > SAFE.bottom) {
-    const origin = { x: W / 2, y: 0 };
-    const scale = Math.max(MIN_FIT, Math.min(1, (SAFE.bottom - band - 32 - origin.y) / (innerMax.y + innerMax.h - origin.y)));
-    fit = { scale: Math.floor(scale * 1000) / 1000, origin };
-  }
-  const faceAt = (s: number) => (face ? fitBox(scaleBox(face, eye, s), fit) : null);
+  const selfie = !!face && scaleBox(face, eye, fullClose * 1.08).y + scaleBox(face, eye, fullClose * 1.08).h + 32 + band > SAFE.bottom;
+  const closeScale = selfie ? 1.08 : fullClose;
+  const scaleOf = (f: Framing) => (f === "close" ? closeScale : 1);
+  const fit: EditPlan["fit"] = null;
+  const faceAt = (s: number) => (face ? scaleBox(face, eye, s) : null);
   const maxFace = faceAt(closeScale * 1.08);
   const topRoom = (maxFace ? maxFace.y : H * 0.3) - 24 - SAFE.top;
-  // Captions in the lower middle, under the face; above it only if the face sits too low
-  const capTop = Math.max(maxFace ? maxFace.y + maxFace.h + 32 : H * 0.58, fit ? 0 : H * 0.56);
-  const captionBox: Box = capTop + capH <= SAFE.bottom - 180 || fit ? { x: COL.x, y: capTop, w: COL.w, h: capH } : { x: COL.x, y: SAFE.bottom - 180 - capH, w: COL.w, h: capH };
-  const cardBand: Box = { x: COL.x, y: captionBox.y + captionBox.h + 16, w: COL.w, h: Math.max(120, SAFE.bottom - (captionBox.y + captionBox.h + 16)) };
+  // Captions in the lower middle, under the face (over the chin in a selfie); they stay on screen while cards are up
+  // How much of the chin they may cover: 15%, more (up to 30%) only when the face is so big that's the only fit
+  const zMax = closeScale * 1.08;
+  const lowestCapTop = SAFE.bottom - capH - 16;
+  const chin = selfie && face ? Math.min(MAX_CHIN, Math.max(CHIN, 1 - ((eye.y + (lowestCapTop - eye.y) / zMax) - face.y) / face.h)) : 0;
+  const chinFree = face ? scaleBox({ ...face, h: face.h * (1 - chin) }, eye, zMax) : null;
+  const under = !face || !maxFace ? H * 0.58 : selfie ? chinFree!.y + chinFree!.h + 16 : maxFace.y + maxFace.h + 32;
+  const captionBox: Box = { x: COL.x, y: Math.min(Math.max(under, H * 0.56), SAFE.bottom - capH), w: COL.w, h: capH };
+  const cardBand: Box = { x: COL.x, y: captionBox.y + captionBox.h + 16, w: COL.w, h: Math.max(0, SAFE.bottom - (captionBox.y + captionBox.h + 16)) };
+  // Above the head when there's room; else in the caption band, with only as many town pins as fit there
+  const hookUp = hookH <= topRoom;
+  const bandRoom = SAFE.bottom - captionBox.y;
+  const pinsFit = hookUp ? pinTowns.length : Math.min(pinTowns.length, Math.floor((bandRoom - 76) / 92));
+  const keepPins = pinned && pinsFit >= 1;
+  const hookBoxH = hookUp ? hookH : keepPins ? 76 + pinsFit * 92 : hookText ? Math.min(bandRoom, textHeight(hookText.toUpperCase(), HOOK_PX, COL.w, 1.05, 0.74) + 40) : 0;
   const hook = hookText
     ? {
         text: hookText,
         accent: input.towns.find((t) => hookText.toLowerCase().includes(t.toLowerCase())) ?? null,
-        ...(pinned ? { pins: pinTowns } : {}),
-        box: hookH <= topRoom ? { x: COL.x, y: SAFE.top, w: COL.w, h: hookH } : { x: COL.x, y: captionBox.y, w: COL.w, h: hookH },
-        end: captionsFrom,
+        ...(keepPins ? { pins: pinTowns.slice(0, pinsFit) } : {}),
+        box: { x: COL.x, y: hookUp ? SAFE.top : captionBox.y, w: COL.w, h: hookBoxH },
+        end: hookEnd,
       }
     : null;
 
@@ -212,17 +242,37 @@ export function buildPlan(input: EditInput): EditPlan {
   const ctaStart = ctaAt >= 0 && words[ctaAt].start <= ctaLatest ? words[ctaAt].start : (words.filter((w) => w.start <= Math.min(ctaLatest, ctaAt >= 0 ? words[ctaAt].start : lastWord - 2.5) && w.start > captionsFrom).at(-1)?.start ?? q(ctaLatest));
   const cards: EditPlan["cards"] = [];
   const busy = (s: number, e: number) => cards.some((c) => s < c.end && c.start < e);
-  // When there's no room under the captions (a shrunk video), cards take the caption band and captions hide under them
-  const cardsBelow = cardBand.y + 140 <= SAFE.bottom;
+  // Where a card goes, so the captions keep showing: behind the head (a wide shot), above the head, under the
+  // captions; only when none has room does it take the caption band (and the captions hide under it)
+  const aboveHead = (h: number): Box | null => (topRoom >= h ? { x: COL.x, y: SAFE.top + topRoom - h, w: COL.w, h } : null);
+  const belowCaptions = (h: number): Box | null => (cardBand.h >= h ? { x: COL.x, y: cardBand.y, w: COL.w, h } : null);
+  // In a wide shot a card can go behind the head, like a sign on the wall behind them: centred on the head, its
+  // lower part covered by it. Only when it stays in the safe zone at the biggest zoom; otherwise it goes on the torso.
+  const wide = !!face && !fit && face.h <= H * WIDE_FACE;
+  const behindBox = (kind: CardKind, h: number): Box | null => {
+    if (!wide || !face || !BEHIND_KINDS.includes(kind)) return null;
+    // It zooms with the shot (up to the close framing, a push and the cut snap), so it's sized for the biggest zoom
+    const zMax = closeScale * 1.08 * 1.07;
+    const w = Math.min(kind === "town" ? 620 : 760, Math.floor((SAFE.right - SAFE.left) / zMax) - 8);
+    // Centred on the head, nudged in at the biggest zoom (the safe zone's right side is wider: the ad's buttons)
+    const zw = w * zMax;
+    const zx = Math.max(SAFE.left, Math.min(SAFE.right - zw, eye.x - zw / 2));
+    const x = eye.x + (zx - eye.x) / zMax;
+    // Its bottom a quarter of the way down the face: the top of the head covers the lower middle of the card
+    const b: Box = { x, y: face.y + face.h * 0.25 - h, w, h };
+    const zoomed = scaleBox(b, eye, zMax);
+    const inside = zoomed.y >= SAFE.top && zoomed.x >= SAFE.left && zoomed.x + zoomed.w <= SAFE.right;
+    return inside ? b : null;
+  };
   const placeCard = (kind: CardKind, text: string, sub: string | null, at: number, len: number) => {
     const start = words[at].start;
     const end = q(Math.min(start + len, ctaStart - 0.15));
     if (start < captionsFrom || taken(start) || busy(start, end) || end - start < 0.8) return false;
     // Every card sits on the torso, like the captions (which hide under it): the offer pill, the glass cards, the name tag
-    const h = kind === "number" ? (sub ? 64 : 0) + 150 : kind === "name" ? 170 : kind === "cert" ? 240 : kind === "cta" ? 300 : textHeight(text, 52, COL.w - 150) + 110;
-    void cardsBelow;
-    const box: Box = { x: COL.x, y: captionBox.y, w: COL.w, h: Math.min(h, SAFE.bottom - captionBox.y) };
-    cards.push({ kind, text, sub, start, end, anchor: start, box });
+    const h = kind === "number" ? (sub ? 64 : 0) + 150 : kind === "name" ? 170 : kind === "cert" ? 240 : kind === "reviews" ? 250 : kind === "cta" ? 300 : textHeight(text, 52, COL.w - 150) + 110;
+    const behind = behindBox(kind, h);
+    const box: Box = behind ?? aboveHead(h) ?? belowCaptions(h) ?? { x: COL.x, y: captionBox.y, w: COL.w, h: Math.min(h, SAFE.bottom - captionBox.y) };
+    cards.push({ kind, text, sub, start, end, anchor: start, box, ...(behind ? { behind: true } : {}) });
     add({ kind: "card", start, anchor: start, priority: 1 });
     return true;
   };
@@ -231,14 +281,26 @@ export function buildPlan(input: EditInput): EditPlan {
   cards.push({ kind: "cta", text: "Tap Learn More", sub: offerLine, start: ctaStart, end: loopFrom, anchor: ctaStart, box: { x: COL.x, y: captionBox.y, w: COL.w, h: Math.min(SAFE.bottom - captionBox.y, 330) } });
   add({ kind: "card", start: ctaStart, anchor: ctaStart, priority: 0 });
 
+  // Their Google reviews, when they mention them ("50 five-star reviews on Google"): the card starts on the count
+  const rv = words.findIndex((w) => w.start >= captionsFrom && REVIEW_WORDS.test(clean(w.word)));
+  if (rv >= 0) {
+    const said = spokenNumber(words, Math.max(0, rv - 1));
+    const at = said && said.last >= rv - 1 ? Math.max(0, rv - 1) : rv;
+    const count = input.reviews?.count ?? (said && said.last >= rv - 1 && said.value >= 5 ? said.value : null);
+    const rating = input.reviews?.rating ?? (words.slice(rv, rv + 3).some((w) => /five|5/.test(clean(w.word))) ? 5 : null);
+    placeCard("reviews", (rating ?? 5).toFixed(1), count ? `${count.toLocaleString("en-US")} reviews on Google` : "Reviews on Google", at, CARD_SECONDS);
+  }
+
   // Numbers said out loud, as big kinetic text (the offer's own wording when it's the deal)
   for (let i = 0; i < words.length; i++) {
     const n = spokenNumber(words, i);
     if (!n) continue;
     const deal = n.unit === "dollars" || n.unit === "percent" ? dealFor(input.deals, n.value) : null;
     const text = deal?.big ?? numberText(n);
-    if (text) placeCard("number", text, deal?.sub ?? null, i, NUMBER_SECONDS);
-    i = n.last;
+    // A count that's part of the reviews ("50 five-star reviews") is on the reviews card already
+    const inReviews = cards.some((c) => c.kind === "reviews" && c.start === words[i].start);
+    if (text && !inReviews) placeCard("number", text, deal?.sub ?? null, i, NUMBER_SECONDS);
+    i = Math.max(i, n.last);
   }
   // Their name tag, when they say their name ("I'm Gil")
   if (input.person?.name) {
@@ -342,7 +404,10 @@ export function buildPlan(input: EditInput): EditPlan {
     for (;;) {
       if (guard++ > 60) break;
       const starts = [...new Set([0, ...effects.map((e) => e.start)])].filter((t) => t < until).sort((a, b) => a - b);
-      const gapAt = starts.findIndex((t, k) => (starts[k + 1] ?? until) - t > limit && !coveredByOverlay(t + 0.1));
+      // A gap only counts as covered when a job clip spans all of it (or it's the last card), the same rule the
+      // pacing check uses: a framing cut during a clip mustn't hide the still stretch after the clip ends
+      const gapCovered = (t: number, next: number) => broll.some((b) => t >= b.start - 0.01 && next <= b.end + 0.01) || cards.some((c) => c.kind === "cta" && t >= c.start - 0.01);
+      const gapAt = starts.findIndex((t, k) => (starts[k + 1] ?? until) - t > limit && !gapCovered(t, starts[k + 1] ?? until));
       if (gapAt < 0) break;
       const from = starts[gapAt];
       const to = starts[gapAt + 1] ?? until;
@@ -392,15 +457,38 @@ export function buildPlan(input: EditInput): EditPlan {
   const overCaptions = cards.filter((c) => c.kind !== "cta" && overlaps(c.box, captionBox));
   const visibleCaptions = captions.filter((c) => !overCaptions.some((n) => c.start < n.end && n.start < c.end));
 
+  const emojis = pickEmojis(visibleCaptions, input.towns);
+
+  // Never static: every other card drops in from the top and bounces; cards you'd tap get tapped by a cursor
+  // (the call to action every 1.4s until the loop)
+  let nth = 0;
+  for (const c of [...cards].sort((a, b) => a.start - b.start)) {
+    if (c.kind !== "cta") {
+      if (nth % 2 === 1 && !c.behind) c.drop = true;
+      nth++;
+    }
+    if (!TAPPABLE.includes(c.kind)) continue;
+    const taps: number[] = [];
+    if (c.kind === "cta") for (let t = c.start + 0.7; t <= loopFrom - 0.4; t += 1.4) taps.push(q(t));
+    else if (c.start + (c.drop ? 1.05 : 0.75) <= c.end - 0.35) taps.push(q(c.start + (c.drop ? 1.05 : 0.75)));
+    if (taps.length) c.taps = taps;
+  }
+
   // 8. Sound: restrained, only on beats (a click on cuts in the opening, whooshes on every other push)
   const sfx: EditPlan["sfx"] = [{ kind: "hit", at: 0 }];
   framings.slice(1).forEach((f) => f.start <= 3.2 && sfx.push({ kind: "click", at: f.start }));
   pushes.forEach((p, i) => i % 2 === 0 && sfx.push({ kind: "whoosh", at: p.start }));
-  cards.forEach((c) => c.kind !== "cta" && sfx.push({ kind: "pop", at: c.start }));
-  broll.forEach((b) => sfx.push({ kind: "swoosh", at: b.start }));
-  sfx.push({ kind: "riser", at: q(Math.max(0, ctaStart - 0.6)) });
+  // A ding on the big numbers and the offer (the moment worth hearing), a pop on every other card
+  cards.forEach((c) => c.kind !== "cta" && sfx.push({ kind: c.kind === "number" ? "ding" : "pop", at: c.start }));
+  // A whip into every cut-away and back out of it, the swoosh leading the cut a little so its rush lands on it
+  cards.forEach((c) => c.taps?.forEach((t) => sfx.push({ kind: "click", at: t })));
+  broll.forEach((b) => {
+    sfx.push({ kind: "swoosh", at: q(Math.max(0, b.start - 0.1)) });
+    sfx.push({ kind: "swoosh", at: q(Math.max(0, b.end - 0.1)) });
+  });
+  // No riser: a build-up before the end sounds like a trailer
   // Never two sounds closer than 0.4s (the earlier, more important one stays)
-  const order: SfxKind[] = ["hit", "riser", "pop", "swoosh", "click", "whoosh"];
+  const order: SfxKind[] = ["hit", "riser", "ding", "pop", "swoosh", "click", "whoosh"];
   const chosen: EditPlan["sfx"] = [];
   for (const s of [...sfx].sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind))) if (!chosen.some((c) => Math.abs(c.at - s.at) < 0.4)) chosen.push(s);
 
@@ -414,6 +502,8 @@ export function buildPlan(input: EditInput): EditPlan {
     eye,
     closeScale,
     fit,
+    selfie,
+    chin,
     face: face ?? null,
     company: input.company ?? null,
     area: input.area ?? null,
@@ -423,12 +513,13 @@ export function buildPlan(input: EditInput): EditPlan {
     hook,
     captionsFrom: hook ? captionsFrom : 0,
     captionBox,
-    captions: visibleCaptions,
+    captions: visibleCaptions.map((c, i) => (emojis[i] ? { ...c, emoji: emojis[i]! } : c)),
     cards: cards.sort((a, b) => a.start - b.start),
     broll,
     sfx: chosen.sort((a, b) => a.at - b.at),
     loopFrom,
     musicEnd: q(Math.min(seconds, lastWord + 0.25)),
+    matte: cards.some((c) => c.behind),
     effects: effects.sort((a, b) => a.start - b.start),
   };
 }

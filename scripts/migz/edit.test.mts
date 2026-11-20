@@ -5,7 +5,8 @@ import assert from "node:assert/strict";
 import { cleanTakes, editedLength, fixNames, spokenNumber, tightCut, type Word } from "../../src/lib/edit/words.ts";
 import { buildPlan, SAFE, scaleAt, type EditInput } from "../../src/lib/edit/plan.ts";
 import { checkPlan, checkRender, fixPlan } from "../../src/lib/edit/qc.ts";
-import { buildComposition } from "../../src/lib/edit/composition.ts";
+import { buildComposition, captionWords } from "../../src/lib/edit/composition.ts";
+import { emojiFor } from "../../src/lib/edit/emoji.ts";
 import { brandCandidates, closestGoogleFont, contrast, pickBrand, readableBrand } from "../../src/lib/edit/brand.ts";
 
 // A transcript the way the speech-to-text returns it: a filler, a restart, pauses, a misheard brand, a spoken price
@@ -49,6 +50,10 @@ assert.deepEqual(spokenNumber(say("25-year warranty"), 0), { value: 25, unit: "y
 assert.equal(spokenNumber(say("fifteen plus years"), 0)!.plus, true);
 assert.equal(spokenNumber(say("twenty-five-year warranty"), 0)!.value, 25);
 assert.equal(spokenNumber(say("roof leaks"), 0), null);
+// "five-star" isn't a number, and never ends before the word it started on (that hung the planner)
+assert.equal(spokenNumber(say("50 five-star reviews"), 1), null);
+assert.equal(spokenNumber(say("fifty five-star reviews"), 0)!.last, 0);
+assert.equal(spokenNumber(say("twenty-five hundred dollars"), 0)!.value, 2500);
 
 // ---------- the plan ----------
 const face = { x: 360, y: 430, w: 360, h: 430 }; // a typical HeyGen framing, face in the upper middle
@@ -112,16 +117,17 @@ const lowFaces = low.checks.find((c) => c.name === "Faces")!;
 const lowSafe = low.checks.find((c) => c.name === "Safe zone")!;
 assert.ok(lowSafe.pass, lowSafe.detail);
 assert.ok(lowFaces.pass || /Over the face/.test(lowFaces.detail), "a face the text can't avoid is reported, never hidden");
-// A close selfie (the face fills the frame): the video shrinks toward the top over a blurred copy, the long callout
-// becomes its first town, and every check passes with the cards on the caption band
+// A close selfie (the face fills the frame): the video still fills the frame (no shrink, no borders), the zoom is
+// gentler, captions may cover the chin, the long callout becomes its first town, and every check passes
 const selfie = { x: 65, y: 134, w: 907, h: 1382 };
 const sp = fixPlan(buildPlan({ ...input, face: selfie, hook: "Kenmore, Bothell, Woodinville homeowners" }), { face: selfie, names: input.names, sourceWords: takes });
 for (const c of sp.checks) assert.ok(c.pass, `selfie ${c.name}: ${c.detail}`);
-assert.ok(sp.plan.fit && sp.plan.fit.scale < 1 && sp.plan.fit.scale >= 0.6, `shrunk: ${JSON.stringify(sp.plan.fit)}`);
+assert.ok(sp.plan.selfie && sp.plan.fit === null && sp.plan.closeScale < 1.1, "a selfie: full frame, gentler zoom");
+assert.ok(sp.plan.chin >= 0.15 && sp.plan.chin <= 0.3, `captions cover at most the chin: ${sp.plan.chin}`);
 assert.equal(sp.plan.hook?.text, "Kenmore homeowners");
 assert.equal(plan.fit, null, "a normal framing isn't shrunk");
 const selfieHtml = buildComposition(sp.plan, readableBrand({ headingFont: "Inter", bodyFont: "Inter", background: "#0B1F3A", text: "#FFFFFF", accent: "#F59E0B" }), { headingWeights: [800], bodyWeights: [400], hasLogo: false, brollCount: sp.plan.broll.length });
-assert.ok(selfieHtml.includes('id="fit"') && selfieHtml.includes('id="bgv"') && selfieHtml.includes("#bgloop"), "the shrunk frame, its blurred copy and the loop still");
+assert.ok(!selfieHtml.includes('id="fit"') && !selfieHtml.includes('id="bgv"') && !selfieHtml.includes("vignette"), "no shrunk frame, blurred copy or darkened edges");
 // The special is on the last card even when it isn't said
 assert.ok(sp.plan.cards.find((c) => c.kind === "cta")!.sub!.length > 0);
 // A misspelling left on screen fails
@@ -145,7 +151,16 @@ assert.match(html, /src="\.\/logo\.png"/);
 assert.ok(!/D97757/i.test(html), "no Claude orange");
 assert.match(html, /#E4572E/, "their accent");
 assert.match(html, /ease:"expo\.out"/);
-assert.ok(!/ease:"(bounce|elastic|back)/.test(html), "no bounce");
+assert.ok(!/ease:"elastic/.test(html), "no elastic");
+// Bounce only where a card drops in
+for (const line of html.split("\n").filter((l) => /ease:"bounce/.test(l))) assert.match(line, /^tl\.fromTo\("#card\d+",/, "only dropped cards bounce");
+// Only caption words pop with an overshoot; the camera never bounces
+for (const line of html.split("\n").filter((l) => /ease:"back/.test(l))) assert.match(line, /^tl\.fromTo\("#cap\d+w\d+e?"/, "only caption words (and their emojis) overshoot");
+assert.ok(!/id="bord"|id="border"|class="focus"/.test(html), "no frame, border or brackets around the video");
+assert.ok(!/3DFF72/i.test(html), "no neon green");
+assert.match(html, /filter id="mbH"/, "whip-pan motion blur");
+assert.deepEqual(captionWords(["get", "20%", "off"]).map((w) => w.role), ["fill", "money", "base"]);
+assert.deepEqual(captionWords(["designed", "by", "a", "surgeon"]).map((w) => w.role), ["key", "fill", "fill", "base"]);
 assert.match(html, /\$500 OFF/);
 assert.match(html, /font-family:"heading"/);
 assert.match(html, /src:url\(\.\/fonts\/heading-800\.woff2\)/);
@@ -168,7 +183,7 @@ const onVideo = readableBrand({ ...picked, headingFont: picked.headingFont!, bod
 assert.equal(onVideo.background, "#111827", "a white site background becomes their dark text colour for cards over footage");
 assert.ok(contrast(onVideo.text, onVideo.background) >= 4.5);
 assert.equal(onVideo.accent, "#C8102E");
-assert.equal(readableBrand({ accent: "#777777" }).accent, "#F59E0B", "a grey accent is replaced");
+assert.equal(readableBrand({ accent: "#777777" }).accent, "#2D7FF9", "a grey accent is replaced by the default blue");
 assert.equal(closestGoogleFont("Gotham Bold"), "Montserrat");
 assert.equal(closestGoogleFont("Helvetica Neue"), "Inter");
 assert.equal(closestGoogleFont("Some Serif Font"), "Merriweather");
@@ -218,4 +233,97 @@ for (const c of plan.captions) {
   assert.equal(new Set(kinded.broll.map((b) => b.clip)).size, kinded.broll.length, "each clip used once");
   assert.ok(at("leaks") !== undefined);
   console.log("cut-away matching passed:", kinded.broll.map((b) => `${kinded.words.find((x) => Math.abs(x.start - b.start) < 0.01)?.word}→${b.clip}`).join(", "));
+}
+
+// ---------- our sound library: files sorted by name, variants take turns, a ding on the numbers ----------
+{
+  const { sfxKindOf, sortSfx, sfxVariant } = await import("../../src/lib/edit/sfx-library.ts");
+  assert.equal(sfxKindOf("pack/Whoosh Soft 03.wav"), "whoosh");
+  assert.equal(sfxKindOf("Transition Swoosh 1.mp3"), "swoosh");
+  assert.equal(sfxKindOf("UI Pop 2.wav"), "pop");
+  assert.equal(sfxKindOf("claude_sfx/swings/swing1.mp3"), "pop");
+  assert.equal(sfxKindOf("claude_sfx/whoosh_transitions/Whooshes2.mp3"), "whoosh");
+  assert.equal(sfxKindOf("claude_sfx/notifs/notif1.mp3"), "ding");
+  assert.equal(sfxKindOf("bell-ding.wav"), "ding");
+  assert.equal(sfxKindOf("notification chime.m4a"), "ding");
+  assert.equal(sfxKindOf("Mouse Click.wav"), "click");
+  assert.equal(sfxKindOf("Cinematic Impact Boom.wav"), "hit");
+  assert.equal(sfxKindOf("Riser into impact.wav"), "riser", "a riser that ends on a hit is a riser");
+  assert.equal(sfxKindOf("Swooshes/07.wav"), "swoosh", "the folder names it when the file doesn't");
+  assert.equal(sfxKindOf("readme.txt"), null);
+  assert.equal(sfxKindOf("mystery-sound.wav"), null);
+  const sorted = sortSfx(["w/Whoosh 10.wav", "w/Whoosh 2.wav", "Ding.wav", "odd.wav", "notes.txt"]);
+  assert.deepEqual(sorted.byKind.whoosh, ["w/Whoosh 2.wav", "w/Whoosh 10.wav"], "numbered files in number order");
+  assert.deepEqual(sorted.unmatched, ["odd.wav"], "unknown sounds listed, other files ignored");
+  assert.deepEqual([0, 1, 2, 3].map((i) => sfxVariant(["a", "b", "c"], i)), ["a", "b", "c", "a"]);
+  const dinged = buildPlan(input);
+  const numberCards = dinged.cards.filter((c) => c.kind === "number");
+  assert.ok(numberCards.length >= 1, "the script says a number");
+  for (const c of numberCards) assert.ok(dinged.sfx.some((s) => s.kind === "ding" && Math.abs(s.at - c.start) < 0.01), "a ding on each number card");
+  assert.ok(!dinged.sfx.some((s) => s.kind === "pop" && numberCards.some((c) => Math.abs(s.at - c.start) < 0.01)), "no pop on a number card");
+  console.log("sound library passed:", dinged.sfx.map((s) => s.kind).join(" "));
+}
+
+// ---------- Google reviews, and cards behind the head in a wide shot ----------
+{
+  const CLINIC =
+    "Seattle, your hairline should fit your face. I'm Dr. Sam from Lee Hair Clinic. Every hairline is designed by a surgeon. We have 212 five-star reviews on Google from real patients. This month your consultation is free. Tap Learn More to book your free consultation.";
+  const cw = transcript(CLINIC);
+  const clinic: EditInput = {
+    words: cw, sourceSeconds: cw.at(-1)!.end + 0.6, sourceHeight: 1080, face: { x: 360, y: 430, w: 360, h: 430 }, broll: 0,
+    hook: null, towns: ["Seattle"], deals: [], offer: "free consultation", certifications: [], license: null, warranties: [],
+    names: ["Lee Hair Clinic", "Seattle"], hasLogo: false, person: { name: "Dr. Sam", role: "Surgeon" }, company: "Lee Hair Clinic",
+  };
+  const close = buildPlan(clinic);
+  const rev = close.cards.find((c) => c.kind === "reviews");
+  assert.ok(rev, `a reviews card when they mention reviews: ${JSON.stringify(close.cards.map((c) => [c.kind, c.text]))}`);
+  assert.equal(rev!.text, "5.0", "five-star said: 5.0");
+  assert.equal(rev!.sub, "212 reviews on Google", "the count they said");
+  assert.ok(Math.abs(rev!.start - close.words.find((w) => w.word === "212")!.start) < 0.01, "on the count");
+  assert.ok(!close.cards.some((c) => c.kind === "number" && /212/.test(c.text)), "the count isn't a second card");
+  assert.equal(buildPlan({ ...clinic, reviews: { rating: 4.9, count: 340 } }).cards.find((c) => c.kind === "reviews")!.sub, "340 reviews on Google", "their real Google numbers win");
+  assert.ok(!close.matte && !close.cards.some((c) => c.behind), "a close shot: nothing behind the head");
+
+  // Standing back from the camera: a small face, room above the head
+  const wideFace = { x: 470, y: 560, w: 140, h: 180 };
+  const wide = buildPlan({ ...clinic, face: wideFace });
+  const back = wide.cards.find((c) => c.kind === "reviews")!;
+  assert.ok(back.behind && wide.matte, "a wide shot: the reviews card goes behind the head");
+  assert.ok(back.box.y < wideFace.y + wideFace.h && back.box.y + back.box.h > wideFace.y, "the head covers the card's lower part");
+  assert.ok(back.box.y >= SAFE.top, "still in the safe zone");
+  assert.ok(!wide.cards.find((c) => c.kind === "name")!.behind && !wide.cards.find((c) => c.kind === "cta")!.behind, "the name tag and call to action stay in front");
+  assert.ok(fixPlan(wide, { face: wideFace, names: clinic.names, sourceWords: cw }).checks.every((c) => c.pass), "every check passes with a card behind the head");
+  const wideHtml = buildComposition(wide, brand, { headingWeights: [800], bodyWeights: [400], hasLogo: false, brollCount: 0 });
+  assert.match(wideHtml, /<video id="cut" src="\.\/person\.webm"/, "the cut-out of the person is drawn over it");
+  assert.match(wideHtml, new RegExp(`id="cut"[^>]*data-start="${Number(back.start.toFixed(3))}" data-duration="${Number((back.end - back.start).toFixed(3))}"`), "and plays only while the card is up");
+  assert.ok(wideHtml.indexOf('class="card reviews"') < wideHtml.indexOf('id="cut"') && wideHtml.indexOf('id="cut"') < wideHtml.indexOf('id="loopframe"'), "card, then the person, inside the camera");
+  assert.match(wideHtml, /tl\.set\("#cutwrap",\{autoAlpha:0\}/, "the cut-out goes away with the card");
+  // A face high in the frame leaves no room above it: the card goes on the torso
+  assert.ok(!buildPlan({ ...clinic, face: { ...wideFace, y: 240 } }).cards.some((c) => c.behind), "no room above the head: in front");
+  // Never static: taps, drops, emojis; and no riser at the end
+  assert.ok(!close.sfx.some((x) => x.kind === "riser") && !buildPlan(input).sfx.some((x) => x.kind === "riser"), "never a riser");
+  assert.ok(rev!.taps?.length === 1 && rev!.taps[0] > rev!.start && rev!.taps[0] < rev!.end, "the reviews card gets tapped while it's up");
+  const ctaCard = close.cards.find((c) => c.kind === "cta")!;
+  assert.ok((ctaCard.taps?.length ?? 0) >= 1 && ctaCard.taps!.every((t) => t < close.loopFrom), "the call to action gets tapped before the loop");
+  for (const t of [...rev!.taps!, ...ctaCard.taps!]) assert.ok(close.sfx.some((x) => Math.abs(x.at - t) < 0.4), "a sound on each tap");
+  assert.ok(close.cards.some((c) => c.drop), "some cards drop in");
+  assert.ok(!close.cards.some((c) => c.drop && c.kind === "cta"), "the call to action slides up instead");
+  const closeHtml = buildComposition(close, brand, { headingWeights: [800], bodyWeights: [400], hasLogo: false, brollCount: 0 });
+  assert.match(closeHtml, /class="cursor"/, "a cursor on tapped cards");
+  assert.match(closeHtml, /ease:"bounce\.out"/, "dropped cards bounce");
+  assert.equal(emojiFor("Seattle", ["Seattle"]), "📍");
+  assert.equal(emojiFor("listen"), "👂");
+  assert.equal(emojiFor("the"), null);
+  assert.ok(close.captions.some((c) => c.emoji), "emojis on some captions");
+  const emo = close.captions.filter((c) => c.emoji).map((c) => c.words[c.emoji!.word].start);
+  assert.ok(emo.every((t, i) => i === 0 || t - emo[i - 1] >= 1.8), "emojis spaced out");
+  assert.match(closeHtml, /class="emo"/);
+  // A selfie: cards go above the head and the captions keep showing under them
+  const selfieFace = { x: 200, y: 560, w: 580, h: 740 };
+  const sf = fixPlan(buildPlan({ ...clinic, face: selfieFace }), { face: selfieFace, names: clinic.names, sourceWords: cw });
+  for (const c of sf.checks) assert.ok(c.pass, `selfie ${c.name}: ${c.detail}`);
+  const sfRev = sf.plan.cards.find((c) => c.kind === "reviews")!;
+  assert.ok(sfRev.box.y + sfRev.box.h <= sf.plan.captionBox.y, "the reviews card sits above the captions");
+  assert.ok(sf.plan.captions.some((c) => c.start < sfRev.end && sfRev.start < c.end), "captions keep showing while it's up");
+  console.log("reviews and behind-the-head passed");
 }

@@ -20,7 +20,8 @@ it there too.
   at a roofing job, waist up, holding a tablet, plain work hoodie (no logos), crew on the roof and a truck behind,
   moody overcast light. Every video is made from that look, never from the raw photo. Or the roofer's own recording.
 - **Brand**, from the setup page:
-  - their website, scanned for the heading font, body font, background, text and one accent colour;
+  - their website, scanned for the heading font, body font, background, text and one accent colour (until they
+    set one, the default look is vivid blue #2D7FF9 on near-black, `DEFAULT_BRAND` in `src/lib/edit/brand.ts`);
   - their logo;
   - deals, certifications, license number and warranties.
   Only what they gave ever appears on screen.
@@ -46,7 +47,7 @@ it there too.
 ## 3. Grade
 
 - Clean cinematic grade: gentle S-curve contrast, natural warm skin, slightly warm highlights, slightly cool
-  shadows, saturation down a touch, soft vignette, very light film grain.
+  shadows, saturation down a touch, very light film grain. No vignette: the whole frame shows, edges included.
 - The same grade on the talking video and the b-roll, with exposure matched so cuts don't flicker.
 
 ## 4. Zooms
@@ -67,18 +68,37 @@ The reference is a premium roofer ad: the owner at the job, text on the torso, n
 - **Hook**: map-pin town tags (a red pin and a glass pill per town, up to three) under one light line, the first one
   on frame 0 and the rest dropping in. Without towns, big uppercase text.
 - **Name tag** when they say their name: role in the accent, name big, a divider, the company (last word in the
-  accent) and the town with a pin, on glass, with accent focus brackets around the face.
+  accent) and the town with a pin, on glass.
+- **No frame, border or brackets** around the video or the face.
+- **Google reviews**: when they mention their reviews ("50 five-star reviews on Google"), a white card with the
+  Google "G", the score, five stars and "50 reviews on Google", from the spoken count. Their real Google rating and
+  count from the landing page proof (`agent_brand.proof`) win when we have them.
 - **Offer**: the deal as an accent pill with a glow, its wording above in light text.
 - **Credentials**: glass cards with a kicker ("COMPANY · TOWN"), the certification big with a check, a generic
   shield badge (never a manufacturer's logo); warranty and license with a shield icon.
 - **Call to action**: a glass card, "Tap" white and "Learn More" glowing in the accent, "to request your free roof
   inspection" (or free quote), the special in the accent, and a glowing ring with a down arrow that bobs.
-- Cut-aways come in and go out through a blur. A soft vignette darkens the edges.
+- Cut-aways come in and go out through a whip-pan blur. Nothing darkens or frames the edges.
+- **Never static.** Every other card drops in from above the frame and bounces for a second before it settles; the
+  rest slide or pop in. Every card then floats gently while it's up. Cards you'd tap (the Google reviews, the call to
+  action, credentials) get tapped: a cursor glides in, presses, the card dips and a ripple spreads, with a click
+  sound. The call to action is tapped every 1.4 seconds until the loop.
+- **Emojis** pop beside a caption word and wiggle while it's up: a pin on a town, an ear on "listen", a star on
+  reviews, a gift on "free" (`src/lib/edit/emoji.ts`). One per caption at most, at least 1.8 seconds apart.
+- **Captions keep showing** while cards are up: cards go above the head, behind it (wide shots) or under the
+  captions, and only take the caption band when none of those has room.
 - Names, brands and towns are always spelled exactly as the roofer typed them (for the AI presenter the transcript
   is spelled like the script, since the voice read it).
 - **Safe zone**: nothing in the top 220px, bottom 420px or right 140px of the 1080x1920 frame.
-- When the face fills the frame (a close selfie in their own recording), the video shrinks toward the top over a
-  blurred copy of itself so the text has room.
+- When the face fills the frame (a close selfie in their own recording), the video still fills the frame, never shrunk
+  with a border. The zoom is gentler (108% at most), captions may cover the chin (the lowest 15% of the face, up to
+  30% for a face that fills almost everything), and cards go above the head.
+- **Behind the head**: in a wide shot (the face is at most 13% of the frame's height: standing, or sitting back from
+  the camera) the reviews, offer, credential and town cards sit behind the head instead, like a sign on the wall:
+  centred on the head, the top of the head covering the card's lower middle. They zoom with the shot. The worker
+  cuts the person out of the talking video (`render-worker/matte.py`, MediaPipe's selfie segmenter) and draws
+  them over the card while it's up. In a selfie, or when there's no room above the head inside the safe zone at
+  the biggest zoom, cards stay on the torso in front. The name tag and the call to action are always in front.
 
 ## 6. Sync map
 
@@ -107,9 +127,20 @@ Each effect lands within 2 frames of the start of its word.
 
 - **Voice**: light denoise, high-pass at 80Hz, gentle compression. The ad is mastered at -14 LUFS with peaks at
   -1 dBTP.
-- **Music**: 18 to 22 dB under the voice, ducked while they talk, ending cleanly on the last word.
+- **Music**: 18 to 22 dB under the voice, ducked while they talk, ending cleanly on the last word. The client
+  picks a mood on their brand form: soft (the default), upbeat, educational, inspiring, luxury, or none
+  (`agent_brand.music_mood`, `src/lib/edit/music.ts`). Each mood is one ElevenLabs Music track made once with
+  `scripts/migz/make-music.mts --yes` and kept at `creatives/system/music-library/<mood>/`; every video in that
+  mood reuses it (more files in a mood take turns). A mood with no track yet makes one on its first video.
 - **Sound effects** go only on the beats above and some zooms: click on a hard cut, whoosh on a zoom, pop on a
-  card, swoosh on a cut-away, riser before the last card. If it sounds like a meme edit, it's too much.
+  card, ding on a big number or the offer, a click on every tap, swoosh on a cut-away. Never a riser before the end. If it sounds like a
+  meme edit, it's too much.
+- **Our sound library.** Drop a pack in a folder and run `scripts/migz/upload-sfx.mts` on it (a dry run first;
+  `--yes` uploads to `creatives/system/sfx-library/<kind>/`). Files are sorted by name (`src/lib/edit/sfx-library.ts`):
+  whoosh, swoosh/transition, click/tap, pop/bubble, ding/bell/chime, riser/build-up, hit/impact/boom, or the
+  folder's name when the file's says nothing. Anything else is listed and skipped. Several files of a kind take
+  turns through an edit, and each is levelled to the same peak before its volume is set, so a loud pack and a
+  quiet one sit the same. A kind with no library files falls back to the generated sound.
 
 ## 8. Quality check before anyone sees it
 
@@ -135,5 +166,53 @@ anything reaches Meta.
 
 ## Not built yet
 
-- Graphics behind the speaker's head, which needs a subject cut-out.
 - Re-editing an old ad the roofer already ran.
+
+## Testing an edit on a client's own footage (free, local)
+
+For trying the edit on a founder's selfie video and their b-roll before anything is live. Nothing paid runs: word
+times are estimated from the audio's pauses and the script they read.
+
+1. Put the files in one folder with an `edit.json` (every field is described at the top of
+   `scripts/migz/edit-local.mts`): the talking video, the script, the b-roll (clips and photos), the sound folder,
+   brand colours and fonts, the hook, who's on camera and the names to spell exactly.
+2. Plan it. This prints the plan checks, how the sound folder was sorted, and every card and sound with its time:
+
+   ```bash
+   node --import tsx scripts/migz/edit-local.mts path/to/edit.json e2e-output/my-test
+   ```
+
+3. Render it (Node 22 recommended; it also ran on Node 20.19 with warnings). It uses the installed Chrome:
+
+   ```bash
+   cd render-worker && npm ci && node render.mjs ../e2e-output/my-test/job.json ../e2e-output/my-test/final.mp4
+   ```
+
+   The render prints the file checks at the end (loudness, peaks, black or frozen frames, loop). `e2e-output/` is
+   git-ignored. The render needs to open a local port, so in a sandboxed Claude Code session it needs local binding
+   allowed.
+
+Real b-roll clips cut in as they are (their first second skipped when the clip is over 5 seconds, 4 seconds kept).
+Photos get a slow push. For exact caption timing, pass a real word-timed transcript as `transcript` instead of
+relying on the estimate.
+
+## What we ask clients to film
+
+**The founder selfie (the talking video)**
+- Phone upright (9:16), at eye level, propped or on a tripod, arm's length away, head and shoulders in frame with
+  space above the head. The rear camera if someone else can press record; otherwise the front camera at 1080p or 4K.
+- Face a window or soft light. No bright window behind them.
+- A quiet room. A cheap clip-on mic plugged into the phone is the biggest upgrade.
+- Read our script one sentence at a time, looking into the lens. If a line goes wrong, pause and say the whole
+  sentence again: the edit keeps the last clean take, so there's no need to stop recording.
+- Two seconds of silence at the start and end. 30 to 60 seconds of talking is plenty.
+- For clinics: scrubs or a clinic jacket in the consult room is the strongest look. Nothing medical on screen
+  behind them (no procedure photos, no patient records).
+
+**The b-roll (cut-aways)**
+- Upright (9:16) clips of 5 to 10 seconds each, the phone held steady or slowly moving, and nobody talking to the
+  camera. 4 to 8 clips is ideal.
+- For clinics: the outside and the sign, reception, the consult room, the surgeon and team talking (no audio needed),
+  equipment being prepared, a consultation on a screen, hands-on-tablet shots. Never surgery, scalps, grafts, blood
+  or a patient who hasn't signed consent for ads.
+- Photos work too (they get a slow camera move), but real clips look better and cost nothing.
