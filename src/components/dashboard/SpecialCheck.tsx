@@ -4,11 +4,12 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { confirmSpecial, replaceSpecial } from "@/app/dashboard/special/actions";
 import { Button, Panel, Switch } from "@/components/dashboard/ui";
-import { SPECIALS } from "@/lib/roofing/setup-options";
+import { setupOptionsFor } from "@/lib/roofing/setup-options";
 import { cn } from "@/lib/utils";
 
 /** Confirm the special, or replace it (and the ads promoting it). `answer` comes from the email's buttons. */
-export function SpecialCheck({ special, confirmedAt, liveAds, answer }: { special: string | null; confirmedAt: string | null; liveAds: number; answer: "yes" | "ended" | null }) {
+export function SpecialCheck({ special, confirmedAt, liveAds, answer, vertical }: { special: string | null; confirmedAt: string | null; liveAds: number; answer: "yes" | "ended" | null; vertical?: string | null }) {
+  const SPECIALS = setupOptionsFor(vertical).specials;
   const router = useRouter();
   const [ended, setEnded] = useState(answer === "ended" || !special);
   const [next, setNext] = useState("");

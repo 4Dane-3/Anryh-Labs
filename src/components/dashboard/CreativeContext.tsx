@@ -17,18 +17,18 @@ export type CreativeContextInitial = {
 /** Ad Creative AI Context: what every Migz ad is made from, beyond the business details. Their voice speaks the
  * presenter videos and voiceovers; their real photos and clips go into videos as cut-aways and image ads as the
  * photo itself. */
-export function CreativeContext({ initial, onSaved }: { initial: CreativeContextInitial; onSaved?: () => void }) {
+export function CreativeContext({ initial, clinic = false, onSaved }: { initial: CreativeContextInitial; clinic?: boolean; onSaved?: () => void }) {
   return (
     <div className="space-y-6">
       <section className="space-y-2">
         <p className="text-sm font-semibold text-fg">The voice for your ads</p>
-        <p className="text-[13px] text-fg-muted">Speaks your on-camera videos and your voiceovers. ★ marks our picks for roofing ads.</p>
+        <p className="text-[13px] text-fg-muted">Speaks your on-camera videos and your voiceovers.{clinic ? "" : " ★ marks our picks for roofing ads."}</p>
         <VoicePicker initial={initial.adVoice} first={initial.voices} onSaved={onSaved} />
       </section>
       <section className="space-y-2">
-        <p className="text-sm font-semibold text-fg">Your job photos and clips</p>
+        <p className="text-sm font-semibold text-fg">{clinic ? "Your clinic photos and clips" : "Your job photos and clips"}</p>
         <p className="text-[13px] text-fg-muted">Used in your videos as cut-aways and in your image ads as the photo itself, with your text on it.</p>
-        <JobMediaSetup initial={initial.media} onSaved={onSaved} />
+        <JobMediaSetup initial={initial.media} clinic={clinic} onSaved={onSaved} />
       </section>
     </div>
   );

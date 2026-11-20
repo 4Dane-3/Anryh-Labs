@@ -9,7 +9,7 @@ import {
 } from "framer-motion";
 import { CalendarPlus, Check } from "lucide-react";
 import { IntakeForm } from "@/components/booking/IntakeForm";
-import type { IntakeQuestion } from "@/lib/booking/questions";
+import { reviewerName, type IntakeQuestion } from "@/lib/booking/questions";
 
 const noopSubscribe = () => () => {};
 
@@ -133,7 +133,7 @@ export function PrepareFlow({
         >
           <IntakeForm
             token={token}
-            agentFirstName={agentName.split(" ")[0]}
+            agentFirstName={reviewerName(questions, agentName)}
             questions={questions}
             initial={initial}
             completed={completed}

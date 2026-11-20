@@ -4,7 +4,7 @@ import { isAnryhAdmin } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { usPhone, displayPhone } from "@/lib/booking/call";
 import { dialLead, inspectionHours, isDoNotCall, type VoiceAccount } from "@/lib/voice/dial";
-import { checkinConfigured, voiceConfigured } from "@/lib/voice/elevenlabs";
+import { checkinConfigured, voiceConfigured, voiceConfiguredFor } from "@/lib/voice/elevenlabs";
 import { placeDemoCheckin } from "@/lib/roofing/checkin";
 import type { Agent } from "@/lib/booking/data";
 
@@ -52,11 +52,11 @@ export type DemoCallInput = {
   phone: string;
   firstName: string;
   company: string; // what Emma calls the company
-  business: "roofing" | "life insurance";
+  business: "roofing" | "life insurance" | "hair clinic";
   city: string;
   address: string;
   roofIssue: string;
-  interest: string; // life insurance: what they asked about
+  interest: string; // life insurance or clinic: what they asked about
   serviceArea: string;
   hours: string; // blank = the account's own hours
   timezone: string;
@@ -89,6 +89,9 @@ export async function placeDemoCall(input: DemoCallInput): Promise<Result> {
   if (!agent) return { ok: false, error: "Pick the account the demo lead goes on." };
 
   const roof = input.business === "roofing";
+  const clinic = input.business === "hair clinic";
+  // A clinic demo needs the clinic Emma agent: the roofing or insurance script must never call as a clinic
+  if (clinic && !voiceConfiguredFor("hair_clinic")) return { ok: false, error: "Clinic Emma isn't set up yet: set ELEVENLABS_CLINIC_AGENT_ID (see docs/voice-agent.md)." };
   const tz = input.timezone.trim() || agent.timezone;
   const hours = input.hours.trim() || (await inspectionHours(agent.id));
   const now = new Date();
@@ -117,7 +120,7 @@ export async function placeDemoCall(input: DemoCallInput): Promise<Result> {
   const account: VoiceAccount = {
     ...agent,
     full_name: company,
-    vertical: roof ? "roofing" : "insurance",
+    vertical: roof ? "roofing" : clinic ? "hair_clinic" : "insurance",
     service_area: input.serviceArea.trim() || agent.service_area,
     service_radius_miles: input.serviceArea.trim() ? null : agent.service_radius_miles,
   };

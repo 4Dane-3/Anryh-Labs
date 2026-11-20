@@ -15,6 +15,7 @@ import { rulesOf } from "@/lib/roofing/fit";
 import { applyRooferDefaults } from "@/lib/roofing/autopilot-defaults";
 import { creativeSetup } from "@/lib/dashboard/creative-setup";
 import { isLocal } from "@/lib/verticals";
+import { voiceConfiguredFor } from "@/lib/voice/elevenlabs";
 import { googleSetup } from "@/lib/dashboard/google-setup";
 
 export const dynamic = "force-dynamic";
@@ -64,6 +65,7 @@ export default async function StartPage({ searchParams }: { searchParams: Promis
         fundsAddedCents={fundsAdded}
         setupFeePaidAt={agent.setup_fee_paid_at ?? null}
         stripeConnected={integrations.stripe}
+        emmaReady={voiceConfiguredFor(agent.vertical)}
         connected={migzReadyFor(agent)}
         plan={{
           topics: agent.ad_focus ?? [],

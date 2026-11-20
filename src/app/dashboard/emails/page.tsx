@@ -12,7 +12,7 @@ export default async function AutomatedEmailsPage() {
         title="Automated emails"
         description="What a lead gets after you tap Tried to call or Sent an email on their card in Clients: each email's subject and message, how many there are, and how long after the last one each goes out."
       />
-      <AutomatedEmails initial={sequencesFor(agent)} on={!!agent.followup_emails} ready={!!process.env.RESEND_API_KEY && !!leadEmailSender(agent.slug)} agentName={agent.full_name} />
+      <AutomatedEmails initial={sequencesFor(agent)} on={!!agent.followup_emails} ready={!!process.env.RESEND_API_KEY && !!leadEmailSender(agent.slug)} agentName={agent.full_name} vertical={agent.vertical} />
     </>
   );
 }

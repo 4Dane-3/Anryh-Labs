@@ -42,7 +42,7 @@ export default async function CalendarPage({
 
   return (
     <>
-      <PageHeader title="Calendar" description="Your booked calls, and the hours people can book you." />
+      <PageHeader title="Calendar" description={`Your ${words(agent).bookings}, and the hours people can book you.`} />
       <Tabs
         id="calendar"
         active={tab === "hours" ? "hours" : "schedule"}
@@ -77,6 +77,7 @@ export default async function CalendarPage({
           bookings={bookings.filter((b) => b.status === "confirmed")}
           rules={cleanRules}
           questionOrder={questions.map((q) => q.key)}
+          meeting={words(agent).meeting}
         />
         </>
       )}

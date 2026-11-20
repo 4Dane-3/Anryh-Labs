@@ -25,12 +25,15 @@ export function WeekCalendar({
   bookings,
   rules,
   questionOrder,
+  meeting = "call",
 }: {
   weekStart: string;
   timezone: string;
   bookings: ClientBooking[];
   rules: Rule[];
   questionOrder: string[];
+  /** What a booking is called: call, inspection or consultation */
+  meeting?: string;
 }) {
   const [selected, setSelected] = useState<ClientBooking | null>(null);
   const close = useCallback(() => setSelected(null), []);
@@ -86,7 +89,7 @@ export function WeekCalendar({
         </div>
         <div className="flex items-center gap-3 text-[13px] text-fg-muted">
           <span>
-            {bookings.length} call{bookings.length === 1 ? "" : "s"} this week
+            {bookings.length} {meeting}{bookings.length === 1 ? "" : "s"} this week
           </span>
           <Link
             href="/dashboard/calendar"

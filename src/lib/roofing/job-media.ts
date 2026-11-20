@@ -13,6 +13,19 @@ export const MEDIA_KINDS = [
 ] as const;
 
 export type MediaKind = (typeof MEDIA_KINDS)[number]["key"];
+
+/** A clinic sorts its media into the same kinds (so the video jobs work unchanged), named for a clinic. No
+ * before-and-after or patient results: Meta restricts them in health ads. */
+const CLINIC_MEDIA: Record<MediaKind, { label: string; hint: string }> = {
+  crew: { label: "Your surgeon at work", hint: "In the procedure room, planning a hairline (no patient faces without consent)" },
+  inspection: { label: "Consultations", hint: "Your surgeon talking someone through their options" },
+  damage: { label: "Your clinic", hint: "Reception, treatment rooms, equipment" },
+  finished: { label: "Reviews and credentials", hint: "Google reviews, certificates on the wall" },
+  drone: { label: "Outside your clinic", hint: "The building, the street, the neighborhood" },
+  team: { label: "Your team", hint: "Surgeon, nurses and front desk together" },
+};
+/** The media kinds as a business sees them: a clinic's labels, or a roofer's. */
+export const mediaKindsFor = (clinic: boolean) => MEDIA_KINDS.map((k) => (clinic ? { key: k.key, ...CLINIC_MEDIA[k.key] } : { key: k.key, label: k.label as string, hint: k.hint as string }));
 export type JobMedia = { path: string; kind: MediaKind | "other"; type: "photo" | "video" };
 
 export const MAX_JOB_MEDIA = 30;

@@ -90,7 +90,7 @@ async function sendLeadNote(
   const bookUrl = `${base}?utm_source=email&utm_medium=${input.utmMedium}${hash ? `#${hash}` : ""}`;
   const { hostname, pathname } = new URL(base);
   const email = build({
-    agent: { fullName: agent.full_name, title: agent.title ?? null, licenseNumber: agent.license_number, email: agent.business_email || agent.email },
+    agent: { fullName: agent.full_name, title: agent.title ?? null, licenseNumber: agent.license_number, email: agent.business_email || agent.email, vertical: agent.vertical },
     bookUrl,
     bookPage: `${hostname.replace(/^www\./, "")}${pathname.replace(/\/$/, "")}`, // the link reads as the page it opens, e.g. foreignfinancial.org/miguel-cruz
     business: { name: sender.business, postalAddress: sender.postalAddress },

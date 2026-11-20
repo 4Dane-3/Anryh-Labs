@@ -99,7 +99,7 @@ function ResultLine({ line, compact }: { line: ExpectedLine; compact?: boolean }
   const r = line.perWeek;
   return (
     <div className={cn("min-w-0", !compact && "rounded-xl border border-line px-4 py-3")}>
-      <p className="text-[12px] text-fg-muted">{line.unit === "booked call" ? "Booked calls" : line.unit === "booked inspection" ? "Booked inspections" : "Instant-form leads"} a week{line.dailyCents ? ` at ${whole(line.dailyCents)}/day` : ""}</p>
+      <p className="text-[12px] text-fg-muted">{line.unit === "booked call" ? "Booked calls" : line.unit === "booked inspection" ? "Booked inspections" : line.unit === "booked consultation" ? "Booked consultations" : "Instant-form leads"} a week{line.dailyCents ? ` at ${whole(line.dailyCents)}/day` : ""}</p>
       <p className="mt-0.5 text-fg">
         <span className="tabular-nums text-fg-muted">{r.low}–</span>
         <span className="text-2xl font-semibold tabular-nums">{r.mid}</span>
@@ -306,7 +306,7 @@ export function CampaignFlow({
     },
     {
       key: "languages",
-      q: "Which languages do you speak with clients?",
+      q: `Which languages do you speak with ${clinic ? "patients" : roof ? "customers" : "clients"}?`,
       help: "With Spanish, Migz makes part of your ads in Spanish. They usually cost less per lead.",
       valid: a.languages.length > 0,
       body: (

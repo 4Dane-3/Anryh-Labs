@@ -41,7 +41,7 @@ export async function saveAdDomain(input: { domain: string; website?: string }):
   const { data: brand } = await supabaseAdmin.from("agent_brand").select("website, scanned_at").eq("agent_id", agent.id).maybeSingle();
   const website = (input.website?.trim() || brand?.website || "").slice(0, 200);
   const root = rootDomainOf(website);
-  if (!root) return { ok: false, error: "Enter your website (like yourroofing.com) first: your landing pages are built from it." };
+  if (!root) return { ok: false, error: "Enter your website (like yourbusiness.com) first: your pages are built from it." };
   const c = cleanAdDomain(input.domain);
   if (!c.ok) return { ok: false, error: c.error };
   if (!c.domain.endsWith(`.${root}`)) return { ok: false, error: `Use an address on your website's domain, like book.${root}.` };

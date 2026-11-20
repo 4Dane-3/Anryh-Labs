@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { requireAgent } from "@/lib/auth";
-import { isLocal } from "@/lib/verticals";
+import { isLocal, verticalOf } from "@/lib/verticals";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { PageHeader } from "@/components/dashboard/ui";
 import { SpecialCheck } from "@/components/dashboard/SpecialCheck";
@@ -25,6 +25,7 @@ export default async function SpecialPage({ searchParams }: { searchParams: Prom
         confirmedAt={((row as { special_confirmed_at?: string | null } | null)?.special_confirmed_at as string | null) ?? null}
         liveAds={live.length}
         answer={query.answer === "yes" || query.answer === "ended" ? query.answer : null}
+        vertical={verticalOf(agent)}
       />
     </>
   );

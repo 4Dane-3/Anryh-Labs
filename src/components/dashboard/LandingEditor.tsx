@@ -32,6 +32,8 @@ export type Profile = {
   licensed_states: string[];
   photo_url: string | null;
   partner_carriers: string[];
+  /** The business type: a roofer or clinic has no licensed states or insurance companies, and goes by its business name */
+  vertical?: string | null;
 };
 
 type Testimonial = {
@@ -77,6 +79,9 @@ export function ProfileForm({ profile, onSaved }: { profile: Profile; onSaved: (
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [carrierDraft, setCarrierDraft] = useState("");
+  const clinic = profile.vertical === "hair_clinic";
+  const local = clinic || profile.vertical === "roofing";
+  const defaultTitle = clinic ? "Hair transplant clinic" : local ? "Roofing company" : DEFAULT_TITLE;
 
   const addCarrier = () => {
     const next = cleanCarriers([...form.partner_carriers, carrierDraft]);
@@ -185,10 +190,10 @@ export function ProfileForm({ profile, onSaved }: { profile: Profile; onSaved: (
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
-            <Label htmlFor="full_name">Your name</Label>
+            <Label htmlFor="full_name">{local ? "Business name" : "Your name"}</Label>
             <input id="full_name" className={inputClass} value={form.full_name} onChange={(e) => set("full_name", e.target.value)} />
           </div>
-          <div>
+          {!local && <div>
             <Label htmlFor="license">License number</Label>
             <input
               id="license"
@@ -197,20 +202,20 @@ export function ProfileForm({ profile, onSaved }: { profile: Profile; onSaved: (
               value={form.license_number}
               onChange={(e) => set("license_number", e.target.value)}
             />
-          </div>
+          </div>}
         </div>
 
         <div>
-          <Label htmlFor="title">Your title</Label>
+          <Label htmlFor="title">{local ? "What you are" : "Your title"}</Label>
           <input
             id="title"
             className={inputClass}
             maxLength={80}
-            placeholder={DEFAULT_TITLE}
+            placeholder={defaultTitle}
             value={form.title}
             onChange={(e) => set("title", e.target.value)}
           />
-          <p className="mt-1 text-[12px] text-fg-faint">Shown under your name on your page. Leave it blank to use &ldquo;{DEFAULT_TITLE}&rdquo;.</p>
+          <p className="mt-1 text-[12px] text-fg-faint">Shown under your name on your page. Leave it blank to use &ldquo;{defaultTitle}&rdquo;.</p>
         </div>
 
         <div>
@@ -219,7 +224,7 @@ export function ProfileForm({ profile, onSaved }: { profile: Profile; onSaved: (
             id="headline"
             className={inputClass}
             maxLength={140}
-            placeholder="Life insurance that fits your family and your budget"
+            placeholder={clinic ? "Free consultations with our surgeon, no pressure" : local ? "Roof repair and replacement you can count on" : "Life insurance that fits your family and your budget"}
             value={form.headline}
             onChange={(e) => set("headline", e.target.value)}
           />
@@ -227,7 +232,7 @@ export function ProfileForm({ profile, onSaved }: { profile: Profile; onSaved: (
 
         <div>
           <div className="flex items-baseline justify-between">
-            <Label htmlFor="bio">About you</Label>
+            <Label htmlFor="bio">{clinic ? "About your clinic" : local ? "About your company" : "About you"}</Label>
             <span className="text-[11px] text-fg-faint">{form.bio.length}/1200</span>
           </div>
           <textarea
@@ -235,12 +240,13 @@ export function ProfileForm({ profile, onSaved }: { profile: Profile; onSaved: (
             rows={5}
             maxLength={1200}
             className={inputClass}
-            placeholder="Who you help, how you work, and why people like working with you."
+            placeholder={clinic ? "Your surgeon, how a consultation works, and why patients choose you. No promised results: health ads can't make them." : "Who you help, how you work, and why people like working with you."}
             value={form.bio}
             onChange={(e) => set("bio", e.target.value)}
           />
         </div>
 
+        {!local && (<>
         <div>
           <Label>Licensed in</Label>
           <div className="flex flex-wrap items-center gap-1.5">
@@ -340,6 +346,7 @@ export function ProfileForm({ profile, onSaved }: { profile: Profile; onSaved: (
             for what it says, and the names belong to their owners.
           </p>
         </div>
+        </>)}
 
         {error && <p className="text-[13px] text-bad">{error}</p>}
       </div>

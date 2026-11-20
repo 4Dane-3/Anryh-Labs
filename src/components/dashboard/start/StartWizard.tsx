@@ -9,7 +9,7 @@ import { launchCampaign, saveBatchPlan, saveCrm, saveLeadGoal, setCreativeMode, 
 import { BrandSetup, type BrandInitial } from "@/components/dashboard/BrandSetup";
 import { PresenterSetup, type PresenterInitial } from "@/components/dashboard/PresenterSetup";
 import { CreativeContext, type CreativeContextInitial } from "@/components/dashboard/CreativeContext";
-import { CRMS, LEAD_GOALS, leadOffer, type LeadGoal } from "@/lib/roofing/setup-options";
+import { LEAD_GOALS, leadOffer, setupOptionsFor, type LeadGoal } from "@/lib/roofing/setup-options";
 import { isLocalVertical } from "@/lib/verticals";
 import { MIGZ_MONTHLY_CENTS, SETUP_FEE_CENTS } from "@/lib/campaign";
 import { CampaignFlow, type CampaignStart } from "@/components/dashboard/start/CampaignFlow";
@@ -38,6 +38,8 @@ type Props = {
   fundsAddedCents: number; // everything added so far: sets the fee (20%, then 12% after $20,000)
   setupFeePaidAt: string | null;
   stripeConnected: boolean;
+  /** Whether Emma (the AI caller) is set up for this business type, so setup never promises calls she can't make */
+  emmaReady?: boolean;
   connected: boolean; // Meta ad account linked and Migz configured
   plan: {
     topics: string[];
@@ -133,7 +135,7 @@ const CLINIC_WHY: Record<string, string> = {
   setup_fee: "This is the monthly fee: Migz running your Meta ads, the videos, and Emma calling and booking your consultations. Your ad spend is separate and all of it goes to your ads.",
   profile: "People see your clinic name, logo and intro on your landing pages before they ask for a consultation. A clinic they can recognise gets more requests.",
   address:
-    "Every ad, on Facebook, Instagram and Google, sends people to this address on your own domain, so the ad, the page and your clinic all match. People trust a link with your name in it, Google ranks ads higher when the page matches the search, and the address stays yours if you ever leave. Your main website isn't touched: only this one address points at us, and we build the pages in your website's fonts and colours.",
+    "Every Facebook and Instagram ad sends people to this address on your own domain, so the ad, the page and your clinic all match. People trust a link with your clinic's name in it, and the address stays yours if you ever leave. Your main website isn't touched: only this one address points at us, and we build your booking page in your website's fonts and colours.",
   crm: "So consultations land in the calendar your team already uses, and nobody retypes anything.",
   details: "Specific offers win. Your offer and your surgeon's credentials are what set your ads apart from the clinic down the road. Migz only claims what you enter here, and health ads can't promise results, so an ad never says something you can't back up.",
   google: "Optional. Google reaches people searching for a hair transplant near them right now, the hottest leads there are. The account stays yours, and you pay Google directly.",
@@ -226,7 +228,7 @@ function StepShell({
 }
 
 /** Step 3: the one-time setup fee (roofers: the Migz AI subscription), paid on Stripe's page. Done when Stripe confirms it. */
-function SetupFeeStep({ stripeConnected, contactEmail, roof, clinic }: { stripeConnected: boolean; contactEmail: string; roof: boolean; clinic?: boolean }) {
+function SetupFeeStep({ stripeConnected, contactEmail, roof, clinic, emmaReady = true }: { stripeConnected: boolean; contactEmail: string; roof: boolean; clinic?: boolean; emmaReady?: boolean }) {
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const pay = () =>
@@ -242,7 +244,11 @@ function SetupFeeStep({ stripeConnected, contactEmail, roof, clinic }: { stripeC
         <>
           <ul className="space-y-1.5 text-[13px] text-fg-muted">
             <li>· Migz AI runs your Facebook, Instagram{clinic ? "" : " and Google"} ads every day: campaigns, budgets and new ads</li>
-            <li>· Emma, your AI assistant, calls everyone who asks for {clinic ? "a consultation" : "a quote"} within about a minute and books the ones who fit</li>
+            <li>
+              {emmaReady
+                ? `· Emma, your AI assistant, calls everyone who asks for ${clinic ? "a consultation" : "a quote"} within about a minute and books the ones who fit`
+                : `· Emma, your AI assistant, to call everyone who asks for ${clinic ? "a consultation" : "a quote"} and book the ones who fit (we switch her on for you; until then new requests come to your email)`}
+            </li>
             <li>· Video ads with real hooks, your {clinic ? "area and your surgeon's credentials" : "towns and your certifications"}, sent to you for approval</li>
             <li>· Landing pages on your own domain, {clinic ? "consultation" : "inspection"} reminders and a summary every 3 days</li>
           </ul>
@@ -280,9 +286,11 @@ function SetupFeeStep({ stripeConnected, contactEmail, roof, clinic }: { stripeC
 }
 
 /** Roofers: the CRM they book in (replaces the booking page). */
-function CrmStep({ initial, onSaved }: { initial: string; onSaved: () => void }) {
+function CrmStep({ initial, vertical, onSaved }: { initial: string; vertical?: string | null; onSaved: () => void }) {
   const router = useRouter();
-  const known = (CRMS as readonly string[]).includes(initial);
+  // A clinic picks from clinic CRMs, a roofer from roofing ones
+  const CRMS = setupOptionsFor(vertical).crms;
+  const known = CRMS.includes(initial);
   const [picked, setPicked] = useState(initial ? (known ? initial : "Other") : "");
   const [other, setOther] = useState(known ? "" : initial);
   const [pending, start] = useTransition();
@@ -479,20 +487,20 @@ export function StartWizard(props: Props) {
   const body: Record<string, React.ReactNode> = {
     business: <BusinessStep initial={props.business} roof={roof} clinic={clinic} onSaved={() => advance("business")} />,
     meta: <MetaStep {...props.meta} onSaved={() => advance("meta")} />,
-    setup_fee: <SetupFeeStep stripeConnected={props.stripeConnected} contactEmail={props.contactEmail} roof={roof} clinic={clinic} />,
-    profile: <ProfileForm profile={props.profile} onSaved={() => advance("profile")} />,
+    setup_fee: <SetupFeeStep stripeConnected={props.stripeConnected} contactEmail={props.contactEmail} roof={roof} clinic={clinic} emmaReady={props.emmaReady} />,
+    profile: <ProfileForm profile={{ ...props.profile, vertical: props.plan.start.vertical }} onSaved={() => advance("profile")} />,
     page: <BookingStep {...props.booking} slug={props.slug} onSaved={() => advance("page")} />,
-    crm: <CrmStep initial={props.crm} onSaved={() => advance("crm")} />,
-    address: props.google && <AdAddress initial={props.google.adDomain} website={props.google.website} pages={props.google.pages} onLive={() => advance("address")} />,
+    crm: <CrmStep initial={props.crm} vertical={props.plan.start.vertical} onSaved={() => advance("crm")} />,
+    address: props.google && <AdAddress initial={props.google.adDomain} website={props.google.website} pages={clinic ? [] : props.google.pages} clinic={clinic} onLive={() => advance("address")} />,
     rules: (
       <div className="space-y-6">
         <LeadGoalPicker initial={props.leadGoal} />
         <JobRulesForm initial={props.jobRules ?? null} required onSaved={() => advance("rules")} />
       </div>
     ),
-    details: props.brand && <BrandSetup initial={props.brand} details onSaved={() => advance("details")} />,
+    details: props.brand && <BrandSetup initial={props.brand} details vertical={props.plan.start.vertical} onSaved={() => advance("details")} />,
     avatar: props.presenter && <PresenterSetup initial={props.presenter} inSetup clinic={clinic} onSaved={() => advance("avatar")} />,
-    media: props.context && <CreativeContext initial={props.context} />,
+    media: props.context && <CreativeContext initial={props.context} clinic={clinic} />,
     google: props.google && <GoogleAdsSetup initial={props.google} onSaved={() => advance("google")} />,
     slack: <SlackStep current={props.slack.current} inviteUrl={props.slack.inviteUrl} contactEmail={props.contactEmail} onSaved={() => advance("slack")} />,
     plan: <PlanStep plan={props.plan} balanceCents={props.balanceCents} onSaved={() => advance("plan")} />,
