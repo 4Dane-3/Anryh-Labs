@@ -8,7 +8,7 @@ import { sendSlackMessage } from "@/lib/slack";
 import { leadPingBlocks } from "@/lib/dashboard/outcomes";
 import { sendConversionEvents } from "@/lib/meta/capi";
 import { partnerPageUrl } from "@/lib/booking/sites";
-import { isRoofer } from "@/lib/verticals";
+import { isLocal, isRoofer } from "@/lib/verticals";
 import { voiceConfigured } from "@/lib/voice/elevenlabs";
 import { dialLead, inspectionHoursBySlug, isDoNotCall, planColumns, planFirstCall, thankYouVoice, voiceOnFor } from "@/lib/voice/dial";
 import { leadTimezone } from "@/lib/voice/rules";
@@ -46,7 +46,7 @@ export async function POST(req: Request) {
   ]);
   if (!agent) return Response.json({ error: "Agent not found." }, { status: 404 });
 
-  const roof = isRoofer(agent);
+  const roof = isLocal(agent);
   const tz = leadTimezone(input.timezone, agent.timezone);
   const plan = planFirstCall({ on: voiceOnFor(agent), phone: input.phone, doNotCall, tz, now: submittedAt });
 
@@ -58,9 +58,9 @@ export async function POST(req: Request) {
       phone: input.phone,
       coverage: roof ? null : input.coverage,
       best_time: input.bestTime,
-      consent_text: quoteConsentTextFor(roof),
+      consent_text: quoteConsentTextFor(agent.vertical),
       attribution: input.attribution,
-      ...(roof ? { address: input.address, city: input.city, roof_issue: input.roofIssue } : {}),
+      ...(isRoofer(agent) ? { address: input.address, city: input.city, roof_issue: input.roofIssue } : {}),
       ...(plan.kind === "off" ? {} : { received_at: submittedAt.toISOString(), ...planColumns(plan, tz) }),
     })
     .select("id")

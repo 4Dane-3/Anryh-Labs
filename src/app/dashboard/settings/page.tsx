@@ -11,7 +11,7 @@ import { CheckinSettingsForm } from "@/components/dashboard/Referrals";
 import { IntentLevelForm, VideoTierForm } from "@/components/dashboard/AdChoices";
 import { DEFAULT_INTENT, DEFAULT_VIDEO_TIER, isIntentLevel, isVideoTier } from "@/lib/ad-options";
 import { RoofingForm } from "@/components/dashboard/RoofingForm";
-import { isRoofer, radiusMiles } from "@/lib/verticals";
+import { isClinic, isLocal, isRoofer, radiusMiles } from "@/lib/verticals";
 
 export default async function SettingsPage() {
   const agent = await requireSetUpAgent();
@@ -21,7 +21,7 @@ export default async function SettingsPage() {
       <PageHeader title="Settings" description="Your booking page options, notifications and your timezone. You sign in with an emailed link, so there is no password to manage." />
       <div className="max-w-2xl space-y-3">
         <MigzModeForm mode={agent.migz_mode} />
-        {isRoofer(agent) ? (
+        {isLocal(agent) ? (
           <RoofingForm
             initial={{
               service_area: agent.service_area ?? "",
@@ -31,13 +31,15 @@ export default async function SettingsPage() {
               license: agent.company_license ?? "",
               crm_webhook_url: agent.crm_webhook_url ?? "",
             }}
+            clinic={isClinic(agent)}
           />
         ) : (
           <IntentLevelForm level={isIntentLevel(agent.intent_level) ? agent.intent_level : DEFAULT_INTENT} blocked={agent.lead_form_blocked ?? null} />
         )}
         <VideoTierForm tier={isVideoTier(agent.video_tier) ? agent.video_tier : DEFAULT_VIDEO_TIER} />
         {isRoofer(agent) && <JobRulesPanel initial={rulesOf(agent)} />}
-        <VoiceAgentForm on={!!agent.voice_agent} ready={voiceConfigured()} roof={isRoofer(agent)} />
+        <VoiceAgentForm on={!!agent.voice_agent} ready={voiceConfigured()} roof={isLocal(agent)} />
+        {/* Inbound and check-in Emma speak roofing for now: roofers only */}
         {isRoofer(agent) && (
           <InboundCallsForm
             initial={{

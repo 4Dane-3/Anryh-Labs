@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { assignVertical, inviteClient } from "@/lib/admin/invites";
 import { isAnryhAdmin } from "@/lib/auth";
 import { createSupabaseServer } from "@/lib/supabase-server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
@@ -106,4 +107,24 @@ export async function pauseReferralCredit(agentId: string, paused: boolean): Pro
   const r = await setReferralPaused(agentId, paused);
   revalidatePath("/admin");
   return r;
+}
+
+// ---------- Invites ----------
+
+/** Invites a client: their account with the business type staff chose, their login, and (optionally) the email. */
+export async function inviteClientAction(input: { name: string; email: string; vertical: string; sendEmail: boolean }): Promise<{ ok: true; message: string; link: string } | { ok: false; error: string }> {
+  const who = await staffEmail();
+  if (!who) return { ok: false, error: "Staff only." };
+  const r = await inviteClient(input, who);
+  revalidatePath("/admin");
+  return r.ok ? { ok: true, message: r.message, link: r.link } : r;
+}
+
+/** Changes an account's business type (before its setup is done). */
+export async function assignVerticalAction(agentId: string, vertical: string): Promise<Result> {
+  const who = await staffEmail();
+  if (!who) return { ok: false, error: "Staff only." };
+  const r = await assignVertical(agentId, vertical);
+  revalidatePath("/admin");
+  return r.ok ? { ok: true } : r;
 }

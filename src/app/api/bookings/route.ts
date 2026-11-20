@@ -24,7 +24,7 @@ export async function POST(req: Request) {
 
   // Questions the agent made required are answered before the booking exists, never after
   // A roofer's "Jobs we take" rules switch on (or add) the questions they need
-  const roof = isRoofer(agent);
+  const roof = isRoofer(agent); // job rules: roofing only
   const rules = roof ? rulesOf(agent) : null;
   const questions = withRuleQuestions(await getIntakeQuestions(agent.id), rules);
   const requiredSteps = agent.required_intake_steps ?? [];

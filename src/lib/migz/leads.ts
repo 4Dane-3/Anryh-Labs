@@ -1,5 +1,6 @@
 import "server-only";
 import { DateTime } from "luxon";
+import { isLocalVertical } from "@/lib/verticals";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
 import { usPhone } from "@/lib/booking/call";
@@ -31,7 +32,7 @@ const LEGACY_FORM_CONSENT_TEXT = formConsent(LEGACY_QUOTE_CONSENT_TEXT);
 
 /** Roofers never run instant forms: an inspection needs an address and a time, which the booking page asks for. */
 export const wantsInstantForms = (agent: Pick<Agent, "intent_level" | "vertical">) =>
-  agent.vertical !== "roofing" && (isIntentLevel(agent.intent_level) ? agent.intent_level : DEFAULT_INTENT) === "low_medium";
+  !isLocalVertical(agent.vertical) && (isIntentLevel(agent.intent_level) ? agent.intent_level : DEFAULT_INTENT) === "low_medium";
 
 const appUrl = () => (process.env.APP_URL || "http://localhost:3000").replace(/\/$/, "");
 

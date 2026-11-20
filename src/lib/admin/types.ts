@@ -26,6 +26,8 @@ export type AdminAgentRow = {
   photoUrl: string | null;
   mode: string;
   setupDone: boolean;
+  vertical: "insurance" | "roofing" | "hair_clinic"; // the business type staff assigned
+  invitedAt: string | null;
   connected: boolean;
   slack: boolean;
   lastRun: { status: string; at: string } | null;

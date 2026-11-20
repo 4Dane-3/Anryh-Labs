@@ -23,6 +23,9 @@ export const voiceConfig = () => ({
   webhookSecret: process.env.ELEVENLABS_WEBHOOK_SECRET ?? "",
   // The post-job check-in agent (its own prompt and tools), on the same phone number
   checkinAgentId: cleanElevenLabsId(process.env.ELEVENLABS_CHECKIN_AGENT_ID, "agent_"),
+  // Clinic Emma (calls a hair transplant clinic's leads to book a free consultation: its own prompt,
+  // scripts/voice/emma-clinic-prompt.md). Unset = clinics get no AI calls, never the roofing script.
+  clinicAgentId: cleanElevenLabsId(process.env.ELEVENLABS_CLINIC_AGENT_ID, "agent_"),
   // Inbound Emma (answers roofers' incoming calls on their own numbers of ours)
   inboundAgentId: cleanElevenLabsId(process.env.ELEVENLABS_INBOUND_AGENT_ID, "agent_"),
 });
@@ -37,6 +40,11 @@ export function inboundConfigured() {
 export function voiceConfigured() {
   const c = voiceConfig();
   return !!(c.apiKey && c.agentId && c.phoneNumberId && c.webhookSecret);
+}
+
+/** The voice agent can call this business's leads: clinics need their own agent. */
+export function voiceConfiguredFor(vertical: string | null | undefined) {
+  return voiceConfigured() && (vertical !== "hair_clinic" || !!voiceConfig().clinicAgentId);
 }
 
 /** Everything the post-job check-in call needs is set. */

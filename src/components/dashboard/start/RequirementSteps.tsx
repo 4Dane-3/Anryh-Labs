@@ -33,7 +33,7 @@ const Note = ({ children }: { children: React.ReactNode }) => <p className="mt-1
 export type Business = { agency_name: string; npn: string; business_email: string; phone: string };
 
 /** Their agency, NPN (optional), the email replies go to and the number leads reach them on. */
-export function BusinessStep({ initial, onSaved, roof }: { initial: Business; onSaved: () => void; roof?: boolean }) {
+export function BusinessStep({ initial, onSaved, roof, clinic }: { initial: Business; onSaved: () => void; roof?: boolean; clinic?: boolean }) {
   const [form, setForm] = useState(initial);
   const { pending, error, run } = useSave(onSaved);
   const set = (k: keyof Business) => (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [k]: e.target.value });
@@ -59,15 +59,20 @@ export function BusinessStep({ initial, onSaved, roof }: { initial: Business; on
         <div>
           <Label htmlFor="bemail">Business email</Label>
           <input id="bemail" type="email" className={inputClass} value={form.business_email} onChange={set("business_email")} />
-          <Note>{roof ? "New inspections, the morning-of list and homeowners' replies come here." : "When a lead replies to an email we send for you, it goes here."}</Note>
+          <Note>{clinic ? "New consultations, the morning-of list and patients' replies come here." : roof ? "New inspections, the morning-of list and homeowners' replies come here." : "When a lead replies to an email we send for you, it goes here."}</Note>
         </div>
         <div>
-          <Label htmlFor="lphone">{roof ? "Phone for homeowners" : "Phone for leads"}</Label>
+          <Label htmlFor="lphone">{clinic ? "Phone for patients" : roof ? "Phone for homeowners" : "Phone for leads"}</Label>
           <input id="lphone" type="tel" className={inputClass} placeholder="(555) 555-0100" value={form.phone} onChange={set("phone")} />
-          <Note>{roof ? "Printed on your postcards and door hangers, and the \"Call now\" button on your page if you turn it on." : <>The number leads call, and the &quot;Call now&quot; button on your page if you turn it on.</>}</Note>
+          <Note>{clinic ? "The \"Call now\" button on your page if you turn it on, and where the team reaches you about bookings." : roof ? "Printed on your postcards and door hangers, and the \"Call now\" button on your page if you turn it on." : <>The number leads call, and the &quot;Call now&quot; button on your page if you turn it on.</>}</Note>
         </div>
       </div>
-      {roof ? (
+      {clinic ? (
+        <p className="rounded-lg bg-white/[0.04] px-4 py-3 text-[12px] leading-relaxed text-fg-muted">
+          You&apos;re responsible for your clinic&apos;s licensing, your medical claims and the care you give: Anryh Labs runs your ads and booking
+          tools, and isn&apos;t a medical provider.
+        </p>
+      ) : roof ? (
         <p className="rounded-lg bg-white/[0.04] px-4 py-3 text-[12px] leading-relaxed text-fg-muted">
           You&apos;re responsible for your own licensing, permits, insurance and the work itself: Anryh Labs runs your ads and booking tools, and
           isn&apos;t a contractor.

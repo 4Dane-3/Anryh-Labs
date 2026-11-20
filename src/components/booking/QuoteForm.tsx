@@ -15,7 +15,7 @@ type Voice = { status: "calling"; from: string | null } | { status: "scheduled";
  * A roofer's (`roof`, shown when their voice agent is on) asks where the home is and what's wrong with the
  * roof instead, and the voice agent calls within seconds to book the inspection.
  */
-export function QuoteForm({ slug, firstName, preview, openForAds = false, roof = false, inline = false, heading, subheading, cta, issues }: { slug: string; firstName: string; preview: boolean; openForAds?: boolean; roof?: boolean; inline?: boolean; heading?: string; subheading?: string; cta?: string; issues?: readonly string[] }) {
+export function QuoteForm({ slug, firstName, preview, openForAds = false, roof = false, clinic = false, inline = false, heading, subheading, cta, issues }: { slug: string; firstName: string; preview: boolean; openForAds?: boolean; roof?: boolean; clinic?: boolean; inline?: boolean; heading?: string; subheading?: string; cta?: string; issues?: readonly string[] }) {
   // `inline`: the form is the page's main action (a landing page), so it is always open, with its own wording
   const [open, setOpen] = useState(inline);
   useEffect(() => {
@@ -43,8 +43,10 @@ export function QuoteForm({ slug, firstName, preview, openForAds = false, roof =
           </span>
           {voice.status === "calling"
             ? inline
-              ? `Pick up and Emma, ${firstName}'s AI assistant, will ask a few quick questions about your roof so your quote is accurate. It takes a couple of minutes.`
-              : `It's ${firstName}'s AI assistant. It takes a couple of minutes and can book your ${roof ? "inspection" : "call"} right then.`
+              ? clinic
+                ? `Pick up and Emma, ${firstName}'s AI assistant, will answer your questions and find a time for your free consultation. It takes a couple of minutes.`
+                : `Pick up and Emma, ${firstName}'s AI assistant, will ask a few quick questions about your roof so your quote is accurate. It takes a couple of minutes.`
+              : `It's ${firstName}'s AI assistant. It takes a couple of minutes and can book your ${clinic ? "consultation" : roof ? "inspection" : "call"} right then.`
             : inline
               ? `We only call between 8am and 8pm your time.`
               : `We only call between 8am and 8pm your time. Rather not wait? Pick a time above and it's set.`}
@@ -115,8 +117,8 @@ export function QuoteForm({ slug, firstName, preview, openForAds = false, roof =
   return (
     <form onSubmit={onSubmit} className={inline ? "space-y-4" : "mt-5 space-y-4 border-t border-slate-100 pt-4"}>
       <div>
-        <h3 className={inline ? "text-xl font-bold" : "font-semibold"}>{heading ?? (roof ? "Get a call about your free inspection" : "Get a free quote")}</h3>
-        <p className="text-sm text-slate-500">{subheading ?? (roof ? "Leave your number and we'll call you in seconds to set up your inspection." : `Leave your number and ${firstName} will call you with options.`)}</p>
+        <h3 className={inline ? "text-xl font-bold" : "font-semibold"}>{heading ?? (clinic ? "Get a call about your free consultation" : roof ? "Get a call about your free inspection" : "Get a free quote")}</h3>
+        <p className="text-sm text-slate-500">{subheading ?? (clinic ? "Leave your number and we'll call you in seconds to set up your consultation." : roof ? "Leave your number and we'll call you in seconds to set up your inspection." : `Leave your number and ${firstName} will call you with options.`)}</p>
       </div>
       <div>
         <label htmlFor="quote-name" className="mb-1 block text-sm font-medium text-slate-700">Full name</label>
@@ -126,7 +128,7 @@ export function QuoteForm({ slug, firstName, preview, openForAds = false, roof =
         <label htmlFor="quote-phone" className="mb-1 block text-sm font-medium text-slate-700">Phone number</label>
         <input id="quote-phone" type="tel" required autoComplete="tel" className={inputClass} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
       </div>
-      {roof ? (
+      {clinic ? null : roof ? (
         <>
           <div>
             <label htmlFor="quote-address" className="mb-1 block text-sm font-medium text-slate-700">Street address <span className="font-normal text-slate-400">(optional)</span></label>
@@ -187,7 +189,7 @@ export function QuoteForm({ slug, firstName, preview, openForAds = false, roof =
 
       <label className="flex items-start gap-2.5 text-xs leading-relaxed text-slate-500">
         <input type="checkbox" required className="mt-0.5 size-4 shrink-0 accent-blue-700" checked={form.consent} onChange={(e) => setForm({ ...form, consent: e.target.checked })} />
-        <span>{quoteConsentTextFor(roof)}</span>
+        <span>{quoteConsentTextFor(clinic ? "hair_clinic" : roof)}</span>
       </label>
 
       {error && <p className="text-sm text-red-600">{error}</p>}

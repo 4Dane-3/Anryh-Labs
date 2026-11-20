@@ -84,7 +84,7 @@ export const firstNameOf = (name: string) => {
  * variable the prompt uses is always present (an empty string when unknown), or the call would fail to start.
  */
 export function dynamicVariables(lead: LeadForCall, account: AccountForCall, inspectionHours: string, leadTz: string) {
-  const roof = account.vertical === "roofing";
+  const roof = account.vertical === "roofing" || account.vertical === "hair_clinic";
   const first = firstNameOf(lead.name);
   return {
     lead_id: lead.id,
@@ -95,7 +95,7 @@ export function dynamicVariables(lead: LeadForCall, account: AccountForCall, ins
     address: (lead.address ?? "").trim(),
     roof_issue: (lead.roof_issue ?? "").trim(),
     interest: (lead.coverage ?? "").trim(),
-    business: roof ? "roofing" : "life insurance",
+    business: account.vertical === "hair_clinic" ? "hair transplant clinic" : roof ? "roofing" : "life insurance",
     service_area: roof ? [account.service_area, account.service_radius_miles ? `within ${account.service_radius_miles} miles` : ""].filter(Boolean).join(", ") : "",
     inspection_hours: inspectionHours,
     lead_timezone: leadTz,

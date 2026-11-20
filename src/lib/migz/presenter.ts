@@ -7,7 +7,7 @@ import { callModel, defaultCreateMessage } from "@/lib/migz/router";
 import { checkCopyFor } from "@/lib/migz/guardrails";
 import { enqueueGeneration } from "@/lib/migz/creative-jobs";
 import { parseJson, textOf } from "@/lib/migz/video-revise-merge";
-import { isRoofer, verticalOf } from "@/lib/verticals";
+import { isLocal, verticalOf } from "@/lib/verticals";
 import type { CreativeBrief } from "@/lib/migz/brief";
 import { ROOFING_HOOK_RULES } from "@/lib/roofing/hooks";
 import { heygenReady } from "@/lib/heygen";
@@ -147,7 +147,7 @@ export async function writeScript(agent: Agent, opts: { seconds?: 15 | 25 } = {}
 
 /** Starts the video, into the first running ad set when there is one. */
 export async function startPresenterVideo(agent: Agent, opts: { seconds?: 15 | 25 } = {}) {
-  if (!isRoofer(agent)) throw new Error("Presenter videos are for roofing accounts for now.");
+  if (!isLocal(agent)) throw new Error("Presenter videos are for roofing accounts for now.");
   const found = await getPresenter(agent.id);
   if (!found || found.mode === "none") throw new Error("Choose how you want to appear first.");
   let p: Presenter & { mode: "film" | "ai" } = { ...found, mode: found.mode };

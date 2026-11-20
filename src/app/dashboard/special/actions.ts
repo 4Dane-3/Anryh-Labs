@@ -4,7 +4,7 @@ import { after } from "next/server";
 import { revalidatePath } from "next/cache";
 import { requireAgent } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { isRoofer } from "@/lib/verticals";
+import { isLocal, verticalOf } from "@/lib/verticals";
 import { checkCopyFor } from "@/lib/migz/guardrails";
 import { pauseAdsPromoting } from "@/lib/roofing/special-check";
 import { runMigz } from "@/lib/migz/agent";
@@ -14,7 +14,7 @@ type Result = { ok: true; message: string } | { ok: false; error: string };
 /** "Still running": confirmed for another week. */
 export async function confirmSpecial(): Promise<Result> {
   const agent = await requireAgent();
-  if (!isRoofer(agent)) return { ok: false, error: "Only for roofing accounts." };
+  if (!isLocal(agent)) return { ok: false, error: "Only for roofing companies and clinics." };
   const { error } = await supabaseAdmin.from("agent_brand").update({ special_confirmed_at: new Date().toISOString() }).eq("agent_id", agent.id);
   if (error) return { ok: false, error: "Couldn't save that." };
   revalidatePath("/dashboard/special");
@@ -27,10 +27,10 @@ export async function confirmSpecial(): Promise<Result> {
  */
 export async function replaceSpecial(input: { newSpecial: string; replaceAds: boolean }): Promise<Result> {
   const agent = await requireAgent();
-  if (!isRoofer(agent)) return { ok: false, error: "Only for roofing accounts." };
+  if (!isLocal(agent)) return { ok: false, error: "Only for roofing companies and clinics." };
   const next = input.newSpecial.trim().slice(0, 60);
   if (next) {
-    const problem = checkCopyFor("roofing", next);
+    const problem = checkCopyFor(verticalOf(agent), next);
     if (problem) return { ok: false, error: problem };
   }
   const { data: row } = await supabaseAdmin.from("agent_brand").select("deals").eq("agent_id", agent.id).maybeSingle();

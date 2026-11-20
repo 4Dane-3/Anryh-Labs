@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { verticalOf } from "@/lib/verticals";
 import { after } from "next/server";
 import { ensureJobsiteLook } from "@/lib/migz/presenter-look";
 import { requireAgent } from "@/lib/auth";
@@ -51,7 +52,7 @@ export async function savePresenter(input: PresenterInput): Promise<{ ok: boolea
   if (!["film", "ai", "none"].includes(input.mode)) return { ok: false, error: "Pick how you want to appear." };
   if (input.mode === "ai" && (!input.consented || input.consentName.trim().length < 2)) return { ok: false, error: "Type your name and tick the box to use AI with your likeness." };
   if (input.mode !== "none" && input.onCameraName.trim().length < 2) return { ok: false, error: "Add the first name of who's on camera." };
-  const problem = checkCopyFor("roofing", input.onCameraRole);
+  const problem = checkCopyFor(verticalOf(agent), input.onCameraRole);
   if (problem) return { ok: false, error: problem };
   const { data: prior } = await supabaseAdmin.from("agent_presenters").select("consent_at, consent_name").eq("agent_id", agent.id).maybeSingle();
   const { error } = await supabaseAdmin.from("agent_presenters").upsert({
@@ -229,7 +230,7 @@ export async function saveBrand(input: BrandInput): Promise<{ ok: boolean; error
   const certifications = lines(input.certifications, 4, 60);
   const warranties = lines(input.warranties, 3, 80);
   const license = input.license.trim().slice(0, 40) || null;
-  const problem = checkCopyFor("roofing", ...deals, ...certifications, ...warranties, license ?? "");
+  const problem = checkCopyFor(verticalOf(agent), ...deals, ...certifications, ...warranties, license ?? "");
   if (problem) return { ok: false, error: problem };
   const hex = (c: string) => normalizeHex(c);
   // A new featured special counts as confirmed today, so the weekly check starts over from it

@@ -9,6 +9,7 @@ import { getLiveStats } from "@/lib/migz/live";
 import { integrations } from "@/lib/integrations";
 import { getSpeedToLead } from "@/lib/voice/stats";
 import type { AdminAlert, AdminOverview, AdminAgentRow } from "@/lib/admin/types";
+import { verticalOf } from "@/lib/verticals";
 
 // Everything the admin dashboard shows, read live: every agent's state (today's numbers straight from
 // Meta, cached briefly), the open alerts, and what Migz is doing right now across all accounts.
@@ -46,6 +47,8 @@ async function agentRow(agent: Agent, alerts: AdminAlert[], working: string | nu
     photoUrl: agent.photo_url,
     mode: agent.migz_mode,
     setupDone: !!agent.onboarding_completed_at,
+    vertical: verticalOf(agent),
+    invitedAt: (agent as { invited_at?: string | null }).invited_at ?? null,
     connected: !!agent.meta_ad_account_id,
     slack: !!agent.slack_user_id,
     lastRun: run.data ? { status: run.data.status, at: run.data.finished_at ?? run.data.started_at } : null,

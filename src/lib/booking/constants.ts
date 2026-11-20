@@ -11,14 +11,20 @@ export const CONSENT_TEXT =
   `I agree to be contacted by phone, text, and email about my life insurance inquiry and this appointment, ${AI_CALLS} Message and data rates may apply. Consent is not a condition of purchase.`;
 export const ROOFING_CONSENT_TEXT =
   `I agree to be contacted by phone, text, and email about my roof inspection and this appointment, ${AI_CALLS} Message and data rates may apply. Consent is not a condition of purchase.`;
-export const consentTextFor = (roof: boolean | undefined) => (roof ? ROOFING_CONSENT_TEXT : CONSENT_TEXT);
+// A clinic's wording, the same as the roofing one but about a consultation (LAWYER REVIEW, as above).
+export const CLINIC_CONSENT_TEXT =
+  `I agree to be contacted by phone, text, and email about my consultation and this appointment, ${AI_CALLS} Message and data rates may apply. Consent is not a condition of purchase.`;
+/** The booking consent for the business (true = roofing, kept for older callers). */
+export const consentTextFor = (v: boolean | string | null | undefined) => (v === "hair_clinic" ? CLINIC_CONSENT_TEXT : v === true || v === "roofing" ? ROOFING_CONSENT_TEXT : CONSENT_TEXT);
 
 // Shown on the quote form and stored with every quote request as proof of consent (LAWYER REVIEW, as above).
 export const QUOTE_CONSENT_TEXT =
   `I agree to be contacted by phone and text about my life insurance quote, ${AI_CALLS} Message and data rates may apply. Consent is not a condition of purchase.`;
 export const ROOFING_QUOTE_CONSENT_TEXT =
   `I agree to be contacted by phone and text about a free roof inspection, ${AI_CALLS} Message and data rates may apply. Consent is not a condition of purchase.`;
-export const quoteConsentTextFor = (roof: boolean | undefined) => (roof ? ROOFING_QUOTE_CONSENT_TEXT : QUOTE_CONSENT_TEXT);
+export const CLINIC_QUOTE_CONSENT_TEXT =
+  `I agree to be contacted by phone and text about a free consultation, ${AI_CALLS} Message and data rates may apply. Consent is not a condition of purchase.`;
+export const quoteConsentTextFor = (v: boolean | string | null | undefined) => (v === "hair_clinic" ? CLINIC_QUOTE_CONSENT_TEXT : v === true || v === "roofing" ? ROOFING_QUOTE_CONSENT_TEXT : QUOTE_CONSENT_TEXT);
 
 // The wording before AI calls were added: instant forms made before then still show it, so their leads are
 // never called by the voice agent (agents.meta_lead_form_ai_consent).

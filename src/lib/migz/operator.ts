@@ -1,5 +1,6 @@
 import "server-only";
 import type Anthropic from "@anthropic-ai/sdk";
+import { verticalOf } from "@/lib/verticals";
 import type {
   BetaContentBlock,
   BetaMessageParam,
@@ -245,7 +246,7 @@ export async function runOperator(
           reply(use.id, { isError: true, content: lifted });
           continue;
         }
-        const issue = await precheckCopy(copyOf(evaluated.payload), { agentId: agent.id, runId, budget: env.budget, createMessage: env.createMessage, vertical: agent.vertical === "roofing" ? "roofing" : "insurance" });
+        const issue = await precheckCopy(copyOf(evaluated.payload), { agentId: agent.id, runId, budget: env.budget, createMessage: env.createMessage, vertical: verticalOf(agent) });
         if (issue) {
           await emit({ agentId: agent.id, runId, step: "checking", tier: "haiku", model: MODELS.haiku, summary: `Copy check sent back "${evaluated.title}"`, evidence: { issue } });
           reply(use.id, { isError: true, content: issue });

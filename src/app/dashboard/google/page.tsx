@@ -15,7 +15,7 @@ const money = (c: number) => `$${(c / 100).toLocaleString("en-US", { maximumFrac
 
 export default async function GooglePage() {
   const agent = await requireSetUpAgent();
-  if (!isRoofer(agent)) notFound();
+  if (!isRoofer(agent)) notFound(); // the Google Ads playbook is roofing's for now
   const [setup, account, { data: actions }] = await Promise.all([
     googleSetup(agent),
     getGoogleAccount(agent.id),

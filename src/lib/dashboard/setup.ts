@@ -1,5 +1,5 @@
 import "server-only";
-import { isRoofer } from "@/lib/verticals";
+import { isClinic, isLocal, verticalOf } from "@/lib/verticals";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
 import { cleanFocus } from "@/lib/migz/topics";
@@ -46,22 +46,23 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
     supabaseAdmin.from("creatives").select("id", { count: "exact", head: true }).eq("agent_id", agent.id).in("status", ["submitted", "in_review", "live"]).eq("source", "upload"),
     getOpenBatch(agent.id),
     getRecentBatches(agent.id, 1),
-    isRoofer(agent) ? supabaseAdmin.from("agent_brand").select("deals, certifications, warranties").eq("agent_id", agent.id).maybeSingle() : null,
-    isRoofer(agent) ? supabaseAdmin.from("agent_presenters").select("*").eq("agent_id", agent.id).maybeSingle() : null,
-    isRoofer(agent) ? supabaseAdmin.from("google_ads_accounts").select("link_status").eq("agent_id", agent.id).maybeSingle() : null,
+    isLocal(agent) ? supabaseAdmin.from("agent_brand").select("deals, certifications, warranties").eq("agent_id", agent.id).maybeSingle() : null,
+    isLocal(agent) ? supabaseAdmin.from("agent_presenters").select("*").eq("agent_id", agent.id).maybeSingle() : null,
+    isLocal(agent) ? supabaseAdmin.from("google_ads_accounts").select("link_status").eq("agent_id", agent.id).maybeSingle() : null,
   ]);
   const batch = openBatch ?? pastBatches[0] ?? null;
   // A roofer's ad address: re-checked each time this runs until it's live, so the step ticks off on its own once
   // their DNS record is in (and launching re-checks it too)
   let addressLive = !!agent.ad_domain_ok;
-  if (isRoofer(agent) && agent.ad_domain && !addressLive && !agent.onboarding_completed_at) addressLive = (await refreshAdDomain(agent).catch(() => ({ live: false }))).live;
+  if (isLocal(agent) && agent.ad_domain && !addressLive && !agent.onboarding_completed_at) addressLive = (await refreshAdDomain(agent).catch(() => ({ live: false }))).live;
   const creativeCount = creatives.count ?? 0;
 
-  const roof = isRoofer(agent);
+  const roof = isLocal(agent);
+  const clinic = isClinic(agent);
   const profileMissing = !agent.full_name || agent.full_name.trim().length < 2
     ? roof ? "Add your company name." : "Add your name."
     : roof
-      ? !agent.bio ? "Write a short intro so homeowners know who's coming." : null
+      ? !agent.bio ? (clinic ? "Write a short intro so patients know who they'll meet." : "Write a short intro so homeowners know who's coming.") : null
     : !agent.licensed_states.length
       ? "Choose the states you're licensed in."
       : !agent.bio
@@ -82,7 +83,7 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
     ? "Choose where your ads send people."
     : agent.booking_choice === "own"
       ? agent.own_booking_url ? null : "Add the link to your booking page."
-      : (hours.count ?? 0) === 0 ? (roof ? "Set the hours your crews inspect." : "Set the hours you take calls.") : null;
+      : (hours.count ?? 0) === 0 ? (clinic ? "Set the hours you hold consultations." : roof ? "Set the hours your crews inspect." : "Set the hours you take calls.") : null;
   const slackMissing = agent.slack_user_id ? null : "Connect Slack so Migz can tell you about new leads.";
   // The planned campaign sets what the funds step needs: two weeks of its ad spend plus any paid videos
   const planned = batch && batch.status !== "ended" && batch.status !== "canceled" ? batch : null;
@@ -91,7 +92,7 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
         dailyCents: planned.daily_cents,
         intent: isIntentLevel(agent.intent_level) ? agent.intent_level : DEFAULT_INTENT,
         tier: isVideoTier(agent.video_tier) ? agent.video_tier : DEFAULT_VIDEO_TIER,
-        vertical: roof ? "roofing" : "insurance",
+        vertical: verticalOf(agent),
       }).neededCents
     : null;
   const fundsNeeded = neededCents ? { cents: neededCents, recommendedCents: roundUpToFundsStep(neededCents) } : null;
@@ -114,7 +115,7 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
     : roof
       ? `Start Migz AI: $${(MIGZ_MONTHLY_CENTS / 100).toLocaleString("en-US")} a month, no setup fee.`
       : `Pay the one-time $${(SETUP_FEE_CENTS / 100).toLocaleString("en-US")} setup fee.`;
-  const planMissing = !cleanFocus(agent.ad_focus).length || !batch ? "Answer a few quick questions and pick a daily budget." : roof && !agent.service_area ? "Add where your crews work (your service area)." : null;
+  const planMissing = !cleanFocus(agent.ad_focus).length || !batch ? "Answer a few quick questions and pick a daily budget." : roof && !agent.service_area ? (clinic ? "Add the area your clinic serves." : "Add where your crews work (your service area).") : null;
   const mode = agent.creative_mode ?? null;
   const creativesMissing = !mode
     ? "Choose how you want your ads' videos and images made."
@@ -122,10 +123,9 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
       ? "Upload at least one photo or video, or let Migz create them."
       : null;
 
-  // Setup's first question, answered once (accounts that finished setup before it existed count as answered)
-  const verticalMissing = agent.vertical_chosen_at || agent.onboarding_completed_at ? null : "Tell us whether you're a roofing company or an insurance agent.";
+  // The business type is set by Anryh Labs (admin invite), so setup never asks it
   // Roofers book in their own CRM's calendar, so they're asked which CRM instead of setting up a booking page
-  const crmMissing = agent.crm ? null : "Tell us which CRM you book inspections in.";
+  const crmMissing = agent.crm ? null : clinic ? "Tell us which CRM you book consultations in." : "Tell us which CRM you book inspections in.";
   const rules = agent.job_rules as { jobTypes?: string[] } | null;
   const rulesMissing = !agent.lead_goal
     ? "Choose what your ads offer: a free roof inspection or a free quote."
@@ -134,9 +134,10 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
       : !rules.jobTypes?.length ? "Pick at least one kind of job you take." : null;
   // The business details every video can feature: their current special and their warranty (certifications if they hold any)
   const brand = brandRow?.data as { deals?: string[]; certifications?: string[]; warranties?: string[] } | null | undefined;
+  // Clinics need only the offer (a guarantee is optional for them)
   const detailsMissing = !brand?.deals?.filter(Boolean).length
-    ? "Add the special you want this campaign to promote."
-    : !brand.warranties?.filter(Boolean).length ? "Add the warranty you offer." : null;
+    ? clinic ? "Add the offer you want this campaign to promote." : "Add the special you want this campaign to promote."
+    : !clinic && !brand.warranties?.filter(Boolean).length ? "Add the warranty you offer." : null;
   const presenter = presenterRow?.data as { mode?: string; photo_paths?: string[]; film_path?: string | null; consent_at?: string | null; job_media?: unknown[]; job_photo_paths?: string[] } | null | undefined;
   const mediaMissing = (presenter?.job_media?.length ?? 0) + (presenter?.job_photo_paths?.length ?? 0) || (presenter as { voice_sample_path?: string | null; ad_voice_id?: string | null } | null | undefined)?.voice_sample_path || (presenter as { ad_voice_id?: string | null } | null | undefined)?.ad_voice_id ? null : "Pick the voice for your ads and add photos or clips of your real jobs.";
   const avatarMissing = !presenter
@@ -150,7 +151,7 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
   const googleMissing = googleStatus && googleStatus !== "refused" && googleStatus !== "ended" ? null : "Connect Google Ads so Migz can run Google Search ads too (optional).";
   // Every ad (Meta and Google) sends people to their own domain, so nothing launches before it's live
   const addressMissing = !agent.ad_domain
-    ? "Set up your ad address on your own website's domain (like book.yourroofing.com)."
+    ? `Set up your ad address on your own website's domain (like book.your${clinic ? "clinic" : "roofing"}.com).`
     : !addressLive
       ? `Add the DNS record for ${agent.ad_domain}. This step ticks off by itself once it points at us (it can take up to an hour).`
       : null;
@@ -158,7 +159,6 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
 
   const step = (key: StepKey, missing: string | null, required = true): Step => ({ key, required, missing, done: !missing });
   const steps: Step[] = [
-    step("vertical", verticalMissing),
     step("business", businessMissing),
     step("meta", metaMissing),
     step("setup_fee", setupFeeMissing),
@@ -167,12 +167,13 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
       ? [
           step("address", addressMissing), // their ad address: every ad lands on their own domain
           step("crm", crmMissing),
-          step("rules", rulesMissing), // the jobs they take and the lead goal
+          // the jobs they take and the lead goal (roofers only: a clinic offers a free consultation and takes everyone 18+)
+          ...(clinic ? [] : [step("rules", rulesMissing)]),
           step("details", detailsMissing), // special, certifications, warranties, license
           step("media", mediaMissing, false), // Ad Creative AI Context: their voice, job photos and clips (optional)
           step("avatar", avatarMissing, false), // who's on camera: optional, never blocks starting
-          step("google", googleMissing, false), // Google Search ads, run by Migz: optional
-          step("slack", slackMissing, false), // roofers hear about inspections by email
+          ...(clinic ? [] : [step("google", googleMissing, false)]), // Google Search ads, run by Migz: optional (roofing playbook only, for now)
+          step("slack", slackMissing, false), // local businesses hear about bookings by email
         ]
       : [step("page", pageMissing), step("slack", slackMissing)]),
     step("plan", planMissing),

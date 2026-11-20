@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { isRoofer } from "@/lib/verticals";
+import { isRoofer, words } from "@/lib/verticals";
 import { DateTime } from "luxon";
 import { ArrowRight, ArrowUpRight } from "lucide-react";
 import { isAnryhAdmin, requireSetUpAgent } from "@/lib/auth";
@@ -161,14 +161,14 @@ export default async function OverviewPage() {
             },
             { label: "Spent · 30 days", value: usd(spend), hint: `${usd(Math.round(spend / 30))} a day on average` },
             {
-              label: isRoofer(agent) ? "Inspections booked from ads" : "Calls booked from ads",
+              label: `${words(agent).Bookings} from ads`,
               value: leads.toLocaleString(),
               hint: clicks ? `${clicks.toLocaleString()} clicks · ${pct(clicks / Math.max(impressions, 1))} click rate` : undefined,
             },
             {
-              label: isRoofer(agent) ? "Cost per booked inspection" : "Cost per booked call",
+              label: `Cost per ${words(agent).booking}`,
               value: costPerCall ? usd(costPerCall) : null,
-              hint: leads ? (isRoofer(agent) ? "Ad spend ÷ inspections booked" : "Ad spend ÷ calls booked") : isRoofer(agent) ? "Needs at least one booked inspection" : "Needs at least one booked call",
+              hint: leads ? (`Ad spend ÷ ${words(agent).bookings}`) : `Needs at least one ${words(agent).booking}`,
             },
           ]}
         />
@@ -196,16 +196,16 @@ export default async function OverviewPage() {
           </div>
         </Panel>
         <Panel>
-          <PanelHeader title={isRoofer(agent) ? "Inspections booked per day" : "Calls booked per day"} description={`${leads} from ads over 30 days`} />
+          <PanelHeader title={`${words(agent).Bookings} per day`} description={`${leads} from ads over 30 days`} />
           <div className="px-4 pb-3 pt-4">
             {hasMetrics ? (
               <BarChart
-                label={isRoofer(agent) ? "Inspections booked from ads per day, last 30 days" : "Calls booked from ads per day, last 30 days"}
+                label={`${words(agent).Bookings} from ads per day, last 30 days`}
                 format="number"
                 data={metrics.map((d) => ({ date: d.date, value: d.leads }))}
               />
             ) : (
-              <EmptyState title={isRoofer(agent) ? "No booked inspections yet" : "No booked calls yet"}>Bookings from your ads show here.</EmptyState>
+              <EmptyState title={`No ${words(agent).bookings} yet`}>Bookings from your ads show here.</EmptyState>
             )}
           </div>
         </Panel>

@@ -1,4 +1,5 @@
 import { requireAgent } from "@/lib/auth";
+import { isClinic } from "@/lib/verticals";
 import { PageHeader } from "@/components/dashboard/ui";
 import { PresenterSetup } from "@/components/dashboard/PresenterSetup";
 import { BrandSetup } from "@/components/dashboard/BrandSetup";
@@ -16,7 +17,7 @@ export default async function PresenterPage() {
       <PageHeader title="You in your videos" description="Owner-on-camera ads with big captions, your towns and brand, and a clear call to action. Nothing goes live until you approve it." />
       <div className="max-w-2xl space-y-5">
         <BrandSetup initial={brand} />
-        <PresenterSetup initial={presenter} />
+        <PresenterSetup initial={presenter} clinic={isClinic(agent)} />
         <Panel className="space-y-4 p-5">
           <p className="font-semibold text-fg">Ad Creative AI Context</p>
           <CreativeContext initial={context} />

@@ -1,4 +1,5 @@
-// Makes (or finds) the "Test Hair Clinic" account staff use to see the dashboard the way a clinic does.
+// Makes (or finds) the "Test Hair Clinic" account staff use to see the dashboard the way a clinic does. (Clients are
+// normally invited from the admin, which picks their business type; this is the scripted version for testing.)
 // The login is an emailed code to TEST_CLINIC_EMAIL, so use an inbox you read. Safe to run twice.
 // No Meta account and no finished setup, so the Migz crons skip it.
 // Run: TEST_CLINIC_EMAIL=you+clinic@yourdomain.com NODE_PATH=scripts/migz/stubs npx tsx --env-file=.env.local --tsconfig ./tsconfig.json scripts/migz/test-clinic-account.mts
@@ -14,7 +15,7 @@ const agent =
   existing ??
   (await db
     .from("agents")
-    .insert({ slug, full_name: "Test Hair Clinic", email, active: true, service_area: "Seattle, WA" })
+    .insert({ slug, full_name: "Test Hair Clinic", email, active: true, service_area: "Seattle, WA", vertical: "hair_clinic", vertical_chosen_at: new Date().toISOString(), lead_goal: "inspection" })
     .select("id, slug, email")
     .single()
     .then(({ data, error }) => {

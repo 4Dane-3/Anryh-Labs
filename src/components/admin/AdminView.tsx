@@ -11,6 +11,7 @@ import { TIER } from "@/components/dashboard/brain/model";
 import { OVERVIEW_SECTIONS, PageHead, SectionNav } from "@/components/admin/AdminShell";
 import { PageAnalyticsPanel } from "@/components/admin/PageAnalytics";
 import { AffiliatesPanel } from "@/components/admin/AffiliatesPanel";
+import { InviteClient, VerticalPicker } from "@/components/admin/InviteClient";
 import type { AdminAffiliates } from "@/lib/referrals";
 import { Badge, Button, EmptyState, inputClass, Panel, PanelHeader } from "@/components/dashboard/ui";
 import { cn } from "@/lib/utils";
@@ -27,6 +28,12 @@ const SEV: Record<Severity, { label: string; tone: "bad" | "accent" | "neutral";
 
 function useOverview(initial: AdminOverview) {
   const [data, setData] = useState(initial);
+  // A server refresh (after an invite or a type change) brings new data: show it straight away
+  const [fromServer, setFromServer] = useState(initial);
+  if (initial !== fromServer) {
+    setFromServer(initial);
+    setData(initial);
+  }
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const clock = setInterval(() => setNow(Date.now()), 1000);
@@ -206,12 +213,13 @@ function Health({ a }: { a: AdminAgentRow }) {
 function AgentsPanel({ data, now }: { data: AdminOverview; now: number }) {
   return (
     <Panel>
-      <PanelHeader title="Agents" description="Every account, live. Open one to see their dashboard exactly as they do (view only)." />
+      <PanelHeader title="Clients" description="Every account, live. Invite new ones here and choose what they are; open one to see their dashboard exactly as they do (view only)." />
+      <InviteClient />
       <div className="overflow-x-auto">
         <table className="w-full min-w-[980px] text-left text-[13px]">
           <thead className="font-mono text-[11px] text-fg-faint">
             <tr className="border-b border-line">
-              {["Agent", "Health", "Migz", "Batch", "Spent today", "Ads live", "Balance", "Last review", ""].map((h) => (
+              {["Client", "Type", "Health", "Migz", "Batch", "Spent today", "Ads live", "Balance", "Last review", ""].map((h) => (
                 <th key={h} className="px-4 py-2 font-normal first:pl-5">{h}</th>
               ))}
             </tr>
@@ -223,6 +231,10 @@ function AgentsPanel({ data, now }: { data: AdminOverview; now: number }) {
                   <p className="font-medium text-fg">{a.name}</p>
                   <p className="font-mono text-[11px] text-fg-faint">/{a.slug}{!a.slack && a.setupDone ? " · no Slack" : ""}</p>
                   {a.working && <p className="mt-1 line-clamp-1 max-w-[220px] font-mono text-[11px] text-brand"><span className="animate-pulse">●</span> {a.working}</p>}
+                </td>
+                <td className="px-4 py-3">
+                  <VerticalPicker agentId={a.id} vertical={a.vertical} locked={a.setupDone} />
+                  {a.invitedAt && !a.setupDone && <p className="mt-1 font-mono text-[11px] text-fg-faint">invited {rel(a.invitedAt, now)}</p>}
                 </td>
                 <td className="px-4 py-3"><Health a={a} /></td>
                 <td className="px-4 py-3">

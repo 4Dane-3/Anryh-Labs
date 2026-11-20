@@ -57,7 +57,8 @@ function Upload({ label, accept, kind, have, onDone, onError }: { label: string;
 }
 
 /** `inSetup`: the Start here step, which saves who's on camera and their photo but never makes a video. */
-export function PresenterSetup({ initial, inSetup, onSaved }: { initial: PresenterInitial; inSetup?: boolean; onSaved?: () => void }) {
+export function PresenterSetup({ initial, inSetup, onSaved, clinic }: { initial: PresenterInitial; inSetup?: boolean; onSaved?: () => void; clinic?: boolean }) {
+  const site = clinic ? "clinic" : "jobsite";
   const [v, setV] = useState<PresenterInitial>(initial);
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
   const [script, setScript] = useState<string | null>(null);
@@ -162,14 +163,14 @@ export function PresenterSetup({ initial, inSetup, onSaved }: { initial: Present
                   {v.look.preview ? <img src={v.look.preview} alt="" crossOrigin="anonymous" className="h-28 w-16 rounded object-cover" /> : <div className="h-28 w-16 animate-pulse rounded bg-white/10" />}
                   <p className="text-[13px] text-fg-muted">
                     {v.look.status === "completed"
-                      ? "Your jobsite look: this is how you'll appear in your videos, at a roofing job. Upload a new photo to make a new one."
+                      ? `Your ${site} look: this is how you'll appear in your videos, ${clinic ? "in a consultation room" : "at a roofing job"}. Upload a new photo to make a new one.`
                       : v.look.status === "failed"
-                        ? "We couldn't make a jobsite look from that photo. Try a clearer, well-lit photo of your face."
-                        : "Making your jobsite look from your photo. It takes a few minutes."}
+                        ? `We couldn't make a ${site} look from that photo. Try a clearer, well-lit photo of your face.`
+                        : `Making your ${site} look from your photo. It takes a few minutes.`}
                   </p>
                 </div>
               )}
-              <Upload label="A clear, well-lit photo of their face (even a selfie works: Migz puts them at a jobsite)" accept="image/jpeg,image/png,image/webp" kind="photo" have={v.photos ? "Added (the newest one is used)" : ""} onDone={uploaded({ photos: Math.min(3, v.photos + 1) })} onError={fail} />
+              <Upload label={`A clear, well-lit photo of their face (even a selfie works: Migz puts them ${clinic ? "in a clinic" : "at a jobsite"})`} accept="image/jpeg,image/png,image/webp" kind="photo" have={v.photos ? "Added (the newest one is used)" : ""} onDone={uploaded({ photos: Math.min(3, v.photos + 1) })} onError={fail} />
               <p className="text-[13px] text-fg-muted">Their voice, job photos and clips are under Ad Creative AI Context.</p>
             </>
           )}

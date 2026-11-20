@@ -4,7 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
 import { ROOFING_ADDRESS_KEY, ROOFING_HOMEOWNER_KEY, type IntakeAnswers } from "@/lib/booking/questions";
 import { displayPhone, streetOf } from "@/lib/roofing/print";
-import { isRoofer } from "@/lib/verticals";
+import { isClinic, isLocal } from "@/lib/verticals";
 import { describeRules, fitLabel, hasRules, type FitResult, type JobRules } from "@/lib/roofing/job-rules";
 
 // What a roofer hears about their bookings: an email the moment an inspection is booked (the homeowner, the
@@ -81,21 +81,49 @@ ${address ? `&nbsp; <a href="${esc(mapsUrl(address))}" style="font:500 14px/1 ${
   return { subject, html, text };
 }
 
-/** Emails the roofer about a new inspection. No-op until Resend is set up. */
+/** A clinic's "new consultation" email (pure): who, when and what they'd like to talk about. No postcard. */
+export function consultationEmail(agent: Pick<Agent, "full_name" | "timezone">, booking: InspectionBooking, answers: IntakeAnswers | null) {
+  const start = DateTime.fromISO(booking.starts_at).setZone(agent.timezone);
+  const when = `${start.toFormat("cccc, LLL d")} at ${start.toFormat("h:mm a")}`;
+  const rows: [string, string][] = [
+    ["When", when],
+    ["Name", booking.name],
+    ["Phone", displayPhone(booking.phone)],
+    ["Email", booking.email],
+    ["Interested in", answer(answers, "interest") ?? "Not answered"],
+    ["Timeline", answer(answers, "timeline") ?? "Not answered"],
+    ...(answer(answers, "notes") ? [["Notes", answer(answers, "notes")!] as [string, string]] : []),
+  ];
+  const subject = `New consultation: ${booking.name}, ${start.toFormat("ccc LLL d, h:mm a")}`;
+  const html = `<!doctype html><html><body style="margin:0;background:#f8fafc;padding:24px 12px;font-family:${FONT};color:#0f172a;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #e2e8f0;border-radius:16px;">
+<tr><td style="padding:26px 26px 6px;"><h1 style="margin:0;font:700 24px/1.25 ${FONT};">New free consultation booked</h1>
+<p style="margin:8px 0 0;font:400 15px/1.5 ${FONT};color:#334155;">From your Migz ads, for ${esc(agent.full_name)}.</p></td></tr>
+<tr><td style="padding:16px 26px 0;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e2e8f0;border-radius:12px;">
+${rows.map(([k, v], i) => `<tr><td style="padding:10px 14px;${i ? "border-top:1px solid #e2e8f0;" : ""}font:600 12px/1.3 ${FONT};color:#64748b;text-transform:uppercase;letter-spacing:.05em;width:120px;vertical-align:top;">${esc(k)}</td><td style="padding:10px 14px;${i ? "border-top:1px solid #e2e8f0;" : ""}font:400 15px/1.4 ${FONT};">${esc(v)}</td></tr>`).join("")}
+</table></td></tr>
+<tr><td style="padding:20px 26px 24px;"><p style="margin:0;border-top:1px solid #e2e8f0;padding-top:14px;font:400 12px/1.6 ${FONT};color:#94a3b8;">You'll get a reminder the morning of. If they don't show, mark it in your dashboard so Migz learns which ads bring real patients.</p></td></tr>
+</table></body></html>`;
+  const text = [`New free consultation booked`, ``, ...rows.map(([k, v]) => `${k}: ${v}`)].join("\n");
+  return { subject, html, text };
+}
+
+/** Emails the roofer (or clinic) about a new booking. No-op until Resend is set up. */
 export async function sendInspectionBooked(agent: Agent, booking: InspectionBooking, answers: IntakeAnswers | null, fitInfo?: FitInfo) {
-  if (!isRoofer(agent)) return { skipped: true as const };
-  const email = inspectionEmail(agent, booking, answers, fitInfo);
+  if (!isLocal(agent)) return { skipped: true as const };
+  const email = isClinic(agent) ? consultationEmail(agent, booking, answers) : inspectionEmail(agent, booking, answers, fitInfo);
   return resend({ to: [agent.business_email || agent.email], subject: email.subject, html: email.html, text: email.text }, `inspection-booked/${booking.id}`);
 }
 
 // ---------- CRM webhook ----------
 
 /** What a roofer's CRM receives for each booking (pure): flat fields, so Zapier maps them without code. */
-export function crmPayload(agent: Pick<Agent, "slug" | "full_name" | "timezone">, booking: InspectionBooking, answers: IntakeAnswers | null) {
+export function crmPayload(agent: Pick<Agent, "slug" | "full_name" | "timezone"> & { vertical?: string | null }, booking: InspectionBooking, answers: IntakeAnswers | null) {
   const start = DateTime.fromISO(booking.starts_at).setZone(agent.timezone);
   const [first, ...rest] = booking.name.trim().split(/\s+/);
+  const clinic = agent.vertical === "hair_clinic";
   return {
-    event: "inspection.booked",
+    event: clinic ? "consultation.booked" : "inspection.booked",
     booking_id: booking.id,
     company: agent.full_name,
     starts_at: booking.starts_at,
@@ -107,12 +135,16 @@ export function crmPayload(agent: Pick<Agent, "slug" | "full_name" | "timezone">
     last_name: rest.join(" "),
     phone: booking.phone,
     email: booking.email,
-    address: answer(answers, ROOFING_ADDRESS_KEY),
-    homeowner: answer(answers, ROOFING_HOMEOWNER_KEY),
-    roof_issue: answer(answers, "roof_issue"),
-    roof_age: answer(answers, "roof_age"),
+    ...(clinic
+      ? { interest: answer(answers, "interest"), timeline: answer(answers, "timeline"), notes: answer(answers, "notes") }
+      : {
+          address: answer(answers, ROOFING_ADDRESS_KEY),
+          homeowner: answer(answers, ROOFING_HOMEOWNER_KEY),
+          roof_issue: answer(answers, "roof_issue"),
+          roof_age: answer(answers, "roof_age"),
+          print_url: printUrl(booking.id),
+        }),
     source: "Migz AI (Meta ads)",
-    print_url: printUrl(booking.id),
   };
 }
 
@@ -129,7 +161,7 @@ export function validWebhookUrl(raw: string) {
 
 /** POSTs a booking to the roofer's CRM webhook and records how it went. */
 export async function sendToCrm(agent: Agent, booking: InspectionBooking, answers: IntakeAnswers | null) {
-  if (!isRoofer(agent) || !agent.crm_webhook_url || !validWebhookUrl(agent.crm_webhook_url)) return { skipped: true as const };
+  if (!isLocal(agent) || !agent.crm_webhook_url || !validWebhookUrl(agent.crm_webhook_url)) return { skipped: true as const };
   let error: string | null = null;
   try {
     const res = await fetch(agent.crm_webhook_url, {
