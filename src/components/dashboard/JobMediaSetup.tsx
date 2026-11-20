@@ -4,14 +4,15 @@ import { useState } from "react";
 import { createCreativeUpload } from "@/app/dashboard/actions";
 import { addJobMedia, removeJobMedia } from "@/app/dashboard/creatives/actions";
 import { uploadToSignedUrl } from "@/lib/dashboard/upload";
-import { MAX_JOB_MEDIA, MEDIA_KINDS, type JobMedia, type MediaKind } from "@/lib/roofing/job-media";
+import { MAX_JOB_MEDIA, mediaKindsFor, type JobMedia, type MediaKind } from "@/lib/roofing/job-media";
 
 export type MediaItem = JobMedia & { url: string | null };
 
-const LABEL: Record<string, string> = Object.fromEntries([...MEDIA_KINDS.map((k) => [k.key, k.label]), ["other", "Job photo"]]);
 
 /** Their real job photos and clips, sorted by what they show, so each video cuts to the one that fits the words. */
-export function JobMediaSetup({ initial, onSaved }: { initial: MediaItem[]; onSaved?: () => void }) {
+export function JobMediaSetup({ initial, clinic = false, onSaved }: { initial: MediaItem[]; clinic?: boolean; onSaved?: () => void }) {
+  const MEDIA_KINDS = mediaKindsFor(clinic);
+  const LABEL: Record<string, string> = Object.fromEntries([...MEDIA_KINDS.map((k) => [k.key, k.label]), ["other", clinic ? "Clinic photo" : "Job photo"]]);
   const [items, setItems] = useState<MediaItem[]>(initial);
   const [kind, setKind] = useState<MediaKind>("crew");
   const [progress, setProgress] = useState<string | null>(null);

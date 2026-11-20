@@ -9,10 +9,10 @@ const OURS = ["anryhlabs.com", "vercel.app", "localhost", "foreignfinancial.org"
 /** A pasted web address as a bare host, or an error for the form. It must be a subdomain (a CNAME can't sit on a bare domain). */
 export function cleanAdDomain(input: string): { ok: true; domain: string } | { ok: false; error: string } {
   const host = input.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/[/?#].*$/, "").replace(/:\d+$/, "").replace(/\.$/, "");
-  if (!host) return { ok: false, error: "Enter the address you want your ads to use, like book.yourroofing.com." };
-  if (!/^(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/.test(host)) return { ok: false, error: "That doesn't look like a web address. Use something like book.yourroofing.com." };
+  if (!host) return { ok: false, error: "Enter the address you want your ads to use, like book.yourbusiness.com." };
+  if (!/^(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/.test(host)) return { ok: false, error: "That doesn't look like a web address. Use something like book.yourbusiness.com." };
   if (OURS.some((d) => host === d || host.endsWith(`.${d}`))) return { ok: false, error: "Use an address on your own domain, not ours." };
-  if (host.split(".").length < 3) return { ok: false, error: "Use a subdomain of your site, like book.yourroofing.com. The bare domain stays on your website." };
+  if (host.split(".").length < 3) return { ok: false, error: "Use a subdomain of your site, like book.yourbusiness.com. The bare domain stays on your website." };
   return { ok: true, domain: host };
 }
 

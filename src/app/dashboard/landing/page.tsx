@@ -46,6 +46,7 @@ export default async function LandingPage({
           licensed_states: agent.licensed_states,
           photo_url: agent.photo_url,
           partner_carriers: agent.partner_carriers ?? [],
+          vertical: agent.vertical,
         }}
         testimonials={testimonials ?? []}
         pageFontKey={agent.page_font ?? "arial"}

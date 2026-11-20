@@ -1,5 +1,6 @@
 "use client";
 
+import { senderLines } from "@/lib/booking/lead-email";
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -26,7 +27,9 @@ import { cn } from "@/lib/utils";
 
 const ICON: Record<SequenceKey, typeof PhoneMissed> = { tried_call: PhoneMissed, emailed: MailCheck };
 
-function Preview({ subject, body, agentName }: { subject: string; body: string; agentName: string }) {
+function Preview({ subject, body, agentName, vertical }: { subject: string; body: string; agentName: string; vertical?: string | null }) {
+  // The same sign-off and footer the sent email carries
+  const { role, footer } = senderLines({ agent: { fullName: agentName, title: null, licenseNumber: null, email: "", vertical }, prospect: { name: "Linda" }, bookUrl: "", bookPage: "", business: { name: "Your business name", postalAddress: "address" }, via: "page" });
   const v = { firstName: "Linda", yourName: agentName, link: "yourpage.com/book" };
   const text = body.includes("{booking_link}") ? body : `${body.trim()}\n\nPick a time that suits you: {booking_link}`;
   return (
@@ -34,13 +37,13 @@ function Preview({ subject, body, agentName }: { subject: string; body: string; 
       <p className="text-fg-faint">Subject</p>
       <p className="mb-3 font-medium text-fg">{fillPlaceholders(subject, v)}</p>
       <p className="whitespace-pre-line leading-relaxed text-fg-muted">{fillPlaceholders(text, v)}</p>
-      <p className="mt-3 whitespace-pre-line text-fg-muted">{agentName}{"\n"}Licensed insurance broker</p>
-      <p className="mt-3 text-[11px] text-fg-faint">You&apos;re getting this because you asked for a life insurance quote. To stop emails, reply &quot;unsubscribe&quot;. Your business name and address</p>
+      <p className="mt-3 whitespace-pre-line text-fg-muted">{agentName}{"\n"}{role}</p>
+      <p className="mt-3 text-[11px] text-fg-faint">{footer}</p>
     </div>
   );
 }
 
-function SequenceEditor({ k, value, onChange, agentName }: { k: SequenceKey; value: Sequence; onChange: (s: Sequence) => void; agentName: string }) {
+function SequenceEditor({ k, value, onChange, agentName, vertical }: { k: SequenceKey; value: Sequence; onChange: (s: Sequence) => void; agentName: string; vertical?: string | null }) {
   const meta = SEQUENCES.find((s) => s.key === k)!;
   const Icon = ICON[k];
   const [previewing, setPreviewing] = useState<number | null>(null);
@@ -117,7 +120,7 @@ function SequenceEditor({ k, value, onChange, agentName }: { k: SequenceKey; val
               <Label htmlFor={`${k}-${i}-body`}>Message</Label>
               <textarea id={`${k}-${i}-body`} rows={7} className={cn(inputClass, "leading-relaxed")} maxLength={MAX_BODY} value={e.body} onChange={(ev) => setEmail(i, { body: ev.target.value })} />
             </div>
-            {previewing === i && <Preview subject={e.subject} body={e.body} agentName={agentName} />}
+            {previewing === i && <Preview subject={e.subject} body={e.body} agentName={agentName} vertical={vertical} />}
           </li>
         ))}
       </ol>
@@ -136,7 +139,7 @@ function SequenceEditor({ k, value, onChange, agentName }: { k: SequenceKey; val
   );
 }
 
-export function AutomatedEmails({ initial, on: initialOn, ready, agentName }: { initial: EmailSequences; on: boolean; ready: boolean; agentName: string }) {
+export function AutomatedEmails({ initial, on: initialOn, ready, agentName, vertical }: { initial: EmailSequences; on: boolean; ready: boolean; agentName: string; vertical?: string | null }) {
   const router = useRouter();
   const [seqs, setSeqs] = useState(initial);
   const [on, setOn] = useState(initialOn);
@@ -187,7 +190,7 @@ export function AutomatedEmails({ initial, on: initialOn, ready, agentName }: { 
 
       <div className={cn("space-y-3", !on && "opacity-60")}>
         {SEQUENCES.map(({ key }) => (
-          <SequenceEditor key={key} k={key} value={seqs[key]} onChange={(s) => setSeqs({ ...seqs, [key]: s })} agentName={agentName} />
+          <SequenceEditor key={key} k={key} value={seqs[key]} onChange={(s) => setSeqs({ ...seqs, [key]: s })} agentName={agentName} vertical={vertical} />
         ))}
       </div>
 
@@ -196,7 +199,7 @@ export function AutomatedEmails({ initial, on: initialOn, ready, agentName }: { 
           {pending ? <Loader2 className="animate-spin" /> : null}
           Save emails
         </Button>
-        <Button variant="ghost" onClick={() => setSeqs(defaultSequences())} disabled={pending}>
+        <Button variant="ghost" onClick={() => setSeqs(defaultSequences(null, vertical))} disabled={pending}>
           <RotateCcw /> Back to the defaults
         </Button>
         {message && <p className={cn("text-[13px]", message.good ? "text-good" : "text-bad")}>{message.text}</p>}

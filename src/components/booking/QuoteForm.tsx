@@ -26,7 +26,7 @@ export function QuoteForm({ slug, firstName, preview, openForAds = false, roof =
     // eslint-disable-next-line react-hooks/set-state-in-effect -- the URL is only readable after hydration
     if (fromAd) setOpen(true);
   }, [openForAds]);
-  const [form, setForm] = useState({ name: "", phone: "", coverage: "", bestTime: "", address: "", city: "", roofIssue: "", consent: false, company: "" });
+  const [form, setForm] = useState({ name: "", phone: "", coverage: "", bestTime: "", address: "", city: "", roofIssue: "", consent: false, adult: false, company: "" });
   const [voice, setVoice] = useState<Voice>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -186,6 +186,13 @@ export function QuoteForm({ slug, firstName, preview, openForAds = false, roof =
         value={form.company}
         onChange={(e) => setForm({ ...form, company: e.target.value })}
       />
+
+      {clinic && (
+        <label className="flex items-start gap-2.5 text-sm text-slate-700">
+          <input type="checkbox" required className="mt-0.5 size-4 shrink-0 accent-blue-700" checked={form.adult} onChange={(e) => setForm({ ...form, adult: e.target.checked })} />
+          <span>I&apos;m 18 or older</span>
+        </label>
+      )}
 
       <label className="flex items-start gap-2.5 text-xs leading-relaxed text-slate-500">
         <input type="checkbox" required className="mt-0.5 size-4 shrink-0 accent-blue-700" checked={form.consent} onChange={(e) => setForm({ ...form, consent: e.target.checked })} />

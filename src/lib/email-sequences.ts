@@ -27,9 +27,17 @@ export const PLACEHOLDERS = ["{first_name}", "{your_name}", "{booking_link}"] as
 
 const LAST_NOTE = "I don't want to fill up your inbox, so this is my last follow-up. If the timing isn't right, no problem at all.\n\nIf you'd like to talk later, this link stays open: {booking_link}";
 
-/** The emails every agent starts with. `message` is the old one-line addition to the missed-call email. */
-export function defaultSequences(message?: string | null): EmailSequences {
+/** What the default emails talk about, per business type (a clinic's stay inside the health ad rules: no personal attributes, no promised results). */
+const TOPIC = {
+  insurance: { call: "about life insurance", request: "your life insurance quote request", help: "help you find an option that fits", questions: "questions about coverage" },
+  roofing: { call: "about your roof", request: "your free roof inspection request", help: "get your roof looked at", questions: "questions about your roof" },
+  hair_clinic: { call: "about your free consultation", request: "your consultation request", help: "talk through your options", questions: "questions about a hair transplant" },
+} as const;
+
+/** The emails every account starts with, in its business's words. `message` is the old one-line addition to the missed-call email. */
+export function defaultSequences(message?: string | null, vertical?: string | null): EmailSequences {
   const extra = message?.trim() ? `\n\n${message.trim()}` : "";
+  const t = TOPIC[vertical === "roofing" || vertical === "hair_clinic" ? vertical : "insurance"];
   return {
     tried_call: {
       on: true,
@@ -37,17 +45,17 @@ export function defaultSequences(message?: string | null): EmailSequences {
         {
           afterDays: 0,
           subject: "Sorry I missed you, {first_name}",
-          body: `Hi {first_name},\n\nI just tried calling you about life insurance, but couldn't reach you.${extra}\n\nIf it's easier, pick a time that suits you and I'll call you then: {booking_link}\n\nIt's a free, no-pressure chat. You decide what, if anything, makes sense.`,
+          body: `Hi {first_name},\n\nI just tried calling you ${t.call}, but couldn't reach you.${extra}\n\nIf it's easier, pick a time that suits you and I'll call you then: {booking_link}\n\nIt's a free, no-pressure chat. You decide what, if anything, makes sense.`,
         },
         {
           afterDays: 2,
           subject: "Following up, {first_name}",
-          body: "Hi {first_name},\n\nI wanted to follow up on your life insurance quote request. I'd still like to help you find an option that fits.\n\nPick a time that works for you and I'll call then: {booking_link}",
+          body: `Hi {first_name},\n\nI wanted to follow up on ${t.request}. I'd still like to ${t.help}.\n\nPick a time that works for you and I'll call then: {booking_link}`,
         },
         {
           afterDays: 2,
           subject: "Still thinking it over, {first_name}?",
-          body: "Hi {first_name},\n\nI know things get busy. If you still have questions about coverage, a short call is usually the quickest way to get answers.\n\nHere's my calendar if a call would help: {booking_link}",
+          body: `Hi {first_name},\n\nI know things get busy. If you still have ${t.questions}, a short call is usually the quickest way to get answers.\n\nHere's my calendar if a call would help: {booking_link}`,
         },
         { afterDays: 2, subject: "One last note, {first_name}", body: `Hi {first_name},\n\n${LAST_NOTE}` },
       ],
@@ -58,12 +66,12 @@ export function defaultSequences(message?: string | null): EmailSequences {
         {
           afterDays: 2,
           subject: "Following up, {first_name}",
-          body: "Hi {first_name},\n\nI sent you a note a couple of days ago about life insurance and wanted to make sure it reached you. I'd still like to help you find an option that fits.\n\nPick a time that works for you and I'll call then: {booking_link}",
+          body: `Hi {first_name},\n\nI sent you a note a couple of days ago ${t.call} and wanted to make sure it reached you. I'd still like to ${t.help}.\n\nPick a time that works for you and I'll call then: {booking_link}`,
         },
         {
           afterDays: 3,
           subject: "Still thinking it over, {first_name}?",
-          body: "Hi {first_name},\n\nIf you still have questions about coverage, a short call is usually the quickest way to get answers.\n\nHere's my calendar if a call would help: {booking_link}",
+          body: `Hi {first_name},\n\nIf you still have ${t.questions}, a short call is usually the quickest way to get answers.\n\nHere's my calendar if a call would help: {booking_link}`,
         },
         { afterDays: 4, subject: "One last note, {first_name}", body: `Hi {first_name},\n\n${LAST_NOTE}` },
       ],
@@ -95,8 +103,8 @@ export function cleanSequence(raw: unknown, fallback: Sequence): Sequence | stri
 }
 
 /** The agent's sequences, falling back to the defaults for anything missing or broken. */
-export function sequencesFor(agent: { email_sequences?: unknown; followup_message?: string | null }): EmailSequences {
-  const defaults = defaultSequences(agent.followup_message);
+export function sequencesFor(agent: { email_sequences?: unknown; followup_message?: string | null; vertical?: string | null }): EmailSequences {
+  const defaults = defaultSequences(agent.followup_message, agent.vertical);
   const stored = (agent.email_sequences ?? {}) as Partial<Record<SequenceKey, unknown>>;
   const pick = (k: SequenceKey) => {
     if (!stored[k]) return defaults[k];

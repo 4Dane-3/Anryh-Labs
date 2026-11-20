@@ -1,8 +1,8 @@
 import { getAgentBySlug, getIntakeQuestions } from "@/lib/booking/data";
 import { parseAnswers, parseBooking } from "@/lib/booking/validate";
-import { missingRequired, preBookingQuestions, type IntakeAnswers } from "@/lib/booking/questions";
+import { isUnderage, missingRequired, preBookingQuestions, UNDERAGE_MESSAGE, type IntakeAnswers } from "@/lib/booking/questions";
 import { createBooking } from "@/lib/booking/create";
-import { isRoofer } from "@/lib/verticals";
+import { isClinic, isRoofer } from "@/lib/verticals";
 import { evaluateLead, factsFromAnswers, notFitMessage, withRuleQuestions } from "@/lib/roofing/job-rules";
 import { rulesOf } from "@/lib/roofing/fit";
 import { allowWithin, clientIp, tooManyRequests } from "@/lib/rate-limit";
@@ -37,6 +37,8 @@ export async function POST(req: Request) {
     const values = Object.fromEntries(Object.entries(answers).map(([k, a]) => [k, a.value]));
     const missing = missingRequired(asked, requiredSteps, values);
     if (missing) return Response.json({ error: `Please answer "${missing.label}" to book.` }, { status: 400 });
+    // A clinic books adults only: a "No" to 18+ gets a polite no and no booking
+    if (isClinic(agent) && isUnderage(values)) return Response.json({ error: UNDERAGE_MESSAGE(agent.full_name), notFit: true }, { status: 422 });
   }
 
   // A clear mismatch with the rules gets a polite no and no booking; "not sure" never blocks, it's flagged to the roofer

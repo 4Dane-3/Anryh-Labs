@@ -4,10 +4,12 @@ import { useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ArrowLeft, CheckCircle2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { INTAKE_HEADER } from "@/lib/booking/constants";
 import {
   activeSteps,
+  intakeHeader,
+  isClinicForm,
   isHidden,
+  isRoofingForm,
   stepTitles,
   type IntakeQuestion,
 } from "@/lib/booking/questions";
@@ -260,7 +262,7 @@ export function IntakeForm({
         <CheckCircle2 className="size-14 text-green-600" />
         <h2 className="mt-4 text-3xl font-bold tracking-tight">Thank you!</h2>
         <p className="mt-2 text-lg text-slate-600">
-          {agentFirstName} will review your answers before your consultation.
+          {agentFirstName} will review your answers before your {isRoofingForm(questions) ? "inspection" : isClinicForm(questions) ? "consultation" : "call"}.
         </p>
         {steps.length > 0 && (
           <button
@@ -284,7 +286,7 @@ export function IntakeForm({
       onSubmit={submit}
       className="mx-auto flex min-h-screen w-full max-w-xl flex-col px-5 pt-20 sm:px-6 sm:pt-28"
     >
-      <h1 className="text-2xl font-bold leading-tight tracking-tight sm:text-4xl">{INTAKE_HEADER}</h1>
+      <h1 className="text-2xl font-bold leading-tight tracking-tight sm:text-4xl">{intakeHeader(questions)}</h1>
       <p className="mt-2 text-slate-500">
         Every question is optional. Answer as much or as little as you like.
       </p>

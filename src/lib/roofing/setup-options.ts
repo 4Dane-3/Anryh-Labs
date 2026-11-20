@@ -43,3 +43,53 @@ export const SPECIALS = [
 // Also common but left out: financing ($0 down, no payments for 12 months), which the roofing copy rules
 // (verticals.ts) block, and military or senior discounts, which call out a personal attribute in Meta's
 // Housing category.
+
+// Hair transplant clinics: the same steps with their own choices. Nothing here may break Meta's health ad rules
+// (verticals.ts CLINIC_BANNED): no financing, no promised or permanent results, no before-and-after.
+export const CLINIC_CRMS = ["GoHighLevel", "HubSpot", "Salesforce", "Zoho CRM", "Nextech", "ModMed", "PatientNow", "Zenoti", "Aesthetic Record", "None yet"] as const;
+
+export const CLINIC_CERTIFICATIONS: { brand: string; tiers: string[] }[] = [
+  { brand: "Surgeon", tiers: ["Board-certified surgeon", "ABHRS Diplomate", "Fellow of the ISHRS", "ISHRS member"] },
+  { brand: "Clinic", tiers: ["Licensed medical clinic", "BBB A+ rated", "Rated 4.9 on Google"] },
+];
+
+/** What a clinic includes (never a promised result, which health ads can't make). */
+export const CLINIC_INCLUDED = [
+  "Free follow-up visits for 12 months",
+  "Aftercare kit included",
+  "Same surgeon from consultation to procedure",
+  "Free hair and scalp analysis",
+];
+
+export const CLINIC_SPECIALS = [
+  "Free consultation with the surgeon",
+  "Free hair and scalp analysis at your consultation",
+  "$500 off a hair transplant this month",
+  "$1,000 off a hair transplant this month",
+  "Free PRP session with a hair transplant",
+];
+
+/** The setup choices for a business type: roofers get theirs, clinics theirs. */
+export function setupOptionsFor(vertical: string | null | undefined) {
+  if (vertical === "hair_clinic")
+    return {
+      crms: CLINIC_CRMS as readonly string[],
+      specials: CLINIC_SPECIALS,
+      certifications: CLINIC_CERTIFICATIONS,
+      certLabel: "Credentials your surgeon and clinic actually hold",
+      extras: CLINIC_INCLUDED,
+      extrasLabel: "What's included, exactly as you offer it",
+      license: false,
+      sample: ["Hairlines ", "designed", " by our surgeon"] as const,
+    };
+  return {
+    crms: CRMS as readonly string[],
+    specials: SPECIALS,
+    certifications: CERTIFICATIONS,
+    certLabel: "Certifications you actually hold",
+    extras: WARRANTIES,
+    extrasLabel: "Warranties, exactly as you offer them",
+    license: true,
+    sample: ["Your roof, ", "inspected", " free"] as const,
+  };
+}

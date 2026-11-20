@@ -11,7 +11,7 @@
 import { fillPlaceholders } from "@/lib/email-sequences";
 
 export type LeadEmailInput = {
-  agent: { fullName: string; title: string | null; licenseNumber: string | null; email: string };
+  agent: { fullName: string; title: string | null; licenseNumber: string | null; email: string; vertical?: string | null };
   prospect: { name: string };
   bookUrl: string;
   bookPage: string; // the link's visible text, e.g. "foreignfinancial.org/miguel-cruz"
@@ -20,18 +20,24 @@ export type LeadEmailInput = {
   via?: "instant_form" | "page" | "booking";
 };
 
+/** Who signs the note and why they got it, in the business's words: an agent by first name, a business by its name. */
+export function senderLines(input: LeadEmailInput) {
+  const v = input.agent.vertical;
+  const business = v === "hair_clinic" || v === "roofing";
+  const who = business ? input.agent.fullName : input.agent.fullName.split(/\s+/)[0];
+  const role = [input.agent.title || (v === "hair_clinic" ? "Hair transplant clinic" : v === "roofing" ? "Roofing company" : "Licensed insurance broker"), input.agent.licenseNumber ? `License #${input.agent.licenseNumber}` : null].filter(Boolean).join(" · ");
+  const meeting = v === "hair_clinic" ? "a consultation" : v === "roofing" ? "an inspection" : "a call";
+  const asked = v === "hair_clinic" ? "a free consultation" : v === "roofing" ? "a free roof inspection" : "a life insurance quote";
+  const why = input.via === "booking" ? `booked ${meeting} with ${who}` : `asked ${who} for ${asked}${input.via === "page" ? "" : " on Facebook or Instagram"}`;
+  return { role, footer: `You're getting this because you ${why}. To stop emails, reply "unsubscribe". ${input.business.name}, ${input.business.postalAddress}` };
+}
+
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 /** One plain note: a greeting, paragraphs, the booking link, more paragraphs, the agent's sign-off and the footer. */
 function plainNote(input: LeadEmailInput, subject: string, before: string[], linkLead: string, after: string[]) {
   const first = input.prospect.name.split(/\s+/)[0] || "there";
-  const agentFirst = input.agent.fullName.split(/\s+/)[0];
-  const role = [input.agent.title || "Licensed insurance broker", input.agent.licenseNumber ? `License #${input.agent.licenseNumber}` : null].filter(Boolean).join(" · ");
-  const why =
-    input.via === "booking"
-      ? `booked a call with ${agentFirst}`
-      : `asked ${agentFirst} for a life insurance quote${input.via === "page" ? "" : " on Facebook or Instagram"}`;
-  const footer = `You're getting this because you ${why}. To stop emails, reply "unsubscribe". ${input.business.name}, ${input.business.postalAddress}`;
+  const { role, footer } = senderLines(input);
 
   const text = [`Hi ${first},`, ...before, `${linkLead} ${input.bookUrl}`, ...after, `${input.agent.fullName}\n${role}`, footer].join("\n\n");
 
@@ -78,10 +84,7 @@ export function sequenceEmail(input: LeadEmailInput, email: { subject: string; b
   const paras = email.body.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
   if (!email.body.includes("{booking_link}")) paras.push("Pick a time that suits you: {booking_link}");
 
-  const agentFirst = input.agent.fullName.split(/\s+/)[0];
-  const role = [input.agent.title || "Licensed insurance broker", input.agent.licenseNumber ? `License #${input.agent.licenseNumber}` : null].filter(Boolean).join(" · ");
-  const why = input.via === "booking" ? `booked a call with ${agentFirst}` : `asked ${agentFirst} for a life insurance quote${input.via === "page" ? "" : " on Facebook or Instagram"}`;
-  const footer = `You're getting this because you ${why}. To stop emails, reply "unsubscribe". ${input.business.name}, ${input.business.postalAddress}`;
+  const { role, footer } = senderLines(input);
 
   const text = [...paras.map((p) => fillPlaceholders(p, { ...v, link: input.bookUrl })), `${input.agent.fullName}\n${role}`, footer].join("\n\n");
   const p = "margin:0 0 14px;";

@@ -18,7 +18,8 @@ export type GoogleSetupInitial = {
 };
 
 /** Where their ads send people: an address on their own domain, served by us. They add one DNS record. A required step of Start here for roofers. */
-export function AdAddress({ initial, website: savedSite, pages, onLive }: { initial: { domain: string; live: boolean } | null; website: string | null; pages: GoogleSetupInitial["pages"]; onLive?: () => void }) {
+export function AdAddress({ initial, website: savedSite, pages, clinic = false, onLive }: { initial: { domain: string; live: boolean } | null; website: string | null; pages: GoogleSetupInitial["pages"]; clinic?: boolean; onLive?: () => void }) {
+  const example = clinic ? "yourclinic.com" : "yourroofing.com";
   const router = useRouter();
   const [website, setWebsite] = useState(savedSite ?? "");
   const root = website.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/[/?#].*$/, "");
@@ -34,7 +35,7 @@ export function AdAddress({ initial, website: savedSite, pages, onLive }: { init
       router.refresh();
       if (r.ok && r.status === "live") onLive?.();
     });
-  const host = (initial?.domain ?? "book.yourroofing.com").split(".")[0];
+  const host = (initial?.domain ?? `book.${example}`).split(".")[0];
   return (
     <div className="space-y-4">
       <div>
@@ -42,7 +43,7 @@ export function AdAddress({ initial, website: savedSite, pages, onLive }: { init
         <input
           id="g-site"
           className={cn(inputClass, "max-w-[320px]")}
-          placeholder="yourroofing.com"
+          placeholder={example}
           value={website}
           onChange={(e) => {
             const next = e.target.value;
@@ -51,12 +52,12 @@ export function AdAddress({ initial, website: savedSite, pages, onLive }: { init
             setWebsite(next);
           }}
         />
-        <p className="mt-1 text-[12px] text-fg-muted">Your landing pages are built in your website&apos;s fonts and colours, and live on its domain.</p>
+        <p className="mt-1 text-[12px] text-fg-muted">{clinic ? "Your booking page is built in your website's fonts and colours, and lives on its domain." : "Your landing pages are built in your website's fonts and colours, and live on its domain."}</p>
       </div>
     <div>
       <Label htmlFor="g-domain">Your ad address (on your own website&apos;s domain)</Label>
       <div className="flex flex-wrap items-center gap-2">
-        <input id="g-domain" className={cn(inputClass, "max-w-[320px]")} placeholder="book.yourroofing.com" value={domain} onChange={(e) => setDomain(e.target.value)} />
+        <input id="g-domain" className={cn(inputClass, "max-w-[320px]")} placeholder={`book.${example}`} value={domain} onChange={(e) => setDomain(e.target.value)} />
         <Button disabled={pending || !domain.trim() || !website.trim()} onClick={() => run(() => saveAdDomain({ domain, website }))}>
           {pending && <Loader2 className="animate-spin" />}
           {initial ? "Save" : "Set up"}

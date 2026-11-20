@@ -102,4 +102,46 @@ assert.ok(!/roof/i.test(inv.text));
 assert.match(inviteEmail({ name: "Summit", email: "a@b.co", vertical: "roofing", link: "x" }).text, /roof inspections/);
 ok("invite emails fit the business type");
 
+// Under-18s never book a clinic consultation
+const { isUnderage, UNDERAGE_MESSAGE, intakeHeader, stepTitles, reviewerName, DEFAULT_QUESTIONS, ROOFING_QUESTIONS } = await import("@/lib/booking/questions");
+assert.ok(isUnderage({ adult: "No" }) && isUnderage({ adult: " no " }));
+assert.ok(!isUnderage({ adult: "Yes" }) && !isUnderage({}));
+assert.match(UNDERAGE_MESSAGE("Lee Hair Clinic"), /adults 18 and over/);
+ok("a clinic booking answered 'No' to 18+ is refused");
+
+// Setup choices: a clinic's own CRMs, offers and credentials, all inside the health ad rules
+const { setupOptionsFor } = await import("@/lib/roofing/setup-options");
+const co = setupOptionsFor("hair_clinic");
+const all = [...co.specials, ...co.certifications.flatMap((g) => g.tiers), ...co.extras, co.certLabel, co.extrasLabel, co.sample.join("")];
+assert.ok(!all.some((t) => /roof|shingle|gutter|GAF|Owens|warrant/i.test(t)), "no roofing choices for a clinic");
+for (const t of all) assert.equal(checkCopyFor("hair_clinic", t), null, `clinic choice breaks the health rules: ${t}`);
+assert.ok(!co.crms.includes("JobNimbus") && co.crms.includes("GoHighLevel") && co.crms.includes("None yet"));
+assert.equal(co.license, false);
+assert.ok(setupOptionsFor("roofing").crms.includes("JobNimbus") && setupOptionsFor("roofing").specials.some((s) => /roof/.test(s)), "roofers unchanged");
+ok("clinic setup offers clinic CRMs, offers and credentials, none breaking the health rules");
+
+// After booking: the clinic's heading, steps and name
+assert.match(intakeHeader(CLINIC_QUESTIONS), /clinic prepare for your consultation/);
+assert.match(intakeHeader(DEFAULT_QUESTIONS), /better deal/, "insurance unchanged");
+assert.match(intakeHeader(ROOFING_QUESTIONS), /inspection/);
+assert.ok(!stepTitles(CLINIC_QUESTIONS).includes("Your coverage"));
+assert.equal(reviewerName(CLINIC_QUESTIONS, "E2E Hair Clinic"), "E2E Hair Clinic");
+assert.equal(reviewerName(DEFAULT_QUESTIONS, "Miguel Cruz"), "Miguel");
+ok("the page after booking speaks as the clinic");
+
+// Follow-up emails: the clinic's own words, insurance unchanged
+const { defaultSequences } = await import("@/lib/email-sequences");
+const { senderLines, sequenceEmail } = await import("@/lib/booking/lead-email");
+const seqText = (v: string | null) => JSON.stringify(defaultSequences(null, v));
+assert.ok(!/life insurance|coverage|roof/i.test(seqText("hair_clinic")));
+assert.match(seqText("hair_clinic"), /consultation/);
+assert.match(seqText(null), /life insurance/);
+assert.match(seqText("roofing"), /roof/);
+const lines = senderLines({ agent: { fullName: "Lee Hair Clinic", title: null, licenseNumber: null, email: "a@b.co", vertical: "hair_clinic" }, prospect: { name: "Sam" }, bookUrl: "u", bookPage: "p", business: { name: "Lee", postalAddress: "1 Main St" }, via: "booking" });
+assert.equal(lines.role, "Hair transplant clinic");
+assert.match(lines.footer, /booked a consultation with Lee Hair Clinic/);
+const sent = sequenceEmail({ agent: { fullName: "Miguel Cruz", title: null, licenseNumber: null, email: "a@b.co" }, prospect: { name: "Sam" }, bookUrl: "u", bookPage: "p", business: { name: "FF", postalAddress: "1 Main St" }, via: "page" }, { subject: "Hi", body: "Hello" });
+assert.match(sent.text, /Licensed insurance broker[\s\S]*asked Miguel for a life insurance quote/, "insurance emails unchanged");
+ok("follow-up emails and their footers fit the clinic");
+
 console.log("clinic checks passed");

@@ -5,7 +5,7 @@ import { createCreativeUpload } from "@/app/dashboard/actions";
 import { addBrandLogo, saveBrand, scanWebsite, type BrandInput } from "@/app/dashboard/creatives/actions";
 import { Panel } from "@/components/dashboard/ui";
 import { uploadToSignedUrl } from "@/lib/dashboard/upload";
-import { CERTIFICATIONS, SPECIALS, WARRANTIES } from "@/lib/roofing/setup-options";
+import { setupOptionsFor } from "@/lib/roofing/setup-options";
 import { MUSIC_MOODS, MUSIC_MOOD_KEYS } from "@/lib/edit/music";
 
 export type BrandInitial = BrandInput & { hasLogo: boolean; musicPreviews?: Record<string, string> };
@@ -43,7 +43,10 @@ const toggleLine = (text: string, line: string) => {
  * Their brand for every edited video: the website scan, logo, and the special and credentials videos may feature.
  * In setup (`details`), the business details come first and the look (website, fonts, colours) after.
  */
-export function BrandSetup({ initial, details, onSaved }: { initial: BrandInitial; details?: boolean; onSaved?: () => void }) {
+export function BrandSetup({ initial, details, vertical, onSaved }: { initial: BrandInitial; details?: boolean; vertical?: string | null; onSaved?: () => void }) {
+  // A clinic picks from its own offers and credentials (within the health ad rules), a roofer from roofing ones
+  const opts = setupOptionsFor(vertical);
+  const { specials: SPECIALS, certifications: CERTIFICATIONS, extras: WARRANTIES } = opts;
   const [v, setV] = useState(initial);
   const [deals, setDeals] = useState(initial.deals.join("\n"));
   const [warranties, setWarranties] = useState(initial.warranties.join("\n"));
@@ -102,7 +105,7 @@ export function BrandSetup({ initial, details, onSaved }: { initial: BrandInitia
         <textarea value={deals} onChange={(e) => setDeals(e.target.value)} rows={2} placeholder="Or type your own, one per line (the first is featured)" className={field} />
       </div>
       <div className="text-sm text-fg">
-        Certifications you actually hold
+        {opts.certLabel}
         <p className="text-[12px] text-fg-muted">Only pick ones you hold today. Skip this if you have none.</p>
         <div className="mt-2 space-y-2">
           {CERTIFICATIONS.map((g) => (
@@ -135,7 +138,7 @@ export function BrandSetup({ initial, details, onSaved }: { initial: BrandInitia
         />
       </div>
       <div className="text-sm text-fg">
-        Warranties, exactly as you offer them
+        {opts.extrasLabel}
         <div className="mt-2 flex flex-wrap gap-2">
           {WARRANTIES.map((w) => (
             <Pick key={w} on={warranties.split("\n").map((l) => l.trim()).includes(w)} onClick={() => setWarranties(toggleLine(warranties, w))}>
@@ -145,10 +148,12 @@ export function BrandSetup({ initial, details, onSaved }: { initial: BrandInitia
         </div>
         <textarea value={warranties} onChange={(e) => setWarranties(e.target.value)} rows={2} placeholder="Or type your own, one per line" className={field} />
       </div>
-      <label className="block text-sm text-fg">
-        License number (optional)
-        <input value={v.license} onChange={(e) => set({ license: e.target.value })} maxLength={40} placeholder="e.g. WA Lic #SUMMIPR123AB" className={field} />
-      </label>
+      {opts.license && (
+        <label className="block text-sm text-fg">
+          License number (optional)
+          <input value={v.license} onChange={(e) => set({ license: e.target.value })} maxLength={40} placeholder="e.g. WA Lic #SUMMIPR123AB" className={field} />
+        </label>
+      )}
     </>
   );
 
@@ -193,7 +198,9 @@ export function BrandSetup({ initial, details, onSaved }: { initial: BrandInitia
       ))}
       <div className="rounded-xl p-4" style={{ background: v.background, color: v.text }}>
         <p style={{ fontFamily: v.headingFont, fontWeight: 800, fontSize: 22 }}>
-          Your roof, <span style={{ color: v.accent }}>inspected</span> free
+          {opts.sample[0]}
+          <span style={{ color: v.accent }}>{opts.sample[1]}</span>
+          {opts.sample[2]}
         </p>
         <p style={{ fontFamily: v.bodyFont, fontSize: 13, opacity: 0.85 }}>How a caption and a card will look</p>
       </div>

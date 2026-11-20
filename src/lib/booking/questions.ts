@@ -22,10 +22,22 @@ export type IntakeAnswers = Record<string, { label: string; value: string }>;
 
 export const STEP_TITLES = ["About you", "Your goals", "Your coverage", "Anything else?"];
 export const ROOFING_STEP_TITLES = ["Your home", "Your roof", "Insurance", "Anything else?"];
+export const CLINIC_STEP_TITLES = ["About you", "Your goals", "Your history", "Anything else?"];
 
-/** A roofer's form is recognised by its address question, so every screen titles the steps right. */
+/** A roofer's form is recognised by its address question (a clinic's by its 18+ one), so every screen titles the steps right. */
 export const isRoofingForm = (questions: Pick<IntakeQuestion, "key">[]) => questions.some((q) => q.key === ROOFING_ADDRESS_KEY);
-export const stepTitles = (questions: Pick<IntakeQuestion, "key">[]) => (isRoofingForm(questions) ? ROOFING_STEP_TITLES : STEP_TITLES);
+export const isClinicForm = (questions: Pick<IntakeQuestion, "key">[]) => questions.some((q) => q.key === CLINIC_ADULT_KEY);
+export const stepTitles = (questions: Pick<IntakeQuestion, "key">[]) => (isRoofingForm(questions) ? ROOFING_STEP_TITLES : isClinicForm(questions) ? CLINIC_STEP_TITLES : STEP_TITLES);
+
+/** The heading over the optional questions after booking, in the business's own words. */
+export const intakeHeader = (questions: Pick<IntakeQuestion, "key">[]) =>
+  isRoofingForm(questions)
+    ? "Help us prepare for your inspection (optional)"
+    : isClinicForm(questions)
+      ? "Help the clinic prepare for your consultation (optional)"
+      : "Help the agent prepare to secure you a better deal by answering (optional)";
+/** A business (roofer, clinic) goes by its full name; an agent by first name. */
+export const reviewerName = (questions: Pick<IntakeQuestion, "key">[], name: string) => (isRoofingForm(questions) || isClinicForm(questions) ? name : name.split(" ")[0]);
 
 export const KIND_LABELS: Record<QuestionKind, string> = {
   short_text: "Short answer",
@@ -147,6 +159,13 @@ export const CLINIC_QUESTIONS: IntakeQuestion[] = [
   q("prior_procedure", 3, 0, "Have you had a hair restoration procedure before?", "choice", { options: ["No", "Yes"] }),
   q("notes", 4, 0, "Anything the clinic should know?", "long_text", { placeholder: "Questions you'd like answered, the best time to reach you." }),
 ];
+
+/** A clinic sees adults only (Meta's health ad rules, and the consultation itself): "No" to 18+ means no booking. */
+export const UNDERAGE_MESSAGE = (clinic: string) =>
+  `Thanks for your interest. ${clinic} only books consultations for adults 18 and over, so we can't book this one.`;
+export function isUnderage(values: Record<string, string | undefined>) {
+  return (values[CLINIC_ADULT_KEY] ?? "").trim().toLowerCase() === "no";
+}
 
 export const defaultQuestionsFor = (vertical: string | null | undefined) => (vertical === "hair_clinic" ? CLINIC_QUESTIONS : vertical === "roofing" ? ROOFING_QUESTIONS : DEFAULT_QUESTIONS);
 

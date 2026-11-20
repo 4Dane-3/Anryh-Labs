@@ -44,9 +44,6 @@ export type QuoteMode = (typeof QUOTE_MODES)[number];
 export const QUOTE_COVERAGE = ["Final expense", "Whole life", "Term life", "Not sure yet"] as const;
 export const QUOTE_BEST_TIME = ["Morning", "Afternoon", "Evening"] as const;
 
-export const INTAKE_HEADER =
-  "Help the agent prepare to secure you a better deal by answering (optional)";
-
 // Ticked on the referral page (/r/{token}) and stored with each referral. Referred people never get automated calls
 // or texts: this covers sharing their details for a call by hand, not consent on their behalf (LAWYER REVIEW).
 export const REFERRAL_PERMISSION_TEXT =

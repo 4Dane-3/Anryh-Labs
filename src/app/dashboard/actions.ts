@@ -49,8 +49,8 @@ import { adAccountFrom, checkMetaAccess, pageRefFrom } from "@/lib/meta/access";
 import { alertAdmin } from "@/lib/migz/slack";
 import { cleanInboundPrefs, INBOUND_MODE_COPY, INBOUND_PRICE_DOLLARS, isInboundMode, type InboundMode } from "@/lib/voice/inbound-rules";
 import { sendSlackMessage } from "@/lib/slack";
-import { isLocal, isRoofer, MAX_RADIUS_MILES, MIN_RADIUS_MILES } from "@/lib/verticals";
-import { ROOFING_TOPIC_KEYS } from "@/lib/migz/topics";
+import { isLocal, isRoofer, MAX_RADIUS_MILES, MIN_RADIUS_MILES, verticalOf } from "@/lib/verticals";
+import { topicKeysFor } from "@/lib/migz/topics";
 import { crmPayload, validWebhookUrl } from "@/lib/roofing/notify";
 import { markJobDone } from "@/lib/roofing/checkin";
 import { radiusCenter } from "@/lib/meta/ads";
@@ -1090,7 +1090,10 @@ const cleanStates = (raw: unknown) =>
 async function resolveCampaign(agent: Agent, input: CampaignChoice): Promise<Resolved | string> {
   const answers = cleanAnswers(input.answers);
   const roof = isLocal(agent);
-  if (roof) answers.products = answers.products.filter((p) => ROOFING_TOPIC_KEYS.includes(p));
+  const vertical = verticalOf(agent);
+  const clinic = vertical === "hair_clinic";
+  // A local business advertises its own topics (a clinic's are not a roofer's)
+  if (roof) answers.products = answers.products.filter((p) => topicKeysFor(vertical).includes(p));
   if (!answers.products.length) return roof ? "Choose at least one thing to advertise." : "Choose at least one product to advertise.";
   let area: Resolved["area"] = null;
   let states: string[];
@@ -1098,7 +1101,7 @@ async function resolveCampaign(agent: Agent, input: CampaignChoice): Promise<Res
     const raw = input.area;
     const where = clean(raw?.service_area, 160);
     const state = clean(raw?.state, 2).toUpperCase();
-    if (where.length < 3) return "Add the address, city or ZIP your crews work from.";
+    if (where.length < 3) return clinic ? "Add your clinic's address, city or ZIP." : "Add the address, city or ZIP your crews work from.";
     if (!STATE_CODES.includes(state)) return "Pick the state your service area is in.";
     const radius = Math.round(Number(raw?.radius));
     if (!(radius >= MIN_RADIUS_MILES && radius <= MAX_RADIUS_MILES)) return `Choose a radius between ${MIN_RADIUS_MILES} and ${MAX_RADIUS_MILES} miles.`;
@@ -1111,9 +1114,9 @@ async function resolveCampaign(agent: Agent, input: CampaignChoice): Promise<Res
     if (!states.length) return "Choose the states you're licensed in.";
   }
   const daily = Math.round(Number(input.dailyCents));
-  if (!Number.isInteger(daily) || daily < minDailyFor(roof ? "roofing" : null) || daily > MAX_CAMPAIGN_DAILY_CENTS)
+  if (!Number.isInteger(daily) || daily < minDailyFor(vertical) || daily > MAX_CAMPAIGN_DAILY_CENTS)
     return roof
-      ? `Roofing campaigns run at least $2,000 a month in ads: choose $${ROOFER_MIN_DAILY_CENTS / 100}/day or more.`
+       ? `${clinic ? "Clinic" : "Roofing"} campaigns run at least $2,000 a month in ads: choose $${ROOFER_MIN_DAILY_CENTS / 100}/day or more.`
       : `Choose a daily budget between $${MIN_CAMPAIGN_DAILY_CENTS / 100} and $${(MAX_CAMPAIGN_DAILY_CENTS / 100).toLocaleString("en-US")}.`;
   // Roofers run the booking page only: an inspection needs an address and a time
   const intent = roof ? "medium_high" : isIntentLevel(input.intentLevel) ? input.intentLevel : DEFAULT_INTENT;
@@ -1126,7 +1129,7 @@ async function resolveCampaign(agent: Agent, input: CampaignChoice): Promise<Res
     focus: answers.products,
     intent,
     tier,
-    money: campaignMoney({ dailyCents: daily, intent, tier, vertical: roof ? "roofing" : "insurance" }),
+    money: campaignMoney({ dailyCents: daily, intent, tier, vertical }),
     row: {
       agent_id: agent.id,
       budget_cents: plan.dailyCents * plan.days,

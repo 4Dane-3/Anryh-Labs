@@ -25,7 +25,7 @@ export function DemoCallForm({ accounts, ready, checkinReady, initialKind }: { a
     company: "",
     // new lead
     firstName: "",
-    business: "roofing" as "roofing" | "life insurance",
+    business: "roofing" as "roofing" | "life insurance" | "hair clinic",
     city: "",
     address: "",
     roofIssue: "",
@@ -128,6 +128,7 @@ export function DemoCallForm({ accounts, ready, checkinReady, initialKind }: { a
                   <select className={inputClass} value={f.business} onChange={set("business")}>
                     <option value="roofing">Roofing</option>
                     <option value="life insurance">Life insurance</option>
+                    <option value="hair clinic">Hair transplant clinic</option>
                   </select>
                 </div>
                 <div>
@@ -156,7 +157,7 @@ export function DemoCallForm({ accounts, ready, checkinReady, initialKind }: { a
                   <input className={inputClass} value={f.serviceArea} onChange={set("serviceArea")} placeholder="Blank: the account's" />
                 </div>
                 <div>
-                  <Label>Inspection hours</Label>
+                  <Label>{roof ? "Inspection hours" : "Booking hours"}</Label>
                   <input className={inputClass} value={f.hours} onChange={set("hours")} placeholder="Blank: the account's" />
                 </div>
                 <div>

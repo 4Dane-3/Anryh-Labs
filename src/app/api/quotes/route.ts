@@ -8,7 +8,7 @@ import { sendSlackMessage } from "@/lib/slack";
 import { leadPingBlocks } from "@/lib/dashboard/outcomes";
 import { sendConversionEvents } from "@/lib/meta/capi";
 import { partnerPageUrl } from "@/lib/booking/sites";
-import { isLocal, isRoofer } from "@/lib/verticals";
+import { isClinic, isLocal, isRoofer } from "@/lib/verticals";
 import { voiceConfigured } from "@/lib/voice/elevenlabs";
 import { dialLead, inspectionHoursBySlug, isDoNotCall, planColumns, planFirstCall, thankYouVoice, voiceOnFor } from "@/lib/voice/dial";
 import { leadTimezone } from "@/lib/voice/rules";
@@ -45,6 +45,8 @@ export async function POST(req: Request) {
     voiceEnv ? inspectionHoursBySlug(input.slug) : Promise.resolve(""),
   ]);
   if (!agent) return Response.json({ error: "Agent not found." }, { status: 404 });
+  // A clinic only takes adults (Meta's health ad rules): the form asks, and nothing is saved or dialed without it
+  if (isClinic(agent) && (body as { adult?: unknown } | null)?.adult !== true) return Response.json({ error: "Please confirm you're 18 or older." }, { status: 400 });
 
   const roof = isLocal(agent);
   const tz = leadTimezone(input.timezone, agent.timezone);
