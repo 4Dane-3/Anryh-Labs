@@ -51,7 +51,7 @@ const MORE = [
 // (the pages themselves enforce it: requireSetUpAgent)
 const OPEN_DURING_SETUP = new Set(["/dashboard/start", "/dashboard/calendar", "/dashboard/questions", "/dashboard/creatives"]);
 
-type AgentSummary = { name: string; slug: string; photoUrl: string | null; roof?: boolean };
+type AgentSummary = { name: string; slug: string; photoUrl: string | null; roof?: boolean; roofer?: boolean };
 
 const isActive = (pathname: string, href: string) => (href === "/dashboard" ? pathname === href : pathname.startsWith(href));
 
@@ -185,8 +185,9 @@ function MenuSheet({ agent, devLogin, setupDone, staff, onClose }: { agent: Agen
           {/* the pill holds these on wide screens; on phones they're only here */}
           <div className="lg:hidden">{MAIN.map((n) => item(n.href, n.label, n.icon))}</div>
           {MORE.map((n) => item(n.href, n.label, n.icon))}
-          {agent.roof && item("/dashboard/referrals", "Referrals", Handshake)}
-          {agent.roof && item("/dashboard/google", "Google Ads", Search)}
+          {/* Referral check-ins and Google Ads follow roofing's playbook for now */}
+          {agent.roofer && item("/dashboard/referrals", "Referrals", Handshake)}
+          {agent.roofer && item("/dashboard/google", "Google Ads", Search)}
           {!setupDone && <p className="px-3 pt-3 text-[12px] text-fg-faint">Locked pages open once your first campaign starts.</p>}
         </nav>
         <div className="space-y-2 border-t border-white/15 pt-3">

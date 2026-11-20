@@ -13,7 +13,7 @@ import { callButtonShows, displayPhone } from "@/lib/booking/call";
 import { DEFAULT_TITLE } from "@/lib/campaign";
 import { pageFont } from "@/lib/booking/page-fonts";
 import { partnerPage } from "@/lib/booking/sites";
-import { areaLabel, isRoofer } from "@/lib/verticals";
+import { areaLabel, isClinic, isLocal, isRoofer } from "@/lib/verticals";
 import { voiceOnFor } from "@/lib/voice/dial";
 import { withRuleQuestions } from "@/lib/roofing/job-rules";
 import { rulesOf } from "@/lib/roofing/fit";
@@ -30,7 +30,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const agent = await getAgentBySlug(slug);
   if (!agent) return {};
-  if (isRoofer(agent))
+  if (isClinic(agent))
+    return {
+      title: `Book a free consultation with ${agent.full_name}`,
+      description: agent.headline ?? `A free, no-pressure hair transplant consultation with ${agent.full_name}.`,
+    };
+  if (isLocal(agent))
     return {
       title: `Book a free roof inspection with ${agent.full_name}`,
       description: agent.headline ?? `${agent.full_name} inspects your roof for free and tells you what they find.`,
@@ -89,6 +94,30 @@ const roofSteps = [
   },
 ];
 
+/** A clinic's page: what happens at the free consultation. No promised results, no before-and-after. */
+const clinicSteps = [
+  {
+    icon: MessageCircle,
+    title: "Pick a time that suits you",
+    body: "A couple of quick questions and you're booked. It takes under a minute.",
+  },
+  {
+    icon: SearchCheck,
+    title: "Meet the surgeon",
+    body: "Talk through what you'd like, ask anything, and hear the options that fit you.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Straight answers",
+    body: "How the procedure works, recovery, and what it would cost for you.",
+  },
+  {
+    icon: CalendarCheck,
+    title: "No pressure, no obligation",
+    body: "The consultation is free. You decide what, if anything, to do next.",
+  },
+];
+
 export default async function AgentPage({ params, searchParams }: Props) {
   const [{ slug }, query] = await Promise.all([params, searchParams]);
   const agent = await getAgentBySlug(slug);
@@ -114,14 +143,14 @@ export default async function AgentPage({ params, searchParams }: Props) {
     getIntakeQuestions(agent.id),
     supabaseAdmin.from("availability_rules").select("weekday, start_time, end_time").eq("agent_id", agent.id),
     // A roofer's page wears their look (colours and fonts from their website), the same as their landing pages
-    isRoofer(agent) ? supabaseAdmin.from("agent_brand").select("heading_font, body_font, background, text_color, accent").eq("agent_id", agent.id).maybeSingle() : Promise.resolve({ data: null }),
+    isLocal(agent) ? supabaseAdmin.from("agent_brand").select("heading_font, body_font, background, text_color, accent").eq("agent_id", agent.id).maybeSingle() : Promise.resolve({ data: null }),
   ]);
   // "Call now", when the agent turned it on (and, if they chose, only while they're open)
   const call = callButtonShows(agent, hours ?? []) && agent.call_phone ? { phone: agent.call_phone, firstName: agent.full_name.split(" ")[0] } : null;
   const requiredSteps = agent.required_intake_steps ?? [];
 
   // A roofing company goes by its whole name ("Summit Ridge Roofing", not "Summit")
-  const firstName = isRoofer(agent) ? agent.full_name : agent.full_name.split(" ")[0];
+  const firstName = isLocal(agent) ? agent.full_name : agent.full_name.split(" ")[0];
   const initials = agent.full_name
     .split(" ")
     .map((w) => w[0])
@@ -129,9 +158,10 @@ export default async function AgentPage({ params, searchParams }: Props) {
     .join("");
 
   const slotMinutes = agent.slot_minutes ?? 30;
-  const roof = isRoofer(agent);
+  const roof = isLocal(agent);
   const states = roof ? [] : agent.licensed_states;
-  const meeting = roof ? "roof inspection" : "consultation";
+  const clinic = isClinic(agent);
+  const meeting = clinic ? "consultation" : roof ? "roof inspection" : "consultation";
   const rated = (testimonials ?? []).filter((t) => t.rating);
   const avgRating = rated.length ? rated.reduce((s, t) => s + (t.rating ?? 0), 0) / rated.length : null;
   const font = pageFont(agent.page_font);
@@ -163,11 +193,11 @@ export default async function AgentPage({ params, searchParams }: Props) {
             )}
             <div className="min-w-0">
               <h1 className="text-xl font-bold leading-tight sm:text-3xl" style={headingFont}>{agent.full_name}</h1>
-              <p className="text-sm text-slate-500 sm:text-base">{agent.title || (roof ? "Roofing" : DEFAULT_TITLE)}</p>
+              <p className="text-sm text-slate-500 sm:text-base">{agent.title || (clinic ? "Hair transplant clinic" : roof ? "Roofing" : DEFAULT_TITLE)}</p>
               {roof && agent.service_area && (
                 <p className="mt-0.5 flex items-center gap-1 text-sm text-slate-600">
                   <ShieldCheck className="size-4 shrink-0 text-blue-700" />
-                  <span>Serving homes {areaLabel(agent)}{agent.company_license ? ` · License #${agent.company_license}` : ""}</span>
+                  <span>{clinic ? `Serving patients ${areaLabel(agent)}` : `Serving homes ${areaLabel(agent)}`}{agent.company_license ? ` · License #${agent.company_license}` : ""}</span>
                 </p>
               )}
               {states.length > 0 && (
@@ -199,7 +229,7 @@ export default async function AgentPage({ params, searchParams }: Props) {
 
         <aside id="book" className="min-w-0 scroll-mt-4 lg:sticky lg:top-8 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:self-start">
           <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 sm:p-6">
-            <h2 className="text-lg font-bold sm:text-xl">{roof ? `Book your free roof inspection with ${agent.full_name}` : `Book your free consultation with ${firstName}`}</h2>
+            <h2 className="text-lg font-bold sm:text-xl">{clinic ? `Book your free consultation with ${agent.full_name}` : roof ? `Book your free roof inspection with ${agent.full_name}` : `Book your free consultation with ${firstName}`}</h2>
             <p className="mb-4 mt-0.5 text-sm text-slate-500">Pick a time. It takes under a minute.</p>
             {call && <CallNow phone={call.phone} display={displayPhone(call.phone)} firstName={call.firstName} preview={preview} />}
             <BookingWidget
@@ -209,13 +239,14 @@ export default async function AgentPage({ params, searchParams }: Props) {
               questions={preBookingQuestions(isRoofer(agent) ? withRuleQuestions(questions, rulesOf(agent)) : questions, requiredSteps)}
               requiredSteps={requiredSteps}
               meeting={meeting}
+              vertical={agent.vertical ?? undefined}
             />
             {!roof && agent.quote_mode !== "off" && (
               <QuoteForm slug={agent.slug} firstName={firstName} preview={preview} openForAds={agent.quote_mode === "open_for_ads"} />
             )}
             {/* Roofers get the "we'll call you now" form only with the voice agent on: it calls in seconds and books the inspection */}
             {roof && voiceOnFor(agent) && agent.quote_mode !== "off" && (
-              <QuoteForm slug={agent.slug} firstName={firstName} preview={preview} openForAds={agent.quote_mode === "open_for_ads"} roof />
+              <QuoteForm slug={agent.slug} firstName={firstName} preview={preview} openForAds={agent.quote_mode === "open_for_ads"} roof clinic={clinic} />
             )}
           </div>
         </aside>
@@ -224,7 +255,7 @@ export default async function AgentPage({ params, searchParams }: Props) {
           <div>
             <h2 className="text-lg font-semibold">How the {meeting} works</h2>
             <ul className="mt-4 space-y-4">
-              {(roof ? roofSteps : steps).map(({ icon: Icon, title, body }) => (
+              {(clinic ? clinicSteps : roof ? roofSteps : steps).map(({ icon: Icon, title, body }) => (
                 <li key={title} className="flex gap-3.5">
                   <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-700">
                     <Icon className="size-[18px]" />
@@ -261,10 +292,18 @@ export default async function AgentPage({ params, searchParams }: Props) {
         </section>
       </main>
 
-      <StickyBookBar preview={preview} call={call} label={roof ? "Book a free inspection" : undefined} />
+      <StickyBookBar preview={preview} call={call} label={clinic ? "Book a free consultation" : roof ? "Book a free inspection" : undefined} />
 
       <footer className="mx-auto max-w-5xl px-4 pb-28 text-xs lg:pb-10 leading-relaxed text-slate-400 sm:px-6">
-        {roof ? (
+        {clinic ? (
+          <p>
+            {agent.full_name} offers free consultations to adults 18 and over. A consultation is not a diagnosis or a promise of any
+            result; outcomes vary from person to person.{" "}
+            <Link href="/privacy" className="underline">
+              Privacy policy
+            </Link>
+          </p>
+        ) : roof ? (
           <p>
             {agent.full_name}
             {agent.company_license ? ` (License #${agent.company_license})` : ""} offers free roof inspections to homeowners

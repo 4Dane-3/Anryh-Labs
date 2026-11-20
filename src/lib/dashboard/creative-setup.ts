@@ -6,6 +6,7 @@ import { getPresenter } from "@/lib/migz/presenter";
 import { getBrandRow } from "@/lib/edit/brand-scan";
 import { DEFAULT_BRAND } from "@/lib/edit/brand";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { MUSIC_LIBRARY, MUSIC_MOOD_KEYS, musicMood } from "@/lib/edit/music";
 import { allMedia } from "@/lib/roofing/job-media";
 import { findVoices } from "@/lib/voice/ad-voices";
 import type { MediaItem } from "@/components/dashboard/JobMediaSetup";
@@ -32,6 +33,8 @@ export async function creativeSetup(agent: Agent): Promise<{ brand: BrandInitial
       text: b?.text_color ?? DEFAULT_BRAND.text,
       accent: b?.accent ?? DEFAULT_BRAND.accent,
       fontNote: b?.font_note ?? null,
+      musicMood: musicMood(b?.music_mood),
+      musicPreviews: await musicPreviews(),
       // Before the brand existed, the offer and badge lived on the presenter
       deals: b?.deals.length ? b.deals : p?.offer ? [p.offer] : [],
       certifications: b?.certifications.length ? b.certifications : p?.badge ? [p.badge] : [],
@@ -62,4 +65,23 @@ export async function signMedia(media: ReturnType<typeof allMedia>): Promise<Med
   if (!media.length) return [];
   const { data } = await supabaseAdmin.storage.from("creatives").createSignedUrls(media.map((m) => m.path), 3600);
   return media.map((m, i) => ({ ...m, url: data?.[i]?.signedUrl ?? null }));
+}
+
+/** A short-lived link to each mood's library track, so the brand form can play them. Moods without one are left out. */
+async function musicPreviews(): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  const found = await Promise.all(
+    MUSIC_MOOD_KEYS.map(async (m) => {
+      const { data } = await supabaseAdmin.storage.from("creatives").list(`${MUSIC_LIBRARY}/${m}`, { limit: 5, sortBy: { column: "name", order: "asc" } });
+      const f = (data ?? []).find((x) => x.id && /\.mp3$/i.test(x.name));
+      return f ? { mood: m as string, path: `${MUSIC_LIBRARY}/${m}/${f.name}` } : null;
+    }),
+  );
+  const paths = found.filter((x): x is { mood: string; path: string } => !!x);
+  if (!paths.length) return out;
+  const { data } = await supabaseAdmin.storage.from("creatives").createSignedUrls(paths.map((p) => p.path), 3600);
+  paths.forEach((p, i) => {
+    if (data?.[i]?.signedUrl) out[p.mood] = data[i].signedUrl;
+  });
+  return out;
 }

@@ -49,7 +49,7 @@ import { adAccountFrom, checkMetaAccess, pageRefFrom } from "@/lib/meta/access";
 import { alertAdmin } from "@/lib/migz/slack";
 import { cleanInboundPrefs, INBOUND_MODE_COPY, INBOUND_PRICE_DOLLARS, isInboundMode, type InboundMode } from "@/lib/voice/inbound-rules";
 import { sendSlackMessage } from "@/lib/slack";
-import { isRoofer, MAX_RADIUS_MILES, MIN_RADIUS_MILES } from "@/lib/verticals";
+import { isLocal, isRoofer, MAX_RADIUS_MILES, MIN_RADIUS_MILES } from "@/lib/verticals";
 import { ROOFING_TOPIC_KEYS } from "@/lib/migz/topics";
 import { crmPayload, validWebhookUrl } from "@/lib/roofing/notify";
 import { markJobDone } from "@/lib/roofing/checkin";
@@ -190,12 +190,12 @@ export async function setAdsPaused(paused: boolean): Promise<Result> {
 export async function startDeposit(cents: number): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
   const agent = await requireAgent();
   // The first deposit starts a campaign, so it covers two weeks (a roofer's, a month at the minimum); later top-ups can be smaller
-  const plan = feePlanOf(agent) === "subscription" || (isRoofer(agent) && !agent.onboarding_completed_at) ? "subscription" : "percent";
+  const plan = feePlanOf(agent) === "subscription" || (isLocal(agent) && !agent.onboarding_completed_at) ? "subscription" : "percent";
   const minCents = minDepositFor(await getFundsAddedCents(agent.id), plan);
   if (!Number.isInteger(cents) || cents < minCents || cents > MAX_DEPOSIT_CENTS)
     return { ok: false, error: `${minCents > MIN_TOP_UP_CENTS ? (plan === "subscription" ? "Your first deposit starts your campaign with a month of ads at the $2,000 minimum, so it" : "Your first deposit starts your campaign with two weeks of ads, so it") : "A deposit"} must be between $${(minCents / 100).toLocaleString("en-US")} and $${(MAX_DEPOSIT_CENTS / 100).toLocaleString("en-US")}.` };
   // Agents who finished setup before the setup fee existed count as paid
-  if (!agent.setup_fee_paid_at && !agent.onboarding_completed_at) return { ok: false, error: isRoofer(agent) ? "Start Migz AI first: it's in Start here." : "Pay the setup fee first: it's step 1 in Start here." };
+  if (!agent.setup_fee_paid_at && !agent.onboarding_completed_at) return { ok: false, error: isLocal(agent) ? "Start Migz AI first: it's in Start here." : "Pay the setup fee first: it's step 1 in Start here." };
   if (!integrations.stripe)
     return { ok: false, error: "Payments aren't connected yet, so funds can't be added. This will work once Stripe is set up." };
   try {
@@ -283,13 +283,13 @@ export async function removeAutoTopUpCard(): Promise<Result> {
 /** Starts a Stripe Checkout session for the one-time setup fee (step 1 of Start here). */
 export async function startSetupFee(): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
   const agent = await requireAgent();
-  if (agent.setup_fee_paid_at || agent.onboarding_completed_at) return { ok: false, error: isRoofer(agent) ? "Migz AI is already on." : "Your setup fee is already paid." };
+  if (agent.setup_fee_paid_at || agent.onboarding_completed_at) return { ok: false, error: isLocal(agent) ? "Migz AI is already on." : "Your setup fee is already paid." };
   if (!integrations.stripe)
     return { ok: false, error: `Payments aren't connected yet. Email ${CONTACT_EMAIL} and we'll take the setup fee another way.` };
   try {
     // Roofers pay for Migz AI by the month, with no setup fee
     const input = { agentId: agent.id, email: agent.email, appUrl: checkoutReturnBase(), customerId: agent.stripe_customer_id ?? null };
-    const url = isRoofer(agent) ? await createSubscriptionCheckout(input) : await createSetupFeeCheckout(input);
+    const url = isLocal(agent) ? await createSubscriptionCheckout(input) : await createSetupFeeCheckout(input);
     return { ok: true, url };
   } catch (e) {
     console.error("stripe setup fee checkout failed", e);
@@ -305,7 +305,7 @@ const missingColumn = (code?: string) => code === "42703" || code === "PGRST204"
 export async function saveBusinessInfo(input: { agency_name: string; npn: string; business_email: string; phone: string }): Promise<Result> {
   const agent = await requireAgent();
   const agency = clean(input.agency_name, 120);
-  if (agency.length < 2 && !isRoofer(agent)) return fail("Add the agency or IMO you write through.");
+  if (agency.length < 2 && !isLocal(agent)) return fail("Add the agency or IMO you write through.");
   const npn = clean(input.npn, 20).replace(/\D/g, "");
   if (input.npn.trim() && (npn.length < 4 || npn.length > 10)) return fail("NPNs are 4 to 10 digits. Leave it blank if you'd rather not add it.");
   const email = clean(input.business_email, 200).toLowerCase();
@@ -852,7 +852,7 @@ export async function setVoiceAgent(on: boolean): Promise<Result> {
 /** "Job done" on a booked inspection: the check-in call is scheduled (about 2 hours out), or the referral email goes. */
 export async function jobDone(bookingId: string): Promise<{ ok: true; status: "scheduled" | "email_only"; callAt: string | null; reason: string | null } | { ok: false; error: string }> {
   const agent = await requireAgent();
-  if (!isRoofer(agent)) return { ok: false, error: "Only for roofing accounts." };
+  if (!isLocal(agent)) return { ok: false, error: "Only for roofing companies and clinics." };
   const res = await markJobDone(agent, clean(bookingId, 40), "dashboard");
   if (!res.ok) return { ok: false, error: res.error };
   revalidatePath("/dashboard", "layout");
@@ -862,7 +862,7 @@ export async function jobDone(bookingId: string): Promise<{ ok: true; status: "s
 /** Check-in calls and the referral reward, from Settings. */
 export async function saveCheckinSettings(input: { on: boolean; rewardDollars: number; goal: number; introEmail: boolean; mailingAddress: string; googleReviewUrl: string }): Promise<Result> {
   const agent = await requireAgent();
-  if (!isRoofer(agent)) return fail("Only for roofing accounts.");
+  if (!isLocal(agent)) return fail("Only for roofing companies and clinics.");
   const reward = Math.round(Number(input.rewardDollars) * 100);
   const goal = Math.round(Number(input.goal));
   if (!Number.isFinite(reward) || reward < 0 || reward > 100000) return fail("The reward is $0 to $1,000.");
@@ -894,7 +894,7 @@ export async function saveCheckinSettings(input: { on: boolean; rewardDollars: n
  */
 export async function saveInboundSettings(input: { on: boolean; mode: string; transferNumber: string; summaryEmail: string; prefs: unknown }): Promise<Result> {
   const agent = await requireAgent();
-  if (!isRoofer(agent)) return fail("Only for roofing accounts.");
+  if (!isLocal(agent)) return fail("Only for roofing companies and clinics.");
   if (!isInboundMode(input.mode)) return fail("Choose how calls reach Emma.");
   const transferRaw = clean(input.transferNumber, 40);
   const transfer = transferRaw ? usPhone(transferRaw) : null;
@@ -937,21 +937,10 @@ export async function saveJobRules(input: unknown): Promise<Result> {
   return { ok: true };
 }
 
-/** Setup's first question: roofing company or insurance agent. Can change until the first campaign starts. */
-export async function chooseVertical(vertical: string): Promise<Result> {
-  const agent = await requireAgent();
-  if (vertical !== "roofing" && vertical !== "insurance") return fail("Pick one.");
-  if (agent.onboarding_completed_at && vertical !== agent.vertical) return fail("Your campaign already started. Email us to switch.");
-  const { error } = await supabaseAdmin.from("agents").update({ vertical, vertical_chosen_at: new Date().toISOString() }).eq("id", agent.id);
-  if (error) return fail(error.code === "42703" || error.code === "PGRST204" ? "Setup isn't updated yet (migration 20261211000000)." : "Couldn't save that.");
-  revalidatePath("/dashboard", "layout");
-  return { ok: true };
-}
-
 /** The CRM a roofer books inspections in. */
 export async function saveCrm(crm: string): Promise<Result> {
   const agent = await requireAgent();
-  if (!isRoofer(agent)) return fail("Only for roofing accounts.");
+  if (!isLocal(agent)) return fail("Only for roofing companies and clinics.");
   const name = clean(crm, 60);
   if (!name) return fail("Choose your CRM, or None yet.");
   const { error } = await supabaseAdmin.from("agents").update({ crm: name }).eq("id", agent.id);
@@ -964,7 +953,7 @@ export async function saveCrm(crm: string): Promise<Result> {
 /** What a roofer's ads offer: a free roof inspection or a free quote. */
 export async function saveLeadGoal(goal: string): Promise<Result> {
   const agent = await requireAgent();
-  if (!isRoofer(agent)) return fail("Only for roofing accounts.");
+  if (!isLocal(agent)) return fail("Only for roofing companies and clinics.");
   if (!isLeadGoal(goal)) return fail("Pick a free inspection or a free quote.");
   const { error } = await supabaseAdmin.from("agents").update({ lead_goal: goal }).eq("id", agent.id);
   if (error) return fail(error.code === "42703" || error.code === "PGRST204" ? "Setup isn't updated yet (migration 20261211000000)." : "Couldn't save that.");
@@ -1100,7 +1089,7 @@ const cleanStates = (raw: unknown) =>
 /** Re-derives everything from the agent's choices on the server (never trusting the client's numbers). */
 async function resolveCampaign(agent: Agent, input: CampaignChoice): Promise<Resolved | string> {
   const answers = cleanAnswers(input.answers);
-  const roof = isRoofer(agent);
+  const roof = isLocal(agent);
   if (roof) answers.products = answers.products.filter((p) => ROOFING_TOPIC_KEYS.includes(p));
   if (!answers.products.length) return roof ? "Choose at least one thing to advertise." : "Choose at least one product to advertise.";
   let area: Resolved["area"] = null;
@@ -1459,7 +1448,7 @@ async function placeProblem(area: string, state: string, miles: number) {
 
 export async function saveRoofingSettings(input: { service_area: string; state: string; radius: number; crews: number; license: string; crm_webhook_url: string }): Promise<Result> {
   const agent = await requireAgent();
-  if (!isRoofer(agent)) return fail("This is only for roofing accounts.");
+  if (!isLocal(agent)) return fail("This is only for roofing companies and clinics.");
   const area = clean(input.service_area, 160);
   if (area.length < 3) return fail("Add the address, city or ZIP your crews work from.");
   const state = clean(input.state, 2).toUpperCase();

@@ -131,7 +131,24 @@ export const ROOFING_QUESTIONS: IntakeQuestion[] = [
   q("notes", 4, 0, "Anything the inspector should know?", "long_text", { placeholder: "Gate code, dogs, best place to park, where the leak shows up." }),
 ];
 
-export const defaultQuestionsFor = (vertical: string | null | undefined) => (vertical === "roofing" ? ROOFING_QUESTIONS : DEFAULT_QUESTIONS);
+/**
+ * A hair transplant clinic's questions. Only the 18+ check is required before booking (cosmetic procedures are for
+ * adults); the rest help the consultation and are optional. Nothing asks about the person's own hair loss in a way
+ * an ad couldn't, and none of it is shown before they choose to book.
+ */
+export const CLINIC_ADULT_KEY = "adult";
+export const CLINIC_QUESTIONS: IntakeQuestion[] = [
+  q(CLINIC_ADULT_KEY, 1, 0, "Are you 18 or older?", "choice", { options: ["Yes", "No"], required: true }),
+  q("interest", 2, 0, "What would you like to talk about?", "choice", {
+    options: ["Hair transplant", "Beard or eyebrow transplant", "Other hair restoration options", "Just exploring"],
+    allow_other: true,
+  }),
+  q("timeline", 2, 1, "When are you thinking of having it done?", "choice", { options: ["In the next month", "1–3 months", "3–6 months", "Not sure yet"] }),
+  q("prior_procedure", 3, 0, "Have you had a hair restoration procedure before?", "choice", { options: ["No", "Yes"] }),
+  q("notes", 4, 0, "Anything the clinic should know?", "long_text", { placeholder: "Questions you'd like answered, the best time to reach you." }),
+];
+
+export const defaultQuestionsFor = (vertical: string | null | undefined) => (vertical === "hair_clinic" ? CLINIC_QUESTIONS : vertical === "roofing" ? ROOFING_QUESTIONS : DEFAULT_QUESTIONS);
 
 export function isHidden(question: IntakeQuestion, values: Record<string, string>) {
   return (

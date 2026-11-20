@@ -8,9 +8,9 @@ import { IntentPicker, VideoTierPicker } from "@/components/dashboard/AdChoices"
 import { Button, inputClass } from "@/components/dashboard/ui";
 import { usd } from "@/lib/dashboard/format";
 import { cn } from "@/lib/utils";
-import { INSURANCE_TOPIC_KEYS, ROOFING_TOPIC_KEYS, TOPICS, MAX_FOCUS, type TopicKey } from "@/lib/migz/topics";
+import { CLINIC_TOPIC_KEYS, INSURANCE_TOPIC_KEYS, ROOFING_TOPIC_KEYS, TOPICS, MAX_FOCUS, type TopicKey } from "@/lib/migz/topics";
 import { ServiceAreaFields, type RoofingInitial } from "@/components/dashboard/RoofingForm";
-import type { Vertical } from "@/lib/verticals";
+import { isLocalVertical, type Vertical } from "@/lib/verticals";
 import { VIDEO_TIERS, type IntentLevel, type VideoTier } from "@/lib/ad-options";
 import { cycleSteps, runsTheCycle, WAVE_MAX, WAVE_MIN } from "@/lib/migz/cycle";
 import {
@@ -112,10 +112,10 @@ function ResultLine({ line, compact }: { line: ExpectedLine; compact?: boolean }
   );
 }
 
-function Expected({ lines, notes, own, compact, roof }: { lines: ExpectedLine[]; notes: string[]; own: boolean; compact?: boolean; roof?: boolean }) {
+function Expected({ lines, notes, own, compact, roof, clinic }: { lines: ExpectedLine[]; notes: string[]; own: boolean; compact?: boolean; roof?: boolean; clinic?: boolean }) {
   return (
     <div className={cn("rounded-xl border border-line bg-white/[0.03]", compact ? "px-4 py-3" : "px-4 py-4")}>
-      <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-fg-faint">{own ? "What to expect, from your own results" : roof ? "What to expect (typical for roofers booking free inspections on Meta)" : "What to expect (typical for US life insurance on Meta)"}</p>
+      <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-fg-faint">{own ? "What to expect, from your own results" : clinic ? "What to expect (typical for hair transplant clinics booking free consultations on Meta)" : roof ? "What to expect (typical for roofers booking free inspections on Meta)" : "What to expect (typical for US life insurance on Meta)"}</p>
       <div className={cn("grid gap-3", lines.length > 1 && "sm:grid-cols-2")}>
         {lines.map((l) => (
           <ResultLine key={l.destination} line={l} compact />
@@ -148,7 +148,8 @@ export function CampaignFlow({
 }) {
   const [a, setA] = useState<CampaignAnswers>(initial.answers);
   const [states, setStates] = useState<string[]>(initial.states);
-  const roof = initial.vertical === "roofing";
+  const roof = isLocalVertical(initial.vertical);
+  const clinic = initial.vertical === "hair_clinic";
   const [area, setArea] = useState<RoofingInitial>(initial.area ?? { service_area: "", state: "", radius: 15, crews: 1, license: "", crm_webhook_url: "" });
   const [intent, setIntent] = useState<IntentLevel>(initial.intent);
   const [tier, setTier] = useState<VideoTier>(initial.tier);
@@ -167,7 +168,7 @@ export function CampaignFlow({
   const set = <K extends keyof CampaignAnswers>(k: K, v: CampaignAnswers[K]) => setA((cur) => ({ ...cur, [k]: v }));
   const toggle = <T,>(list: T[], v: T) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
 
-  const vertical: Vertical = roof ? "roofing" : "insurance";
+  const vertical: Vertical = initial.vertical ?? "insurance";
   const money = useMemo(() => campaignMoney({ dailyCents: daily, intent, tier, vertical }), [daily, intent, tier, vertical]);
   const expected = useMemo(() => expectedResults({ answers: a, states: roof ? [area.state] : states, intent, dailyCents: daily, own, vertical }), [a, states, intent, daily, own, vertical, roof, area.state]);
   const ownUsed = expected.lines.some((l) => l.source === "yours");
@@ -175,20 +176,22 @@ export function CampaignFlow({
 
   const minDaily = minDailyFor(vertical);
   const dailyOk = daily >= minDaily && daily <= MAX_CAMPAIGN_DAILY_CENTS;
-  const ageLabel = roof ? "Every adult" : a.ageMin === null && a.ageMax === null ? "Any adult" : `${a.ageMin ?? 18}–${a.ageMax ?? "90"}`;
+  const ageLabel = clinic ? "Adults 18+" : roof ? "Every adult" : a.ageMin === null && a.ageMax === null ? "Any adult" : `${a.ageMin ?? 18}–${a.ageMax ?? "90"}`;
 
   const allScreens: { key: string; q: string; help?: string; skip?: () => void; valid?: boolean; body: React.ReactNode }[] = [
     {
       key: "products",
       q: roof ? "What should your ads lead with?" : "What do you want to advertise?",
-      help: roof
+      help: clinic
+        ? `Every ad offers a free consultation. Pick up to ${MAX_FOCUS} things to lead with, main one first.`
+        : roof
         ? `Every ad offers a free roof inspection. Pick up to ${MAX_FOCUS} reasons homeowners book one, main one first.`
         : `Pick up to ${MAX_FOCUS}, main one first. Migz makes the most ads for your first pick.`,
       valid: a.products.length > 0,
       body: (
         <div className="space-y-2">
           <div className="grid gap-2 sm:grid-cols-2">
-            {(roof ? ROOFING_TOPIC_KEYS : moreProducts ? INSURANCE_TOPIC_KEYS : MAIN_PRODUCTS).map((k: TopicKey) => {
+            {(clinic ? CLINIC_TOPIC_KEYS : roof ? ROOFING_TOPIC_KEYS : moreProducts ? INSURANCE_TOPIC_KEYS : MAIN_PRODUCTS).map((k: TopicKey) => {
               const rank = a.products.indexOf(k);
               return (
                 <Tile
@@ -234,10 +237,10 @@ export function CampaignFlow({
     },
     {
       key: "area",
-      q: "Where do you work?",
-      help: "Your ads reach homeowners living within this distance. Pick what your crews will actually drive to.",
+      q: clinic ? "Where are your patients?" : "Where do you work?",
+      help: clinic ? "Your ads reach adults living within this distance of your clinic. Pick how far people will travel for a consultation." : "Your ads reach homeowners living within this distance. Pick what your crews will actually drive to.",
       valid: area.service_area.trim().length >= 3 && !!area.state,
-      body: <ServiceAreaFields value={area} onChange={setArea} />,
+      body: <ServiceAreaFields value={area} onChange={setArea} clinic={clinic} />,
     },
     {
       key: "states",
@@ -390,7 +393,7 @@ export function CampaignFlow({
             />
             <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[12px] text-fg-faint">/day</span>
           </div>
-          {roof && <p className="text-[13px] text-fg-muted">Roofing campaigns run at least $2,000 a month in ads ({whole(ROOFER_MIN_DAILY_CENTS)}/day).</p>}
+          {roof && <p className="text-[13px] text-fg-muted">{clinic ? "Clinic" : "Roofing"} campaigns run at least $2,000 a month in ads ({whole(ROOFER_MIN_DAILY_CENTS)}/day).</p>}
           {!dailyOk && <p className="text-[13px] text-bad">Choose between {whole(minDaily)} and {whole(MAX_CAMPAIGN_DAILY_CENTS)} a day.</p>}
           {dailyOk && (
             <div className="grid gap-3 sm:grid-cols-2">
@@ -415,7 +418,7 @@ export function CampaignFlow({
                     .join(" · ")}
                 </p>
                 <p className="mt-1 text-[12px] text-fg-faint">
-                  {roof ? "Each on a different angle (after the storm, roof age, local crew, before and after, what the inspection covers)." : "Each on a different angle (price, no exam, family, burial costs, age, testimonial style)."}{" "}
+                  {clinic ? "Each on a different angle (surgeon-led, the free consultation, how it works, real reviews, the offer, the local clinic)." : roof ? "Each on a different angle (after the storm, roof age, local crew, before and after, what the inspection covers)." : "Each on a different angle (price, no exam, family, burial costs, age, testimonial style)."}{" "}
                   {runsTheCycle(money.days, renew)
                     ? `Meta learns for the first week; then, from day 8 and every two weeks after, Migz adds ${WAVE_MIN}–${WAVE_MAX} new ones together, built from what's winning.`
                     : `At ${money.days} days the campaign is too short to read new ads, so these are the ads it runs.`}
@@ -503,7 +506,7 @@ export function CampaignFlow({
         </motion.div>
       </AnimatePresence>
 
-      {screen.key !== "plan" && screen.key !== "products" && dailyOk && <Expected lines={expected.lines} notes={expected.notes} own={ownUsed} compact={screen.key !== "budget"} roof={roof} />}
+      {screen.key !== "plan" && screen.key !== "products" && dailyOk && <Expected lines={expected.lines} notes={expected.notes} own={ownUsed} compact={screen.key !== "budget"} roof={roof} clinic={clinic} />}
 
       {error && <p className="text-[13px] text-bad">{error}</p>}
 
@@ -653,7 +656,7 @@ export function MigzPlan({ plan, renews = false }: { plan: NonNullable<Extract<C
         </ol>
       </div>
 
-      <Expected lines={plan.expected.lines} notes={plan.expected.notes} own={plan.expected.lines.some((l) => l.source === "yours")} roof={plan.expected.lines.some((l) => l.unit === "booked inspection")} />
+      <Expected lines={plan.expected.lines} notes={plan.expected.notes} own={plan.expected.lines.some((l) => l.source === "yours")} roof={plan.expected.lines.some((l) => l.unit === "booked inspection" || l.unit === "booked consultation")} clinic={plan.expected.lines.some((l) => l.unit === "booked consultation")} />
     </div>
   );
 }

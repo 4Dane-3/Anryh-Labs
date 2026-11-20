@@ -22,6 +22,8 @@ const COPY_SYSTEM = `You check life-insurance ad copy for Meta's Financial Produ
 
 const ROOFING_COPY_SYSTEM = `You check a roofing company's Meta ad copy before it runs. Flag only real problems: promising a free roof (only the inspection is free); covering, waiving or paying the insurance deductible; saying or implying the reader's roof is damaged; promising insurance will pay; financing, monthly payment or credit claims; fake storms, reviews, numbers or urgency; naming a customer or a street address; anything misleading. Offering a free inspection after a storm in the area is fine. Return ok=false only when there is a concrete problem, with one short issue per problem.`;
 
+const CLINIC_COPY_SYSTEM = `You check a hair transplant clinic's Meta ad copy before it runs, against Meta's personal attributes and health policies. Flag only real problems: asserting or implying the reader's hair loss, baldness, age or appearance ("your thinning hair", "are you going bald?"); making the reader feel bad about how they look; before-and-after claims or comparisons; promising or guaranteeing results ("guaranteed", "permanent", "look 10 years younger"); financing, monthly payment or credit claims; speaking to anyone under 18; fake reviews, numbers or urgency; naming a patient; anything misleading. Talking about the clinic, the surgeon, the procedure, recovery or the free consultation is fine, and so is hair loss in the third person ("many men start thinking about it in their 30s"). Return ok=false only when there is a concrete problem, with one short issue per problem.`;
+
 /** Regex rules first (free, certain), then Haiku for what regex can't see. Null = fine. */
 export async function precheckCopy(texts: (string | null | undefined)[], ctx: Ctx) {
   const rule = checkCopyFor(ctx.vertical, ...texts);
@@ -38,7 +40,7 @@ export async function precheckCopy(texts: (string | null | undefined)[], ctx: Ct
     params: {
       max_tokens: 600,
       output_config: { effort: "low", format: { type: "json_schema", schema: COPY_SCHEMA } },
-      system: [{ type: "text", text: ctx.vertical === "roofing" ? ROOFING_COPY_SYSTEM : COPY_SYSTEM, cache_control: { type: "ephemeral" } }],
+      system: [{ type: "text", text: ctx.vertical === "hair_clinic" ? CLINIC_COPY_SYSTEM : ctx.vertical === "roofing" ? ROOFING_COPY_SYSTEM : COPY_SYSTEM, cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: clean.map((t) => `- ${t}`).join("\n") }],
     },
   });

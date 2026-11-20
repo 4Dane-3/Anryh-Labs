@@ -1,5 +1,5 @@
 import { checkPlatformFocus, type PlatformStats } from "@/lib/migz/platforms";
-import { roofingCopyProblem, type Vertical } from "@/lib/verticals";
+import { clinicCopyProblem, roofingCopyProblem, type Vertical } from "@/lib/verticals";
 import { adsForBudget, SCHEDULE_FROM_CALLS_PER_WEEK } from "@/lib/migz/playbook";
 import { QUOTE_MODES, type QuoteMode } from "@/lib/booking/constants";
 import { isCostlyLoser, LIVE_ADS_HIGH, loserCheck, pauseWindow, WAVE_MAX, waveRoom } from "@/lib/migz/cycle";
@@ -418,15 +418,16 @@ export function checkCopy(...texts: (string | null | undefined)[]) {
   return problems.size ? `Ad copy breaks insurance ad rules: ${[...problems].join("; ")}. Rewrite it.` : null;
 }
 
-/** The copy rules for the account's business: insurance (above) or roofing (lib/verticals.ts). */
+/** The copy rules for the account's business: insurance (above), roofing or a hair transplant clinic (lib/verticals.ts). */
 export function checkCopyFor(vertical: Vertical | undefined, ...texts: (string | null | undefined)[]) {
-  if (vertical !== "roofing") return checkCopy(...texts);
+  if (vertical !== "roofing" && vertical !== "hair_clinic") return checkCopy(...texts);
+  const rule = vertical === "hair_clinic" ? clinicCopyProblem : roofingCopyProblem;
   const problems = new Set<string>();
   for (const text of texts) {
-    const why = text ? roofingCopyProblem(text) : null;
+    const why = text ? rule(text) : null;
     if (why) problems.add(why);
   }
-  return problems.size ? `Ad copy breaks roofing ad rules: ${[...problems].join(" ")} Rewrite it.` : null;
+  return problems.size ? `Ad copy breaks ${vertical === "hair_clinic" ? "health" : "roofing"} ad rules: ${[...problems].join(" ")} Rewrite it.` : null;
 }
 
 // Market examples are inspiration only: refuse copy that lifts a run of 6+ words from the swipe file.

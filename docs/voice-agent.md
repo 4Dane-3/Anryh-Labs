@@ -73,6 +73,8 @@ node --env-file=.env.local scripts/voice/push-emma.mjs            # dry run: sho
 node --env-file=.env.local scripts/voice/push-emma.mjs --apply    # updates the agent, backup in .claude/emma-backups/
 ```
 
+**Hair transplant clinics** get their own Emma: `scripts/voice/emma-clinic-prompt.md` on a separate ElevenLabs agent, `ELEVENLABS_CLINIC_AGENT_ID`. Make it by duplicating the lead agent in ElevenLabs (so it has the same tools and webhook), put its id in the env, then push with `--clinic`. Until that id is set, clinics get no AI calls at all (never the roofing script). She asks 18+, what they'd like to talk about and when, books the consultation with `book_inspection` (no address), and never comments on anyone's hair, quotes prices or promises results.
+
 The push also removes any **workflow** (stages) on the agent. Don't add one in the ElevenLabs editor: an ElevenLabs lead-qualifier template once sat on top of the prompt, and its B2B stages (budget, authority, "route to a sales rep") made Emma re-ask questions and fire several at once. Tools are left alone.
 
 Rules the prompt sticks to, so calls with half the details still go smoothly:

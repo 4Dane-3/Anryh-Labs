@@ -76,14 +76,46 @@ const ROOFING_TOPICS = {
   },
 } as const;
 
-export const TOPICS = { ...INSURANCE_TOPICS, ...ROOFING_TOPICS };
+// Hair transplant clinics. Meta's health policy runs through every angle: never assert or imply the viewer's hair
+// loss or appearance ("your thinning hair", "you're going bald"), no before-and-after images, no promised results,
+// adults 18+ only.
+const CLINIC_TOPICS = {
+  hair_transplant: {
+    label: "Hair transplants",
+    pitch: "A natural-looking hairline designed by a surgeon.",
+    angle: "The surgeon on camera explaining how they design a hairline for each face. Hook on the craft and the consultation, never on the viewer's hair loss. No before-and-after images, no promised results.",
+  },
+  free_consultation: {
+    label: "Free consultation",
+    pitch: "A no-pressure consultation to see what's possible.",
+    angle: "What happens in the free consultation, how long it takes, no obligation. Hook on getting real answers from a surgeon.",
+  },
+  clinic_offer: {
+    label: "Current offer",
+    pitch: "This month's offer on a procedure.",
+    angle: "The clinic's own special with its end date. Calm and factual: never 'last chance' pressure, never a price the clinic didn't give.",
+  },
+  procedure_explained: {
+    label: "How it works",
+    pitch: "The procedure, recovery and what to expect, explained simply.",
+    angle: "Educational: FUE or FUT in plain words, recovery time, when results usually show (as facts, never a promise). Hook on a common question people ask.",
+  },
+  clinic_reviews: {
+    label: "Reviews & trust",
+    pitch: "Real patients and a strong Google rating.",
+    angle: "Their real Google rating and review count, patients speaking for themselves with consent. Never a made-up number, never a before-and-after photo.",
+  },
+} as const;
+
+export const TOPICS = { ...INSURANCE_TOPICS, ...ROOFING_TOPICS, ...CLINIC_TOPICS };
 
 export type TopicKey = keyof typeof TOPICS;
 /** Every topic (the tools' enums); use topicKeysFor for what an account can pick. */
 export const TOPIC_KEYS = Object.keys(TOPICS) as TopicKey[];
 export const INSURANCE_TOPIC_KEYS = Object.keys(INSURANCE_TOPICS) as TopicKey[];
 export const ROOFING_TOPIC_KEYS = Object.keys(ROOFING_TOPICS) as TopicKey[];
-export const topicKeysFor = (v: Vertical) => (v === "roofing" ? ROOFING_TOPIC_KEYS : INSURANCE_TOPIC_KEYS);
+export const CLINIC_TOPIC_KEYS = Object.keys(CLINIC_TOPICS) as TopicKey[];
+export const topicKeysFor = (v: Vertical) => (v === "hair_clinic" ? CLINIC_TOPIC_KEYS : v === "roofing" ? ROOFING_TOPIC_KEYS : INSURANCE_TOPIC_KEYS);
 export const MAX_FOCUS = 3;
 
 export const isTopic = (v: unknown): v is TopicKey => typeof v === "string" && v in TOPICS;

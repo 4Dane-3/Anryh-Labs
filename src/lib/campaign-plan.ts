@@ -1,6 +1,6 @@
 import { isTopic, TOPICS, MAX_FOCUS, type TopicKey } from "@/lib/migz/topics";
 import { MIN_SPLIT_DAILY_CENTS, VIDEO_TIERS, type IntentLevel, type VideoTier } from "@/lib/ad-options";
-import type { Vertical } from "@/lib/verticals";
+import { isLocalVertical, type Vertical } from "@/lib/verticals";
 
 // Starting a campaign: the agent answers a few questions and picks a daily budget. Migz picks the length,
 // the ad funds it needs, the creative mix, and shows the range of results to expect. Pure (client-safe):
@@ -103,9 +103,9 @@ export const ROOFER_MIN_MONTHLY_AD_CENTS = 200_000;
 export const ROOFER_MIN_DAILY_CENTS = 6700;
 export const ROOFER_DAILY_CHOICES = [6700, 10_000, 15_000, 20_000, 30_000, 50_000] as const;
 /** The least a campaign can run at a day, for this business. */
-export const minDailyFor = (vertical?: string | null) => (vertical === "roofing" ? ROOFER_MIN_DAILY_CENTS : MIN_CAMPAIGN_DAILY_CENTS);
+export const minDailyFor = (vertical?: string | null) => (isLocalVertical(vertical) ? ROOFER_MIN_DAILY_CENTS : MIN_CAMPAIGN_DAILY_CENTS);
 /** The daily budgets offered as buttons, for this business. */
-export const dailyChoicesFor = (vertical?: string | null): readonly number[] => (vertical === "roofing" ? ROOFER_DAILY_CHOICES : DAILY_CHOICES);
+export const dailyChoicesFor = (vertical?: string | null): readonly number[] => (isLocalVertical(vertical) ? ROOFER_DAILY_CHOICES : DAILY_CHOICES);
 
 /**
  * Campaigns are rolling: no end date. They run in 1-week cycles, and the next cycle starts on its own from
@@ -207,13 +207,26 @@ export const ROOFING_ANGLES = {
 } as const;
 export type RoofingAngle = keyof typeof ROOFING_ANGLES;
 
+/**
+ * Hair transplant clinic angles. Meta's health policy: never assert or imply the viewer's hair loss or looks
+ * ("your thinning hair"), no before-and-after images, no promised results, adults 18+ only.
+ */
+export const CLINIC_ANGLES = {
+  surgeon_led: "Surgeon-led: the surgeon on camera explaining how a hairline is designed for each face (never promise results).",
+  consult_free: "The free consultation: what happens in it, how long it takes, no pressure and no obligation.",
+  how_it_works: "How it works: the procedure explained simply, recovery time, what to expect (facts, no outcome claims).",
+  real_reviews: "Real reviews: their Google rating and review count, patients speaking for themselves (never a before-and-after photo).",
+  the_offer: "The current offer: their own special, with its end date (never pressure, never 'last chance').",
+  local_clinic: "Local clinic: the team, the clinic itself and years in the area.",
+} as const;
+
 export function anglesFor(a: Pick<CampaignAnswers, "underwriting" | "ageMin" | "ageMax">): Angle[] {
   return (Object.keys(ANGLES) as Angle[]).filter((k) => (k === "no_exam" ? offersNoExam(a) : k === "age_callout" ? a.ageMin !== null || a.ageMax !== null : true));
 }
 
 /** The angle notes a campaign's creatives cover, for its business. */
 export function angleNotesFor(a: Pick<CampaignAnswers, "underwriting" | "ageMin" | "ageMax">, vertical: Vertical = "insurance"): string[] {
-  return vertical === "roofing" ? Object.values(ROOFING_ANGLES) : anglesFor(a).map((k) => ANGLES[k]);
+  return vertical === "hair_clinic" ? Object.values(CLINIC_ANGLES) : vertical === "roofing" ? Object.values(ROOFING_ANGLES) : anglesFor(a).map((k) => ANGLES[k]);
 }
 
 // ---------- Expected results ----------
@@ -228,13 +241,15 @@ export const TYPICAL = {
 
 /** Typical booked free roof inspections from Meta (homeowners, a local radius). */
 export const TYPICAL_ROOFING = { cost: { low: 7500, mid: 13_000, high: 22_000 } as Range, follow: "60–75% of booked inspections happen" };
+/** Typical booked free consultations for a hair transplant clinic from Meta (adults 18+, a local radius). */
+export const TYPICAL_CLINIC = { cost: { low: 9000, mid: 16_000, high: 28_000 } as Range, follow: "50–70% of booked consultations show up" };
 
 const PRODUCT_COST: Partial<Record<TopicKey, number>> = { final_expense: 1, mortgage_protection: 1.2, retirement_iul: 1.3, term_life: 1.1, whole_life: 1.05 };
 
 /** How the agent's answers move the typical cost per result, and why, in plain words. */
 export function costAdjustments(a: CampaignAnswers, states: string[], vertical: Vertical = "insurance") {
   const notes: { text: string; factor: number }[] = [];
-  if (vertical === "roofing") {
+  if (isLocalVertical(vertical)) {
     if (a.languages.includes("es")) notes.push({ factor: 0.9, text: "Spanish-language ads usually cost less per result." });
     return { factor: notes.reduce((f, n) => f * n.factor, 1), notes };
   }
@@ -261,7 +276,7 @@ export type OwnNumbers = {
 
 export type ExpectedLine = {
   destination: "website" | "instant_form";
-  unit: "booked call" | "booked inspection" | "form lead";
+  unit: "booked call" | "booked inspection" | "booked consultation" | "form lead";
   dailyCents: number;
   cost: Range; // cents per result
   perWeek: Range;
@@ -272,7 +287,8 @@ export type ExpectedLine = {
 
 export function expectedResults(input: { answers: CampaignAnswers; states: string[]; intent: IntentLevel; dailyCents: number; days?: number; own?: OwnNumbers | null; vertical?: Vertical }) {
   const days = input.days ?? recommendedDays();
-  const roof = input.vertical === "roofing";
+  const roof = isLocalVertical(input.vertical);
+  const clinic = input.vertical === "hair_clinic";
   const adj = costAdjustments(input.answers, input.states, input.vertical);
   // Costs: their own after 2 finished campaigns. Show-up and reach rates: their own as soon as they're known
   const own = input.own && input.own.campaigns >= 2 ? input.own : null;
@@ -283,11 +299,11 @@ export function expectedResults(input: { answers: CampaignAnswers; states: strin
     const mine = destination === "website" ? own?.costPerCallCents : own?.costPerLeadCents;
     const cost: Range = mine
       ? { low: Math.round(mine * 0.75), mid: mine, high: Math.round(mine * 1.4) }
-      : scale(roof ? TYPICAL_ROOFING.cost : TYPICAL[destination].cost, adj.factor);
+      : scale(clinic ? TYPICAL_CLINIC.cost : roof ? TYPICAL_ROOFING.cost : TYPICAL[destination].cost, adj.factor);
     const per = (cents: number, c: number) => (cents * 7) / c;
     return {
       destination,
-      unit: destination === "website" ? (roof ? "booked inspection" : "booked call") : "form lead",
+      unit: destination === "website" ? (clinic ? "booked consultation" : roof ? "booked inspection" : "booked call") : "form lead",
       dailyCents,
       cost,
       perWeek: { low: Math.floor(per(dailyCents, cost.high)), mid: Math.round(per(dailyCents, cost.mid)), high: Math.ceil(per(dailyCents, cost.low)) },
@@ -298,11 +314,11 @@ export function expectedResults(input: { answers: CampaignAnswers; states: strin
       },
       follow:
         destination === "website" && input.own?.showRate != null
-          ? `${rate(input.own.showRate)} of your ${roof ? "booked inspections happen" : "booked calls show up"} (from your answers)`
+          ? `${rate(input.own.showRate)} of your ${clinic ? "booked consultations show up" : roof ? "booked inspections happen" : "booked calls show up"} (from your answers)`
           : destination === "instant_form" && input.own?.reachRate != null
             ? `you reach ${rate(input.own.reachRate)} of your form leads (from your answers)`
             : roof
-              ? TYPICAL_ROOFING.follow
+              ? clinic ? TYPICAL_CLINIC.follow : TYPICAL_ROOFING.follow
               : TYPICAL[destination].follow,
       source: mine ? "yours" : "typical",
     };
@@ -317,7 +333,7 @@ const scale = (r: Range, f: number): Range => ({ low: Math.round(r.low * f), mid
 export function campaignMoney(input: { dailyCents: number; intent: IntentLevel; tier: VideoTier; vertical?: Vertical }) {
   const days = recommendedDays();
   const adSpendCents = input.dailyCents * days;
-  const sets = (input.vertical === "roofing" ? [{ destination: "website" as const, dailyCents: input.dailyCents }] : adsetShares(input.intent, input.dailyCents)).map((s) => ({ ...s, mix: creativeMix(s.dailyCents) }));
+  const sets = (isLocalVertical(input.vertical) ? [{ destination: "website" as const, dailyCents: input.dailyCents }] : adsetShares(input.intent, input.dailyCents)).map((s) => ({ ...s, mix: creativeMix(s.dailyCents) }));
   const videoCents = sets.reduce((sum, s) => sum + mixVideoCents(input.tier, s.mix), 0);
   // To start: two weeks of ads plus the videos made on day one
   const startSpendCents = input.dailyCents * START_FUNDED_DAYS;

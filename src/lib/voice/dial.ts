@@ -2,7 +2,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
 import { displayPhone, usPhone } from "@/lib/booking/call";
-import { callerNumber, placeOutboundCall, voiceConfigured } from "@/lib/voice/elevenlabs";
+import { callerNumber, placeOutboundCall, voiceConfig, voiceConfiguredFor } from "@/lib/voice/elevenlabs";
 import { callTimeLabel, dynamicVariables, hoursSummary, inCallWindow, nextCallTime, type LeadForCall } from "@/lib/voice/rules";
 
 // Speed to lead: the moment a lead's row is saved, the voice agent's call is requested in the same request
@@ -13,7 +13,7 @@ import { callTimeLabel, dynamicVariables, hoursSummary, inCallWindow, nextCallTi
 export type VoiceAccount = Pick<Agent, "id" | "full_name" | "timezone" | "vertical" | "service_area" | "service_radius_miles"> & { voice_agent?: boolean | null };
 
 /** The account has the voice agent on and the ElevenLabs keys are set. */
-export const voiceOnFor = (agent: { voice_agent?: boolean | null }) => !!agent.voice_agent && voiceConfigured();
+export const voiceOnFor = (agent: { voice_agent?: boolean | null; vertical?: string | null }) => !!agent.voice_agent && voiceConfiguredFor(agent.vertical);
 
 export async function isDoNotCall(phone: string) {
   const { data } = await supabaseAdmin.from("voice_do_not_call").select("phone").eq("phone", phone).maybeSingle();
@@ -80,7 +80,8 @@ export async function dialLead(opts: {
 }) {
   const { account, lead, attempt, reason, hours, tz } = opts;
   const requestedAt = new Date();
-  const result = await placeOutboundCall(lead.phone, dynamicVariables(lead, account, hours, tz));
+  // A clinic's leads get clinic Emma (her own prompt); everyone else the lead agent
+  const result = await placeOutboundCall(lead.phone, dynamicVariables(lead, account, hours, tz), account.vertical === "hair_clinic" ? { agentId: voiceConfig().clinicAgentId } : {});
   const returnedAt = new Date();
 
   const ms = (a: Date, b?: Date) => (b ? `${a.getTime() - b.getTime()}ms` : "?");

@@ -139,7 +139,7 @@ export async function radiusCenter(address: string, state: string | null | undef
 /** Meta's targeting for a geo (without placements). */
 export async function geoTargeting(geo: AdGeo) {
   if (geo.kind === "radius") {
-    if (!geo.address.trim()) throw new Error("The roofer has no service area to target.");
+    if (!geo.address.trim()) throw new Error("The business has no service area to target.");
     const center = await radiusCenter(geo.address, geo.state, geo.miles);
     if (!center) throw new Error(`Meta couldn't find "${geo.address}". Use a ZIP code, a city, or a full street address.`);
     return { geo_locations: { ...center, location_types: ["home"] }, age_min: geo.ageMin, age_max: geo.ageMax };
@@ -149,7 +149,8 @@ export async function geoTargeting(geo: AdGeo) {
   return { geo_locations: { regions }, age_min: 18 };
 }
 
-export type SpecialAdCategory = "FINANCIAL_PRODUCTS_SERVICES" | "HOUSING";
+// NONE: no special ad category (a hair transplant clinic: health ads follow Meta's health policy instead)
+export type SpecialAdCategory = "FINANCIAL_PRODUCTS_SERVICES" | "HOUSING" | "NONE";
 
 /** Insurance campaigns run under Financial Products & Services, roofers' under Housing (home repair). */
 export async function createCampaign(account: string, name: string, opts: { category?: SpecialAdCategory } = {}) {
@@ -157,8 +158,7 @@ export async function createCampaign(account: string, name: string, opts: { cate
     name,
     objective: "OUTCOME_LEADS",
     status: "PAUSED", // activated after its first ad set and ads exist
-    special_ad_categories: [opts.category ?? "FINANCIAL_PRODUCTS_SERVICES"],
-    special_ad_category_country: ["US"],
+    ...(opts.category === "NONE" ? { special_ad_categories: [] } : { special_ad_categories: [opts.category ?? "FINANCIAL_PRODUCTS_SERVICES"], special_ad_category_country: ["US"] }),
     is_adset_budget_sharing_enabled: false,
   });
   return res.id;

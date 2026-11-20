@@ -6,8 +6,9 @@ import { addBrandLogo, saveBrand, scanWebsite, type BrandInput } from "@/app/das
 import { Panel } from "@/components/dashboard/ui";
 import { uploadToSignedUrl } from "@/lib/dashboard/upload";
 import { CERTIFICATIONS, SPECIALS, WARRANTIES } from "@/lib/roofing/setup-options";
+import { MUSIC_MOODS, MUSIC_MOOD_KEYS } from "@/lib/edit/music";
 
-export type BrandInitial = BrandInput & { hasLogo: boolean };
+export type BrandInitial = BrandInput & { hasLogo: boolean; musicPreviews?: Record<string, string> };
 
 const field = "mt-1 w-full rounded-lg border border-line bg-ink-high px-3 py-2 text-sm text-fg";
 const split = (s: string) => s.split("\n");
@@ -62,7 +63,10 @@ export function BrandSetup({ initial, details, onSaved }: { initial: BrandInitia
     });
   const save = () =>
     start(async () => {
-      const r = await saveBrand({ ...v, deals: split(deals), warranties: split(warranties) });
+      const { hasLogo: _logo, musicPreviews: _previews, ...input } = v;
+      void _logo;
+      void _previews;
+      const r = await saveBrand({ ...input, deals: split(deals), warranties: split(warranties) });
       setNotice(r.ok ? { ok: true, text: "Saved. Your next videos use these details." } : { ok: false, text: r.error ?? "Couldn't save." });
       if (r.ok) onSaved?.();
     });
@@ -192,6 +196,22 @@ export function BrandSetup({ initial, details, onSaved }: { initial: BrandInitia
           Your roof, <span style={{ color: v.accent }}>inspected</span> free
         </p>
         <p style={{ fontFamily: v.bodyFont, fontSize: 13, opacity: 0.85 }}>How a caption and a card will look</p>
+      </div>
+
+      <div>
+        <p className="text-sm text-fg">Background music</p>
+        <p className="text-[12px] text-fg-muted">Plays softly under your voice and dips while you talk.</p>
+        <div className="mt-2 grid gap-2 sm:grid-cols-3">
+          {[...MUSIC_MOOD_KEYS, "none" as const].map((m) => (
+            <button key={m} type="button" onClick={() => set({ musicMood: m })} className={`rounded-lg border px-3 py-2 text-left ${v.musicMood === m ? "border-brand" : "border-line"}`}>
+              <span className="block text-[13px] font-semibold text-fg">{m === "none" ? "No music" : MUSIC_MOODS[m].label}</span>
+              <span className="block text-[12px] text-fg-muted">{m === "none" ? "Just your voice and the sound effects." : MUSIC_MOODS[m].hint}</span>
+            </button>
+          ))}
+        </div>
+        {v.musicMood !== "none" && v.musicPreviews?.[v.musicMood] && (
+          <audio key={v.musicMood} controls preload="none" src={v.musicPreviews[v.musicMood]} className="mt-2 h-9 w-full" />
+        )}
       </div>
 
       <label className="block text-sm text-fg">

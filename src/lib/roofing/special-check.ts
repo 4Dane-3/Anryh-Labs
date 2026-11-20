@@ -1,5 +1,6 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { isLocalVertical } from "@/lib/verticals";
 import type { Agent } from "@/lib/booking/data";
 import { resend } from "@/lib/roofing/notify";
 import { sendSlackMessage } from "@/lib/slack";
@@ -31,7 +32,7 @@ export async function sendSpecialChecks(deadline: number) {
   }[]) {
     if (Date.now() > deadline) break;
     const a = row.agents;
-    if (!a.active || a.vertical !== "roofing" || !a.onboarding_completed_at || !specialCheckDue(row)) continue;
+    if (!a.active || !isLocalVertical(a.vertical) || !a.onboarding_completed_at || !specialCheckDue(row)) continue;
     const special = row.deals[0];
     const email = specialEmail(a, special);
     try {

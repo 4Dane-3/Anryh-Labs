@@ -1,5 +1,5 @@
 import "server-only";
-import { isRoofer, radiusMiles } from "@/lib/verticals";
+import { isLocal, radiusMiles, verticalOf } from "@/lib/verticals";
 import { DateTime } from "luxon";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
@@ -91,7 +91,7 @@ export async function buildCampaignPlan(agent: Agent, input: { answers: Campaign
   const ended = (data ?? []) as Batch[];
   const own = await ownNumbers(agent, ended);
   const days = recommendedDays();
-  const vertical = agent.vertical === "roofing" ? "roofing" : "insurance";
+  const vertical = verticalOf(agent);
   const expected = expectedResults({ ...input, days, own, vertical });
   const main = expected.lines.find((l) => l.destination === "website") ?? expected.lines[0];
   const recommendedDailyCents = recommendedDaily(main.cost.mid);
@@ -106,7 +106,7 @@ export async function buildCampaignPlan(agent: Agent, input: { answers: Campaign
       first: true,
       learned: [],
       changes: [
-        `This is your first campaign, so Migz starts from typical numbers for ${vertical === "roofing" ? "roofing companies booking free inspections" : "US life insurance"} on Meta, adjusted for your answers. After it ends, Migz plans from your own results.`,
+        `This is your first campaign, so Migz starts from typical numbers for ${vertical === "hair_clinic" ? "hair transplant clinics booking free consultations" : vertical === "roofing" ? "roofing companies booking free inspections" : "US life insurance"} on Meta, adjusted for your answers. After it ends, Migz plans from your own results.`,
         "Every creative launches on day one, each on a different angle, and Meta finds which ones book.",
         ...(adj.notes.length ? [`Your answers move the typical numbers: ${adj.notes.map((n) => n.text.replace(/\.$/, "")).join("; ")}.`] : []),
       ],
@@ -211,11 +211,11 @@ export async function getCampaignStart(agent: Agent): Promise<{ initial: Campaig
       states: agent.licensed_states ?? [],
       intent: isIntentLevel(agent.intent_level) ? agent.intent_level : DEFAULT_INTENT,
       tier: isVideoTier(agent.video_tier) ? agent.video_tier : DEFAULT_VIDEO_TIER,
-      dailyCents: Math.min(MAX_CAMPAIGN_DAILY_CENTS, Math.max(minDailyFor(isRoofer(agent) ? "roofing" : null), daily)),
+      dailyCents: Math.min(MAX_CAMPAIGN_DAILY_CENTS, Math.max(minDailyFor(agent.vertical), daily)),
       autoRun: agent.migz_mode === "auto",
       renew: true, // campaigns are rolling
-      vertical: isRoofer(agent) ? "roofing" : "insurance",
-      area: isRoofer(agent)
+      vertical: verticalOf(agent),
+      area: isLocal(agent)
         ? {
             service_area: agent.service_area ?? "",
             state: agent.licensed_states?.[0] ?? "",

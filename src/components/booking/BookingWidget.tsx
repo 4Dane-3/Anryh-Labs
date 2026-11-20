@@ -49,6 +49,7 @@ export function BookingWidget({
   questions = [],
   requiredSteps = [],
   meeting = "consultation",
+  vertical,
 }: {
   slug: string;
   firstName: string;
@@ -58,6 +59,7 @@ export function BookingWidget({
   requiredSteps?: number[];
   /** What's being booked: "consultation", or "roof inspection" for a roofer. */
   meeting?: string;
+  vertical?: string; // which consent wording (must match what's stored with the booking)
 }) {
   const router = useRouter();
   // Visitor's timezone; empty during SSR so server and client markup match
@@ -369,7 +371,7 @@ export function BookingWidget({
                 checked={form.consent}
                 onChange={(e) => setForm({ ...form, consent: e.target.checked })}
               />
-              <span>{consentTextFor(meeting === "roof inspection")}</span>
+              <span>{consentTextFor(vertical ?? meeting === "roof inspection")}</span>
             </label>
           </>
         )}

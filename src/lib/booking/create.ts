@@ -12,7 +12,7 @@ import { markFormLeadBooked } from "@/lib/migz/leads";
 import { partnerPageUrl } from "@/lib/booking/sites";
 import { sendBookingConfirmation } from "@/lib/booking/email";
 import { sendInspectionBooked, sendToCrm } from "@/lib/roofing/notify";
-import { isRoofer } from "@/lib/verticals";
+import { isLocal, isRoofer } from "@/lib/verticals";
 import { evaluateLead, factsFromAnswers, type FitResult, type JobRules } from "@/lib/roofing/job-rules";
 import { rulesOf, saveBookingFit } from "@/lib/roofing/fit";
 
@@ -76,7 +76,7 @@ export async function createBooking(
         name: input.name,
         email: input.email,
         phone: input.phone,
-        consent_text: ctx.consentText ?? consentTextFor(isRoofer(agent)),
+        consent_text: ctx.consentText ?? consentTextFor(agent.vertical ?? null),
         attribution: input.attribution,
         ...(crews > 1 ? { crew } : {}), // the column is missing before the roofing migration; crew 1 is its default
       })
@@ -134,13 +134,13 @@ export async function createBooking(
   }
 
   // How they fit the roofer's rules (checked already by the voice agent; from the answers otherwise)
-  const roof = isRoofer(agent);
+  const roof = isRoofer(agent); // job rules are roofing only
   const rules = ctx.fit?.rules ?? rulesOf(agent);
   const fit = roof ? (ctx.fit?.result ?? evaluateLead(rules, factsFromAnswers(answers))) : null;
   if (fit && !ctx.fit) after(() => saveBookingFit(booking.id, fit));
 
   // A roofer hears about the inspection by email (with that street's postcard to print), and their CRM gets it
-  if (isRoofer(agent)) {
+  if (isLocal(agent)) {
     const inspection = { id: booking.id, starts_at: booking.starts_at, ends_at: booking.ends_at, name: input.name, email: input.email, phone: input.phone };
     after(async () => {
       await sendInspectionBooked(agent, inspection, answers, fit ? { fit, rules } : undefined).catch((e) => console.error("inspection email failed", e));

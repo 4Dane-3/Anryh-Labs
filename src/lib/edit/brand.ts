@@ -9,7 +9,8 @@ export type Brand = {
   logoUrl?: string | null;
 };
 
-export const DEFAULT_BRAND: Brand = { headingFont: "Inter", bodyFont: "Inter", background: "#141413", text: "#FFFFFF", accent: "#F59E0B" };
+// The baseline look of every edit until a client sets their own colours: vivid blue on near-black
+export const DEFAULT_BRAND: Brand = { headingFont: "Inter", bodyFont: "Inter", background: "#141413", text: "#FFFFFF", accent: "#2D7FF9" };
 
 export function normalizeHex(c: string | null | undefined): string | null {
   if (!c) return null;

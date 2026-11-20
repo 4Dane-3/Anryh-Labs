@@ -19,6 +19,8 @@ export type BrandRow = {
   certifications: string[];
   license: string | null;
   warranties: string[];
+  music_mood?: string | null; // src/lib/edit/music.ts
+  proof?: unknown; // landing-page proof (src/lib/landing/proof.ts): the Google rating feeds the reviews card
 };
 
 export async function getBrandRow(agentId: string) {

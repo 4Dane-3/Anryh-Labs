@@ -233,22 +233,30 @@ export function spokenNumber(words: Word[], i: number): Spoken | null {
     let any = false;
     for (; k < words.length; k++) {
       const parts = raw(k).split("-");
+      // A hyphenated word counts only when every part is a number word ("twenty-five"), so "five-star" isn't a
+      // number, and a word that isn't used never moves the count (which used to end before the word it started on)
+      let t: number = total;
+      let c: number = current;
+      let a: boolean = any;
       let used = true;
       for (const p of parts) {
-        if (p in UNITS) current += UNITS[p];
-        else if (p in TENS) current += TENS[p];
-        else if (p === "hundred" && any) current *= 100;
-        else if (p === "thousand" && any) {
-          total += current * 1000;
-          current = 0;
-        } else if (p === "year" || p === "years") {
+        if (p in UNITS) c += UNITS[p];
+        else if (p in TENS) c += TENS[p];
+        else if (p === "hundred" && a) c *= 100;
+        else if (p === "thousand" && a) {
+          t += c * 1000;
+          c = 0;
+        } else if ((p === "year" || p === "years") && a) {
           // "twenty-five-year"
-          if (any) return { value: total + current, unit: "years", plus: false, first: i, last: k };
+          return { value: t + c, unit: "years", plus: false, first: i, last: k };
+        } else {
           used = false;
-        } else used = false;
-        if (used) any = true;
+          break;
+        }
+        a = true;
       }
       if (!used) break;
+      [total, current, any] = [t, c, a];
     }
     if (!any) return null;
     value = total + current;

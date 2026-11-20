@@ -1,15 +1,23 @@
-// What kind of business an account is. Migz started with life insurance agents; roofing companies use the same
-// engine to book free roof inspections. Everything that reads differently for a roofer asks here. Client-safe.
+// What kind of business an account is. Migz started with life insurance agents. Roofing companies and hair
+// transplant clinics are local businesses on the same engine (a service area, landing pages that ask for a quote or
+// consultation, booking, Emma calling): isLocal() asks that. What only fits one trade asks isRoofer() or
+// isClinic(). Staff pick the business type when they invite a client (admin), so clients never choose. Client-safe.
 
-export type Vertical = "insurance" | "roofing";
-export const VERTICALS: Vertical[] = ["insurance", "roofing"];
-export const isVertical = (v: unknown): v is Vertical => v === "insurance" || v === "roofing";
+export type Vertical = "insurance" | "roofing" | "hair_clinic";
+export const VERTICALS: Vertical[] = ["insurance", "roofing", "hair_clinic"];
+export const isVertical = (v: unknown): v is Vertical => v === "insurance" || v === "roofing" || v === "hair_clinic";
+/** What staff see when they pick one. */
+export const VERTICAL_LABELS: Record<Vertical, string> = { roofing: "Roofing company", hair_clinic: "Hair transplant clinic", insurance: "Life insurance agent" };
 
 type HasVertical = { vertical?: string | null } | null | undefined;
-export const verticalOf = (a: HasVertical): Vertical => (a?.vertical === "roofing" ? "roofing" : "insurance");
-export const isRoofer = (a: HasVertical) => verticalOf(a) === "roofing";
+export const verticalOf = (a: HasVertical): Vertical => (isVertical(a?.vertical) ? a.vertical : "insurance");
+/** A local business: roofing or a clinic (service area, landing pages, quotes, Emma, presenter videos). */
+export const isLocalVertical = (v: string | null | undefined) => v === "roofing" || v === "hair_clinic";
+export const isLocal = (a: HasVertical) => isLocalVertical(a?.vertical);
+export const isRoofer = (a: HasVertical) => a?.vertical === "roofing";
+export const isClinic = (a: HasVertical) => a?.vertical === "hair_clinic";
 
-/** The words that change between the two. */
+/** The words that change between them. */
 export const WORDS = {
   insurance: {
     booking: "booked call",
@@ -28,6 +36,15 @@ export const WORDS = {
     meetingTitle: "Free roof inspection",
     owner: "roofer",
     business: "roofing company",
+  },
+  hair_clinic: {
+    booking: "booked consultation",
+    bookings: "booked consultations",
+    Bookings: "Booked consultations",
+    meeting: "consultation",
+    meetingTitle: "Free consultation",
+    owner: "clinic",
+    business: "hair transplant clinic",
   },
 } as const;
 export const words = (a: HasVertical) => WORDS[verticalOf(a)];
@@ -78,4 +95,25 @@ export const ROOFING_BANNED: { pattern: RegExp; why: string }[] = [
 /** The first rule a piece of roofing ad copy breaks, or null. */
 export function roofingCopyProblem(text: string) {
   return ROOFING_BANNED.find((r) => r.pattern.test(text))?.why ?? null;
+}
+
+// ---------- Hair transplant clinic ad rules ----------
+
+/**
+ * What a clinic's ads must never say, from Meta's personal attributes and health policies (cosmetic procedures:
+ * adults 18+, no before-and-after, no negative self-perception, no promised results). Each is a pattern Migz's
+ * copy is checked against, with why.
+ */
+export const CLINIC_BANNED: { pattern: RegExp; why: string }[] = [
+  { pattern: /\byour\s+(thinning|receding|balding|bald(\s+spot)?|hair\s*loss|hairline|scalp)\b|\b(are|r)\s+you\s+(going\s+)?(bald|balding|losing\s+(your\s+)?hair|thinning)\b|\byou('re|\s+are)\s+(bald|balding|losing\s+(your\s+)?hair|thinning)\b/i, why: "Never assert or imply the viewer's hair loss or appearance (Meta's personal attributes policy): talk about the clinic and the procedure." },
+  { pattern: /\b(tired|embarrassed|ashamed|insecure|self-conscious|sick)\s+(of|about)\s+(your|being|looking)\b|\bhate\s+(your|how\s+you\s+look)\b/i, why: "Never make the viewer feel bad about how they look (Meta's health policy: no negative self-perception)." },
+  { pattern: /\bbefore\s*(and|&|\/|-)\s*after\b/i, why: "No before-and-after images or comparisons in clinic ads." },
+  { pattern: /\bguarantee(d|s)?\s+(results?|growth|density|success)\b|\bresults?\s+(are\s+)?guaranteed\b|\b100\s*%\s+(natural|success|guaranteed|results?)\b|\bpermanent(ly)?\s+(results?|solution|fix|cure)\b|\bcure(s|d)?\s+(baldness|hair\s*loss)\b|\blook\s+\d+\s+years?\s+younger\b/i, why: "Never promise or guarantee results in a health ad." },
+  { pattern: /\bfinanc(e|ing|ed)\b|\b0%\s*(apr|interest)\b|\bmonthly\s+payments?\b|\bno\s+money\s+down\b|\bcredit\b/i, why: "No financing, payment or credit claims: they can put the ads under Meta's Financial category." },
+  { pattern: /\b(teens?|teenagers?|under\s+18|high\s+school(ers)?)\b/i, why: "Cosmetic procedure ads are for adults 18 and over only." },
+];
+
+/** The first rule a piece of clinic ad copy breaks, or null. */
+export function clinicCopyProblem(text: string) {
+  return CLINIC_BANNED.find((r) => r.pattern.test(text))?.why ?? null;
 }

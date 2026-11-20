@@ -5,11 +5,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowUpRight, Check, Info, Loader2 } from "lucide-react";
-import { chooseVertical, launchCampaign, saveBatchPlan, saveCrm, saveLeadGoal, setCreativeMode, startSetupFee } from "@/app/dashboard/actions";
+import { launchCampaign, saveBatchPlan, saveCrm, saveLeadGoal, setCreativeMode, startSetupFee } from "@/app/dashboard/actions";
 import { BrandSetup, type BrandInitial } from "@/components/dashboard/BrandSetup";
 import { PresenterSetup, type PresenterInitial } from "@/components/dashboard/PresenterSetup";
 import { CreativeContext, type CreativeContextInitial } from "@/components/dashboard/CreativeContext";
 import { CRMS, LEAD_GOALS, leadOffer, type LeadGoal } from "@/lib/roofing/setup-options";
+import { isLocalVertical } from "@/lib/verticals";
 import { MIGZ_MONTHLY_CENTS, SETUP_FEE_CENTS } from "@/lib/campaign";
 import { CampaignFlow, type CampaignStart } from "@/components/dashboard/start/CampaignFlow";
 import { listCampaignTopics, type CampaignSlot } from "@/lib/batch";
@@ -115,6 +116,31 @@ const WHY: Record<string, string> = {
   rules: "So you only get the bookings you want, and nobody is booked for work you'd turn down.",
   mode: "You choose how much control you keep: Migz runs everything within your budget, or asks you before every new ad and change.",
 };
+/** What changes for a hair transplant clinic (over the roofing wording, the same local-business setup). */
+const CLINIC_TITLES: Record<string, { title: string; blurb: string }> = {
+  setup_fee: { title: `Migz AI: ${usd(MIGZ_MONTHLY_CENTS, { cents: false })}/month`, blurb: "Meta ads, video ads and Emma. No setup fee, cancel anytime. Every dollar of ad funds you add goes to your ads." },
+  business: { title: "Your clinic", blurb: "Your clinic email and the number patients reach you on." },
+  profile: { title: "Your clinic's profile", blurb: "Your clinic name, logo or photo and a short intro. Patients see this before they talk to you." },
+  crm: { title: "Your CRM", blurb: "Consultations are booked straight into your CRM's calendar. Tell us which one you use." },
+  plan: { title: "Plan your first campaign", blurb: "What your ads lead with, the area you serve and a daily budget. Migz makes the ads." },
+  details: { title: "Your offer and credentials", blurb: "What every video can feature: this campaign's offer, your surgeon's credentials and any guarantee." },
+  address: { title: "Your ad address", blurb: "Where every ad sends people: an address on your own website, like book.yourclinic.com. One DNS record." },
+  google: { title: "Google Ads (optional)", blurb: "Search ads for people looking up hair transplants near them right now. Migz runs the campaign in your own Google Ads account." },
+  media: { title: "Ad Creative AI Context (optional)", blurb: "Your voice and your real clinic photos and clips. Migz uses them in every ad." },
+};
+const CLINIC_WHY: Record<string, string> = {
+  business: "Every lead and booking is emailed to this address, and patients reach you on this number. It's the call button on your ads and pages.",
+  setup_fee: "This is the monthly fee: Migz running your Meta ads, the videos, and Emma calling and booking your consultations. Your ad spend is separate and all of it goes to your ads.",
+  profile: "People see your clinic name, logo and intro on your landing pages before they ask for a consultation. A clinic they can recognise gets more requests.",
+  address:
+    "Every ad, on Facebook, Instagram and Google, sends people to this address on your own domain, so the ad, the page and your clinic all match. People trust a link with your name in it, Google ranks ads higher when the page matches the search, and the address stays yours if you ever leave. Your main website isn't touched: only this one address points at us, and we build the pages in your website's fonts and colours.",
+  crm: "So consultations land in the calendar your team already uses, and nobody retypes anything.",
+  details: "Specific offers win. Your offer and your surgeon's credentials are what set your ads apart from the clinic down the road. Migz only claims what you enter here, and health ads can't promise results, so an ad never says something you can't back up.",
+  google: "Optional. Google reaches people searching for a hair transplant near them right now, the hottest leads there are. The account stays yours, and you pay Google directly.",
+  media: "Optional, but it makes your ads yours: your real clinic and your voice beat stock footage. No before-and-after photos: Meta restricts them in health ads.",
+  plan: "Migz needs to know what to lead with, the area you serve and how much to spend a day before it can build the campaign. Ads only reach adults 18 and over, as Meta requires for cosmetic procedures.",
+  funds: "This pays Meta for your Facebook and Instagram ads, all of it. A campaign starts with two weeks funded so Meta has time to learn who asks for a consultation.",
+};
 const ROOF_WHY: Record<string, string> = {
   business: "Every lead and booking is emailed to this address, and homeowners reach you on this number. It's the call button on your ads and pages.",
   meta: "Your Facebook and Instagram ads run from your own Meta ad account, so the account, its history and the spend are always yours. Sharing it with Anryh Labs lets Migz run your ads without your password, and you can remove us any time.",
@@ -135,6 +161,7 @@ const ROOF_WHY: Record<string, string> = {
 
 function StepShell({
   roof,
+  clinic,
   index,
   stepKey,
   done,
@@ -144,6 +171,7 @@ function StepShell({
   children,
 }: {
   roof?: boolean;
+  clinic?: boolean;
   index: number;
   stepKey: string;
   done: boolean;
@@ -164,8 +192,8 @@ function StepShell({
           {done ? <Check className="size-4" /> : index}
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block text-sm font-semibold text-fg">{((roof && ROOF_TITLES[stepKey]) || TITLES[stepKey]).title}</span>
-          <span className="block truncate text-[13px] text-fg-muted">{done ? summary : ((roof && ROOF_TITLES[stepKey]) || TITLES[stepKey]).blurb}</span>
+          <span className="block text-sm font-semibold text-fg">{((clinic && CLINIC_TITLES[stepKey]) || (roof && ROOF_TITLES[stepKey]) || TITLES[stepKey]).title}</span>
+          <span className="block truncate text-[13px] text-fg-muted">{done ? summary : ((clinic && CLINIC_TITLES[stepKey]) || (roof && ROOF_TITLES[stepKey]) || TITLES[stepKey]).blurb}</span>
         </span>
         <span className={cn("shrink-0 text-[12px]", done ? "text-good" : "text-fg-faint")}>{done ? "Done" : open ? "" : "To do"}</span>
       </button>
@@ -179,12 +207,12 @@ function StepShell({
             className="overflow-hidden"
           >
             <div className="border-t border-line px-5 py-5">
-              {((roof && ROOF_WHY[stepKey]) || WHY[stepKey]) && (
+              {((clinic && CLINIC_WHY[stepKey]) || (roof && ROOF_WHY[stepKey]) || WHY[stepKey]) && (
                 <div className="mb-5 flex gap-2.5 rounded-lg border border-line bg-white/[0.03] px-3.5 py-3 text-[13px] leading-relaxed text-fg-muted">
                   <Info className="mt-0.5 size-4 shrink-0 text-fg-faint" />
                   <p>
                     <span className="font-medium text-fg">Why we need this: </span>
-                    {(roof && ROOF_WHY[stepKey]) || WHY[stepKey]}
+                    {(clinic && CLINIC_WHY[stepKey]) || (roof && ROOF_WHY[stepKey]) || WHY[stepKey]}
                   </p>
                 </div>
               )}
@@ -198,7 +226,7 @@ function StepShell({
 }
 
 /** Step 3: the one-time setup fee (roofers: the Migz AI subscription), paid on Stripe's page. Done when Stripe confirms it. */
-function SetupFeeStep({ stripeConnected, contactEmail, roof }: { stripeConnected: boolean; contactEmail: string; roof: boolean }) {
+function SetupFeeStep({ stripeConnected, contactEmail, roof, clinic }: { stripeConnected: boolean; contactEmail: string; roof: boolean; clinic?: boolean }) {
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const pay = () =>
@@ -213,10 +241,10 @@ function SetupFeeStep({ stripeConnected, contactEmail, roof }: { stripeConnected
       {roof ? (
         <>
           <ul className="space-y-1.5 text-[13px] text-fg-muted">
-            <li>· Migz AI runs your Facebook, Instagram and Google ads every day: campaigns, budgets and new ads</li>
-            <li>· Emma, your AI assistant, calls every homeowner who asks for a quote within about a minute and books the ones who fit</li>
-            <li>· Video ads with real hooks, your towns and your certifications, sent to you for approval</li>
-            <li>· Landing pages on your own domain, inspection reminders and a summary every 3 days</li>
+            <li>· Migz AI runs your Facebook, Instagram{clinic ? "" : " and Google"} ads every day: campaigns, budgets and new ads</li>
+            <li>· Emma, your AI assistant, calls everyone who asks for {clinic ? "a consultation" : "a quote"} within about a minute and books the ones who fit</li>
+            <li>· Video ads with real hooks, your {clinic ? "area and your surgeon's credentials" : "towns and your certifications"}, sent to you for approval</li>
+            <li>· Landing pages on your own domain, {clinic ? "consultation" : "inspection"} reminders and a summary every 3 days</li>
           </ul>
           <p className="text-[13px] text-fg-muted">{usd(MIGZ_MONTHLY_CENTS, { cents: false })} a month, billed today and monthly after. No setup fee, no contract. Your ad spend is separate, and all of it goes to your ads.</p>
         </>
@@ -246,45 +274,6 @@ function SetupFeeStep({ stripeConnected, contactEmail, roof }: { stripeConnected
           and we&apos;ll take it another way.
         </p>
       )}
-      {error && <p className="text-[13px] text-bad">{error}</p>}
-    </div>
-  );
-}
-
-/** Step 1: roofing company or insurance agent. Everything after it is built for the answer. */
-function VerticalStep({ current, chosen, onSaved }: { current: "roofing" | "insurance"; chosen: boolean; onSaved: () => void }) {
-  const router = useRouter();
-  const [pending, start] = useTransition();
-  const [error, setError] = useState<string | null>(null);
-  const pick = (v: "roofing" | "insurance") =>
-    start(async () => {
-      setError(null);
-      const res = await chooseVertical(v);
-      if (!res.ok) return setError(res.error);
-      router.refresh();
-      onSaved();
-    });
-  const options = [
-    { value: "roofing", title: "Roofing company", detail: "Meta ads that bring homeowners in for a free inspection or quote, booked into your CRM." },
-    { value: "insurance", title: "Insurance agent", detail: "Meta ads that book calls with people shopping for life insurance." },
-  ] as const;
-  return (
-    <div className="space-y-3">
-      <div className="grid gap-2 sm:grid-cols-2">
-        {options.map((o) => (
-          <button
-            key={o.value}
-            type="button"
-            disabled={pending}
-            aria-pressed={chosen && current === o.value}
-            onClick={() => pick(o.value)}
-            className={cn("rounded-lg border px-4 py-3 text-left transition-colors", chosen && current === o.value ? "border-brand/60 bg-brand/[0.08]" : "border-line hover:border-line-strong hover:bg-white/[0.03]")}
-          >
-            <span className="block text-sm font-medium text-fg">{o.title}</span>
-            <span className="mt-1 block text-[12px] leading-snug text-fg-muted">{o.detail}</span>
-          </button>
-        ))}
-      </div>
       {error && <p className="text-[13px] text-bad">{error}</p>}
     </div>
   );
@@ -436,9 +425,10 @@ function CreativesStep({ mode, count, onSaved }: { mode: Props["creativeMode"]; 
 
 export function StartWizard(props: Props) {
   const router = useRouter();
-  const roof = props.plan.start.vertical === "roofing";
-  // Until the first question is answered, it's the only step shown
-  const shown = props.verticalChosen ? props.steps : props.steps.filter((s) => s.key === "vertical");
+  // The business type is set by Anryh Labs when they invite the client: setup never asks
+  const roof = isLocalVertical(props.plan.start.vertical);
+  const clinic = props.plan.start.vertical === "hair_clinic";
+  const shown = props.steps.filter((s) => s.key !== "vertical");
   const required = (k: string) => k !== "avatar" && k !== "media" && k !== "google" && !(roof && k === "slack");
   const counted = props.steps.filter((s) => required(s.key));
   const doneCount = counted.filter((s) => s.done).length;
@@ -465,7 +455,6 @@ export function StartWizard(props: Props) {
     });
 
   const summaries: Record<string, string> = {
-    vertical: roof ? "Roofing company" : "Insurance agent",
     business: roof ? props.business.business_email || "Saved" : props.business.agency_name,
     meta: props.meta.linked ? `Ad account ${props.meta.linked.adAccount}` : "",
     slack: "Connected",
@@ -488,10 +477,9 @@ export function StartWizard(props: Props) {
   };
 
   const body: Record<string, React.ReactNode> = {
-    vertical: <VerticalStep current={roof ? "roofing" : "insurance"} chosen={props.verticalChosen} onSaved={() => advance("vertical")} />,
-    business: <BusinessStep initial={props.business} roof={roof} onSaved={() => advance("business")} />,
+    business: <BusinessStep initial={props.business} roof={roof} clinic={clinic} onSaved={() => advance("business")} />,
     meta: <MetaStep {...props.meta} onSaved={() => advance("meta")} />,
-    setup_fee: <SetupFeeStep stripeConnected={props.stripeConnected} contactEmail={props.contactEmail} roof={roof} />,
+    setup_fee: <SetupFeeStep stripeConnected={props.stripeConnected} contactEmail={props.contactEmail} roof={roof} clinic={clinic} />,
     profile: <ProfileForm profile={props.profile} onSaved={() => advance("profile")} />,
     page: <BookingStep {...props.booking} slug={props.slug} onSaved={() => advance("page")} />,
     crm: <CrmStep initial={props.crm} onSaved={() => advance("crm")} />,
@@ -503,7 +491,7 @@ export function StartWizard(props: Props) {
       </div>
     ),
     details: props.brand && <BrandSetup initial={props.brand} details onSaved={() => advance("details")} />,
-    avatar: props.presenter && <PresenterSetup initial={props.presenter} inSetup onSaved={() => advance("avatar")} />,
+    avatar: props.presenter && <PresenterSetup initial={props.presenter} inSetup clinic={clinic} onSaved={() => advance("avatar")} />,
     media: props.context && <CreativeContext initial={props.context} />,
     google: props.google && <GoogleAdsSetup initial={props.google} onSaved={() => advance("google")} />,
     slack: <SlackStep current={props.slack.current} inviteUrl={props.slack.inviteUrl} contactEmail={props.contactEmail} onSaved={() => advance("slack")} />,
@@ -560,12 +548,12 @@ export function StartWizard(props: Props) {
       </div>
 
       {shown.map((s, i) => (
-        <StepShell key={s.key} roof={roof} index={i + 1} stepKey={s.key} done={s.done} summary={summaries[s.key] ?? "Saved"} open={open === s.key} onToggle={() => setOpen(open === s.key ? null : s.key)}>
+        <StepShell key={s.key} roof={roof} clinic={clinic} index={i + 1} stepKey={s.key} done={s.done} summary={summaries[s.key] ?? "Saved"} open={open === s.key} onToggle={() => setOpen(open === s.key ? null : s.key)}>
           {body[s.key]}
         </StepShell>
       ))}
 
-      {props.verticalChosen && (
+      {(
         <Panel className={cn("mt-6 px-5 py-5", ready && !props.completed && "border-brand/40")}>
           <h2 className="text-sm font-semibold text-fg">{props.completed ? "Your campaign" : "Start your campaign"}</h2>
           {props.completed ? (

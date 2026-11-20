@@ -4,7 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import { adLinkFor } from "@/lib/booking/sites";
 import type { Agent } from "@/lib/booking/data";
 import { getRequestStatus, submitClip, submitImage, submitVideo, videoModel } from "@/lib/higgsfield";
-import { isRoofer } from "@/lib/verticals";
+import { verticalOf } from "@/lib/verticals";
 import { brollShots, sayNameAs } from "@/lib/migz/presenter-plan";
 import { motionFor, type JobMedia } from "@/lib/roofing/job-media";
 import { photoAd } from "@/lib/migz/photo-ad";
@@ -112,7 +112,7 @@ export async function enqueueGeneration(input: {
 }) {
   // Image prompts read differently for a roofer
   const { data: owner } = await supabaseAdmin.from("agents").select("vertical").eq("id", input.agentId).maybeSingle();
-  if (!isVideoBrief(input.brief)) input = { ...input, brief: { ...input.brief, vertical: isRoofer(owner) ? "roofing" : "insurance" } as AnyBrief };
+  if (!isVideoBrief(input.brief)) input = { ...input, brief: { ...input.brief, vertical: verticalOf(owner) } as AnyBrief };
   const { data: job, error } = await supabaseAdmin
     .from("creative_jobs")
     .insert({

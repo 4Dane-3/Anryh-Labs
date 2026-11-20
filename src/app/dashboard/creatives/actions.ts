@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { verticalOf } from "@/lib/verticals";
 import { after } from "next/server";
 import { ensureJobsiteLook } from "@/lib/migz/presenter-look";
 import { requireAgent } from "@/lib/auth";
@@ -12,6 +13,7 @@ import { deleteVoice, findVoices, isVoiceId, type AdVoice, type VoiceFilter } fr
 import { normalizeUsPhone } from "@/lib/migz/sms";
 import { scanBrandSite, type ScanResult } from "@/lib/edit/brand-scan";
 import { normalizeHex } from "@/lib/edit/brand";
+import { musicMood } from "@/lib/edit/music";
 import { allMedia, isMediaKind, MAX_JOB_MEDIA, type JobMedia } from "@/lib/roofing/job-media";
 
 /** Whether Migz's videos wait for the agent's OK before going to Meta. Videos already waiting keep waiting. */
@@ -50,7 +52,7 @@ export async function savePresenter(input: PresenterInput): Promise<{ ok: boolea
   if (!["film", "ai", "none"].includes(input.mode)) return { ok: false, error: "Pick how you want to appear." };
   if (input.mode === "ai" && (!input.consented || input.consentName.trim().length < 2)) return { ok: false, error: "Type your name and tick the box to use AI with your likeness." };
   if (input.mode !== "none" && input.onCameraName.trim().length < 2) return { ok: false, error: "Add the first name of who's on camera." };
-  const problem = checkCopyFor("roofing", input.onCameraRole);
+  const problem = checkCopyFor(verticalOf(agent), input.onCameraRole);
   if (problem) return { ok: false, error: problem };
   const { data: prior } = await supabaseAdmin.from("agent_presenters").select("consent_at, consent_name").eq("agent_id", agent.id).maybeSingle();
   const { error } = await supabaseAdmin.from("agent_presenters").upsert({
@@ -216,6 +218,7 @@ export type BrandInput = {
   certifications: string[];
   license: string;
   warranties: string[];
+  musicMood: string; // soft, upbeat, educational, inspiring, luxury or none
 };
 
 const lines = (xs: string[], n: number, len: number) => xs.map((x) => x.trim().slice(0, len)).filter(Boolean).slice(0, n);
@@ -227,7 +230,7 @@ export async function saveBrand(input: BrandInput): Promise<{ ok: boolean; error
   const certifications = lines(input.certifications, 4, 60);
   const warranties = lines(input.warranties, 3, 80);
   const license = input.license.trim().slice(0, 40) || null;
-  const problem = checkCopyFor("roofing", ...deals, ...certifications, ...warranties, license ?? "");
+  const problem = checkCopyFor(verticalOf(agent), ...deals, ...certifications, ...warranties, license ?? "");
   if (problem) return { ok: false, error: problem };
   const hex = (c: string) => normalizeHex(c);
   // A new featured special counts as confirmed today, so the weekly check starts over from it
@@ -247,6 +250,7 @@ export async function saveBrand(input: BrandInput): Promise<{ ok: boolean; error
     certifications,
     license,
     warranties,
+    music_mood: musicMood(input.musicMood),
     scanned_at: input.website.trim() ? new Date().toISOString() : null,
     updated_at: new Date().toISOString(),
   });

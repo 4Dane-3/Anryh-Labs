@@ -30,7 +30,7 @@ export type CreativeBrief = {
 
 export type ImageBrief = {
   format: "image";
-  vertical?: "insurance" | "roofing"; // set by the system when the job is made
+  vertical?: "insurance" | "roofing" | "hair_clinic"; // set by the system when the job is made
   concept: string;
   topic?: string;
   wave?: number;
@@ -234,8 +234,8 @@ export function imagePrompt(brief: ImageBrief) {
   const button = brief.button_text ? clean(brief.button_text) : null;
 
   return [
-    `A ${clean(brief.style)} photo for a ${brief.vertical === "roofing" ? "local roofing company" : "life insurance"} ad, ${brief.aspect_ratio === "1:1" ? "1:1 square" : `${brief.aspect_ratio} vertical`}. ${clean(brief.scene)}`,
-    `${brief.vertical === "roofing" ? "A real, believable home, roof or crew at work." : "Genuine, candid expressions, unposed."} The ${brief.vertical === "roofing" ? "subject fills" : "people fill"} the lower two-thirds of the frame; the upper third is open, softly blurred background, leaving clean space for text.`,
+    `A ${clean(brief.style)} photo for a ${brief.vertical === "hair_clinic" ? "hair transplant clinic" : brief.vertical === "roofing" ? "local roofing company" : "life insurance"} ad, ${brief.aspect_ratio === "1:1" ? "1:1 square" : `${brief.aspect_ratio} vertical`}. ${clean(brief.scene)}`,
+    `${brief.vertical === "hair_clinic" ? "A bright, modern clinic, a surgeon or a calm consultation; never a before-and-after, a bald scalp close-up or surgery." : brief.vertical === "roofing" ? "A real, believable home, roof or crew at work." : "Genuine, candid expressions, unposed."} The ${brief.vertical === "roofing" ? "subject fills" : "people fill"} the lower two-thirds of the frame; the upper third is open, softly blurred background, leaving clean space for text.`,
     "",
     `In the upper third, centered, ${lines.length === 1 ? "one short line" : `${lines.length} short lines`} of clean, modern serif text in warm white with a subtle soft shadow for readability${lines.length > 1 ? ", stacked with even spacing" : ""}:`,
     ...lines.map((l) => `"${l}"`),

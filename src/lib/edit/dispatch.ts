@@ -15,7 +15,10 @@ import { getPresenter, onCameraLine } from "@/lib/migz/presenter";
 import { brandForEdit, googleFontFiles } from "@/lib/edit/brand-scan";
 import { buildPlan, H, W, type Box, type EditPlan, type SfxKind } from "@/lib/edit/plan";
 import { fixPlan, type Check } from "@/lib/edit/qc";
+import { SFX_EXTENSIONS, SFX_STAND_INS } from "@/lib/edit/sfx-library";
 import { buildComposition } from "@/lib/edit/composition";
+import { MUSIC_LIBRARY, MUSIC_MOODS, musicMood, type MusicMood } from "@/lib/edit/music";
+import { parseProof } from "@/lib/landing/proof";
 
 // Hands an edit to the render worker: the talking video transcribed, the face found, the plan built and checked,
 // the HyperFrames page written, and the media signed for the worker to download. The worker uploads the finished
@@ -79,7 +82,28 @@ export async function findFace(frame: Buffer, agentId: string): Promise<Box | nu
   return { x, y, w: Math.min(1, r.right + pad) * W - x, h: Math.min(1, r.bottom + pad) * H - y };
 }
 
-// Sound effects, made once with ElevenLabs and kept in storage (the worker downloads them by signed URL)
+// Sound effects. Our own library comes first: files uploaded to creatives/system/sfx-library/<kind>/ (by
+// scripts/migz/upload-sfx.mts), every file of a kind sent so the edit takes turns between them. A kind with no
+// library files falls back to one sound made once with ElevenLabs and kept in storage.
+const SFX_LIBRARY = "system/sfx-library";
+
+async function libraryUrls(kind: SfxKind): Promise<string[]> {
+  const { data } = await supabaseAdmin.storage.from("creatives").list(`${SFX_LIBRARY}/${kind}`, { limit: 50, sortBy: { column: "name", order: "asc" } });
+  const files = (data ?? []).filter((f) => f.id && SFX_EXTENSIONS.test(f.name)).map((f) => `${SFX_LIBRARY}/${kind}/${f.name}`);
+  if (!files.length) return [];
+  const signed = await supabaseAdmin.storage.from("creatives").createSignedUrls(files, 6 * 3600);
+  return (signed.data ?? []).map((s) => s.signedUrl).filter((u): u is string => !!u);
+}
+
+// Our library first, then a close kind's library files (a swoosh borrows the whooshes), then the generated sound
+async function sfxUrls(kind: SfxKind): Promise<string[] | string | null> {
+  const own = await libraryUrls(kind);
+  if (own.length) return own;
+  const alt = SFX_STAND_INS.find(([k]) => k === kind)?.[1];
+  const borrowed = alt ? await libraryUrls(alt) : [];
+  return borrowed.length ? borrowed : sfxUrl(kind);
+}
+
 const SFX_PROMPTS: Record<SfxKind, { prompt: string; seconds: number }> = {
   hit: { prompt: "Deep clean cinematic impact, very short, subtle, for the first frame of a premium social video", seconds: 0.8 },
   click: { prompt: "Single sharp clean camera shutter click, very short, crisp", seconds: 0.3 },
@@ -87,6 +111,7 @@ const SFX_PROMPTS: Record<SfxKind, { prompt: string; seconds: number }> = {
   pop: { prompt: "Soft subtle short pop, like a clean UI card appearing on screen", seconds: 0.4 },
   swoosh: { prompt: "Quick smooth swoosh transition, short, clean, not cartoonish", seconds: 0.6 },
   riser: { prompt: "Short tense cinematic riser building for half a second into a reveal, clean", seconds: 0.8 },
+  ding: { prompt: "Single bright clean ding, like a soft notification bell, short and pleasant, not cartoonish", seconds: 0.6 },
 };
 
 async function sfxUrl(kind: SfxKind): Promise<string | null> {
@@ -105,8 +130,21 @@ async function sfxUrl(kind: SfxKind): Promise<string | null> {
   return sign(path);
 }
 
-const MUSIC_PROMPT =
-  "Modern, confident, minimal instrumental for a premium local home-improvement brand video: tight light drums, warm bass, clean plucked guitar and soft synth, steady and positive. Restrained, cinematic, not cheesy. No vocals, no lyrics.";
+// The music for the client's mood: the library track (made once by scripts/migz/make-music.mts), or, for a mood
+// with none yet, a new one made now and kept in the library so every later video reuses it. "none": no music.
+async function moodMusicUrl(mood: MusicMood | "none"): Promise<string | null> {
+  if (mood === "none") return null;
+  const dirPath = `${MUSIC_LIBRARY}/${mood}`;
+  const { data } = await supabaseAdmin.storage.from("creatives").list(dirPath, { limit: 20, sortBy: { column: "name", order: "asc" } });
+  const tracks = (data ?? []).filter((f) => f.id && /\.mp3$/i.test(f.name));
+  if (!tracks.length) {
+    const audio = await composeMusic(null, 30, MUSIC_MOODS[mood].prompt);
+    await store(`${dirPath}/${mood}-1.mp3`, audio, "audio/mpeg");
+    return sign(`${dirPath}/${mood}-1.mp3`);
+  }
+  // More than one track in a mood: take turns, so a client's videos don't all share one song
+  return sign(`${dirPath}/${tracks[Math.floor(Math.random() * tracks.length)].name}`);
+}
 
 /**
  * Builds the edit for a presenter video and sends it to the worker. Returns the plan checks, or null (with why)
@@ -152,6 +190,7 @@ export async function startEdit(job: { id: string; agent_id: string }, plan: Pre
     const presenter = await getPresenter(job.agent_id);
     const { data: owner } = await supabaseAdmin.from("agents").select("service_area").eq("id", job.agent_id).maybeSingle();
     const area = (owner?.service_area as string | null | undefined) ?? null;
+    const proof = parseProof(row?.proof);
     const certifications = row?.certifications.length ? row.certifications : plan.badge ? [plan.badge] : [];
     const names = [company, ...plan.towns, ...certifications, ...(onCameraLine(presenter ?? null)?.split(",")[0] ? [onCameraLine(presenter ?? null)!.split(",")[0]] : [])];
     const built = buildPlan({
@@ -173,6 +212,7 @@ export async function startEdit(job: { id: string; agent_id: string }, plan: Pre
       warranties: row?.warranties ?? [],
       names,
       hasLogo: !!brand.logoUrl,
+      reviews: proof.rating || proof.reviews ? { rating: proof.rating, count: proof.reviews } : null,
     });
     const { plan: edit, checks } = fixPlan(built, { face, names, sourceWords: words });
     const failed = checks.filter((c) => !c.pass);
@@ -181,16 +221,12 @@ export async function startEdit(job: { id: string; agent_id: string }, plan: Pre
     // Music, sound effects and fonts
     const kinds = [...new Set(edit.sfx.map((s) => s.kind))];
     const [music, sfx, heading, body] = await Promise.all([
-      composeMusic(null, Math.ceil(edit.seconds) + 2, MUSIC_PROMPT).catch(() => null),
-      Promise.all(kinds.map(async (k) => [k, await sfxUrl(k).catch(() => null)] as const)),
+      moodMusicUrl(musicMood(row?.music_mood)).catch(() => null),
+      Promise.all(kinds.map(async (k) => [k, await sfxUrls(k).catch(() => null)] as const)),
       googleFontFiles(brand.headingFont),
       brand.bodyFont === brand.headingFont ? Promise.resolve([]) : googleFontFiles(brand.bodyFont),
     ]);
-    let musicUrl: string | null = null;
-    if (music) {
-      await store(editPath(job.id, "music.mp3"), music, "audio/mpeg");
-      musicUrl = await sign(editPath(job.id, "music.mp3"));
-    }
+    const musicUrl = music;
     const headingFiles = heading.filter((f) => f.weight >= 700);
     const bodyFiles = (brand.bodyFont === brand.headingFont ? heading : body).filter((f) => [300, 400, 700].includes(f.weight));
     const fonts = [...headingFiles.map((f) => ({ file: `heading-${f.weight}.woff2`, url: f.url })), ...bodyFiles.map((f) => ({ file: `body-${f.weight}.woff2`, url: f.url }))];
@@ -209,6 +245,7 @@ export async function startEdit(job: { id: string; agent_id: string }, plan: Pre
       html,
       sfx: edit.sfx,
       musicEnd: edit.musicEnd,
+      matte: edit.matte,
       fonts,
       media: {
         talk: await sign(editPath(job.id, "talk.mp4")),

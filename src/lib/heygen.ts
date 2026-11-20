@@ -102,7 +102,15 @@ export async function submitLookVideo(input: { lookId: string; audioUrl: string;
 }
 
 /** What the jobsite look is asked for: the person, waist up, at a real job, in their company's colours. Pure. */
-export function jobsitePrompt(input: { company: string; town: string | null; shirtColor?: string | null; looks?: string | null }) {
+export function jobsitePrompt(input: { company: string; town: string | null; shirtColor?: string | null; looks?: string | null; clinic?: boolean }) {
+  if (input.clinic)
+    return [
+      `The same person as the reference photo: keep their exact face shape, hairstyle, hair length and texture, facial hair, skin tone and build${input.looks ? ` (${input.looks})` : ""}. They must be instantly recognizable as the person in the photo.`,
+      "A vertical 9:16 photo of them standing in a bright, modern medical clinic consultation room, facing the camera, framed from the waist up with their head in the upper third.",
+      "They wear plain navy medical scrubs with no text, no logos, no patches and no labels.",
+      "Behind them, softly out of focus: a clean consultation room with a desk, a large monitor, white cabinets and soft daylight from a window.",
+      "Shot on a cinema camera with an 85mm lens, shallow depth of field, soft natural light, realistic skin texture, true-to-life colour. No text, no watermark, no brand marks anywhere.",
+    ].join(" ");
   return [
     `The same person as the reference photo: keep their exact face shape, hairstyle, hair length and texture, facial hair, skin tone and build${input.looks ? ` (${input.looks})` : ""}. They must be instantly recognizable as the person in the photo.`,
     `A vertical 9:16 photo of them standing outdoors on a residential driveway at a roofing jobsite${input.town ? ` in ${input.town}` : ""}, facing the camera, framed from the waist up with their head in the upper third, holding a tablet in one hand at chest height.`,

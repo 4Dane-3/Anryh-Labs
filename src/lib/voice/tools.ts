@@ -4,7 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import { getSlotBoard, type Agent } from "@/lib/booking/data";
 import { createBooking } from "@/lib/booking/create";
 import { ROOFING_ADDRESS_KEY, ROOFING_HOMEOWNER_KEY, type IntakeAnswers } from "@/lib/booking/questions";
-import { isRoofer } from "@/lib/verticals";
+import { isClinic, isRoofer } from "@/lib/verticals";
 import { voiceConfig } from "@/lib/voice/elevenlabs";
 import { spokenTimes } from "@/lib/voice/rules";
 import { DECISION_MAKERS_KEY, PROPERTY_KEY, evaluateLead, notFitMessage, unanswered, type LeadFacts } from "@/lib/roofing/job-rules";
@@ -132,7 +132,9 @@ export async function bookTool(body: Record<string, unknown>, origin: string) {
   if (lead.voice_status === "do_not_call") return { error: "This person asked not to be called. End the call politely." };
   if (lead.voice_booking_id) return { booked: true, message: "Already booked on this call. Confirm the time with them." };
   const agent = lead.agents;
+  // Roofers: the home's address, roof facts and "Jobs we take". A clinic books the consultation with neither
   const roof = isRoofer(agent);
+  const clinic = isClinic(agent);
 
   // The server decides whether they fit "Jobs we take", on everything said so far: never the model's say-so
   const rules = rulesOf(agent);
@@ -168,7 +170,11 @@ export async function bookTool(body: Record<string, unknown>, origin: string) {
     put("insurance_claim", "Have you filed an insurance claim for it?", facts.insuranceClaim);
     put(DECISION_MAKERS_KEY, "Will everyone who decides be there?", facts.decisionMakers);
   }
-  put("notes", roof ? "Anything the inspector should know?" : "Extra notes for your agent to know before the appointment", `Booked on the phone by the AI assistant.${s(body.notes, 300) ? ` ${s(body.notes, 300)}` : ""}`);
+  if (clinic) {
+    put("interest", "What would you like to talk about?", body.interest);
+    put("timeline", "When are you thinking of having it done?", body.timeline);
+  }
+  put("notes", roof ? "Anything the inspector should know?" : clinic ? "Anything the clinic should know?" : "Extra notes for your agent to know before the appointment", `Booked on the phone by the AI assistant.${s(body.notes, 300) ? ` ${s(body.notes, 300)}` : ""}`);
 
   const result = await createBooking(
     agent,

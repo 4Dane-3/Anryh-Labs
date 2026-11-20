@@ -40,7 +40,7 @@ export async function ensureJobsiteLook(agentId: string) {
   if (p.look_photo_path === photo && p.look_status !== "failed") return { started: false, reason: "Already made for this photo" };
   const url = await sign(photo);
   if (!url) return { started: false, reason: "Couldn't read the photo" };
-  const { data: agent } = await supabaseAdmin.from("agents").select("full_name, service_area").eq("id", agentId).single();
+  const { data: agent } = await supabaseAdmin.from("agents").select("full_name, service_area, vertical").eq("id", agentId).single();
   const company = (agent?.full_name as string) ?? "the company";
   const looks = await describeLooks(url, agentId).catch(() => null);
   const avatar = p.heygen_avatar_id && p.look_photo_path === photo ? { avatarId: p.heygen_avatar_id, groupId: p.heygen_group_id ?? "" } : await createPhotoAvatar({ name: `${company} presenter`, imageUrl: url });
@@ -52,7 +52,7 @@ export async function ensureJobsiteLook(agentId: string) {
     await new Promise((r) => setTimeout(r, 5000));
   }
   const town = p.towns[0] ?? (agent?.service_area as string | null) ?? null;
-  const lookId = await createLook({ name: `${company} jobsite`, prompt: jobsitePrompt({ company, town, looks }), avatarId: avatar.avatarId, groupId: avatar.groupId, referenceUrl: url });
+  const lookId = await createLook({ name: `${company} jobsite`, prompt: jobsitePrompt({ company, town, looks, clinic: agent?.vertical === "hair_clinic" }), avatarId: avatar.avatarId, groupId: avatar.groupId, referenceUrl: url });
   await supabaseAdmin
     .from("agent_presenters")
     .update({ heygen_avatar_id: avatar.avatarId, heygen_group_id: avatar.groupId, heygen_look_id: lookId, look_status: "processing", look_preview_url: null, look_photo_path: photo, updated_at: new Date().toISOString() })

@@ -45,3 +45,6 @@ next-env.d.ts
 
 # Local Claude Code workspace (worktrees, scratch exports, backups): never commit
 /.claude/
+
+# local test renders (scripts/migz/*.e2e.mts, edit-local)
+/e2e-output/

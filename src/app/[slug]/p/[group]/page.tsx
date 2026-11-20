@@ -44,6 +44,7 @@ type Brand = {
 async function load(slug: string, path: string) {
   const group = groupByPath(path);
   const agent = await getAgentBySlug(slug);
+  // Google ad groups follow the roofing playbook: clinics don't run Google Ads yet
   if (!group || !agent || !isRoofer(agent)) return null;
   const cols = "website, logo_path, heading_font, body_font, background, text_color, accent, deals, certifications, warranties, license";
   const brandQuery = (c: string) => supabaseAdmin.from("agent_brand").select(c).eq("agent_id", agent.id).maybeSingle();

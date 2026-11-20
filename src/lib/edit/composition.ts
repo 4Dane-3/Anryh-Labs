@@ -1,13 +1,15 @@
 // The HyperFrames composition for an edit plan: one 1080x1920 HTML page with a paused GSAP timeline, which the
 // render worker turns into frames. Pure. The look follows docs/migz-video-edit.md: a moody graded shot of the owner
 // at the job, and text on the torso (never the face) in two weights: small light lead words, then the stressed
-// words big, bold and glowing in the brand accent. Map-pin town tags, a name tag with focus brackets, an offer
-// pill, glass credential cards and a glowing "Tap Learn More" card.
+// words big, bold and glowing in the brand accent. Map-pin town tags, a name tag, an offer pill, a Google reviews
+// card, glass credential cards and a glowing "Tap Learn More" card. No frame or border around the video.
+// In a wide shot some cards sit behind the head instead, under a cut-out of the person (plan.matte).
 // Files it expects next to it (the worker puts them there):
 //   talk.mp4 (cut and graded, silent here: the sound is mixed separately), broll0.mp4.., frame0.png,
+//   person.webm (only with plan.matte: the person on a transparent background, same timing as talk.mp4),
 //   logo.png (optional), fonts/heading-{w}.woff2, fonts/body-{w}.woff2, gsap.min.js
-import type { Brand } from "@/lib/edit/brand";
-import { FPS, H, W, fitBox, scaleAt, scaleBox, type Box, type EditPlan } from "@/lib/edit/plan";
+import { luminance, type Brand } from "@/lib/edit/brand";
+import { FPS, H, W, type Box, type EditPlan } from "@/lib/edit/plan";
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const n = (x: number) => Number(x.toFixed(3));
@@ -37,11 +39,42 @@ export function punchSize(text: string) {
   return Math.max(72, Math.min(116, Math.floor(860 / Math.max(1, text.length * 0.6))));
 }
 
+const LITTLE = /^(a|an|the|to|of|for|us|we|i|i'm|it|it's|is|are|was|and|or|but|in|on|at|my|our|your|you|you're|so|if|by|with|who|that|this|be|get|got|gonna|from|here|just|do|don't)$/i;
+const MONEY = /(\$|\d%|^free$|^off$|^save$|^deal$|^percent$)/i;
+const bare = (w: string) => w.replace(/[^a-z0-9%$'-]/gi, "");
+
+/**
+ * A caption word by word, the creator way: one key word big and coloured on its own line (a number or money word
+ * first, else the longest real word), the rest bold white, and little run-up words small and light when the
+ * caption has three or more. Pure.
+ */
+export function captionWords(words: string[]) {
+  const score = (w: string) => (/\d/.test(w) ? 200 : MONEY.test(bare(w)) ? 100 : LITTLE.test(bare(w)) ? -1 : bare(w).length);
+  let key = 0;
+  words.forEach((w, i) => score(w) >= score(words[key]) && (key = i));
+  return words.map((w, i) => ({
+    text: w.replace(/[.,!?;:]+$/, ""),
+    role: i === key ? (MONEY.test(bare(w)) ? "money" : "key") : words.length >= 3 && LITTLE.test(bare(w)) ? "fill" : "base",
+  })) as { text: string; role: "key" | "money" | "base" | "fill" }[];
+}
+
+/** The key word's size: as big as fits the column on one line, 96 to 150px. */
+export function keySize(text: string) {
+  return Math.max(96, Math.min(150, Math.floor(880 / Math.max(1, text.length * 0.72))));
+}
+
 const PIN = `<svg class="pin" viewBox="0 0 40 64" width="40" height="64"><defs><radialGradient id="pg" cx="35%" cy="30%" r="70%"><stop offset="0" stop-color="#ff8a8a"/><stop offset=".45" stop-color="#e5232b"/><stop offset="1" stop-color="#8f0f14"/></radialGradient></defs><line x1="20" y1="30" x2="20" y2="62" stroke="#c9ccd1" stroke-width="3" stroke-linecap="round"/><circle cx="20" cy="18" r="16" fill="url(#pg)"/><ellipse cx="14" cy="12" rx="5" ry="3.5" fill="#fff" opacity=".55"/></svg>`;
 const SHIELD = `<svg viewBox="0 0 48 48" width="56" height="56"><path d="M24 4 40 10v12c0 10-7 18-16 22C15 40 8 32 8 22V10z" fill="none" stroke="#111" stroke-width="3.5" stroke-linejoin="round"/><path d="m16 24 6 6 11-12" fill="none" stroke="#111" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const CHECK = (accent: string) => `<svg viewBox="0 0 24 24" width="26" height="26"><circle cx="12" cy="12" r="10" fill="none" stroke="${accent}" stroke-width="2"/><path d="m7.5 12.5 3 3 6-6.5" fill="none" stroke="${accent}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const BADGE = (accent: string) => `<svg viewBox="0 0 64 72" width="96" height="108"><path d="M32 3 59 15v20c0 17-12 29-27 34C17 64 5 52 5 35V15z" fill="${accent}"/><path d="M32 11 51 19v16c0 12-8 21-19 25-11-4-19-13-19-25V19z" fill="none" stroke="rgba(0,0,0,.35)" stroke-width="2"/><path d="m21 36 8 8 15-17" fill="none" stroke="#111" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const ARROW = (accent: string) => `<svg viewBox="0 0 24 24" width="64" height="64"><path d="M12 4v15m0 0-6-6m6 6 6-6" fill="none" stroke="${accent}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+// The Google "G" and review stars, for the reviews card
+const GOOGLE_G = `<svg class="g" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 13 4 4 13 4 24s9 20 20 20 20-9 20-20c0-1.3-.1-2.6-.4-3.9z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.6-.4-3.9z"/></svg>`;
+// The tapping hand (a pointer cursor), fingertip at its top left
+const HAND = `<svg viewBox="0 0 32 32"><path d="M12 3.5c1.1 0 2 .9 2 2V14h.5v-2c0-1.1.9-2 2-2s2 .9 2 2v2h.5v-1c0-1.1.9-2 2-2s2 .9 2 2v1.5h.2c0-1 .9-1.8 1.9-1.8s1.9.8 1.9 1.8V21c0 4.4-3.6 8-8 8h-2.3c-2.4 0-4.6-1.1-6.1-3L6 20.5c-.7-.9-.6-2.2.3-2.9.9-.7 2.1-.6 2.8.2l.9 1.1V5.5c0-1.1.9-2 2-2z" fill="#fff" stroke="#111" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
+// Where the cursor taps on each card: the stars, the arrow ring, the badge
+const TAP_AT: Record<string, string> = { reviews: "left:66%;top:52%", cta: "left:calc(100% - 92px);top:58%", cert: "left:84%;top:52%", license: "left:14%;top:56%", warranty: "left:14%;top:56%" };
+const STAR = `<svg viewBox="0 0 24 24"><path fill="#FBBC04" d="m12 2.5 2.9 6.1 6.6.8-4.9 4.6 1.3 6.6L12 17.3l-5.9 3.3 1.3-6.6-4.9-4.6 6.6-.8z"/></svg>`;
 const LOC = `<svg viewBox="0 0 24 24" width="22" height="22" style="vertical-align:-3px;margin-right:6px"><path d="M12 22s7-7.2 7-12a7 7 0 1 0-14 0c0 4.8 7 12 7 12z" fill="none" stroke="rgba(255,255,255,.7)" stroke-width="2"/><circle cx="12" cy="10" r="2.5" fill="rgba(255,255,255,.7)"/></svg>`;
 
 export function buildComposition(plan: EditPlan, brand: Brand, files: CompositionFiles) {
@@ -68,14 +101,23 @@ body{margin:0;background:#000}
 #bg video,#bg img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 #bgloop{visibility:hidden}
 ${plan.fit ? `#fit{transform-origin:${n(plan.fit.origin.x)}px ${n(plan.fit.origin.y)}px;transform:scale(${n(plan.fit.scale)});overflow:hidden;border-radius:${n(40 / plan.fit.scale)}px;box-shadow:0 30px 80px rgba(0,0,0,.45)}` : ""}
-#vignette{pointer-events:none;background:radial-gradient(ellipse 85% 70% at 50% 42%,rgba(0,0,0,0) 55%,rgba(0,0,0,.55) 100%),linear-gradient(to bottom,rgba(0,0,0,.25),rgba(0,0,0,0) 22%,rgba(0,0,0,0) 62%,rgba(0,0,0,.35))}
 .broll{overflow:hidden;visibility:hidden}
 .broll video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform-origin:50% 50%}
 .bwrap{overflow:hidden}
 .shadow{text-shadow:0 3px 14px rgba(0,0,0,.55),0 1px 3px rgba(0,0,0,.45)}
 .glow{color:${A};text-shadow:0 0 18px rgba(${AR},.55),0 0 42px rgba(${AR},.35),0 3px 10px rgba(0,0,0,.5)}
 .glass{background:linear-gradient(115deg,rgba(18,18,20,.78),rgba(18,18,20,.6));backdrop-filter:blur(18px) saturate(1.2);-webkit-backdrop-filter:blur(18px) saturate(1.2);border:1px solid rgba(255,255,255,.08);box-shadow:0 20px 60px rgba(0,0,0,.45)}
-.cap{position:absolute;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;visibility:hidden}
+.cap{position:absolute;display:flex;flex-direction:row;flex-wrap:wrap;align-items:baseline;align-content:center;justify-content:center;column-gap:20px;text-align:center;visibility:hidden}
+.cap .w{display:inline-block;visibility:hidden;font-family:"heading",system-ui,sans-serif;font-weight:${headingWeight};font-size:70px;line-height:1.04;text-transform:uppercase;letter-spacing:-.01em;color:#fff;-webkit-text-stroke:3px rgba(0,0,0,.55);paint-order:stroke fill;text-shadow:0 5px 0 rgba(0,0,0,.35),0 8px 24px rgba(0,0,0,.55);will-change:transform,filter,opacity}
+.cap .w.key,.cap .w.money{flex-basis:100%;line-height:.98;letter-spacing:-.025em;-webkit-text-stroke:3px rgba(0,0,0,.4)}
+.cap .w.key{color:${A};text-shadow:0 0 22px rgba(${AR},.65),0 0 60px rgba(${AR},.35),0 6px 0 rgba(0,0,0,.35)}
+.cap .w.money{color:#FFC83D;text-shadow:0 0 22px rgba(255,200,61,.55),0 0 60px rgba(255,200,61,.28),0 6px 0 rgba(0,0,0,.35)}
+.cap .w.fill{font-family:"body",system-ui,sans-serif;font-weight:${light};font-size:46px;text-transform:none;letter-spacing:0;-webkit-text-stroke:0;opacity:.85}
+#drift,#pulse{transform-origin:${n(plan.eye.x)}px ${n(plan.eye.y)}px;will-change:transform}
+#keylight{pointer-events:none;mix-blend-mode:soft-light;background:radial-gradient(ellipse 48% 30% at ${n((plan.eye.x / W) * 100)}% ${n((plan.eye.y / H) * 100)}%,rgba(255,244,228,.75),rgba(255,244,228,0) 72%)}
+#ambient{pointer-events:none;mix-blend-mode:screen;background:radial-gradient(circle at 12% 8%,rgba(255,176,96,.30),rgba(255,176,96,0) 42%),radial-gradient(circle at 92% 88%,rgba(${AR},.20),rgba(${AR},0) 48%)}
+#leak{pointer-events:none;mix-blend-mode:screen;opacity:0;left:-30%;width:160%;background:radial-gradient(ellipse 34% 62% at 50% 50%,rgba(255,206,140,.95),rgba(255,128,64,.45) 42%,rgba(255,96,48,0) 72%)}
+#flash{pointer-events:none;background:#fff;opacity:0}
 .cap .lead{font-family:"body",system-ui,sans-serif;font-weight:${light};font-size:58px;line-height:1.05;margin-right:96px}
 .cap .punch{font-family:"heading",system-ui,sans-serif;font-weight:${headingWeight};line-height:.95;letter-spacing:-.02em;margin-left:72px}
 .cap .lead,.cap .punch{display:block;will-change:transform,filter,opacity}
@@ -95,15 +137,9 @@ ${plan.fit ? `#fit{transform-origin:${n(plan.fit.origin.x)}px ${n(plan.fit.origi
 .namecard .co{font-family:"heading",system-ui,sans-serif;font-weight:${headingWeight};font-size:54px;line-height:1}
 .namecard .co b{color:${A};font-weight:inherit}
 .namecard .loc{font-size:24px;color:rgba(255,255,255,.7);margin-top:6px}
-.focus{position:absolute;visibility:hidden}
-.focus i{position:absolute;width:30%;height:30%;border-color:${A};border-style:solid;border-width:0;filter:drop-shadow(0 0 8px rgba(${AR},.8))}
-.focus i:nth-child(1){left:0;top:0;border-left-width:7px;border-top-width:7px}
-.focus i:nth-child(2){right:0;top:0;border-right-width:7px;border-top-width:7px}
-.focus i:nth-child(3){left:0;bottom:0;border-left-width:7px;border-bottom-width:7px}
-.focus i:nth-child(4){right:0;bottom:0;border-right-width:7px;border-bottom-width:7px}
 .offer{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:14px}
 .offer .lead{font-family:"body",system-ui,sans-serif;font-weight:${light};font-size:56px;line-height:1}
-.offer .pillbig{background:${A};color:#16110a;border-radius:999px;padding:18px 52px 22px;font-family:"heading",system-ui,sans-serif;font-weight:${headingWeight};font-size:96px;line-height:1;letter-spacing:-.01em;box-shadow:0 0 40px rgba(${AR},.6),0 0 90px rgba(${AR},.3),0 14px 30px rgba(0,0,0,.45)}
+.offer .pillbig{background:${A};color:${luminance(A) > 0.45 ? "#16110a" : "#fff"};border-radius:999px;padding:18px 52px 22px;font-family:"heading",system-ui,sans-serif;font-weight:${headingWeight};font-size:96px;line-height:1;letter-spacing:-.01em;box-shadow:0 0 40px rgba(${AR},.6),0 0 90px rgba(${AR},.3),0 14px 30px rgba(0,0,0,.45)}
 .cred{display:flex;align-items:center;gap:24px;border-radius:30px;padding:30px 34px;background:linear-gradient(110deg,rgba(14,14,16,.86) 45%,rgba(${AR},.38))}
 .cred .txt{flex:1;display:flex;flex-direction:column;gap:6px}
 .kicker{display:flex;align-items:center;gap:10px;font-size:22px;font-weight:700;letter-spacing:.06em;color:rgba(255,255,255,.9)}
@@ -123,6 +159,19 @@ ${plan.fit ? `#fit{transform-origin:${n(plan.fit.origin.x)}px ${n(plan.fit.origi
 .cta .deal{font-size:30px;font-weight:600;color:${A};margin-top:4px}
 .cta .ring{flex:none;width:112px;height:112px;border-radius:50%;border:5px solid ${A};display:flex;align-items:center;justify-content:center;box-shadow:0 0 30px rgba(${AR},.7),inset 0 0 20px rgba(${AR},.35)}
 .cta .logo{max-height:70px;max-width:260px;object-fit:contain;align-self:flex-start}
+.reviews{display:flex;align-items:center;gap:26px;border-radius:30px;padding:26px 34px;background:#fff;color:#202124;box-shadow:0 24px 70px rgba(0,0,0,.45)}
+.reviews .g{flex:none;width:104px;height:104px}
+.reviews .txt{display:flex;flex-direction:column;gap:4px}
+.reviews .top{display:flex;align-items:center;gap:16px}
+.reviews .score{font-family:"heading",system-ui,sans-serif;font-weight:${headingWeight};font-size:84px;line-height:1;letter-spacing:-.02em}
+.reviews .stars{display:flex;gap:4px}
+.reviews .stars svg{width:46px;height:46px}
+.reviews .sub{font-size:32px;font-weight:600;color:#5f6368}
+#cutwrap{visibility:hidden}
+.cursor{position:absolute;width:84px;height:84px;margin:-6px 0 0 -26px;visibility:hidden;transform-origin:26px 6px;filter:drop-shadow(0 6px 10px rgba(0,0,0,.45));z-index:5}
+.cursor svg{width:84px;height:84px;display:block}
+.ripple{position:absolute;left:-34px;top:-40px;width:120px;height:120px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.95),rgba(255,255,255,.35) 55%,rgba(255,255,255,0) 72%);visibility:hidden}
+.cap .emo{display:inline-block;visibility:hidden;margin-left:.12em;font-size:.95em;line-height:1;font-family:"Apple Color Emoji","Noto Color Emoji","Segoe UI Emoji",sans-serif;-webkit-text-stroke:0;text-shadow:0 6px 16px rgba(0,0,0,.45);transform-origin:50% 80%}
 `;
   const box = (b: Box) => `left:${n(b.x)}px;top:${n(b.y)}px;width:${n(b.w)}px;height:${n(b.h)}px`;
   const at = (b: Box) => `left:${n(b.x)}px;top:${n(b.y)}px;width:${n(b.w)}px`;
@@ -142,18 +191,23 @@ ${plan.fit ? `#fit{transform-origin:${n(plan.fit.origin.x)}px ${n(plan.fit.origi
     hookHtml = `<div id="hook" class="hookbig shadow" style="${box(plan.hook.box)}">${accent}</div>`;
   }
 
+  // Captions word by word: each word its own span, so each lands on its own word
   const caps = plan.captions
     .map((c, i) => {
-      const { lead, punch } = splitCaption(c.words.map((w) => w.word));
-      const p = punch.join(" ");
-      return `<div id="cap${i}" class="cap" style="${box(plan.captionBox)}">${lead.length ? `<span id="cap${i}l" class="lead shadow">${esc(lead.join(" "))}</span>` : ""}<span id="cap${i}p" class="punch glow" style="font-size:${punchSize(p)}px">${esc(p)}</span></div>`;
+      const ws = captionWords(c.words.map((w) => w.word));
+      const emo = (k: number) => (c.emoji?.word === k ? `<span id="cap${i}w${k}e" class="emo">${c.emoji.char}</span>` : "");
+      return `<div id="cap${i}" class="cap" style="${box(plan.captionBox)}">${ws.map((w, k) => `<span id="cap${i}w${k}" class="w ${w.role}"${w.role === "key" || w.role === "money" ? ` style="font-size:${keySize(w.text + (c.emoji?.word === k ? "MM" : ""))}px"` : ""}>${esc(w.text)}${emo(k)}</span>`).join("")}</div>`;
     })
     .join("\n");
 
+  // Directional (horizontal) motion blur for the whip-pans, heavy then light
+  const blurDefs = `<svg width="0" height="0" style="position:absolute"><filter id="mbH" x="-30%" y="0" width="160%" height="100%"><feGaussianBlur stdDeviation="46 0"/></filter><filter id="mbL" x="-30%" y="0" width="160%" height="100%"><feGaussianBlur stdDeviation="16 0"/></filter></svg>`;
+
   const kickerDiv = kickerLine ? `<div class="kicker">${esc(kickerLine)}</div>` : "";
-  const cards = plan.cards
-    .map((c, i) => {
+  const cardHtml = (c: EditPlan["cards"][number], i: number) => {
       const id = `card${i}`;
+      if (c.kind === "reviews")
+        return `<div id="${id}" class="card reviews" style="${at(c.box)}">${GOOGLE_G}<div class="txt"><div class="top"><div class="score">${esc(c.text)}</div><div class="stars">${STAR.repeat(Math.max(1, Math.min(5, Math.round(Number(c.text) || 5))))}</div></div>${c.sub ? `<div class="sub">${esc(c.sub)}</div>` : ""}</div></div>`;
       if (c.kind === "cta") {
         const deal = c.sub && c.sub.toLowerCase() !== plan.offer.toLowerCase() ? c.sub : null;
         return `<div id="${id}" class="card cta glass" style="${at(c.box)}">${files.hasLogo ? `<img class="logo" src="./logo.png" alt="">` : kickerLine ? `<div class="k">${esc(kickerLine)}</div>` : ""}<div class="row"><div><div class="main shadow">Tap <span class="glow">Learn More</span></div><div class="sub">to request your ${esc(plan.offer)}</div>${deal ? `<div class="deal">${esc(deal)}</div>` : ""}</div><div id="${id}ring" class="ring">${ARROW(A)}</div></div></div>`;
@@ -166,18 +220,22 @@ ${plan.fit ? `#fit{transform-origin:${n(plan.fit.origin.x)}px ${n(plan.fit.origi
       const k = c.kind === "warranty" ? `${company ? `${company} · ` : ""}Warranty` : "Licensed";
       const main = c.kind === "license" ? (c.sub ? `Licensed · ${c.sub}` : c.text) : c.text;
       return `<div id="${id}" class="card pledge glass" style="${at(c.box)}"><div class="icon">${SHIELD}</div><div><div class="k">${esc(k.toUpperCase())}</div><div class="main">${esc(main)}</div></div></div>`;
-    })
-    .join("\n");
-
-  // Focus brackets around the face while the name tag is up (at the size the zoom makes it then)
-  const focusHtml = plan.cards
-    .map((c, i) => {
-      if (c.kind !== "name" || !plan.face) return "";
-      const f = fitBox(scaleBox(plan.face, plan.eye, scaleAt(plan, c.start)), plan.fit);
-      const pad = 18;
-      return `<div id="focus${i}" class="focus" style="${box({ x: f.x - pad, y: f.y - pad, w: f.w + pad * 2, h: Math.min(f.h, f.w * 1.15) + pad * 2 })}"><i></i><i></i><i></i><i></i></div>`;
-    })
-    .join("");
+  };
+  // Cards in front of everything, and cards behind the head: inside the camera (they zoom with the shot, like
+  // something in the room), under a cut-out of the person
+  // A tapped card gets a cursor (and the ripple of its tap) inside it, so it moves with the card
+  const withCursor = (c: EditPlan["cards"][number], i: number) => {
+    const html = cardHtml(c, i);
+    if (!c.taps?.length) return html;
+    return `${html.slice(0, -"</div>".length)}<div id="card${i}cur" class="cursor" style="${TAP_AT[c.kind] ?? "left:80%;top:55%"}"><div id="card${i}rip" class="ripple"></div>${HAND}</div></div>`;
+  };
+  const cards = plan.cards.map((c, i) => (c.behind ? "" : withCursor(c, i))).filter(Boolean).join("\n");
+  const behindCards = plan.cards.map((c, i) => (c.behind ? withCursor(c, i) : "")).filter(Boolean).join("\n");
+  // The cut-out plays only while those cards are up (the renderer owns a video's visibility, so its lifetime is the
+  // switch; a wrapper hides it between cards)
+  const behind = plan.cards.filter((c) => c.behind);
+  const cutFrom = behind.length ? Math.min(...behind.map((c) => c.start)) : 0;
+  const cutTo = behind.length ? Math.max(...behind.map((c) => c.end)) : 0;
 
   const broll = plan.broll
     .map((b) => `<div id="b${b.index}" class="layer broll" data-start="${n(b.start)}" data-duration="${n(b.end - b.start)}"><div id="bw${b.index}" class="layer bwrap"><video id="bv${b.index}" src="./broll${b.index}.mp4" data-start="${n(b.start)}" data-duration="${n(b.end - b.start)}" data-media-start="0" muted playsinline></video></div></div>`)
@@ -193,6 +251,38 @@ ${plan.fit ? `#fit{transform-origin:${n(plan.fit.origin.x)}px ${n(plan.fit.origi
   for (const f of plan.framings) set("#cam", `scale:${n(scaleOf(f.framing))}`, f.start);
   for (const p of plan.pushes) fromTo("#cam", `scale:${n(p.from)}`, `scale:${n(p.to)},duration:0.4,ease:"${EASE}",immediateRender:false`, p.start);
 
+  // Never still: every cut snaps in from a touch closer, then the shot keeps creeping in until the next cut
+  const cutsAt = [...new Set([0, ...plan.framings.map((f) => f.start), ...plan.broll.map((b) => b.end)])].filter((t) => t < plan.loopFrom).sort((a, b) => a - b);
+  cutsAt.forEach((t, i) => {
+    const next = cutsAt[i + 1] ?? plan.loopFrom;
+    fromTo("#drift", "scale:1.07", `scale:1,duration:0.32,ease:"power3.out",immediateRender:false`, t);
+    if (next - t > 0.7) to("#drift", `scale:1.04,duration:${n(next - t - 0.32)},ease:"none"`, t + 0.32);
+  });
+  // A punch on the money, number and name words: in fast, eased back out
+  let lastPunch = -9;
+  plan.captions.forEach((c) =>
+    captionWords(c.words.map((w) => w.word)).forEach((w, k) => {
+      const t = c.words[k].start;
+      if ((w.role === "money" || /\d/.test(w.text)) && t - lastPunch > 1) {
+        lastPunch = t;
+        fromTo("#pulse", "scale:1", `scale:1.09,duration:0.12,ease:"power2.out",immediateRender:false`, t);
+        to("#pulse", `scale:1,duration:0.7,ease:"power2.inOut"`, t + 0.12);
+      }
+    }),
+  );
+
+  // Light: a slow warm drift all the way through, a light leak across every transition, a flash on reveals
+  fromTo("#ambient", "x:0,y:0", `x:60,y:40,duration:${n(D / 2)},ease:"sine.inOut",yoyo:true,repeat:1,immediateRender:false`, 0);
+  const leak = (t: number) => {
+    fromTo("#leak", "opacity:0,x:-420", `opacity:0.85,x:0,duration:0.16,ease:"power2.out",immediateRender:false`, t);
+    to("#leak", `opacity:0,x:420,duration:0.38,ease:"power2.in"`, t + 0.16);
+  };
+  const flash = (t: number) => {
+    fromTo("#flash", "opacity:0", `opacity:0.32,duration:0.05,ease:"none",immediateRender:false`, t);
+    to("#flash", `opacity:0,duration:0.22,ease:"power2.out"`, t + 0.05);
+  };
+
+
   // Hook: the first tag is there on frame 0 (the loop returns to it); the rest drop in one after another
   if (plan.hook?.pins?.length) {
     set("#hook", "autoAlpha:1", 0);
@@ -206,50 +296,99 @@ ${plan.fit ? `#fit{transform-origin:${n(plan.fit.origin.x)}px ${n(plan.fit.origi
     to("#hook", `autoAlpha:0,duration:0.25,ease:"${EASE}"`, plan.hook.end);
   }
 
-  // Captions: the light lead words slide in, the stressed words punch in on their own word, then both blur away
+  // Captions: every word pops on its own start (small to full size, a little overshoot); the key word slams in
+  // bigger with a blur and a tilt; the caption snaps away at its end
   plan.captions.forEach((c, i) => {
-    const { lead } = splitCaption(c.words.map((w) => w.word));
-    const punchAt = Math.max(c.start, c.words[lead.length]?.start ?? c.start);
-    set(`#cap${i}`, "autoAlpha:1", c.start);
-    if (lead.length) fromTo(`#cap${i}l`, `autoAlpha:0,y:18,${blur(8)}`, `autoAlpha:1,y:0,${blur(0)},duration:0.25,ease:"${EASE}",immediateRender:false`, c.start);
-    fromTo(`#cap${i}p`, `autoAlpha:0,scale:1.22,${blur(12)}`, `autoAlpha:1,scale:1,${blur(0)},duration:0.32,ease:"${EASE}",immediateRender:false`, punchAt);
-    to(`#cap${i}`, `autoAlpha:0,y:-16,${blur(10)},duration:0.16,ease:"${EASE}"`, Math.max(c.start + 0.2, c.end - 0.06));
+    const ws = captionWords(c.words.map((w) => w.word));
+    set(`#cap${i}`, "autoAlpha:1,y:0,scale:1", c.start);
+    ws.forEach((w, k) => {
+      const t = Math.max(c.start, c.words[k].start);
+      if (w.role === "key" || w.role === "money") fromTo(`#cap${i}w${k}`, `autoAlpha:0,scale:1.6,rotation:-5,${blur(14)}`, `autoAlpha:1,scale:1,rotation:0,${blur(0)},duration:0.26,ease:"back.out(2)",immediateRender:false`, t);
+      else fromTo(`#cap${i}w${k}`, "autoAlpha:0,scale:0.55,y:26", `autoAlpha:${w.role === "fill" ? 0.85 : 1},scale:1,y:0,duration:0.2,ease:"back.out(2.4)",immediateRender:false`, t);
+      // Its emoji pops in just after the word, spins upright and keeps wiggling while the caption is up
+      if (c.emoji?.word === k) {
+        fromTo(`#cap${i}w${k}e`, "autoAlpha:0,scale:0,rotation:-40", `autoAlpha:1,scale:1,rotation:0,duration:0.4,ease:"back.out(3)",immediateRender:false`, t + 0.06);
+        const wiggles = Math.floor((c.end - t - 0.5) / 0.3);
+        if (wiggles >= 1) tl.push(`tl.fromTo("#cap${i}w${k}e",{rotation:-9},{rotation:9,duration:0.3,ease:"sine.inOut",yoyo:true,repeat:${wiggles},immediateRender:false},${n(t + 0.46)});`);
+      }
+    });
+    to(`#cap${i}`, `autoAlpha:0,scale:0.92,${blur(8)},duration:0.1,ease:"power2.in"`, Math.max(c.start + 0.2, c.end - 0.05));
   });
 
   plan.cards.forEach((c, i) => {
     const id = `#card${i}`;
+    if (c.kind === "number" || c.kind === "cta") flash(c.start);
+    if (c.kind === "name" || c.kind === "number" || c.kind === "reviews") leak(c.start - 0.04);
+    // The cut-out of the person is only drawn while a card is behind them
+    if (c.behind) {
+      set("#cutwrap", "autoAlpha:1", c.start);
+      set("#cutwrap", "autoAlpha:0", c.end);
+    }
+    // Dropped cards fall in from above the frame and bounce for a second before they settle
+    const drop = !!c.drop && c.kind !== "cta";
+    const dropFrom = Math.max(0, c.start - 0.3);
+    if (drop) fromTo(id, `autoAlpha:1,y:${n(-(c.box.y + c.box.h + 60))},x:0,scale:1,${blur(0)}`, `y:0,duration:1,ease:"bounce.out",immediateRender:false`, dropFrom);
+    // Then a slow float, so nothing on screen sits still
+    const settled = drop ? dropFrom + 1 : c.start + 0.45;
+    const until = (c.kind === "cta" ? plan.loopFrom : c.end) - 0.25;
+    const floats = Math.floor((until - settled) / 0.9);
+    if (floats >= 1) tl.push(`tl.fromTo("${id}",{y:0},{y:-10,duration:0.9,ease:"sine.inOut",yoyo:true,repeat:${floats - 1},immediateRender:false},${n(settled)});`);
+    // Taps: the cursor glides in, presses (the card dips, a ripple spreads), and stays on it
+    c.taps?.forEach((t, k) => {
+      if (k === 0) fromTo(`${id}cur`, "autoAlpha:0,x:140,y:170,scale:1.15", `autoAlpha:1,x:0,y:0,scale:1,duration:0.34,ease:"power3.out",immediateRender:false`, t - 0.42);
+      fromTo(`${id}cur`, "scale:1", `scale:0.8,duration:0.08,ease:"power2.in",immediateRender:false`, t);
+      to(`${id}cur`, `scale:1,duration:0.2,ease:"power2.out"`, t + 0.08);
+      fromTo(`${id}rip`, "autoAlpha:0.75,scale:0.2", `autoAlpha:0,scale:1.8,duration:0.45,ease:"power2.out",immediateRender:false`, t);
+      tl.push(`tl.to("${id}",{scale:0.95,duration:0.08,ease:"power2.in"},${n(t)});`);
+      tl.push(`tl.to("${id}",{scale:1,duration:0.26,ease:"power2.out"},${n(t + 0.08)});`);
+    });
     if (c.kind === "cta") {
       fromTo(id, `autoAlpha:0,y:50,scale:0.94,${blur(14)}`, `autoAlpha:1,y:0,scale:1,${blur(0)},duration:0.45,ease:"${EASE}",immediateRender:false`, c.start);
       const bobs = Math.max(1, Math.floor((plan.loopFrom - c.start - 0.3) / 0.5) - 1);
       fromTo(`${id}ring`, "y:-6", `y:6,duration:0.5,ease:"sine.inOut",repeat:${bobs},yoyo:true,immediateRender:false`, c.start + 0.3);
       set(id, "autoAlpha:0", plan.loopFrom);
     } else if (c.kind === "number") {
-      fromTo(id, "autoAlpha:0", `autoAlpha:1,duration:0.2,ease:"${EASE}",immediateRender:false`, c.start);
+      if (!drop) fromTo(id, "autoAlpha:0", `autoAlpha:1,duration:0.2,ease:"${EASE}",immediateRender:false`, c.start);
       fromTo(`${id}pill`, `scale:0.7,${blur(12)}`, `scale:1,${blur(0)},duration:0.4,ease:"${EASE}",immediateRender:false`, c.start);
       to(id, `autoAlpha:0,${blur(10)},duration:0.18,ease:"${EASE}"`, c.end - 0.18);
     } else {
-      const from = c.kind === "name" ? "y:30" : "x:-60";
-      fromTo(id, `autoAlpha:0,${from},${blur(12)}`, `autoAlpha:1,x:0,y:0,${blur(0)},duration:0.4,ease:"${EASE}",immediateRender:false`, c.start);
+      // Behind the head a card rises up from behind them; in front it slides in
+      const from = c.behind ? "y:120,scale:0.9" : c.kind === "name" ? "y:30" : "x:-60";
+      if (!drop) fromTo(id, `autoAlpha:0,${from},${blur(12)}`, `autoAlpha:1,x:0,y:0,scale:1,${blur(0)},duration:0.4,ease:"${EASE}",immediateRender:false`, c.start);
       to(id, `autoAlpha:0,${blur(10)},duration:0.2,ease:"${EASE}"`, c.end - 0.2);
-      if (c.kind === "name" && plan.face) {
-        fromTo(`#focus${i}`, "autoAlpha:0,scale:1.35", `autoAlpha:1,scale:1,duration:0.35,ease:"${EASE}",immediateRender:false`, c.start);
-        to(`#focus${i}`, `autoAlpha:0,duration:0.2,ease:"${EASE}"`, c.end - 0.2);
-      }
     }
   });
 
-  // Cut-aways: in and out through a blur, with a slow push
+  // Cut-aways: a whip-pan in and out (the shot flies off sideways in a horizontal motion blur and the next one
+  // flies in behind it), a light leak across each whip, and a slow push on the clip
   // (the clip element HyperFrames shows and hides is only switched on and off; the motion is on a wrapper inside it)
-  plan.broll.forEach((b) => {
+  const whip = (out: string, into: string, t: number, dir: 1 | -1) => {
+    to(out, `x:${-180 * dir},duration:0.1,ease:"power2.in"`, t - 0.1);
+    set(out, `filter:"url(#mbL)"`, t - 0.1);
+    set(out, `filter:"url(#mbH)"`, t - 0.05);
+    fromTo(into, `x:${260 * dir}`, `x:0,duration:0.26,ease:"power3.out",immediateRender:false`, t);
+    set(into, `filter:"url(#mbH)"`, t);
+    set(into, `filter:"url(#mbL)"`, t + 0.07);
+    set(into, `filter:"none"`, t + 0.14);
+    set(out, `x:0,filter:"none"`, t + 0.01);
+    leak(t - 0.06);
+  };
+  plan.broll.forEach((b, k) => {
+    const dir = k % 2 === 0 ? 1 : -1;
     set(`#b${b.index}`, "autoAlpha:1", b.start);
-    fromTo(`#bw${b.index}`, `opacity:0,${blur(24)},scale:1.06`, `opacity:1,${blur(0)},scale:1,duration:0.28,ease:"${EASE}",immediateRender:false`, b.start);
-    fromTo(`#bv${b.index}`, "scale:1.0", `scale:1.08,duration:${n(b.end - b.start)},ease:"none",immediateRender:false`, b.start);
-    to(`#bw${b.index}`, `opacity:0,${blur(24)},duration:0.22,ease:"${EASE}"`, b.end - 0.22);
+    set(`#bw${b.index}`, "opacity:1", b.start);
+    whip("#cam", `#bw${b.index}`, b.start, dir);
+    fromTo(`#bv${b.index}`, "scale:1.0", `scale:1.1,duration:${n(b.end - b.start)},ease:"none",immediateRender:false`, b.start);
+    whip(`#bw${b.index}`, "#cam", b.end, dir);
     set(`#b${b.index}`, "autoAlpha:0", b.end);
   });
 
   // The loop: the last frames are frame 0 again (the first frame, the first framing, the hook as on frame 0)
-  set("#cam", `scale:${n(scaleOf(plan.framings[0].framing))}`, plan.loopFrom);
+  set("#cam", `scale:${n(scaleOf(plan.framings[0].framing))},x:0,filter:"none"`, plan.loopFrom);
+  set("#drift", "scale:1.07", plan.loopFrom);
+  set("#pulse", "scale:1", plan.loopFrom);
+  set("#leak", "opacity:0", plan.loopFrom);
+  set("#flash", "opacity:0", plan.loopFrom);
   set("#loopframe", "autoAlpha:1", plan.loopFrom);
   if (plan.fit) set("#bgloop", "autoAlpha:1", plan.loopFrom);
   if (plan.hook?.pins?.length) {
@@ -269,14 +408,17 @@ ${plan.fit ? `#fit{transform-origin:${n(plan.fit.origin.x)}px ${n(plan.fit.origi
 <body>
 <div id="root" data-composition-id="ad" data-start="0" data-duration="${n(D)}" data-width="${W}" data-height="${H}">
 ${plan.fit ? `<div id="bg" class="layer"><video id="bgv" src="./talk.mp4" data-start="0" data-duration="${n(D)}" data-media-start="0" muted playsinline data-track-index="1"></video><img id="bgloop" src="./frame0.png" alt=""></div>\n<div id="fit" class="layer">` : ""}
-<div id="cam" class="layer" style="transform:scale(${n(scaleOf(plan.framings[0].framing))})">
+<div id="cam" class="layer" style="transform:scale(${n(scaleOf(plan.framings[0].framing))})"><div id="drift" class="layer" style="transform:scale(1.07)"><div id="pulse" class="layer">
 <video id="talk" src="./talk.mp4" data-start="0" data-duration="${n(D)}" data-media-start="0" muted playsinline data-track-index="0"></video>
-<img id="loopframe" src="./frame0.png" alt="">
-</div>
+${plan.matte ? `${behindCards}\n<div id="cutwrap" class="layer"><video id="cut" src="./person.webm" data-start="${n(cutFrom)}" data-duration="${n(cutTo - cutFrom)}" data-media-start="${n(cutFrom)}" muted playsinline data-track-index="2"></video></div>\n` : ""}<img id="loopframe" src="./frame0.png" alt="">
+</div></div></div>
 ${plan.fit ? "</div>" : ""}
 ${broll}
-<div id="vignette" class="layer"></div>
-${focusHtml}
+<div id="keylight" class="layer"></div>
+<div id="ambient" class="layer"></div>
+<div id="leak" class="layer"></div>
+<div id="flash" class="layer"></div>
+${blurDefs}
 ${hookHtml}
 ${caps}
 ${cards}

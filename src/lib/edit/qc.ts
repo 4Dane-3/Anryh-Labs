@@ -1,5 +1,5 @@
 // The checks every edit passes before it renders (the plan) and after (the file). Pure.
-import { SAFE, fitBox, overlaps, scaleAt, scaleBox, type Box, type EditPlan } from "@/lib/edit/plan";
+import { CHIN, MAX_CHIN, SAFE, fitBox, overlaps, scaleAt, scaleBox, type Box, type EditPlan } from "@/lib/edit/plan";
 import type { Word } from "@/lib/edit/words";
 
 export type Check = { name: string; pass: boolean; detail: string };
@@ -28,14 +28,19 @@ export function checkPlan(plan: EditPlan, opts: { face: Box | null; names: strin
   out.push({ name: "Sync", pass: !late.length && !floating.length, detail: late.length || floating.length ? `${late.length + floating.length} effects miss their word by more than 2 frames` : `${plan.effects.length} effects, all within 2 frames of their word` });
 
   // 2. Faces: no text or card over the face, at its biggest while each is on screen
-  const boxes: { label: string; box: Box; from: number; to: number }[] = [
+  const boxes: { label: string; box: Box; from: number; to: number; behind?: boolean }[] = [
     ...(plan.hook ? [{ label: "hook", box: plan.hook.box, from: 0, to: plan.hook.end }] : []),
     ...(plan.hook ? [{ label: "hook (loop)", box: plan.hook.box, from: plan.loopFrom, to: plan.seconds }] : []),
     ...plan.captions.map((c) => ({ label: `caption "${c.words.map((w) => w.word).join(" ")}"`, box: plan.captionBox, from: c.start, to: c.end })),
-    ...plan.cards.map((c) => ({ label: `${c.kind} card`, box: c.box, from: c.start, to: c.end })),
+    ...plan.cards.map((c) => ({ label: `${c.kind} card`, box: c.box, from: c.start, to: c.end, behind: !!c.behind })),
   ];
+  // A card behind the head is meant to meet the face: the person is cut out and drawn over it
   const overFace = boxes.filter((b) => {
-    const f = faceBetween(plan, opts.face, b.from, b.to);
+    if (b.behind) return false;
+    // In a selfie whatever sits in the caption band (captions, and the hook or a card placed there) may cover the
+    // chin: it's checked against the face above it
+    const chinFree = plan.selfie && opts.face && b.box.y >= plan.captionBox.y - 1 ? { ...opts.face, h: opts.face.h * (1 - Math.min(MAX_CHIN, plan.chin || CHIN)) } : opts.face;
+    const f = faceBetween(plan, chinFree, b.from, b.to);
     // Not over the face while a job clip covers the talking video
     const covered = plan.broll.some((r) => b.from >= r.start && b.to <= r.end);
     return f && !covered && overlaps({ x: b.box.x - shadow, y: b.box.y - shadow, w: b.box.w + shadow * 2, h: b.box.h + shadow * 2 }, f);

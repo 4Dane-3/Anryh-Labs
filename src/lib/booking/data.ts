@@ -1,5 +1,6 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { isLocalVertical } from "@/lib/verticals";
 import {
   crewSlots,
   generateSlots,
@@ -100,7 +101,7 @@ export type Agent = {
   auto_topup_last_at?: string | null;
   auto_topup_error?: string | null; // why the last charge failed; it stays paused until a card is saved again
   // Roofing (all missing before the roofing migration; lib/verticals.ts)
-  vertical?: "insurance" | "roofing";
+  vertical?: "insurance" | "roofing" | "hair_clinic";
   service_area?: string | null; // the address, city or ZIP a roofer's radius is centered on
   service_radius_miles?: number | null;
   crews?: number; // inspections a roofer can take at the same time (1 or 2)
@@ -179,7 +180,7 @@ export async function bookingAddress(bookingId: string): Promise<string | null> 
 }
 
 /** How many bookings the account takes at the same time: a roofer's crews (1 or 2), everyone else 1. */
-export const crewsOf = (agent: Pick<Agent, "crews" | "vertical">) => (agent.vertical === "roofing" ? Math.min(2, Math.max(1, agent.crews ?? 1)) : 1);
+export const crewsOf = (agent: Pick<Agent, "crews" | "vertical">) => (isLocalVertical(agent.vertical) ? Math.min(2, Math.max(1, agent.crews ?? 1)) : 1);
 
 export async function getOpenSlots(agent: Agent): Promise<string[]> {
   return (await getSlotBoard(agent)).open;
