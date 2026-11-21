@@ -54,6 +54,15 @@ export type FeePlan = "percent" | "subscription";
 /** How an agent pays us: the monthly Migz AI subscription, or the percentage of what they add. */
 export const feePlanOf = (agent: { migz_plan?: string | null } | null | undefined): FeePlan => (agent?.migz_plan === "subscription" ? "subscription" : "percent");
 
+/**
+ * Whether Meta bills the client's own card for their ads (no ad funds with us). Every account on the monthly
+ * Migz AI plan, which is every roofer and clinic (they start on it), pays Meta directly: they add their card
+ * to their Meta ad account and see each charge in Meta's billing. Insurance agents on the percentage plan
+ * still add ad funds here, since our fee comes out of what they add.
+ */
+export const billsMetaDirect = (agent: { migz_plan?: string | null; vertical?: string | null } | null | undefined) =>
+  agent?.migz_plan === "subscription" || agent?.vertical === "roofing" || agent?.vertical === "hair_clinic";
+
 /** The fee on a deposit, given what the agent had added before it (every earlier deposit, in cents). */
 export function feeCents(depositCents: number, addedBeforeCents = 0, plan: FeePlan = "percent") {
   if (plan === "subscription") return 0;

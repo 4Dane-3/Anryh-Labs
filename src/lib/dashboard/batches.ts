@@ -2,6 +2,7 @@ import "server-only";
 import { DateTime } from "luxon";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
+import { billsMetaDirect } from "@/lib/campaign";
 import { isTopic, type TopicKey } from "@/lib/migz/topics";
 import type { BatchHistory, BatchOptionKey } from "@/lib/batch";
 import type { CampaignPlan } from "@/lib/campaign-plan";
@@ -170,6 +171,8 @@ const money = (cents: number) => `$${(cents / 100).toFixed(cents % 100 ? 2 : 0)}
 /** Sets the batch's budget aside from the balance, once. Safe to call repeatedly. */
 export async function setAsideBatch(agent: Agent, batch: Batch) {
   if (batch.status !== "active" || !batch.starts_on) return false;
+  // Meta bills a direct account's card, so there's no balance to set the batch's money aside from
+  if (billsMetaDirect(agent)) return false;
   const { data: existing } = await supabaseAdmin.from("wallet_transactions").select("id").eq("external_id", setAsideId(batch.id)).maybeSingle();
   if (existing) return false;
   // Batches started before set-asides existed may already have had daily spend taken; count it

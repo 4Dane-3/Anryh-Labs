@@ -1,4 +1,5 @@
 import "server-only";
+import { billsMetaDirect } from "@/lib/campaign";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { adLinkFor } from "@/lib/booking/sites";
@@ -263,8 +264,9 @@ const money = (cents: number) => `$${(cents / 100).toFixed(cents % 100 ? 2 : 0)}
  * can't cover one: the campaign keeps its video either way. Returns the tier to submit on.
  */
 async function chargeForVideo(agentId: string, jobId: string, brief: CreativeBrief, launchAdsetId: string | null): Promise<VideoTier> {
-  const { data: row, error } = await supabaseAdmin.from("agents").select("video_tier").eq("id", agentId).single();
-  const tier: VideoTier = !error && isVideoTier(row?.video_tier) ? row.video_tier : DEFAULT_VIDEO_TIER;
+  const { data: row, error } = await supabaseAdmin.from("agents").select("video_tier, vertical, migz_plan").eq("id", agentId).single();
+  // Paid videos come out of ad funds: an account Meta bills directly (no ad funds) makes them on Standard
+  const tier: VideoTier = !error && !billsMetaDirect(row) && isVideoTier(row?.video_tier) ? row.video_tier : DEFAULT_VIDEO_TIER;
   // HF_VIDEO_MODEL=kling (staff's switch for a bad day on Seedance) makes it on Kling: nothing to charge
   if (!VIDEO_TIERS[tier].priceCents || videoModel(tier) !== "seedance") {
     await update(jobId, { video_model: videoModel(tier), video_charge_cents: 0 });

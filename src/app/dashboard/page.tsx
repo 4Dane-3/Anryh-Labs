@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { billsMetaDirect } from "@/lib/campaign";
 import { isRoofer, words } from "@/lib/verticals";
 import { DateTime } from "luxon";
 import { ArrowRight, ArrowUpRight } from "lucide-react";
@@ -70,7 +71,10 @@ export default async function OverviewPage() {
 
   const costPerCall = leads ? Math.round(spend / leads) : null;
   // Where the money stands: a running batch has its own budget set aside; otherwise how long the balance lasts
-  const money = agent.funds_used_up
+  const direct = billsMetaDirect(agent); // Meta bills their card: no balance to talk about
+  const money = direct
+    ? ""
+    : agent.funds_used_up
     ? ` Your ad funds are used up, so your ads end${activeBatch?.ends_on ? ` on ${DateTime.fromISO(activeBatch.ends_on).toFormat("LLL d")}` : " with this batch"}.`
     : activeBatch
     ? ` Your running batch has ${usd(activeBatch.budget_cents)} set aside.`
@@ -146,7 +150,9 @@ export default async function OverviewPage() {
       <div className="mb-8">
         <MetricRow
           items={[
-            {
+            direct
+              ? { label: "Daily budget", value: usd(agent.daily_budget_cents), hint: agent.ads_paused ? "Ads are paused" : "Meta bills your card as your ads spend" }
+              : {
               label: "Ad balance",
               value: usd(balance),
               hint: agent.ads_paused
@@ -231,7 +237,8 @@ export default async function OverviewPage() {
             past={pastBatches}
             timezone={agent.timezone}
             balanceCents={balance}
-            fundsUsedUp={!!agent.funds_used_up}
+            fundsUsedUp={!direct && !!agent.funds_used_up}
+            direct={direct}
           />
         </Panel>
       </div>

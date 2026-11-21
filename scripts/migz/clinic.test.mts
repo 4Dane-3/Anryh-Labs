@@ -144,4 +144,17 @@ const sent = sequenceEmail({ agent: { fullName: "Miguel Cruz", title: null, lice
 assert.match(sent.text, /Licensed insurance broker[\s\S]*asked Miguel for a life insurance quote/, "insurance emails unchanged");
 ok("follow-up emails and their footers fit the clinic");
 
+// Roofers and clinics pay Meta directly (their card on their own ad account): no ad funds, renewals never wait on a balance
+const { billsMetaDirect } = await import("@/lib/campaign");
+const { renewalGate } = await import("@/lib/renew-core");
+const { metaBillingUrl } = await import("@/lib/meta/access");
+assert.ok(billsMetaDirect({ vertical: "hair_clinic" }) && billsMetaDirect({ vertical: "roofing" }) && billsMetaDirect({ vertical: "insurance", migz_plan: "subscription" }));
+assert.ok(!billsMetaDirect({ vertical: "insurance" }) && !billsMetaDirect({ vertical: "insurance", migz_plan: "percent" }), "insurance agents keep ad funds (our fee comes from them)");
+const ended = { renew: true, status: "ended", ended_at: new Date().toISOString(), budget_cents: 70_000, result: { spent_cents: 69_000 } };
+const ready = { ads_paused: false, migz_mode: "auto", hasMeta: true, onboarded: true, focusCount: 2 };
+assert.equal(renewalGate({ batch: ended, agent: { ...ready, direct: true }, balanceCents: 0, now: new Date() }).action, "renew", "a direct account's next cycle needs no balance");
+assert.equal(renewalGate({ batch: ended, agent: ready, balanceCents: 0, now: new Date() }).action, "wait", "an ad-funds account still waits for funds");
+assert.equal(metaBillingUrl("act_123456", "payment_activity"), "https://business.facebook.com/billing_hub/payment_activity?asset_id=123456");
+ok("roofers and clinics are billed by Meta directly: no ad funds, renewals don't wait on a balance");
+
 console.log("clinic checks passed");

@@ -1,4 +1,5 @@
 import "server-only";
+import { billsMetaDirect } from "@/lib/campaign";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
 import { sendSlackMessage } from "@/lib/slack";
@@ -25,7 +26,8 @@ async function statusFor(agent: Agent) {
     getBalanceCents(agent.id),
   ]);
   const cents = (spend ?? []).reduce((n, r) => n + (r.spend_cents as number), 0);
-  return `Last 7 days: ${dollars(cents)} spent, ${booked ?? 0} booked. Ads on: ${live ?? 0}. Ad funds left: ${dollars(balance)}.`;
+  // An account Meta bills directly has no ad funds with us
+  return `Last 7 days: ${dollars(cents)} spent, ${booked ?? 0} booked. Ads on: ${live ?? 0}.${billsMetaDirect(agent) ? " Meta bills your card for the spend." : ` Ad funds left: ${dollars(balance)}.`}`;
 }
 
 async function deliver(agent: Agent, channel: Channel, text: string) {

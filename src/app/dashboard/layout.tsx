@@ -1,4 +1,5 @@
 import { isLocal, isRoofer } from "@/lib/verticals";
+import { billsMetaDirect } from "@/lib/campaign";
 import type { Metadata } from "next";
 import { requireAgent, devAgentSlug, getViewAs, isAnryhAdmin } from "@/lib/auth";
 import { TopBar } from "@/components/dashboard/TopBar";
@@ -35,7 +36,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         </div>
       )}
       <TopBar
-        agent={{ name: agent.full_name, slug: agent.slug, photoUrl: agent.photo_url, roof: isLocal(agent), roofer: isRoofer(agent) }}
+        agent={{ name: agent.full_name, slug: agent.slug, photoUrl: agent.photo_url, roof: isLocal(agent), roofer: isRoofer(agent), direct: billsMetaDirect(agent) }}
         devLogin={!!devAgentSlug()}
         setupDone={!!agent.onboarding_completed_at}
         staff={staff && !viewing}

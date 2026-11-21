@@ -4,7 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { Agent } from "@/lib/booking/data";
 import { cleanFocus } from "@/lib/migz/topics";
 import { getBalanceCents } from "@/lib/dashboard/queries";
-import { depositFor, feePlanOf, MIGZ_MONTHLY_CENTS, MIN_AD_BALANCE_CENTS, MIN_DEPOSIT_CENTS, SETUP_FEE_CENTS } from "@/lib/campaign";
+import { billsMetaDirect, depositFor, feePlanOf, MIGZ_MONTHLY_CENTS, MIN_AD_BALANCE_CENTS, MIN_DEPOSIT_CENTS, SETUP_FEE_CENTS } from "@/lib/campaign";
 import { campaignMoney, roundUpToFundsStep } from "@/lib/campaign-plan";
 import { DEFAULT_INTENT, DEFAULT_VIDEO_TIER, isIntentLevel, isVideoTier } from "@/lib/ad-options";
 import { getOpenBatch, getRecentBatches, type Batch } from "@/lib/dashboard/batches";
@@ -15,7 +15,7 @@ import { refreshAdDomain } from "@/lib/booking/ad-domain-server";
 // account first, the setup fee, then the rest. Until the first campaign starts, the rest of the dashboard
 // stays locked (requireSetUpAgent).
 
-export type StepKey = "vertical" | "business" | "meta" | "setup_fee" | "profile" | "address" | "page" | "crm" | "slack" | "funds" | "plan" | "rules" | "details" | "avatar" | "media" | "google" | "creatives" | "mode";
+export type StepKey = "vertical" | "business" | "meta" | "setup_fee" | "profile" | "address" | "page" | "crm" | "slack" | "funds" | "card" | "plan" | "rules" | "details" | "avatar" | "media" | "google" | "creatives" | "mode";
 
 export type Step = {
   key: StepKey;
@@ -156,6 +156,9 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
       ? `Add the DNS record for ${agent.ad_domain}. This step ticks off by itself once it points at us (it can take up to an hour).`
       : null;
   const modeMissing = agent.migz_mode_chosen_at ? null : "Choose whether Migz runs your ads on its own or asks you first.";
+  // Roofers and clinics pay Meta directly: their card on their own ad account (checked with Meta again at launch)
+  const direct = billsMetaDirect(agent);
+  const cardMissing = agent.meta_card_at || agent.onboarding_completed_at ? null : "Add your card to your Meta ad account, so Meta bills your ads to it directly.";
 
   const step = (key: StepKey, missing: string | null, required = true): Step => ({ key, required, missing, done: !missing });
   const steps: Step[] = [
@@ -177,7 +180,7 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
         ]
       : [step("page", pageMissing), step("slack", slackMissing)]),
     step("plan", planMissing),
-    step("funds", fundsMissing),
+    direct ? step("card", cardMissing) : step("funds", fundsMissing),
     step("creatives", creativesMissing),
     step("mode", modeMissing),
   ];

@@ -379,7 +379,7 @@ export function MigzModeStep({ current, onSaved }: { current: "auto" | "approve"
           );
         })}
       </div>
-      <p className="text-[12px] text-fg-faint">You can switch any time in Settings. Either way, Migz never spends past your daily budget or your balance.</p>
+      <p className="text-[12px] text-fg-faint">You can switch any time in Settings. Either way, Migz never spends past your daily budget.</p>
       {error && <p className="text-[13px] text-bad">{error}</p>}
     </div>
   );

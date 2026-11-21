@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowUpRight, Check, Info, Loader2 } from "lucide-react";
-import { launchCampaign, saveBatchPlan, saveCrm, saveLeadGoal, setCreativeMode, startSetupFee } from "@/app/dashboard/actions";
+import { confirmMetaCard, launchCampaign, saveBatchPlan, saveCrm, saveLeadGoal, setCreativeMode, startSetupFee } from "@/app/dashboard/actions";
 import { BrandSetup, type BrandInitial } from "@/components/dashboard/BrandSetup";
 import { PresenterSetup, type PresenterInitial } from "@/components/dashboard/PresenterSetup";
 import { CreativeContext, type CreativeContextInitial } from "@/components/dashboard/CreativeContext";
@@ -40,6 +40,8 @@ type Props = {
   stripeConnected: boolean;
   /** Whether Emma (the AI caller) is set up for this business type, so setup never promises calls she can't make */
   emmaReady?: boolean;
+  /** Roofers and clinics: the card Meta bills on their own ad account (they have no ad funds) */
+  metaCard?: { at: string | null; label: string | null; billingUrl: string; account: string | null } | null;
   connected: boolean; // Meta ad account linked and Migz configured
   plan: {
     topics: string[];
@@ -82,6 +84,7 @@ const TITLES: Record<string, { title: string; blurb: string }> = {
   slack: { title: "Slack", blurb: "Where Migz tells you about new leads and bookings, and sends your morning summary." },
   plan: { title: "Plan your first campaign", blurb: "A few quick questions and a daily budget. Migz sets how long it runs and makes the ads." },
   funds: { title: "Add funds", blurb: `Money for your Meta ads, in ${usd(FUNDS_STEP_CENTS)} steps. Campaigns roll week to week while your balance covers them.` },
+  card: { title: "Your card on your Meta ad account", blurb: "Meta bills your ad spend straight to your card, and you see every charge in Meta's billing." },
   creatives: { title: "Videos and images", blurb: "Let Migz make your ads' videos and photos, or bring your own." },
   rules: { title: "Jobs you take", blurb: "Which jobs you want, so your assistant and booking page only book the right ones." },
   mode: { title: "How Migz runs your ads", blurb: "On its own within your budget, or asking you before every new ad and change." },
@@ -90,7 +93,7 @@ const TITLES: Record<string, { title: string; blurb: string }> = {
 /** What changes for a roofing company. */
 const ROOF_TITLES: Record<string, { title: string; blurb: string }> = {
   business: { title: "Your business", blurb: "Your business email and the number homeowners reach you on." },
-  setup_fee: { title: `Migz AI: ${usd(MIGZ_MONTHLY_CENTS, { cents: false })}/month`, blurb: "Meta ads, Google ads and Emma. No setup fee, cancel anytime. Every dollar of ad funds you add goes to your ads." },
+  setup_fee: { title: `Migz AI: ${usd(MIGZ_MONTHLY_CENTS, { cents: false })}/month`, blurb: "Meta ads, Google ads and Emma. No setup fee, cancel anytime. Meta bills your ad spend to your own card." },
   profile: { title: "Your company", blurb: "Your company name, logo or photo and a short intro. Homeowners see this before they talk to you." },
   crm: { title: "Your CRM", blurb: "Leads are booked straight into your CRM's calendar. Tell us which one you use." },
   slack: { title: "Slack (optional)", blurb: "New leads also come to your email. Connect Slack if you'd like them there too." },
@@ -114,13 +117,14 @@ const WHY: Record<string, string> = {
   slack: "Migz tells you about new leads and bookings the moment they happen, and sends your morning summary there.",
   plan: "Migz needs to know what your ads lead with and how much to spend a day before it can build the campaign. The budget sets how many people see your ads.",
   funds: "Your ad balance pays Meta for your ads. A campaign starts with two weeks funded so Meta has enough time and data to learn who books.",
+  card: "Your ads run from your own Meta ad account, so Meta bills your card for them directly: no ad funds with us, and every charge shows in Meta's Billing & payments. Migz keeps your spend to the daily budget you choose.",
   creatives: "Every ad needs a video or image. Migz can make them for you, use your own, or both.",
   rules: "So you only get the bookings you want, and nobody is booked for work you'd turn down.",
   mode: "You choose how much control you keep: Migz runs everything within your budget, or asks you before every new ad and change.",
 };
 /** What changes for a hair transplant clinic (over the roofing wording, the same local-business setup). */
 const CLINIC_TITLES: Record<string, { title: string; blurb: string }> = {
-  setup_fee: { title: `Migz AI: ${usd(MIGZ_MONTHLY_CENTS, { cents: false })}/month`, blurb: "Meta ads, video ads and Emma. No setup fee, cancel anytime. Every dollar of ad funds you add goes to your ads." },
+  setup_fee: { title: `Migz AI: ${usd(MIGZ_MONTHLY_CENTS, { cents: false })}/month`, blurb: "Meta ads, video ads and Emma. No setup fee, cancel anytime. Meta bills your ad spend to your own card." },
   business: { title: "Your clinic", blurb: "Your clinic email and the number patients reach you on." },
   profile: { title: "Your clinic's profile", blurb: "Your clinic name, logo or photo and a short intro. Patients see this before they talk to you." },
   crm: { title: "Your CRM", blurb: "Consultations are booked straight into your CRM's calendar. Tell us which one you use." },
@@ -132,7 +136,7 @@ const CLINIC_TITLES: Record<string, { title: string; blurb: string }> = {
 };
 const CLINIC_WHY: Record<string, string> = {
   business: "Every lead and booking is emailed to this address, and patients reach you on this number. It's the call button on your ads and pages.",
-  setup_fee: "This is the monthly fee: Migz running your Meta ads, the videos, and Emma calling and booking your consultations. Your ad spend is separate and all of it goes to your ads.",
+  setup_fee: "This is the monthly fee: Migz running your Meta ads, the videos, and Emma calling and booking your consultations. Your ad spend is separate: Meta bills it to your own card.",
   profile: "People see your clinic name, logo and intro on your landing pages before they ask for a consultation. A clinic they can recognise gets more requests.",
   address:
     "Every Facebook and Instagram ad sends people to this address on your own domain, so the ad, the page and your clinic all match. People trust a link with your clinic's name in it, and the address stays yours if you ever leave. Your main website isn't touched: only this one address points at us, and we build your booking page in your website's fonts and colours.",
@@ -146,7 +150,7 @@ const CLINIC_WHY: Record<string, string> = {
 const ROOF_WHY: Record<string, string> = {
   business: "Every lead and booking is emailed to this address, and homeowners reach you on this number. It's the call button on your ads and pages.",
   meta: "Your Facebook and Instagram ads run from your own Meta ad account, so the account, its history and the spend are always yours. Sharing it with Anryh Labs lets Migz run your ads without your password, and you can remove us any time.",
-  setup_fee: "This is the monthly fee: Migz running your Meta and Google ads, the videos, and Emma calling and booking your homeowners. Your ad spend is separate and all of it goes to your ads.",
+  setup_fee: "This is the monthly fee: Migz running your Meta and Google ads, the videos, and Emma calling and booking your homeowners. Your ad spend is separate: Meta bills it to your own card.",
   profile: "Homeowners see your company name, logo and intro on your landing pages before they ask for a quote. A company they can recognise gets more requests.",
   address:
     "Every ad, on Facebook, Instagram and Google, sends people to this address on your own domain, so the ad, the page and your company all match. Homeowners trust a link with your name in it, Google ranks ads higher when the page matches the search, and the address stays yours if you ever leave. Your main website isn't touched: only this one address points at us, and we build the pages in your website's fonts and colours.",
@@ -252,7 +256,7 @@ function SetupFeeStep({ stripeConnected, contactEmail, roof, clinic, emmaReady =
             <li>· Video ads with real hooks, your {clinic ? "area and your surgeon's credentials" : "towns and your certifications"}, sent to you for approval</li>
             <li>· Landing pages on your own domain, {clinic ? "consultation" : "inspection"} reminders and a summary every 3 days</li>
           </ul>
-          <p className="text-[13px] text-fg-muted">{usd(MIGZ_MONTHLY_CENTS, { cents: false })} a month, billed today and monthly after. No setup fee, no contract. Your ad spend is separate, and all of it goes to your ads.</p>
+          <p className="text-[13px] text-fg-muted">{usd(MIGZ_MONTHLY_CENTS, { cents: false })} a month, billed today and monthly after. No setup fee, no contract. Your ad spend is separate: Meta bills it to your own card, and you see every charge in Meta.</p>
         </>
       ) : (
         <>
@@ -281,6 +285,51 @@ function SetupFeeStep({ stripeConnected, contactEmail, roof, clinic, emmaReady =
         </p>
       )}
       {error && <p className="text-[13px] text-bad">{error}</p>}
+    </div>
+  );
+}
+
+/** Roofers and clinics: Meta bills their ad spend straight to the card on their own ad account (no ad funds with us). */
+function CardStep({ at, label, billingUrl, account, onSaved }: { at: string | null; label: string | null; billingUrl: string; account: string | null; onSaved: () => void }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+  const confirm = () =>
+    start(async () => {
+      setResult(null);
+      const r = await confirmMetaCard();
+      setResult(r.ok ? { ok: true, text: r.message } : { ok: false, text: r.error });
+      if (r.ok) {
+        router.refresh();
+        onSaved();
+      }
+    });
+  return (
+    <div className="space-y-4 text-[13px] text-fg-muted">
+      <ol className="space-y-2">
+        <li>
+          1. Open{" "}
+          <a href={billingUrl} target="_blank" rel="noreferrer" className="font-medium text-fg underline-offset-4 hover:underline">
+            Billing &amp; payments in Meta
+          </a>
+          {account ? ` for ad account ${account.replace(/^act_/, "")}` : ""}.
+        </li>
+        <li>2. Add a credit or debit card as the payment method (or check the one there is the card you want billed).</li>
+        <li>3. Press the button below. We check with Meta that the card is on the account.</li>
+      </ol>
+      <p>
+        Meta charges the card as your ads spend, and every charge shows under Payment activity in the same place. Migz keeps your spend to the daily budget you choose, and
+        there are no ad funds to add here.
+      </p>
+      {at && <p className="text-good">{label ? `Meta bills ${label} for your ads.` : "Saved. We confirm the card with Meta once your ad account is linked."}</p>}
+      <div className="flex flex-wrap items-center gap-3">
+        <Button onClick={confirm} disabled={pending || !account}>
+          {pending && <Loader2 className="animate-spin" />}
+          {at ? "Check again" : "I've added my card"}
+        </Button>
+        {!account && <span>Share your Meta ad account first (the Meta step).</span>}
+      </div>
+      {result && <p className={result.ok ? "text-good" : "text-bad"}>{result.text}</p>}
     </div>
   );
 }
@@ -477,6 +526,7 @@ export function StartWizard(props: Props) {
     media: [props.context?.adVoice.name ? `Voice: ${props.context.adVoice.name}` : props.context?.voice ? "Your voice" : null, `${props.context?.media.length ?? 0} photos and clips`].filter(Boolean).join(" · "),
     google: props.google?.account ? `${props.google.account.status === "pending" ? "Waiting for you to accept" : "Linked"} · $${(props.google.account.monthlyCapCents / 100).toLocaleString("en-US")}/month` : "",
     funds: `${usd(props.balanceCents, { cents: true })} available`,
+    card: props.metaCard?.label ? `Meta bills ${props.metaCard.label}` : "Card added",
     plan: props.plan.batch
       ? `${usd(props.plan.batch.daily_cents, { cents: false })}/day, rolling · ${listCampaignTopics(props.plan.batch.campaigns.map((t) => (t || null) as CampaignSlot))}`
       : cleanFocus(props.plan.topics).map((t) => TOPICS[t].label).join(", "),
@@ -539,6 +589,7 @@ export function StartWizard(props: Props) {
         )}
       </div>
     ),
+    card: props.metaCard && <CardStep {...props.metaCard} onSaved={() => advance("card")} />,
     creatives: <CreativesStep mode={props.creativeMode} count={props.creativeCount} onSaved={() => advance("creatives")} />,
     mode: <MigzModeStep current={props.migzMode} onSaved={() => advance("mode")} />,
   };

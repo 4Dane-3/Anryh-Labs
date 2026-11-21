@@ -10,7 +10,7 @@ import { buildSnapshot, type Snapshot } from "@/lib/migz/snapshot";
 import { syncAgent } from "@/lib/migz/sync";
 import { begin, emit, metaStep } from "@/lib/migz/events";
 import { closeEndedBatch, ensureBatchSetAside, getActiveBatch, getBatchPlan, type Batch } from "@/lib/dashboard/batches";
-import { campaignEnded, campaignLabels, daysLeft as daysLeftIn, pickCarryOver, planTopic, type AdResults } from "@/lib/campaign";
+import { billsMetaDirect, campaignEnded, campaignLabels, daysLeft as daysLeftIn, pickCarryOver, planTopic, type AdResults } from "@/lib/campaign";
 import { adsForBudget } from "@/lib/migz/playbook";
 import { cleanFocus, isTopic, type TopicKey } from "@/lib/migz/topics";
 import { MAX_ACTIONS_PER_RUN, MIN_ADSET_BUDGET_CENTS, type GuardContext } from "@/lib/migz/guardrails";
@@ -127,7 +127,8 @@ export async function buildEvalContext(agent: Agent, snapshot: Snapshot): Promis
 async function enforceSpendState(agent: Agent, snapshot: Snapshot, runId: string, budgetUsed = false, inBatch = false) {
   const active = snapshot.guardAdsets.filter((a) => a.status === "ACTIVE");
   // A running batch's money is already set aside (the balance shows $0), so it's funded until its budget runs out
-  const lowBalance = !inBatch && snapshot.balanceCents < agent.daily_budget_cents;
+  // Meta bills a direct account's card (roofers, clinics), so there's no balance to run low
+  const lowBalance = !billsMetaDirect(agent) && !inBatch && snapshot.balanceCents < agent.daily_budget_cents;
   // The agent chose how long the campaign runs; after its last day (or once its budget is spent), ads stop
   const ended = campaignEnded(agent.campaign_ends_on, agent.timezone) || budgetUsed;
 
@@ -145,7 +146,7 @@ async function enforceSpendState(agent: Agent, snapshot: Snapshot, runId: string
       detail: agent.ads_paused
         ? "You turned ads off. They'll stay paused until you turn them back on."
         : budgetUsed
-          ? "This batch has spent its budget, so Migz paused your ads a little early rather than go over. Anything left stays in your balance for the next batch."
+          ? `This batch has spent its budget, so Migz paused your ads a little early rather than go over.${billsMetaDirect(agent) ? "" : " Anything left stays in your balance for the next batch."}`
           : ended
           ? `Your campaign batch ran until ${agent.campaign_ends_on}, so Migz paused your ads. To keep going, start your next batch from the Overview.`
           : `Your balance ($${(snapshot.balanceCents / 100).toFixed(2)}) can't cover a day at $${(agent.daily_budget_cents / 100).toFixed(2)}/day. Add funds to resume.`,

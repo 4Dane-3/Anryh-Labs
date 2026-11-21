@@ -97,6 +97,18 @@ export function inviteEmail(input: { name: string; email: string; vertical: Vert
   return { subject, html, text };
 }
 
+/** Clears the setup answers that belong to one business type, so a new type starts its own (never after setup is done). */
+export async function clearTypeSetup(agentId: string) {
+  await Promise.all([
+    supabaseAdmin.from("agents").update({ ad_focus: [], job_rules: null, crm: null }).eq("id", agentId),
+    supabaseAdmin.from("agent_brand").update({ deals: [], certifications: [], warranties: [], license: null, updated_at: new Date().toISOString() }).eq("agent_id", agentId),
+    // Older setups kept the offer and badge on the presenter, and the offer step falls back to them
+    supabaseAdmin.from("agent_presenters").update({ offer: null, badge: null, updated_at: new Date().toISOString() }).eq("agent_id", agentId),
+    // A planned (not yet started) first campaign was planned on the old type's topics
+    supabaseAdmin.from("campaign_batches").delete().eq("agent_id", agentId).eq("status", "planned"),
+  ]);
+}
+
 /** Staff change an account's business type. Only before setup is done: a running campaign was built for the old one. */
 export async function assignVertical(agentId: string, vertical: string): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
   if (!isVertical(vertical)) return { ok: false, error: "Choose a business type." };
@@ -109,5 +121,8 @@ export async function assignVertical(agentId: string, vertical: string): Promise
     .update({ vertical, vertical_chosen_at: new Date().toISOString(), ...startingColumns(vertical) })
     .eq("id", agentId);
   if (error) return { ok: false, error: error.code === "23514" ? "The database doesn't know that business type yet (migration 20261220000000_invites.sql)." : "Couldn't save that." };
-  return { ok: true, message: `${agent.full_name} is now a ${VERTICAL_LABELS[vertical].toLowerCase()}.` };
+  // What they set up for the old type doesn't fit the new one (a roof special, a GAF certification, a roofing
+  // CRM, roof ad topics, the jobs a roofer takes), so setup asks it again in the new type's words
+  await clearTypeSetup(agentId);
+  return { ok: true, message: `${agent.full_name} is now a ${VERTICAL_LABELS[vertical].toLowerCase()}. What they'd set up for the old type (offer, credentials, CRM, ad topics) was cleared, so setup asks it again.` };
 }

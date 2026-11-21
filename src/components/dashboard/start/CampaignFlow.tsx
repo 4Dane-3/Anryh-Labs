@@ -152,7 +152,7 @@ export function CampaignFlow({
   const clinic = initial.vertical === "hair_clinic";
   const [area, setArea] = useState<RoofingInitial>(initial.area ?? { service_area: "", state: "", radius: 15, crews: 1, license: "", crm_webhook_url: "" });
   const [intent, setIntent] = useState<IntentLevel>(initial.intent);
-  const [tier, setTier] = useState<VideoTier>(initial.tier);
+  const [tier, setTier] = useState<VideoTier>(isLocalVertical(initial.vertical) ? "standard" : initial.tier);
   const [daily, setDaily] = useState(initial.dailyCents);
   const [customDaily, setCustomDaily] = useState(dailyChoicesFor(initial.vertical).includes(initial.dailyCents) ? "" : String(initial.dailyCents / 100));
   const [autoRun, setAutoRun] = useState(initial.autoRun);
@@ -402,6 +402,15 @@ export function CampaignFlow({
                 <p className="text-2xl font-semibold text-fg">Rolling</p>
                 <p className="mt-1 text-[12px] leading-snug text-fg-muted">{lengthReason(daily)}</p>
               </div>
+              {roof ? (
+                <div className="rounded-xl border border-line px-4 py-3">
+                  <p className="text-[12px] text-fg-muted">Billed by Meta to your card</p>
+                  <p className="text-2xl font-semibold tabular-nums text-fg">About {whole(daily * 7)}/week</p>
+                  <p className="mt-1 text-[12px] leading-snug text-fg-muted">
+                    {whole(daily)} a day, charged by Meta to the card on your ad account as your ads spend. Every charge shows in Meta&apos;s Billing &amp; payments. No ad funds to add here.
+                  </p>
+                </div>
+              ) : (
               <div className="rounded-xl border border-line px-4 py-3">
                 <p className="text-[12px] text-fg-muted">Ad funds to start (two weeks)</p>
                 <p className="text-2xl font-semibold tabular-nums text-fg">{whole(money.recommendedFundsCents)}</p>
@@ -410,6 +419,7 @@ export function CampaignFlow({
                   {money.videoCents ? `, plus ${whole(money.videoCents)} for ${VIDEO_TIERS[tier].title} videos` : ""}, rounded up to the next $500. Treat it as the minimum, and keep adding so the next cycle can start. You have {usd(balanceCents, { cents: true })}.
                 </p>
               </div>
+              )}
               <div className="rounded-xl border border-line px-4 py-3 sm:col-span-2">
                 <p className="text-[12px] text-fg-muted">Ads Migz makes, all launched on day one</p>
                 <p className="mt-1 text-sm text-fg">
@@ -432,13 +442,14 @@ export function CampaignFlow({
     {
       key: "plan",
       q: "Migz AI's plan",
-      body: <PlanScreen preview={preview} loading={previewing} needsBalance={needsBalance} autoRun={autoRun} setAutoRun={askRunMode ? setAutoRun : null} renew={renew} money={money} tier={tier} />,
+      body: <PlanScreen preview={preview} loading={previewing} needsBalance={needsBalance} autoRun={autoRun} setAutoRun={askRunMode ? setAutoRun : null} renew={renew} money={money} tier={tier} direct={roof} />,
     },
   ];
 
   // Roofers: a service area instead of states, no ages (Meta's Housing category reaches every adult), and none of
   // the insurance questions or instant forms
-  const ROOF_SKIPS = ["states", "ages", "premium", "underwriting", "health", "contact", "intent"];
+  // Roofers and clinics: Meta bills their card, so there are no ad funds to pay for video upgrades (Standard is included)
+  const ROOF_SKIPS = ["states", "ages", "premium", "underwriting", "health", "contact", "intent", "video"];
   const screens = allScreens.filter((s) => (roof ? !ROOF_SKIPS.includes(s.key) : s.key !== "area"));
   const screen = screens[step];
   const last = step === screens.length - 1;
@@ -552,7 +563,10 @@ function PlanScreen({
   renew,
   money,
   tier,
+  direct = false,
 }: {
+  /** Meta bills their card (roofers, clinics): no balance, so nothing comes "from your balance" */
+  direct?: boolean;
   preview: CampaignPreview | null;
   loading: boolean;
   needsBalance: boolean;
@@ -597,8 +611,10 @@ function PlanScreen({
         </div>
       )}
       <p className="rounded-xl border border-line px-4 py-3 text-[12px] leading-relaxed text-fg-muted">
-        <span className="font-medium text-fg">Rolling, no end date.</span> Every week the next cycle starts on its own from your balance at the same daily budget, and Migz plans it
-        from what the last one learned. It never charges a card. {KEEP_FUNDED}
+        <span className="font-medium text-fg">Rolling, no end date.</span>{" "}
+        {direct
+          ? "Every week the next cycle starts on its own at the same daily budget, and Migz plans it from what the last one learned. Meta bills the card on your ad account as your ads spend."
+          : <>Every week the next cycle starts on its own from your balance at the same daily budget, and Migz plans it from what the last one learned. It never charges a card. {KEEP_FUNDED}</>}
       </p>
     </div>
   );

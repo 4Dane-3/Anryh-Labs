@@ -51,7 +51,12 @@ const MORE = [
 // (the pages themselves enforce it: requireSetUpAgent)
 const OPEN_DURING_SETUP = new Set(["/dashboard/start", "/dashboard/calendar", "/dashboard/questions", "/dashboard/creatives"]);
 
-type AgentSummary = { name: string; slug: string; photoUrl: string | null; roof?: boolean; roofer?: boolean };
+type AgentSummary = { name: string; slug: string; photoUrl: string | null; roof?: boolean; roofer?: boolean; /** Meta bills their card: "Billing", not "Ad funds" */ direct?: boolean };
+
+/** The pill's places: an account Meta bills directly sees Billing (its spend and Meta's charges), not Ad funds. */
+const mainFor = (agent: AgentSummary) => MAIN.map((n) => (n.href === "/dashboard/funds" && agent.direct ? { ...n, label: "Billing" } : n));
+/** The menu's places: affiliate credit is paid as ad funds, so an account Meta bills directly doesn't see it. */
+const moreFor = (agent: AgentSummary) => MORE.filter((n) => !(agent.direct && n.href === "/dashboard/affiliates"));
 
 const isActive = (pathname: string, href: string) => (href === "/dashboard" ? pathname === href : pathname.startsWith(href));
 
@@ -183,8 +188,8 @@ function MenuSheet({ agent, devLogin, setupDone, staff, onClose }: { agent: Agen
         <nav className="flex-1 space-y-0.5 overflow-y-auto">
           {item("/dashboard/start", setupDone ? "Setup" : "Start here", Rocket)}
           {/* the pill holds these on wide screens; on phones they're only here */}
-          <div className="lg:hidden">{MAIN.map((n) => item(n.href, n.label, n.icon))}</div>
-          {MORE.map((n) => item(n.href, n.label, n.icon))}
+          <div className="lg:hidden">{mainFor(agent).map((n) => item(n.href, n.label, n.icon))}</div>
+          {moreFor(agent).map((n) => item(n.href, n.label, n.icon))}
           {/* Referral check-ins and Google Ads follow roofing's playbook for now */}
           {agent.roofer && item("/dashboard/referrals", "Referrals", Handshake)}
           {agent.roofer && item("/dashboard/google", "Google Ads", Search)}
@@ -268,7 +273,7 @@ export function TopBar({
         </Link>
 
         <nav aria-label="Dashboard" className="hidden items-center gap-0.5 rounded-2xl border border-white/20 bg-white/10 p-1 backdrop-blur-xl lg:flex">
-          {MAIN.map(({ href, label }) => {
+          {mainFor(agent).map(({ href, label }) => {
             if (!setupDone)
               return (
                 <span key={href} aria-disabled="true" title="Opens once your first campaign starts" className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-xl px-3.5 py-2 text-sm text-fg-faint">

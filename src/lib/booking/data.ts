@@ -59,6 +59,8 @@ export type Agent = {
   required_intake_steps?: number[]; // steps whose questions must be answered before booking
   stripe_customer_id?: string | null; // saved from the first paid deposit
   migz_plan?: "percent" | "subscription" | null; // "subscription": Migz AI by the month, no fee on ad funds
+  meta_card_at?: string | null; // when we confirmed their card is on their Meta ad account (Meta bills it directly)
+  meta_card_label?: string | null; // how Meta shows that card, e.g. "Visa *1234"
   stripe_subscription_id?: string | null;
   subscription_status?: string | null; // Stripe's: active, trialing, past_due, canceled, unpaid...
   subscription_period_end?: string | null;

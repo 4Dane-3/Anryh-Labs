@@ -15,7 +15,7 @@ import { defaultCreateMessage, monthlyBudget } from "@/lib/migz/router";
 import { traitSwipe } from "@/lib/migz/team/scout";
 import type { TopicKey } from "@/lib/migz/topics";
 import { PAGE_FONT_KEYS } from "@/lib/booking/page-font-keys";
-import { feePlanOf, MAX_DEPOSIT_CENTS, MIN_TOP_UP_CENTS, minDepositFor } from "@/lib/campaign";
+import { billsMetaDirect, feePlanOf, MAX_DEPOSIT_CENTS, MIN_TOP_UP_CENTS, minDepositFor } from "@/lib/campaign";
 import { CONTACT_EMAIL } from "@/lib/contact";
 import { isLeadGoal } from "@/lib/roofing/setup-options";
 import { dailyBatch } from "@/lib/batch";
@@ -45,7 +45,7 @@ import { checkoutReturnBase, createAutoTopUpSetup, createDepositCheckout, create
 import { cleanTopUp, topUpConsent } from "@/lib/auto-top-up";
 import { startGuarantee } from "@/lib/dashboard/guarantee";
 import { setupBlockers } from "@/lib/dashboard/setup";
-import { adAccountFrom, checkMetaAccess, pageRefFrom } from "@/lib/meta/access";
+import { adAccountFrom, checkMetaAccess, metaPaymentMethod, pageRefFrom } from "@/lib/meta/access";
 import { alertAdmin } from "@/lib/migz/slack";
 import { cleanInboundPrefs, INBOUND_MODE_COPY, INBOUND_PRICE_DOLLARS, isInboundMode, type InboundMode } from "@/lib/voice/inbound-rules";
 import { sendSlackMessage } from "@/lib/slack";
@@ -361,6 +361,27 @@ export async function saveMetaAccess(input: { adAccount: string; page: string })
   revalidatePath("/dashboard", "layout");
   const waiting = [!access.adAccount && "ad account", !access.page && "Page"].filter(Boolean).join(" and ");
   return { ok: true, linked: false, message: `Saved. We can't reach your ${waiting} yet: once we accept your partner request (usually within a business day), press Check again.` };
+}
+
+/**
+ * "I've added my card": Meta bills their ad spend straight to the card on their own ad account. Checked with
+ * Meta when we can read the account; until their partner request is accepted, their word is saved and the
+ * card is checked again when they start the campaign.
+ */
+export async function confirmMetaCard(): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  const agent = await requireAgent();
+  if (!billsMetaDirect(agent)) return { ok: false, error: "Your ads are paid from your ad funds." };
+  const account = agent.meta_ad_account_id ?? agent.meta_ad_account_requested ?? null;
+  if (!account) return { ok: false, error: "Share your Meta ad account first (the Meta step above), then add your card to it." };
+  const card = integrations.meta ? await metaPaymentMethod(account) : null;
+  if (card === false) return { ok: false, error: `Meta doesn't show a card on ad account ${account.replace(/^act_/, "")} yet. Add it in Billing & payments, then press this again.` };
+  const { error } = await supabaseAdmin
+    .from("agents")
+    .update({ meta_card_at: new Date().toISOString(), meta_card_label: card ? card.label : null })
+    .eq("id", agent.id);
+  if (error) return { ok: false, error: missingColumn(error.code) ? "This step isn't switched on yet (migration 20261221000000_meta_card.sql)." : "Couldn't save that." };
+  revalidatePath("/dashboard", "layout");
+  return { ok: true, message: card ? `Confirmed: Meta bills ${card.label} for your ads.` : "Saved. We'll confirm the card with Meta once your ad account is linked." };
 }
 
 export async function setBookingChoice(input: { choice: "ours" | "own"; url: string }): Promise<Result> {
@@ -1120,7 +1141,8 @@ async function resolveCampaign(agent: Agent, input: CampaignChoice): Promise<Res
       : `Choose a daily budget between $${MIN_CAMPAIGN_DAILY_CENTS / 100} and $${(MAX_CAMPAIGN_DAILY_CENTS / 100).toLocaleString("en-US")}.`;
   // Roofers run the booking page only: an inspection needs an address and a time
   const intent = roof ? "medium_high" : isIntentLevel(input.intentLevel) ? input.intentLevel : DEFAULT_INTENT;
-  const tier = isVideoTier(input.videoTier) ? input.videoTier : DEFAULT_VIDEO_TIER;
+  // Paid videos come out of ad funds, so accounts Meta bills directly get Standard (included)
+  const tier = billsMetaDirect(agent) ? DEFAULT_VIDEO_TIER : isVideoTier(input.videoTier) ? input.videoTier : DEFAULT_VIDEO_TIER;
   const plan = dailyBatch(daily, answers.products, await getBatchHistory(agent));
   return {
     answers,
@@ -1181,7 +1203,7 @@ export async function previewCampaign(input: CampaignChoice): Promise<CampaignPr
     buildCampaignPlan(agent, { answers: r.answers, states: r.states, intent: r.intent, dailyCents: r.row.daily_cents }),
     getBalanceCents(agent.id),
   ]);
-  return { ok: true, plan, money: r.money, balanceCents, short: shortOf(r, balanceCents) };
+  return { ok: true, plan, money: r.money, balanceCents, short: billsMetaDirect(agent) ? null : shortOf(r, balanceCents) };
 }
 
 /** "Start campaign" on the overview: the agent's answers and daily budget, Migz's plan, live right away. */
@@ -1194,8 +1216,8 @@ export async function startBatch(input: CampaignChoice): Promise<Result> {
   if (open?.status === "active") return fail(`Your campaign is running. It's rolling: this week's cycle ends ${open.ends_on} and the next starts on its own.`);
   const r = await resolveCampaign(agent, input);
   if (typeof r === "string") return fail(r);
-  const balance = await getBalanceCents(agent.id);
-  const short = shortOf(r, balance);
+  // Meta bills a direct account's card, so there's no balance to cover; everyone else starts with two weeks funded
+  const short = billsMetaDirect(agent) ? null : shortOf(r, await getBalanceCents(agent.id));
   if (short) return fail(short);
   const saveError = await saveCampaignAnswers(agent, r, input.autoRun);
   if (saveError) return fail(saveError);
@@ -1415,14 +1437,20 @@ export async function launchCampaign(): Promise<Result> {
   if (blockers.length) return fail(blockers[0]);
   const planned = await getOpenBatch(agent.id);
   if (!planned || planned.status !== "planned") return fail("Plan your first campaign in Start here first.");
+  if (billsMetaDirect(agent)) {
+    // Meta bills their card: it has to be on the ad account before any ad can spend
+    const card = await metaPaymentMethod(agent.meta_ad_account_id!);
+    if (card === false) return fail("Meta doesn't show a card on your ad account. Add one in Meta's Billing & payments (the card step in Start here), then start your campaign.");
+    if (card && card.label !== agent.meta_card_label) await supabaseAdmin.from("agents").update({ meta_card_at: agent.meta_card_at ?? new Date().toISOString(), meta_card_label: card.label }).eq("id", agent.id);
+  }
   const balance = await getBalanceCents(agent.id);
   const money = campaignMoney({
     dailyCents: planned.daily_cents,
     intent: isIntentLevel(agent.intent_level) ? agent.intent_level : DEFAULT_INTENT,
     tier: isVideoTier(agent.video_tier) ? agent.video_tier : DEFAULT_VIDEO_TIER,
   });
-  // A campaign starts with two weeks funded (plus its videos)
-  if (money.neededCents > balance)
+  // A campaign starts with two weeks funded (plus its videos), unless Meta bills their card directly
+  if (!billsMetaDirect(agent) && money.neededCents > balance)
     return fail(`Your campaign starts with two weeks funded: ${usdShort(money.neededCents)}${money.videoCents ? ` (with ${usdShort(money.videoCents)} for videos)` : ""}, and your ad balance is ${usdShort(balance)}. Add funds (we recommend ${usdShort(money.recommendedFundsCents)} in ad funds) or choose a smaller daily budget.`);
 
   const { error } = await supabaseAdmin.from("agents").update({ onboarding_completed_at: new Date().toISOString() }).eq("id", agent.id);
@@ -1432,8 +1460,9 @@ export async function launchCampaign(): Promise<Result> {
   } catch (e) {
     return fail(e instanceof Error ? e.message : "Couldn't start your campaign. Please try again.");
   }
-  // The booked-call guarantee's 30 days start now, at the campaign's daily budget
-  await startGuarantee({ ...agent, daily_budget_cents: planned.daily_cents });
+  // The booked-call guarantee's 30 days start now, at the campaign's daily budget. It credits back our fee on
+  // ad funds, so an account Meta bills directly (no ad funds, no fee on them) has none
+  if (!billsMetaDirect(agent)) await startGuarantee({ ...agent, daily_budget_cents: planned.daily_cents });
   revalidatePath("/dashboard", "layout");
   return { ok: true };
 }
