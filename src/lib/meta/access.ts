@@ -56,3 +56,26 @@ export async function checkMetaAccess(adAccountId: string, pageRef: string): Pro
     page: page ? { id: page.id, name: page.name, instagramId: page.instagram_business_account?.id ?? null } : null,
   };
 }
+
+/** Meta's billing pages for an ad account, where the client adds their card and sees every charge. */
+export const metaBillingUrl = (adAccountId: string | null | undefined, page: "payment_settings" | "payment_activity" = "payment_settings") => {
+  const digits = adAccountId?.replace(/^act_/, "") ?? "";
+  return `https://business.facebook.com/billing_hub/${page}${digits ? `?asset_id=${digits}` : ""}`;
+};
+
+/**
+ * The card (or other payment method) Meta bills for this ad account. `null` when Meta can't be read for it
+ * (not shared with us yet, or no token here), `false` when Meta shows no payment method on it.
+ */
+export async function metaPaymentMethod(adAccountId: string): Promise<{ label: string } | false | null> {
+  try {
+    const a = await graph<{ funding_source?: string; funding_source_details?: { id?: string; display_string?: string } }>("GET", adAccountId, {
+      fields: "funding_source,funding_source_details",
+    });
+    const label = a.funding_source_details?.display_string?.trim();
+    if (label) return { label: label.slice(0, 80) };
+    return a.funding_source || a.funding_source_details?.id ? { label: "Payment method on file" } : false;
+  } catch {
+    return null;
+  }
+}

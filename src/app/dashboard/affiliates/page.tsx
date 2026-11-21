@@ -1,4 +1,6 @@
 import { DateTime } from "luxon";
+import { redirect } from "next/navigation";
+import { billsMetaDirect } from "@/lib/campaign";
 import { requireSetUpAgent } from "@/lib/auth";
 import { getAffiliateSummary } from "@/lib/referrals";
 import { REFERRAL_RATE, referralCreditCents } from "@/lib/referrals-core";
@@ -23,6 +25,8 @@ const STATUS = { pending: { label: "Waiting for approval", tone: "accent" }, dec
 
 export default async function AffiliatesPage() {
   const agent = await requireSetUpAgent();
+  // Affiliate credit is paid as ad funds: an account Meta bills directly has none
+  if (billsMetaDirect(agent)) redirect("/dashboard");
   const s = await getAffiliateSummary(agent);
   const date = (iso: string) => DateTime.fromISO(iso).setZone(agent.timezone).toFormat("LLL d, yyyy");
   const example = MIN_DEPOSIT_CENTS;

@@ -1,4 +1,4 @@
-import { feePlanOf } from "@/lib/campaign";
+import { billsMetaDirect, feePlanOf } from "@/lib/campaign";
 import { requireAgent } from "@/lib/auth";
 import { CONTACT_EMAIL } from "@/lib/contact";
 import { integrations, migzReadyFor } from "@/lib/integrations";
@@ -9,7 +9,7 @@ import { getCampaignStart } from "@/lib/dashboard/campaign-plan";
 import { getFundsAddedCents } from "@/lib/dashboard/queries";
 import { displayPhone } from "@/lib/booking/call";
 import { landingUrl } from "@/lib/booking/sites";
-import { META_BUSINESS_ID } from "@/lib/meta/access";
+import { META_BUSINESS_ID, metaBillingUrl } from "@/lib/meta/access";
 import { topUpDefaults } from "@/lib/auto-top-up";
 import { rulesOf } from "@/lib/roofing/fit";
 import { applyRooferDefaults } from "@/lib/roofing/autopilot-defaults";
@@ -66,6 +66,16 @@ export default async function StartPage({ searchParams }: { searchParams: Promis
         setupFeePaidAt={agent.setup_fee_paid_at ?? null}
         stripeConnected={integrations.stripe}
         emmaReady={voiceConfiguredFor(agent.vertical)}
+        metaCard={
+          billsMetaDirect(agent)
+            ? {
+                at: agent.meta_card_at ?? null,
+                label: agent.meta_card_label ?? null,
+                account: agent.meta_ad_account_id ?? agent.meta_ad_account_requested ?? null,
+                billingUrl: metaBillingUrl(agent.meta_ad_account_id ?? agent.meta_ad_account_requested),
+              }
+            : null
+        }
         connected={migzReadyFor(agent)}
         plan={{
           topics: agent.ad_focus ?? [],

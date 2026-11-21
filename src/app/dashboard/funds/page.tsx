@@ -1,4 +1,6 @@
-import { feePlanOf } from "@/lib/campaign";
+import { billsMetaDirect, feePlanOf } from "@/lib/campaign";
+import { metaBillingUrl } from "@/lib/meta/access";
+import { supabaseAdmin } from "@/lib/supabase-admin";
 import Link from "next/link";
 import { isLocal } from "@/lib/verticals";
 import { DateTime } from "luxon";
@@ -27,6 +29,7 @@ const KIND_LABEL: Record<string, string> = {
 
 export default async function FundsPage({ searchParams }: { searchParams: Promise<{ deposit?: string; auto?: string }> }) {
   const [agent, { deposit, auto }] = await Promise.all([requireSetUpAgent(), searchParams]);
+  if (billsMetaDirect(agent)) return <MetaBilling agent={agent} />;
   const [balance, transactions, batch, fundsAdded, guarantee] = await Promise.all([
     getBalanceCents(agent.id),
     getTransactions(agent.id),
@@ -175,6 +178,67 @@ export default async function FundsPage({ searchParams }: { searchParams: Promis
           <EmptyState title="No transactions yet">Deposits and ad spend will be listed here.</EmptyState>
         )}
       </Panel>
+    </>
+  );
+}
+
+/**
+ * Roofers and clinics have no ad funds: Meta bills the card on their own ad account as the ads spend. This is
+ * where they see what they're spending, set the daily budget, and jump to Meta for every charge.
+ */
+async function MetaBilling({ agent }: { agent: Awaited<ReturnType<typeof requireSetUpAgent>> }) {
+  const since = DateTime.now().setZone(agent.timezone).minus({ days: 30 }).toISODate()!;
+  const [{ data: spend }, batch] = await Promise.all([
+    supabaseAdmin.from("ad_insights_daily").select("date, spend_cents").eq("agent_id", agent.id).gte("date", since),
+    getActiveBatch(agent.id),
+  ]);
+  const byDay = new Map<string, number>();
+  for (const r of spend ?? []) byDay.set(r.date as string, (byDay.get(r.date as string) ?? 0) + ((r.spend_cents as number) ?? 0));
+  const total = [...byDay.values()].reduce((a, b) => a + b, 0);
+  const days = [...byDay].sort((a, b) => b[0].localeCompare(a[0])).slice(0, 14);
+  const account = agent.meta_ad_account_id ?? agent.meta_ad_account_requested ?? null;
+  return (
+    <>
+      <PageHeader title="Billing" description="Meta bills your ads straight to the card on your own ad account. Every charge shows in Meta's Billing & payments." />
+      <div className="grid gap-3 lg:grid-cols-5">
+        <Panel className="lg:col-span-3">
+          <div className="border-b border-line px-6 py-6">
+            <p className="text-[13px] text-fg-muted">Ad spend, last 30 days</p>
+            <p className="mt-2 text-5xl font-semibold tracking-tight">{usd(total, { cents: true })}</p>
+            <p className="mt-2 text-[13px] text-fg-muted">
+              {agent.meta_card_label ? `Billed by Meta to ${agent.meta_card_label}.` : "Billed by Meta to the card on your ad account."} Meta charges it as your ads spend, not us.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <a href={metaBillingUrl(account, "payment_activity")} target="_blank" rel="noreferrer" className="rounded-lg border border-line px-3 py-1.5 text-[13px] font-medium text-fg hover:border-line-strong">
+                See every charge in Meta
+              </a>
+              <a href={metaBillingUrl(account, "payment_settings")} target="_blank" rel="noreferrer" className="rounded-lg border border-line px-3 py-1.5 text-[13px] text-fg-muted hover:border-line-strong hover:text-fg">
+                Change your card
+              </a>
+            </div>
+          </div>
+          {days.length ? (
+            <ul className="divide-y divide-line">
+              {days.map(([date, cents]) => (
+                <li key={date} className="flex items-center justify-between px-6 py-2.5 text-sm">
+                  <span className="text-fg-muted">{DateTime.fromISO(date).toFormat("ccc, LLL d")}</span>
+                  <span className="tabular-nums text-fg">{usd(cents, { cents: true })}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <EmptyState title="No ad spend yet">Your daily spend shows here once your ads run. Meta&apos;s Billing & payments has the charges to your card.</EmptyState>
+          )}
+        </Panel>
+        <Panel className="lg:col-span-2">
+          <PanelHeader title="Daily spend" description="How much your ads spend in a day. Meta bills your card for it." />
+          <BudgetControls
+            dailyBudgetCents={agent.daily_budget_cents}
+            paused={agent.ads_paused}
+            batchLabel={batch ? `This week's cycle (until ${batch.ends_on})` : null}
+          />
+        </Panel>
+      </div>
     </>
   );
 }

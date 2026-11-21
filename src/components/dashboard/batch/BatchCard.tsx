@@ -17,10 +17,17 @@ const range = (b: Batch, zone: string) =>
     : `${b.days} days`;
 
 /** What Keep going will do next, and whether the balance wouldn't cover it. */
-function keepNote(batch: Batch, balanceCents: number, zone: string, unspentCents = 0): { note: string; warn: boolean } {
+function keepNote(batch: Batch, balanceCents: number, zone: string, unspentCents = 0, direct = false): { note: string; warn: boolean } {
   const need = batch.budget_cents;
   if (batch.status === "ended") {
     return { note: batch.renew_blocked ?? "Your next cycle starts within the hour.", warn: true };
+  }
+  // Meta bills a direct account's card as it spends: no balance to keep the next cycle going
+  if (direct) {
+    const nextDay = batch.ends_on ? DateTime.fromISO(batch.ends_on, { zone }).plus({ days: 1 }).toFormat("LLL d") : "when it ends";
+    return batch.renew
+      ? { note: `The next weekly cycle starts ${nextDay} at the same daily budget. Meta bills the card on your ad account as it spends. Turn this off to stop after this cycle.`, warn: false }
+      : { note: "Rolling is off, so your campaign stops when this cycle ends. Turn it on and the next weekly cycle starts with no gap.", warn: false };
   }
   if (!batch.renew) return { note: `Rolling is off, so your campaign stops when this cycle ends. Turn it on and the next ${whole(need)} weekly cycle starts from your balance, with no gap. It never charges a card.`, warn: false };
   const next = batch.ends_on ? DateTime.fromISO(batch.ends_on, { zone }).plus({ days: 1 }).toFormat("LLL d") : "when it ends";
@@ -40,7 +47,10 @@ export function BatchCard({
   timezone,
   balanceCents,
   fundsUsedUp = false,
+  direct = false,
 }: {
+  /** Meta bills their card: nothing comes from a balance */
+  direct?: boolean;
   active: Batch | null;
   planned: Batch | null;
   progress: { spentCents: number; bookedCalls: number; day: number; daysLeft: number | null } | null;
@@ -58,7 +68,7 @@ export function BatchCard({
     <div className="flex h-full flex-col">
       <PanelHeader
         title={active ? "Your rolling campaign" : "Campaign cycles"}
-        description={active ? `${TITLES[active.option]} · ${range(active, timezone)}` : "Campaigns roll week to week, planned and run by Migz, while your balance covers them."}
+        description={active ? `${TITLES[active.option]} · ${range(active, timezone)}` : direct ? "Campaigns roll week to week, planned and run by Migz. Meta bills your card as they spend." : "Campaigns roll week to week, planned and run by Migz, while your balance covers them."}
       />
       {active && progress ? (
         <div className="space-y-4 px-5 py-4">
@@ -98,7 +108,7 @@ export function BatchCard({
             <p className="mt-0.5 text-[13px] text-fg-muted">{listCampaignTopics(topicsOf(active))}</p>
           </div>
           {active.reason && <p className="border-t border-line pt-3 text-[12px] text-fg-faint">Why this plan: {active.reason}</p>}
-          {!fundsUsedUp && <KeepGoing on={active.renew} {...keepNote(active, balanceCents, timezone, Math.max(0, active.budget_cents - progress.spentCents))} />}
+          {!fundsUsedUp && <KeepGoing on={active.renew} {...keepNote(active, balanceCents, timezone, Math.max(0, active.budget_cents - progress.spentCents), direct)} />}
         </div>
       ) : planned ? (
         <div className="px-5 py-4 text-[13px] text-fg-muted">
@@ -115,7 +125,7 @@ export function BatchCard({
 
       {waiting && (
         <div className="px-5 pb-4">
-          <KeepGoing on {...keepNote(waiting, balanceCents, timezone)} />
+          <KeepGoing on {...keepNote(waiting, balanceCents, timezone, 0, direct)} />
         </div>
       )}
 

@@ -14,7 +14,7 @@ const usd = (cents: number) => `$${(cents / 100).toFixed(cents % 100 ? 2 : 0)}`;
 export type RenewalInput = {
   /** The batch that just ended. */
   batch: { renew: boolean; status: string; ended_at: string | null; budget_cents: number; result: { spent_cents: number } | null };
-  agent: { ads_paused: boolean; migz_mode: string; hasMeta: boolean; onboarded: boolean; focusCount: number; plan?: FeePlan };
+  agent: { ads_paused: boolean; migz_mode: string; hasMeta: boolean; onboarded: boolean; focusCount: number; plan?: FeePlan; /** Meta bills their card: no balance to cover */ direct?: boolean };
   balanceCents: number;
   /** Needed free on top of the budget: the paid videos Migz makes when it sets the next batch up (0 on Standard). */
   videoCents?: number;
@@ -42,6 +42,8 @@ export function renewalGate(input: RenewalInput): Renewal {
     return { action: "stop", reason: `Your last batch spent only ${usd(spent)} of its ${usd(batch.budget_cents)}, so the ads weren't delivering and a repeat wouldn't put the money to work. Check your ads, then start the next batch yourself.` };
   if (agent.ads_paused) return { action: "wait", reason: "Your ads are paused, so the next batch hasn't started. Turn them back on and it starts on its own." };
   if (agent.migz_mode === "off") return { action: "wait", reason: "Migz is turned off, so the next batch hasn't started. Turn it back on and it starts on its own." };
+  // Meta bills a direct account's card as it spends, so the next cycle needs no balance
+  if (agent.direct) return { action: "renew" };
   const needed = batch.budget_cents + (input.videoCents ?? 0);
   if (input.balanceCents < needed) {
     const short = needed - input.balanceCents;

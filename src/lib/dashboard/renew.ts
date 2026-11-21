@@ -10,7 +10,7 @@ import { activateBatch } from "@/lib/dashboard/start-batch";
 import { renewalGate, RENEW_WINDOW_DAYS } from "@/lib/renew-core";
 import { DEFAULT_INTENT, DEFAULT_VIDEO_TIER, isIntentLevel, isVideoTier } from "@/lib/ad-options";
 import { campaignMoney } from "@/lib/campaign-plan";
-import { feePlanOf } from "@/lib/campaign";
+import { billsMetaDirect, feePlanOf } from "@/lib/campaign";
 import { autoTopUp } from "@/lib/dashboard/top-up";
 
 export type RenewOutcome = "renewed" | "waiting" | "stopped" | "none";
@@ -42,7 +42,7 @@ export async function renewForAgent(agent: Agent, now = new Date()): Promise<Ren
     intent: isIntentLevel(agent.intent_level) ? agent.intent_level : DEFAULT_INTENT,
     tier: isVideoTier(agent.video_tier) ? agent.video_tier : DEFAULT_VIDEO_TIER,
   }).videoCents;
-  if (agent.auto_topup && (await getBalanceCents(agent.id)) < batch.budget_cents + videoCents) {
+  if (!billsMetaDirect(agent) && agent.auto_topup && (await getBalanceCents(agent.id)) < batch.budget_cents + videoCents) {
     await autoTopUp(agent).catch((e) => console.error("auto top-up before renewal failed", agent.slug, e));
   }
 
@@ -55,6 +55,7 @@ export async function renewForAgent(agent: Agent, now = new Date()): Promise<Ren
       onboarded: !!agent.onboarding_completed_at,
       focusCount: cleanFocus(agent.ad_focus).length,
       plan: feePlanOf(agent),
+      direct: billsMetaDirect(agent),
     },
     balanceCents: await getBalanceCents(agent.id),
     videoCents,
