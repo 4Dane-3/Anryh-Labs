@@ -63,11 +63,11 @@ X: Does [day] at 3 work?
 Give the real numbers. Don't dodge twice.
 X: Fair enough. Two parts.
 X: One, your ad budget. It's at least $2,000 a month for Facebook, plus Google if you want it, at least $1,000 a month. It goes straight to Facebook and Google on your own card: we don't take a cut.
-X: Two, a flat $1,500 a month for us. That's everything: the Facebook ads, the Google ads, the videos, Emma calling and booking your homeowners, and the reporting. No setup fee, no contract.
+X: Two, a one-time $1,000 setup fee, then a flat $1,500 a month for us. That's everything: the Facebook ads, the Google ads, the videos, Emma calling and booking your homeowners, and the reporting. No contract.
 X: On a replacement averaging [$12–15k], one closed job covers months of it.
 
 ### "Is there a setup fee?"
-X: No. You pay the first month when we start, plus your first month of ads. You can cancel any month.
+X: Yes, $1,000 once. You pay it with your first month when we start, and your ads are billed by Facebook to your own card. You can cancel any month.
 
 ## The guarantee
 Say it once they're interested, word for word:

@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { inboundConfigured } from "@/lib/voice/elevenlabs";
+import { inboundConfigured, inboundConfiguredFor } from "@/lib/voice/elevenlabs";
 import { PageHead } from "@/components/admin/AdminShell";
 import { InboundNumbers, type InboundRow } from "@/components/admin/InboundNumbers";
 
@@ -33,9 +33,10 @@ export default async function InboundPage() {
       <PageHead
         eyebrow="Voice"
         title="Inbound calls"
-        description="Roofers who turned on inbound Emma (+$250/month). Buy a Twilio number for each, import it into ElevenLabs, assign it to the inbound agent, then enter it here."
+        description="Roofers and clinics who turned on inbound Emma (+$250/month). Buy a Twilio number for each, import it into ElevenLabs, assign it to Emma (Inbound) for a roofer or Emma (Clinic Inbound) for a clinic, then enter it here."
       />
-      {!inboundConfigured() && <p className="rounded-lg border border-bad/30 bg-bad/10 px-3 py-2 text-sm text-bad">ELEVENLABS_INBOUND_AGENT_ID isn&apos;t set on this server, so inbound calls can&apos;t be answered yet.</p>}
+      {!inboundConfigured() && <p className="rounded-lg border border-bad/30 bg-bad/10 px-3 py-2 text-sm text-bad">ELEVENLABS_INBOUND_AGENT_ID isn&apos;t set on this server, so roofers&apos; inbound calls can&apos;t be answered yet.</p>}
+      {!inboundConfiguredFor("hair_clinic") && <p className="rounded-lg border border-bad/30 bg-bad/10 px-3 py-2 text-sm text-bad">ELEVENLABS_CLINIC_INBOUND_AGENT_ID isn&apos;t set on this server, so clinics&apos; inbound calls can&apos;t be answered yet.</p>}
       {error ? (
         <p className="text-sm text-fg-muted">Run migration 20261218000000_inbound_calls.sql first.</p>
       ) : (

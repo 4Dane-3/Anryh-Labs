@@ -73,7 +73,7 @@ node --env-file=.env.local scripts/voice/push-emma.mjs            # dry run: sho
 node --env-file=.env.local scripts/voice/push-emma.mjs --apply    # updates the agent, backup in .claude/emma-backups/
 ```
 
-**Hair transplant clinics** get their own Emma: `scripts/voice/emma-clinic-prompt.md` on a separate ElevenLabs agent, `ELEVENLABS_CLINIC_AGENT_ID`. Make it by duplicating the lead agent in ElevenLabs (so it has the same tools and webhook), put its id in the env, then push with `--clinic`. Until that id is set, clinics get no AI calls at all (never the roofing script). She asks 18+, what they'd like to talk about and when, books the consultation with `book_inspection` (no address), and never comments on anyone's hair, quotes prices or promises results.
+**Hair transplant clinics** get their own Emma: `scripts/voice/emma-clinic-prompt.md` on a separate ElevenLabs agent, "Emma (Clinic)", `ELEVENLABS_CLINIC_AGENT_ID`. `node --env-file=.env.local scripts/voice/setup-clinic-agents.mjs --apply` makes it (a copy of the lead agent, so it has the same tools and webhook, with the clinic's data collection: `adult`, `interest`, `timeline`, `outcome`, `callback_time`, `email`) and its inbound twin; put the ids in the env (Vercel and `.env.local`), then push with `--clinic`. Until that id is set, clinics get no AI calls at all (never the roofing script). She asks 18+, what they'd like to talk about and when, books the consultation with `book_inspection` (no address), and never comments on anyone's hair, quotes prices or promises results.
 
 The push also removes any **workflow** (stages) on the agent. Don't add one in the ElevenLabs editor: an ElevenLabs lead-qualifier template once sat on top of the prompt, and its B2B stages (budget, authority, "route to a sales rep") made Emma re-ask questions and fire several at once. Tools are left alone.
 
@@ -219,7 +219,9 @@ NODE_PATH=scripts/migz/stubs npx tsx --tsconfig ./tsconfig.json scripts/voice/jo
 
 ---
 
-# Inbound Emma (roofers, +$250/month add-on)
+# Inbound Emma (roofers and clinics, +$250/month add-on)
+
+Clinics have their own inbound agent, "Emma (Clinic Inbound)" (`ELEVENLABS_CLINIC_INBOUND_AGENT_ID`, prompt `scripts/voice/emma-clinic-inbound-prompt.md`, pushed with `push-emma.mjs --clinic-inbound`). It's made by `setup-clinic-agents.mjs` as a copy of the inbound agent, with the inbound fields (`caller_type`, `outcome`, `caller_name`, `message`) plus `adult`, `interest` and `timeline`. A clinic's number is assigned to it in ElevenLabs instead of Emma (Inbound); the initiation webhook and post-call handling are the same. It asks 18+ before booking, never comments on anyone's hair, quotes prices or promises results.
 
 A third ElevenLabs agent answers a roofer's **incoming** calls. Roofers opt in under **Settings → Inbound calls** and choose how calls reach her:
 

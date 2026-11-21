@@ -80,7 +80,8 @@ export async function findInboundCall(conversationId: string, vars: Record<strin
   return (byId as InboundRow | null) ?? null;
 }
 
-const FIELDS = ["caller_type", "outcome", "caller_name", "message", "callback_time", "email", "address", "roof_issue", "roof_age", "owns_home", "insurance_claim", "decision_makers"] as const;
+// A clinic's calls collect adult / interest / timeline in place of the roof fields
+const FIELDS = ["caller_type", "outcome", "caller_name", "message", "callback_time", "email", "address", "roof_issue", "roof_age", "owns_home", "insurance_claim", "decision_makers", "adult", "interest", "timeline"] as const;
 
 export type InboundTranscript = {
   conversation_id: string;
@@ -150,8 +151,8 @@ export async function handleInboundPostCall(call: InboundRow, data: InboundTrans
     })
     .eq("id", call.id);
 
-  const { data: account } = await supabaseAdmin.from("agents").select("id, full_name, email, business_email, timezone, inbound_summary_email").eq("id", call.agent_id).maybeSingle();
-  const acc = account as { id: string; full_name: string; email: string; business_email?: string | null; timezone: string; inbound_summary_email?: string | null } | null;
+  const { data: account } = await supabaseAdmin.from("agents").select("id, full_name, email, business_email, timezone, inbound_summary_email, vertical").eq("id", call.agent_id).maybeSingle();
+  const acc = account as { id: string; full_name: string; email: string; business_email?: string | null; timezone: string; inbound_summary_email?: string | null; vertical?: string | null } | null;
   if (!acc) return { ok: true, inbound: true, outcome };
 
   let bookedLabel: string | null = null;
@@ -179,6 +180,7 @@ export async function handleInboundPostCall(call: InboundRow, data: InboundTrans
       bookedLabel,
       durationSecs: duration,
       link: keepLead && l ? `${appUrl()}/dashboard/clients?id=lead:${l.id}` : null,
+      clinic: acc.vertical === "hair_clinic",
     });
     const to = acc.inbound_summary_email || acc.business_email || acc.email;
     try {

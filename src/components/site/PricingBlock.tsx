@@ -1,4 +1,4 @@
-import { ALSO_INCLUDED, COVERED, EXAMPLE_FUNDS, HOW_IT_ADDS_UP, MIN_FUNDS, NOT_COVERED, ROOFING_MIN_FIRST_MONTH_AD_SPEND, ROOFING_MONTHLY, SETUP_FEE, TIERS, feeFor, pct, sliceLabel, usd } from "@/lib/pricing";
+import { ALSO_INCLUDED, COVERED, EXAMPLE_FUNDS, HOW_IT_ADDS_UP, MIN_FUNDS, NOT_COVERED, ROOFING_MIN_FIRST_MONTH_AD_SPEND, ROOFING_MONTHLY, ROOFING_SETUP_FEE, SETUP_FEE, TIERS, feeFor, pct, sliceLabel, usd } from "@/lib/pricing";
 import "@/components/site/content.css";
 
 /** The rate for each slice of the amount added, with what the amount costs in all once it reaches the end of that slice. */
@@ -72,8 +72,8 @@ export function PricingCovers() {
       <div className="cx-setups">
         <div className="cx-setup">
           <p className="cx-setup__who">roofing companies</p>
-          <p className="cx-setup__fee">{usd(ROOFING_MONTHLY)}/month</p>
-          <p>migz ai: meta ads, google search ads and emma, the ai assistant who calls and books your homeowners. no setup fee, no contract. ad spend is separate (at least {usd(ROOFING_MIN_FIRST_MONTH_AD_SPEND)} the first month), and all of it goes to your ads.</p>
+          <p className="cx-setup__fee">{usd(ROOFING_SETUP_FEE)} + {usd(ROOFING_MONTHLY)}/month</p>
+          <p>migz ai: meta ads, google search ads and emma, the ai assistant who calls and books your homeowners. a one-time {usd(ROOFING_SETUP_FEE)} setup fee, then monthly, no contract. ad spend is separate (at least {usd(ROOFING_MIN_FIRST_MONTH_AD_SPEND)} the first month), billed by meta to your own card.</p>
         </div>
         <div className="cx-setup">
           <p className="cx-setup__who">life insurance agents</p>

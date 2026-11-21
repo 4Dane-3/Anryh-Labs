@@ -45,7 +45,8 @@ type InitiationFailure = {
 
 export type PostCallPayload = (Transcription | InitiationFailure | { type: string; data?: { conversation_id?: string } }) & { event_timestamp?: number };
 
-const FIELDS = ["outcome", "owns_home", "in_service_area", "roof_issue", "roof_age", "insurance_claim", "decision_makers", "callback_time", "email", "address"] as const;
+// Clinic Emma collects adult / interest / timeline in place of the roof fields
+const FIELDS = ["outcome", "owns_home", "in_service_area", "roof_issue", "roof_age", "insurance_claim", "decision_makers", "callback_time", "email", "address", "adult", "interest", "timeline"] as const;
 
 type FoundCall = { id: string; lead_id: string | null; agent_id: string; attempt: number; booking_id: string | null; kind?: string; job_booking_id?: string | null };
 const CALL_FIELDS = "id, lead_id, agent_id, attempt, booking_id, kind, job_booking_id";

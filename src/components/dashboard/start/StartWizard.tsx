@@ -78,7 +78,7 @@ const TITLES: Record<string, { title: string; blurb: string }> = {
   vertical: { title: "What kind of business?", blurb: "Setup and your ads are built for your trade." },
   business: { title: "Your business", blurb: "Your agency or IMO, your business email and the number leads reach you on." },
   meta: { title: "Your Meta ad account", blurb: "Share your ad account and Facebook Page with Anryh Labs, so Migz can run your ads." },
-  setup_fee: { title: `Setup fee: ${usd(SETUP_FEE_CENTS, { cents: false })}`, blurb: "One time, before anything else. It covers setting up your ad account, your first campaign and your pages." },
+  setup_fee: { title: `Setup fee: ${usd(SETUP_FEE_CENTS, { cents: false })}`, blurb: "One time, to Anryh Labs LLC, before anything else. It covers setting up your ad account, your first campaign and your pages." },
   profile: { title: "Your profile", blurb: "Your name, photo and a short bio. People see this before they book." },
   page: { title: "Your booking page", blurb: "Where your ads send people: your page here, or your own." },
   slack: { title: "Slack", blurb: "Where Migz tells you about new leads and bookings, and sends your morning summary." },
@@ -93,7 +93,7 @@ const TITLES: Record<string, { title: string; blurb: string }> = {
 /** What changes for a roofing company. */
 const ROOF_TITLES: Record<string, { title: string; blurb: string }> = {
   business: { title: "Your business", blurb: "Your business email and the number homeowners reach you on." },
-  setup_fee: { title: `Migz AI: ${usd(MIGZ_MONTHLY_CENTS, { cents: false })}/month`, blurb: "Meta ads, Google ads and Emma. No setup fee, cancel anytime. Meta bills your ad spend to your own card." },
+  setup_fee: { title: `Setup: ${usd(SETUP_FEE_CENTS, { cents: false })}, then ${usd(MIGZ_MONTHLY_CENTS, { cents: false })}/month`, blurb: "A one-time setup fee to Anryh Labs LLC, then Migz AI monthly: Meta ads, Google ads and Emma. Cancel anytime." },
   profile: { title: "Your company", blurb: "Your company name, logo or photo and a short intro. Homeowners see this before they talk to you." },
   crm: { title: "Your CRM", blurb: "Leads are booked straight into your CRM's calendar. Tell us which one you use." },
   slack: { title: "Slack (optional)", blurb: "New leads also come to your email. Connect Slack if you'd like them there too." },
@@ -124,7 +124,7 @@ const WHY: Record<string, string> = {
 };
 /** What changes for a hair transplant clinic (over the roofing wording, the same local-business setup). */
 const CLINIC_TITLES: Record<string, { title: string; blurb: string }> = {
-  setup_fee: { title: `Migz AI: ${usd(MIGZ_MONTHLY_CENTS, { cents: false })}/month`, blurb: "Meta ads, video ads and Emma. No setup fee, cancel anytime. Meta bills your ad spend to your own card." },
+  setup_fee: { title: `Setup: ${usd(SETUP_FEE_CENTS, { cents: false })}, then ${usd(MIGZ_MONTHLY_CENTS, { cents: false })}/month`, blurb: "A one-time setup fee to Anryh Labs LLC, then Migz AI monthly: Meta ads, video ads and Emma. Cancel anytime." },
   business: { title: "Your clinic", blurb: "Your clinic email and the number patients reach you on." },
   profile: { title: "Your clinic's profile", blurb: "Your clinic name, logo or photo and a short intro. Patients see this before they talk to you." },
   crm: { title: "Your CRM", blurb: "Consultations are booked straight into your CRM's calendar. Tell us which one you use." },
@@ -136,7 +136,7 @@ const CLINIC_TITLES: Record<string, { title: string; blurb: string }> = {
 };
 const CLINIC_WHY: Record<string, string> = {
   business: "Every lead and booking is emailed to this address, and patients reach you on this number. It's the call button on your ads and pages.",
-  setup_fee: "This is the monthly fee: Migz running your Meta ads, the videos, and Emma calling and booking your consultations. Your ad spend is separate: Meta bills it to your own card.",
+  setup_fee: "The one-time setup fee covers setting up your ad account, booking page, ad address and first campaign. The monthly fee is Migz running your Meta ads, the videos, and Emma calling and booking your consultations. Your ad spend is separate: Meta bills it to your own card.",
   profile: "People see your clinic name, logo and intro on your landing pages before they ask for a consultation. A clinic they can recognise gets more requests.",
   address:
     "Every Facebook and Instagram ad sends people to this address on your own domain, so the ad, the page and your clinic all match. People trust a link with your clinic's name in it, and the address stays yours if you ever leave. Your main website isn't touched: only this one address points at us, and we build your booking page in your website's fonts and colours.",
@@ -150,7 +150,7 @@ const CLINIC_WHY: Record<string, string> = {
 const ROOF_WHY: Record<string, string> = {
   business: "Every lead and booking is emailed to this address, and homeowners reach you on this number. It's the call button on your ads and pages.",
   meta: "Your Facebook and Instagram ads run from your own Meta ad account, so the account, its history and the spend are always yours. Sharing it with Anryh Labs lets Migz run your ads without your password, and you can remove us any time.",
-  setup_fee: "This is the monthly fee: Migz running your Meta and Google ads, the videos, and Emma calling and booking your homeowners. Your ad spend is separate: Meta bills it to your own card.",
+  setup_fee: "The one-time setup fee covers setting up your ad account, booking page, ad address and first campaign. The monthly fee is Migz running your Meta and Google ads, the videos, and Emma calling and booking your homeowners. Your ad spend is separate: Meta bills it to your own card.",
   profile: "Homeowners see your company name, logo and intro on your landing pages before they ask for a quote. A company they can recognise gets more requests.",
   address:
     "Every ad, on Facebook, Instagram and Google, sends people to this address on your own domain, so the ad, the page and your company all match. Homeowners trust a link with your name in it, Google ranks ads higher when the page matches the search, and the address stays yours if you ever leave. Your main website isn't touched: only this one address points at us, and we build the pages in your website's fonts and colours.",
@@ -256,7 +256,9 @@ function SetupFeeStep({ stripeConnected, contactEmail, roof, clinic, emmaReady =
             <li>· Video ads with real hooks, your {clinic ? "area and your surgeon's credentials" : "towns and your certifications"}, sent to you for approval</li>
             <li>· Landing pages on your own domain, {clinic ? "consultation" : "inspection"} reminders and a summary every 3 days</li>
           </ul>
-          <p className="text-[13px] text-fg-muted">{usd(MIGZ_MONTHLY_CENTS, { cents: false })} a month, billed today and monthly after. No setup fee, no contract. Your ad spend is separate: Meta bills it to your own card, and you see every charge in Meta.</p>
+          <p className="text-[13px] text-fg-muted">
+            Today: the {usd(SETUP_FEE_CENTS, { cents: false })} setup fee and your first month ({usd(SETUP_FEE_CENTS + MIGZ_MONTHLY_CENTS, { cents: false })} in all), paid to Anryh Labs LLC. Then {usd(MIGZ_MONTHLY_CENTS, { cents: false })} a month, no contract. Your ad spend is separate: Meta bills it to your own card, and you see every charge in Meta.
+          </p>
         </>
       ) : (
         <>
@@ -273,7 +275,7 @@ function SetupFeeStep({ stripeConnected, contactEmail, roof, clinic, emmaReady =
       {stripeConnected ? (
         <Button className="bg-[#ff7a1a] text-white hover:bg-[#ff7a1a]/90" disabled={pending} onClick={pay}>
           {pending ? <Loader2 className="animate-spin" /> : null}
-          {roof ? `Start Migz AI, ${usd(MIGZ_MONTHLY_CENTS, { cents: false })}/month` : `Pay ${usd(SETUP_FEE_CENTS, { cents: false })} setup fee`}
+          {roof ? `Pay ${usd(SETUP_FEE_CENTS + MIGZ_MONTHLY_CENTS, { cents: false })}: setup + first month` : `Pay ${usd(SETUP_FEE_CENTS, { cents: false })} setup fee`}
         </Button>
       ) : (
         <p className="text-[13px] text-fg-muted">
