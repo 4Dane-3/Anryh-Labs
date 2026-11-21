@@ -49,7 +49,7 @@ import { adAccountFrom, checkMetaAccess, metaPaymentMethod, pageRefFrom } from "
 import { alertAdmin } from "@/lib/migz/slack";
 import { cleanInboundPrefs, INBOUND_MODE_COPY, INBOUND_PRICE_DOLLARS, isInboundMode, type InboundMode } from "@/lib/voice/inbound-rules";
 import { sendSlackMessage } from "@/lib/slack";
-import { isLocal, isRoofer, MAX_RADIUS_MILES, MIN_RADIUS_MILES, verticalOf } from "@/lib/verticals";
+import { isClinic, isLocal, isRoofer, MAX_RADIUS_MILES, MIN_RADIUS_MILES, verticalOf } from "@/lib/verticals";
 import { topicKeysFor } from "@/lib/migz/topics";
 import { crmPayload, validWebhookUrl } from "@/lib/roofing/notify";
 import { markJobDone } from "@/lib/roofing/checkin";
@@ -195,7 +195,7 @@ export async function startDeposit(cents: number): Promise<{ ok: true; url: stri
   if (!Number.isInteger(cents) || cents < minCents || cents > MAX_DEPOSIT_CENTS)
     return { ok: false, error: `${minCents > MIN_TOP_UP_CENTS ? (plan === "subscription" ? "Your first deposit starts your campaign with a month of ads at the $2,000 minimum, so it" : "Your first deposit starts your campaign with two weeks of ads, so it") : "A deposit"} must be between $${(minCents / 100).toLocaleString("en-US")} and $${(MAX_DEPOSIT_CENTS / 100).toLocaleString("en-US")}.` };
   // Agents who finished setup before the setup fee existed count as paid
-  if (!agent.setup_fee_paid_at && !agent.onboarding_completed_at) return { ok: false, error: isLocal(agent) ? "Start Migz AI first: it's in Start here." : "Pay the setup fee first: it's step 1 in Start here." };
+  if (!agent.setup_fee_paid_at && !agent.onboarding_completed_at) return { ok: false, error: isLocal(agent) ? "Start Migz AI first: it's in Client Setup." : "Pay the setup fee first: it's step 1 in Client Setup." };
   if (!integrations.stripe)
     return { ok: false, error: "Payments aren't connected yet, so funds can't be added. This will work once Stripe is set up." };
   try {
@@ -227,7 +227,7 @@ export async function startAutoTopUpSetup(input: { amountCents: number; belowCen
   const t = cleanTopUp(input);
   if (typeof t === "string") return { ok: false, error: t };
   if (!input.agreed) return { ok: false, error: "Tick the box to authorize the automatic charges first." };
-  if (!agent.setup_fee_paid_at && !agent.onboarding_completed_at) return { ok: false, error: "Pay the setup fee first: it's in Start here." };
+  if (!agent.setup_fee_paid_at && !agent.onboarding_completed_at) return { ok: false, error: "Pay the setup fee first: it's in Client Setup." };
   if (!integrations.stripe) return { ok: false, error: "Payments aren't connected yet. This will work once Stripe is set up." };
   try {
     const url = await createAutoTopUpSetup({
@@ -287,7 +287,7 @@ export async function startSetupFee(): Promise<{ ok: true; url: string } | { ok:
   if (!integrations.stripe)
     return { ok: false, error: `Payments aren't connected yet. Email ${CONTACT_EMAIL} and we'll take the setup fee another way.` };
   try {
-    // Roofers pay for Migz AI by the month, with no setup fee
+    // Roofers and clinics pay the setup fee with their first month of Migz AI (one checkout)
     const input = { agentId: agent.id, email: agent.email, appUrl: checkoutReturnBase(), customerId: agent.stripe_customer_id ?? null };
     const url = isLocal(agent) ? await createSubscriptionCheckout(input) : await createSetupFeeCheckout(input);
     return { ok: true, url };
@@ -937,7 +937,7 @@ export async function saveInboundSettings(input: { on: boolean; mode: string; tr
   if (input.on && !agent.inbound_calls) {
     after(() =>
       alertAdmin(
-        `${agent.full_name} turned on inbound calls (${INBOUND_MODE_COPY[input.mode as InboundMode].short}, +$${INBOUND_PRICE_DOLLARS}/month).${agent.inbound_number ? "" : " Assign them a number on /admin/inbound."}`,
+        `${agent.full_name} turned on inbound calls (${INBOUND_MODE_COPY[input.mode as InboundMode].short}, +$${INBOUND_PRICE_DOLLARS}/month).${agent.inbound_number ? "" : ` Buy them a number, assign it to ${isClinic(agent) ? "Emma (Clinic Inbound)" : "Emma (Inbound)"} in ElevenLabs, and enter it on /admin/inbound.`}`,
       ).catch(() => {}),
     );
   }
@@ -1032,7 +1032,7 @@ export async function runMigzNow(): Promise<Result> {
   if (!(await isAnryhAdmin())) return fail("Migz checks your ads on its own several times a day. Use Get an update to see what it's doing.");
   if (agent.migz_mode === "off") return fail("Migz is turned off. Turn it on in Settings first.");
   if (!migzReadyFor(agent)) return fail("Migz isn't connected to your ad account yet.");
-  if (!agent.onboarding_completed_at) return fail("Finish setting up first: Start here walks you through it, and starting your first batch turns Migz on.");
+  if (!agent.onboarding_completed_at) return fail("Finish setting up first: Client Setup walks you through it, and starting your first batch turns Migz on.");
   if (agent.migz_last_operator_at && Date.now() - new Date(agent.migz_last_operator_at).getTime() < MANUAL_REVIEW_COOLDOWN_MS) {
     return fail("Migz just finished a review. Give it a few minutes, then try again.");
   }
@@ -1209,7 +1209,7 @@ export async function previewCampaign(input: CampaignChoice): Promise<CampaignPr
 /** "Start campaign" on the overview: the agent's answers and daily budget, Migz's plan, live right away. */
 export async function startBatch(input: CampaignChoice): Promise<Result> {
   const agent = await requireAgent();
-  if (!agent.onboarding_completed_at) return fail("Finish setting up first: Start here walks you through it.");
+  if (!agent.onboarding_completed_at) return fail("Finish setting up first: Client Setup walks you through it.");
   if (!migzReadyFor(agent)) return fail("Your ad account isn't linked yet. Anryh Labs links it for you.");
   await closeEndedBatch(agent).catch((e) => console.error("closing the ended batch failed", e));
   const open = await getOpenBatch(agent.id);
@@ -1436,11 +1436,11 @@ export async function launchCampaign(): Promise<Result> {
   const blockers = await setupBlockers(agent);
   if (blockers.length) return fail(blockers[0]);
   const planned = await getOpenBatch(agent.id);
-  if (!planned || planned.status !== "planned") return fail("Plan your first campaign in Start here first.");
+  if (!planned || planned.status !== "planned") return fail("Plan your first campaign in Client Setup first.");
   if (billsMetaDirect(agent)) {
     // Meta bills their card: it has to be on the ad account before any ad can spend
     const card = await metaPaymentMethod(agent.meta_ad_account_id!);
-    if (card === false) return fail("Meta doesn't show a card on your ad account. Add one in Meta's Billing & payments (the card step in Start here), then start your campaign.");
+    if (card === false) return fail("Meta doesn't show a card on your ad account. Add one in Meta's Billing & payments (the card step in Client Setup), then start your campaign.");
     if (card && card.label !== agent.meta_card_label) await supabaseAdmin.from("agents").update({ meta_card_at: agent.meta_card_at ?? new Date().toISOString(), meta_card_label: card.label }).eq("id", agent.id);
   }
   const balance = await getBalanceCents(agent.id);

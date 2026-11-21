@@ -186,7 +186,7 @@ function MenuSheet({ agent, devLogin, setupDone, staff, onClose }: { agent: Agen
           </button>
         </div>
         <nav className="flex-1 space-y-0.5 overflow-y-auto">
-          {item("/dashboard/start", setupDone ? "Setup" : "Start here", Rocket)}
+          {item("/dashboard/start", "Anryh Labs Client Setup", Rocket)}
           {/* the pill holds these on wide screens; on phones they're only here */}
           <div className="lg:hidden">{mainFor(agent).map((n) => item(n.href, n.label, n.icon))}</div>
           {moreFor(agent).map((n) => item(n.href, n.label, n.icon))}

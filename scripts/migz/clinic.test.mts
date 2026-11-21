@@ -157,4 +157,21 @@ assert.equal(renewalGate({ batch: ended, agent: ready, balanceCents: 0, now: new
 assert.equal(metaBillingUrl("act_123456", "payment_activity"), "https://business.facebook.com/billing_hub/payment_activity?asset_id=123456");
 ok("roofers and clinics are billed by Meta directly: no ad funds, renewals don't wait on a balance");
 
+// Clinic inbound Emma: her own prompt (18+, no roof, nothing about anyone's hair), and the summary email shows a clinic call
+const { readFileSync } = await import("node:fs");
+const inboundPrompt = readFileSync("scripts/voice/emma-clinic-inbound-prompt.md", "utf8");
+// "the roof fields" names book_inspection's parameters to leave empty; nothing else may mention roofing
+assert.ok(!/roof|homeowner|shingle|inspector/i.test(inboundPrompt.replace(/the roof fields/g, "")), "no roofing in the clinic inbound prompt");
+assert.match(inboundPrompt, /18 or older/);
+assert.match(inboundPrompt, /Never comment on their hair/);
+assert.match(inboundPrompt, /book_inspection \(it books the consultation\)/);
+for (const v of ["company_name", "inspection_hours", "lead_timezone", "can_transfer", "transfer_existing", "transfer_urgent", "company_faqs", "line_ready", "tone"]) assert.ok(inboundPrompt.includes(`{{${v}}}`), `uses {{${v}}}`);
+const { inboundSummaryEmail } = await import("@/lib/voice/inbound-rules");
+const summary = inboundSummaryEmail({ company: "Lee Hair Clinic", callerType: "new_customer", outcome: "booked", callerName: "Sam", phone: "(206) 555-0100", message: null, collected: { adult: "Yes", interest: "Hair transplant", timeline: "A few months" }, summary: null, bookedLabel: "Friday at 10am", durationSecs: 180, link: null, clinic: true });
+assert.match(summary.text, /Booked a consultation, Friday at 10am/);
+assert.match(summary.text, /Interested in: Hair transplant/);
+assert.match(summary.text, /18 or older: Yes/);
+assert.ok(!/inspection|Roof/i.test(summary.text), "a clinic call's summary never says inspection or roof");
+ok("clinic inbound Emma has her own prompt, and her summary email reads as a clinic call");
+
 console.log("clinic checks passed");

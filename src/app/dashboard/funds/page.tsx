@@ -49,7 +49,7 @@ export default async function FundsPage({ searchParams }: { searchParams: Promis
 
       {!agent.onboarding_completed_at && (
         <p className="mb-6 rounded-lg border border-line bg-ink-raised px-4 py-3 text-[13px] text-fg-muted">
-          New here? <Link href="/dashboard/start" className="font-medium text-brand hover:underline">Start here</Link> walks you through funds and your first campaign batch, step by step.
+          New here? <Link href="/dashboard/start" className="font-medium text-brand hover:underline">Anryh Labs Client Setup</Link> walks you through funds and your first campaign batch, step by step.
         </p>
       )}
 

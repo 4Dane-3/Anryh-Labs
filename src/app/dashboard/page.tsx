@@ -102,7 +102,7 @@ export default async function OverviewPage() {
             <span className="block text-[13px] text-fg-muted">Profile, booking page, funds, plan and creatives. About 10 minutes.</span>
           </span>
           <span className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-brand px-3 py-1.5 text-[13px] font-semibold text-brand-fg">
-            Start here <ArrowRight className="size-3.5" />
+            Anryh Labs Client Setup <ArrowRight className="size-3.5" />
           </span>
         </Link>
       )}

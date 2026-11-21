@@ -38,7 +38,7 @@ async function agentOf(id: string) {
 export async function createRun(agent: Agent, opts: { budgetUsd: number; benchmark: string | null; by: string | null; small?: boolean }) {
   if (!apifyReady()) return { ok: false as const, error: "Add APIFY_API to the environment first." };
   const markets = marketsFor(agent.service_area, agent.licensed_states?.[0], opts.benchmark ?? "");
-  if (!markets.some((m) => m.kind === "local")) return { ok: false as const, error: "This roofer has no service area yet (Start here → Plan your first campaign)." };
+  if (!markets.some((m) => m.kind === "local")) return { ok: false as const, error: "This roofer has no service area yet (Client Setup → Plan your first campaign)." };
   const { data, error } = await supabaseAdmin
     .from("competitor_runs")
     .insert({ agent_id: agent.id, markets, budget_usd: Math.max(1, Math.min(100, opts.budgetUsd)), created_by: opts.by, progress: { small: !!opts.small }, log: [{ at: new Date().toISOString(), text: `Started${opts.small ? " a small test" : ""}: ${markets.map((m) => m.label).join(" and ")}, Apify budget $${opts.budgetUsd}` }] })

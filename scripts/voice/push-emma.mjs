@@ -9,6 +9,9 @@
 // keeping its own first message and workflow, and removes the old satisfaction-rating field (the call doesn't rate).
 // With --clinic it pushes clinic Emma (scripts/voice/emma-clinic-prompt.md, ELEVENLABS_CLINIC_AGENT_ID): a copy of the
 // lead agent with the same tools, for hair transplant clinics booking free consultations.
+// With --clinic-inbound it pushes clinic inbound Emma (scripts/voice/emma-clinic-inbound-prompt.md,
+// ELEVENLABS_CLINIC_INBOUND_AGENT_ID): a copy of the inbound agent that answers a clinic's calls.
+// scripts/voice/setup-clinic-agents.mjs makes both clinic agents.
 //
 // Every agent is set to patient turn-taking, so Emma waits for people to finish instead of talking over a pause.
 //
@@ -20,9 +23,11 @@ import { fileURLToPath } from "node:url";
 const inbound = process.argv.includes("--inbound");
 const checkin = process.argv.includes("--checkin");
 const clinic = process.argv.includes("--clinic");
-const kind = inbound ? "inbound" : checkin ? "checkin" : clinic ? "clinic" : "lead";
+const clinicInbound = process.argv.includes("--clinic-inbound");
+const kind = clinicInbound ? "clinic-inbound" : inbound ? "inbound" : checkin ? "checkin" : clinic ? "clinic" : "lead";
 const FIRST_MESSAGE = {
   inbound: "Thanks for calling {{company_name}}, this is Emma, the AI assistant. This call may be recorded. How can I help you today?",
+  "clinic-inbound": "Thanks for calling {{company_name}}, this is Emma, the clinic's AI assistant. This call may be recorded. How can I help you today?",
   lead: "{{greeting}}, this is Emma, the AI assistant for {{company_name}}, calling about the roof quote you just requested. This call may be recorded. I just have a few quick questions so the inspector comes prepared, then I'll get you booked. Got a quick minute?",
   clinic: "{{greeting}}, this is Emma, the AI assistant for {{company_name}}, calling about the consultation you just asked about. This call may be recorded. I just have a couple of quick questions, then I'll get you booked. Got a quick minute?",
   checkin: null, // keeps the check-in agent's own
@@ -33,7 +38,7 @@ const RATING_FIELD = "client_satisfaction_rating";
 const here = dirname(fileURLToPath(import.meta.url));
 const prompt = readFileSync(join(here, `emma-${kind}-prompt.md`), "utf8").trim();
 const key = process.env.ELEVENLABS_API_KEY;
-const envName = { inbound: "ELEVENLABS_INBOUND_AGENT_ID", checkin: "ELEVENLABS_CHECKIN_AGENT_ID", clinic: "ELEVENLABS_CLINIC_AGENT_ID", lead: "ELEVENLABS_AGENT_ID" }[kind];
+const envName = { inbound: "ELEVENLABS_INBOUND_AGENT_ID", checkin: "ELEVENLABS_CHECKIN_AGENT_ID", clinic: "ELEVENLABS_CLINIC_AGENT_ID", "clinic-inbound": "ELEVENLABS_CLINIC_INBOUND_AGENT_ID", lead: "ELEVENLABS_AGENT_ID" }[kind];
 const agentId = (process.env[envName] ?? "").match(/agent_[A-Za-z0-9]+/)?.[0];
 if (!key || !agentId) throw new Error(`Needs ELEVENLABS_API_KEY and ${envName} (run with --env-file=.env.local).`);
 

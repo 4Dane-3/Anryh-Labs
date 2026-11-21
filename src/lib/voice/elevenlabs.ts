@@ -28,6 +28,8 @@ export const voiceConfig = () => ({
   clinicAgentId: cleanElevenLabsId(process.env.ELEVENLABS_CLINIC_AGENT_ID, "agent_"),
   // Inbound Emma (answers roofers' incoming calls on their own numbers of ours)
   inboundAgentId: cleanElevenLabsId(process.env.ELEVENLABS_INBOUND_AGENT_ID, "agent_"),
+  // Answers a hair transplant clinic's incoming calls (its numbers are assigned to this agent in ElevenLabs)
+  clinicInboundAgentId: cleanElevenLabsId(process.env.ELEVENLABS_CLINIC_INBOUND_AGENT_ID, "agent_"),
 });
 
 /** Inbound Emma can answer calls: its agent and the webhook secret are set (numbers are per account). */
@@ -40,6 +42,12 @@ export function inboundConfigured() {
 export function voiceConfigured() {
   const c = voiceConfig();
   return !!(c.apiKey && c.agentId && c.phoneNumberId && c.webhookSecret);
+}
+
+/** Inbound Emma can answer this business's calls: clinics need their own inbound agent. */
+export function inboundConfiguredFor(vertical: string | null | undefined) {
+  const c = voiceConfig();
+  return !!(c.apiKey && c.webhookSecret && (vertical === "hair_clinic" ? c.clinicInboundAgentId : c.inboundAgentId));
 }
 
 /** The voice agent can call this business's leads: clinics need their own agent. */

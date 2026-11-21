@@ -157,19 +157,24 @@ export function inboundSummaryEmail(input: {
   bookedLabel: string | null;
   durationSecs: number | null;
   link: string | null;
+  /** A clinic's call: a consultation, never an inspection */
+  clinic?: boolean;
 }) {
   const who = input.callerName || (input.phone ? input.phone : "Unknown caller");
   const subject = `${input.outcome === "booked" ? "Booked" : OUTCOME_WORDS[input.outcome]}: ${who} called ${input.company}`;
   const c = input.collected;
   const rows: [string, string][] = [
     ["Caller", CALLER_WORDS[input.callerType]],
-    ["What happened", OUTCOME_WORDS[input.outcome] + (input.bookedLabel ? `, ${input.bookedLabel}` : "")],
+    ["What happened", (input.clinic && input.outcome === "booked" ? "Booked a consultation" : OUTCOME_WORDS[input.outcome]) + (input.bookedLabel ? `, ${input.bookedLabel}` : "")],
     ["Name", input.callerName ?? ""],
     ["Phone", input.phone ?? "Hidden"],
     ["Message", input.message ?? ""],
     ["Call back", typeof c.callback_time === "string" ? c.callback_time : ""],
     ["Address", typeof c.address === "string" ? c.address : ""],
     ["Roof", typeof c.roof_issue === "string" ? c.roof_issue : ""],
+    ["18 or older", typeof c.adult === "string" ? c.adult : ""],
+    ["Interested in", typeof c.interest === "string" ? c.interest : ""],
+    ["Timeline", typeof c.timeline === "string" ? c.timeline : ""],
     ["Email", typeof c.email === "string" ? c.email : ""],
     ["Length", input.durationSecs != null ? `${Math.max(1, Math.round(input.durationSecs / 60))} min` : ""],
   ].filter(([, v]) => v) as [string, string][];

@@ -1,7 +1,7 @@
 import { requireSetUpAgent } from "@/lib/auth";
 import { PageHeader } from "@/components/dashboard/ui";
 import { AutomatedEmailsLink, CallButtonForm, GhostBookingsForm, MigzModeForm, NotificationSettings, VoiceAgentForm } from "@/components/dashboard/SettingsForms";
-import { checkinConfigured, inboundConfigured, voiceConfigured } from "@/lib/voice/elevenlabs";
+import { checkinConfigured, inboundConfiguredFor, voiceConfiguredFor } from "@/lib/voice/elevenlabs";
 import { InboundCallsForm } from "@/components/dashboard/InboundCalls";
 import { cleanInboundPrefs, isInboundMode } from "@/lib/voice/inbound-rules";
 import { displayPhone } from "@/lib/booking/call";
@@ -38,9 +38,9 @@ export default async function SettingsPage() {
         )}
         <VideoTierForm tier={isVideoTier(agent.video_tier) ? agent.video_tier : DEFAULT_VIDEO_TIER} />
         {isRoofer(agent) && <JobRulesPanel initial={rulesOf(agent)} />}
-        <VoiceAgentForm on={!!agent.voice_agent} ready={voiceConfigured()} roof={isLocal(agent)} />
-        {/* Inbound and check-in Emma speak roofing for now: roofers only */}
-        {isRoofer(agent) && (
+        <VoiceAgentForm on={!!agent.voice_agent} ready={voiceConfiguredFor(agent.vertical)} roof={isLocal(agent)} />
+        {/* Inbound Emma answers roofers and clinics (each has its own agent); check-in calls are roofers only */}
+        {isLocal(agent) && (
           <InboundCallsForm
             initial={{
               on: !!agent.inbound_calls,
@@ -51,7 +51,8 @@ export default async function SettingsPage() {
               accountEmail: agent.business_email || agent.email,
               prefs: cleanInboundPrefs(agent.inbound_prefs),
             }}
-            ready={inboundConfigured()}
+            ready={inboundConfiguredFor(agent.vertical)}
+            clinic={isClinic(agent)}
           />
         )}
         {isRoofer(agent) && (

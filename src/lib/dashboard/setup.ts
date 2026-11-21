@@ -109,11 +109,11 @@ export async function getSetupState(agent: Agent): Promise<SetupState> {
         : `Add at least $${(MIN_DEPOSIT_CENTS / 100).toLocaleString("en-US")} (two weeks at $50/day). Plan your campaign first to see what it needs.`
       : null;
   // Agents who finished setup before the setup fee existed count as paid
-  // Roofers start Migz AI by the month instead (no setup fee); the same step tracks it
+  // Roofers and clinics pay the setup fee with their first month of Migz AI; the same step tracks it
   const setupFeeMissing = agent.setup_fee_paid_at || agent.onboarding_completed_at
     ? null
     : roof
-      ? `Start Migz AI: $${(MIGZ_MONTHLY_CENTS / 100).toLocaleString("en-US")} a month, no setup fee.`
+      ? `Pay the one-time $${(SETUP_FEE_CENTS / 100).toLocaleString("en-US")} setup fee and start Migz AI at $${(MIGZ_MONTHLY_CENTS / 100).toLocaleString("en-US")} a month.`
       : `Pay the one-time $${(SETUP_FEE_CENTS / 100).toLocaleString("en-US")} setup fee.`;
   const planMissing = !cleanFocus(agent.ad_focus).length || !batch ? "Answer a few quick questions and pick a daily budget." : roof && !agent.service_area ? (clinic ? "Add the area your clinic serves." : "Add where your crews work (your service area).") : null;
   const mode = agent.creative_mode ?? null;

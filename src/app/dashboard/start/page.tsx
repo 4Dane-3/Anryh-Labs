@@ -38,7 +38,7 @@ export default async function StartPage({ searchParams }: { searchParams: Promis
   return (
     <>
       <PageHeader
-        title={state.completed ? "Setup" : "Start here"}
+        title="Anryh Labs Client Setup"
         description={
           state.completed
             ? "Everything you need to run your first campaign, in order. Migz handles the rest."

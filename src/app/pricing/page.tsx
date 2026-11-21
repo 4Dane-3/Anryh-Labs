@@ -11,7 +11,7 @@ import { absoluteUrl, pageMeta } from "@/lib/site";
 export const metadata: Metadata = pageMeta({
   title: "pricing · anryh labs · ai ad manager for meta and google ads",
   description:
-    "anryh labs pricing: roofing companies pay $1,500 a month for migz ai (meta ads, google search ads and emma, the ai assistant who books their homeowners) with no setup fee, plus at least $2,000 in meta ad spend the first month. life insurance agents pay a one-time $750 setup fee, no monthly fee, then 20% down to 12% of the ad funds they add.",
+    "anryh labs pricing: roofing companies pay $1,500 a month for migz ai (meta ads, google search ads and emma, the ai assistant who books their homeowners) after a one-time $1,000 setup fee, plus at least $2,000 in meta ad spend the first month. life insurance agents pay a one-time $1,000 setup fee, no monthly fee, then 20% down to 12% of the ad funds they add.",
   path: "/pricing",
 });
 

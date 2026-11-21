@@ -44,11 +44,11 @@ export const ROOFER_FIRST_DEPOSIT_CENTS = 200_000;
 /** The least the next deposit can be: the first one starts a campaign (two weeks; a roofer's, a month at the minimum). */
 export const minDepositFor = (addedBeforeCents: number, plan: FeePlan = "percent") =>
   addedBeforeCents > 0 ? MIN_TOP_UP_CENTS : plan === "subscription" ? ROOFER_FIRST_DEPOSIT_CENTS : MIN_DEPOSIT_CENTS;
-/** The one-time setup fee a new agent pays in Start here before anything else (not ad funds: it never touches the balance). */
-export const SETUP_FEE_CENTS = 75_000;
+/** The one-time Anryh Labs LLC setup fee every new client pays in Client Setup before anything else (not ad funds: it never touches the balance). Roofers and clinics pay it with their first month of Migz AI. */
+export const SETUP_FEE_CENTS = 100_000;
 
-// Roofers pay for Migz AI by the month instead: no setup fee, and every dollar they add goes to their ads. It covers
-// Meta ads, Google search ads and Emma, the voice assistant who calls and books their homeowners.
+// Roofers and clinics also pay for Migz AI by the month (after the setup fee). It covers Meta ads (and Google search
+// ads for roofers) and Emma, the voice assistant who calls and books their leads. Meta bills their ad spend directly.
 export const MIGZ_MONTHLY_CENTS = 150_000;
 export type FeePlan = "percent" | "subscription";
 /** How an agent pays us: the monthly Migz AI subscription, or the percentage of what they add. */

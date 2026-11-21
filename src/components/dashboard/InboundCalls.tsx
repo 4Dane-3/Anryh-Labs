@@ -51,7 +51,7 @@ function Setup({ mode, number }: { mode: InboundMode; number: string }) {
   );
 }
 
-export function InboundCallsForm({ initial, ready }: { initial: Initial; ready: boolean }) {
+export function InboundCallsForm({ initial, ready, clinic = false }: { initial: Initial; ready: boolean; clinic?: boolean }) {
   const router = useRouter();
   const [form, setForm] = useState({ on: initial.on, mode: initial.mode, transferNumber: initial.transferNumber, summaryEmail: initial.summaryEmail, prefs: initial.prefs });
   const [error, setError] = useState<string | null>(null);
@@ -78,7 +78,9 @@ export function InboundCallsForm({ initial, ready }: { initial: Initial; ready: 
             <Badge>+${INBOUND_PRICE_DOLLARS}/month</Badge>
           </div>
           <p className="mt-0.5 text-[13px] text-fg-muted">
-            Emma answers your incoming calls. New homeowners get qualified and booked on your calendar. Existing customers, suppliers and everyone else get a message taken or are passed to you. You get an email summary of every call.
+            {clinic
+              ? "Emma answers your incoming calls. New patients (18 and over) get a free consultation booked on your calendar. Existing patients, suppliers and everyone else get a message taken or are passed to you. You get an email summary of every call."
+              : "Emma answers your incoming calls. New homeowners get qualified and booked on your calendar. Existing customers, suppliers and everyone else get a message taken or are passed to you. You get an email summary of every call."}
           </p>
           {!ready && <p className="mt-1 text-[13px] text-fg-muted">Inbound calls aren&apos;t available yet: the inbound line is still being set up.</p>}
         </div>
@@ -138,8 +140,8 @@ export function InboundCallsForm({ initial, ready }: { initial: Initial; ready: 
 
           <div className="space-y-3">
             {[
-              ["transfer_existing", "Pass existing customers straight to you", "Otherwise Emma takes a message."],
-              ["transfer_urgent", "Pass urgent calls straight to you", "Water coming in right now, storm damage, a tarp needed today."],
+              ["transfer_existing", clinic ? "Pass existing patients straight to you" : "Pass existing customers straight to you", "Otherwise Emma takes a message."],
+              ["transfer_urgent", "Pass urgent calls straight to you", clinic ? "A patient with a concern after their procedure." : "Water coming in right now, storm damage, a tarp needed today."],
             ].map(([k, title, hint]) => (
               <div key={k} className="flex items-start justify-between gap-4">
                 <div>
@@ -165,7 +167,11 @@ export function InboundCallsForm({ initial, ready }: { initial: Initial; ready: 
               id="in-faqs"
               rows={4}
               className={inputClass}
-              placeholder={"Financing: yes, through GreenSky, 0% for 12 months.\nWarranty: 10-year workmanship, manufacturer warranty on materials.\nBrands: GAF and Owens Corning.\nHow soon: inspections within 2 days."}
+              placeholder={
+                clinic
+                  ? "Where: 123 Main St, Suite 200, free parking.\nConsultations: in person or by video, about 30 minutes.\nThe surgeon: Dr. Lee does every consultation.\nHow soon: consultations within a week."
+                  : "Financing: yes, through GreenSky, 0% for 12 months.\nWarranty: 10-year workmanship, manufacturer warranty on materials.\nBrands: GAF and Owens Corning.\nHow soon: inspections within 2 days."
+              }
               value={form.prefs.faqs}
               onChange={(e) => setPrefs({ faqs: e.target.value })}
             />
@@ -174,8 +180,8 @@ export function InboundCallsForm({ initial, ready }: { initial: Initial; ready: 
 
           <div>
             <Label htmlFor="in-notes">Anything else Emma should know</Label>
-            <textarea id="in-notes" rows={2} className={inputClass} placeholder="We don't do flat roofs. Ask for Mike if it's about an existing job." value={form.prefs.notes} onChange={(e) => setPrefs({ notes: e.target.value })} />
-            <p className="mt-1 text-[12px] text-fg-muted">The jobs you take (Jobs you take, above) apply to her bookings too.</p>
+            <textarea id="in-notes" rows={2} className={inputClass} placeholder={clinic ? "Ask for Maria at the front desk about an existing booking." : "We don't do flat roofs. Ask for Mike if it's about an existing job."} value={form.prefs.notes} onChange={(e) => setPrefs({ notes: e.target.value })} />
+            <p className="mt-1 text-[12px] text-fg-muted">{clinic ? "She never quotes prices, promises results or comments on anyone's hair." : "The jobs you take (Jobs you take, above) apply to her bookings too."}</p>
           </div>
 
           <div className="flex items-center gap-3">

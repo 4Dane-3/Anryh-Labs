@@ -112,7 +112,7 @@ function AddressNote({ adDomain }: { adDomain: GoogleSetupInitial["adDomain"] })
     <p className="text-[13px] text-fg-muted">
       {adDomain?.live
         ? `Your Google ads send people to ${adDomain.domain}, with a page for each kind of job.`
-        : "Your Google ads send people to your ad address (its own step in Start here). The campaign is built once it's live."}
+        : "Your Google ads send people to your ad address (its own step in Client Setup). The campaign is built once it's live."}
     </p>
   );
 }

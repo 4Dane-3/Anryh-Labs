@@ -250,7 +250,7 @@ const { minDepositFor } = await import("@/lib/campaign");
 assert.deepEqual([minDepositFor(0), minDepositFor(100_000)], [100_000, 50_000], "the first deposit starts the campaign; after that, $500");
 assert.equal(MIN_DAILY_CENTS, 5000, "campaigns run at $50/day or more");
 assert.ok(MIN_AD_BALANCE_CENTS >= MIN_DAILY_CENTS * 14, "the first deposit, after the fee, covers $50/day for two weeks");
-assert.equal(SETUP_FEE_CENTS, 75_000);
+assert.equal(SETUP_FEE_CENTS, 100_000);
 assert.equal(depositFor(28_000), 35_000); assert.equal(depositFor(42_000), 52_500);
 const cand = (id: string, creative: string | null, topic: string | null) => ({ meta_ad_id: id, creative_id: creative, topic });
 const r = (impressions: number, clicks: number, booked = 0) => ({ impressions, clicks, booked });

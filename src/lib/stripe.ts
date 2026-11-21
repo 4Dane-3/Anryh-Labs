@@ -86,7 +86,7 @@ export async function createDepositCheckout(input: CheckoutFor & {
 export async function createSetupFeeCheckout(input: CheckoutFor) {
   return openCheckout(input, {
     cents: SETUP_FEE_CENTS,
-    name: "Anryh Labs setup fee",
+    name: "Anryh Labs LLC setup fee",
     description: "One time: your Meta ad account, your first campaign, your lead form and booking page, set up and ready to launch.",
     metadata: { kind: "setup_fee" },
     success: `${input.appUrl}/dashboard/start?setup_fee=paid`,
@@ -94,7 +94,7 @@ export async function createSetupFeeCheckout(input: CheckoutFor) {
   });
 }
 
-/** A Checkout page for the Migz AI subscription (MIGZ_MONTHLY_CENTS a month, no setup fee). Returns the URL. */
+/** A Checkout page for the Migz AI subscription: the one-time setup fee plus MIGZ_MONTHLY_CENTS a month, both charged today. Returns the URL. */
 export async function createSubscriptionCheckout(input: CheckoutFor) {
   const who = input.customerId ? { customer: input.customerId } : { customer_email: input.email };
   const session = await stripe().checkout.sessions.create({
@@ -109,7 +109,16 @@ export async function createSubscriptionCheckout(input: CheckoutFor) {
           currency: "usd",
           unit_amount: MIGZ_MONTHLY_CENTS,
           recurring: { interval: "month" },
-          product_data: { name: "Migz AI", description: "Your Meta and Google ads run by Migz AI, and Emma, the AI assistant who calls and books your homeowners: campaigns, video and image ads, landing and booking pages, reporting. No setup fee, cancel anytime. Ad spend is separate." },
+          product_data: { name: "Migz AI", description: "Your ads run by Migz AI, and Emma, the AI assistant who calls and books your leads: campaigns, video and image ads, landing and booking pages, reporting. Cancel anytime. Meta bills your ad spend to your own card." },
+        },
+      },
+      // One time, on the first invoice only (a price with no recurring interval)
+      {
+        quantity: 1,
+        price_data: {
+          currency: "usd",
+          unit_amount: SETUP_FEE_CENTS,
+          product_data: { name: "Anryh Labs LLC setup fee", description: "One time: your Meta ad account, booking page, ad address and first campaign, set up and ready to launch." },
         },
       },
     ],
@@ -138,7 +147,7 @@ export async function recordSubscriptionStart(session: Stripe.Checkout.Session) 
   if (error) throw new Error(`Couldn't record the subscription: ${error.message}`);
   if (customer) await supabaseAdmin.from("agents").update({ stripe_customer_id: customer }).eq("id", agentId).is("stripe_customer_id", null);
   if (!data?.length) return false;
-  await alertAdmin(`${data[0].full_name} started Migz AI at $${(MIGZ_MONTHLY_CENTS / 100).toLocaleString("en-US")}/month. Their setup is next: link their Meta ad account if it isn't yet.`);
+  await alertAdmin(`${data[0].full_name} paid the $${(SETUP_FEE_CENTS / 100).toLocaleString("en-US")} setup fee and started Migz AI at $${(MIGZ_MONTHLY_CENTS / 100).toLocaleString("en-US")}/month. Their setup is next: link their Meta ad account if it isn't yet.`);
   return true;
 }
 

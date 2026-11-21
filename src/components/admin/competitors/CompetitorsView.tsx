@@ -569,7 +569,7 @@ function PublishedView({ run, ready, onPublished }: { run: Run; ready: Ready; on
         )}
         {!run.drafts?.verdict.publishable && <p className="text-brand">Locked: {run.drafts?.verdict.why ?? "no ads yet."}</p>}
         {!ready.google && <p className="text-fg-muted">The Google Ads API isn&apos;t configured yet (GOOGLE_ADS_* keys).</p>}
-        {ready.google && !ready.googleLinked && <p className="text-fg-muted">This roofer&apos;s Google Ads account isn&apos;t linked yet (their Start here → Google Ads step).</p>}
+        {ready.google && !ready.googleLinked && <p className="text-fg-muted">This roofer&apos;s Google Ads account isn&apos;t linked yet (their Client Setup → Google Ads step).</p>}
         {note && <p className={note.good ? "text-good" : "text-brand"}>{note.text}</p>}
         <Button
           variant="primary"
